@@ -35,45 +35,54 @@ export function parseCommerceML(xml: string): CommerceMLResult {
   });
   const doc = parser.parse(xml);
 
+  // YML (Yandex Market Language) format — used by many Ukrainian 1C exports
+  if (doc["yml_catalog"]) {
+    return parseYML(doc["yml_catalog"]);
+  }
+
   const categories: ParsedCategory[] = [];
   const products: ParsedProduct[] = [];
 
-  // Try to find catalog in КоммерческаяИнформация (standard CommerceML structure)
+  // Try to find catalog in КоммерческаяИнформация / КоммерческаяІнформація
   const root =
     doc["КоммерческаяИнформация"] ||
+    doc["КоммерческаяІнформація"] ||
     doc["commerceml"] ||
     doc["CommerceInfo"] ||
     doc;
 
-  // Parse categories (Группы)
+  // Parse categories (Группы / Категорії)
   const catalog = root["Каталог"] || root["Catalog"] || root;
   const groups =
     catalog["Группы"]?.["Группа"] ||
+    catalog["Категорії"]?.["Категорія"] ||
     catalog["Groups"]?.["Group"] ||
     [];
   for (const g of ensureArray(groups)) {
     categories.push({
-      id: g["Ид"] || g["Id"] || g["@_id"] || "",
-      name: g["Наименование"] || g["Name"] || g["@_name"] || "",
+      id: g["Ид"] || g["Ід"] || g["Id"] || g["@_id"] || "",
+      name: g["Наименование"] || g["Найменування"] || g["Name"] || g["@_name"] || "",
     });
   }
 
-  // Parse products (Товары)
+  // Parse products (Товары / Товари)
   const goods =
     catalog["Товары"]?.["Товар"] ||
+    catalog["Товари"]?.["Товар"] ||
     catalog["Products"]?.["Product"] ||
     root["Товары"]?.["Товар"] ||
+    root["Товари"]?.["Товар"] ||
     root["Products"]?.["Product"] ||
     [];
 
   for (const p of ensureArray(goods)) {
-    const sku = p["Ид"] || p["Id"] || p["Артикул"] || p["SKU"] || p["@_id"] || "";
-    const name = p["Наименование"] || p["Name"] || p["@_name"] || "";
-    const description = p["Описание"] || p["Description"] || "";
+    const sku = p["Ид"] || p["Ід"] || p["Id"] || p["Артикул"] || p["SKU"] || p["@_id"] || "";
+    const name = p["Наименование"] || p["Найменування"] || p["Name"] || p["@_name"] || "";
+    const description = p["Описание"] || p["Опис"] || p["Description"] || "";
 
     // Price can be nested
     let price: number | undefined;
-    const priceNode = p["Цены"]?.["Цена"] || p["Prices"]?.["Price"] || p["Цена"] || p["Price"];
+    const priceNode = p["Цены"]?.["Цена"] || p["Prices"]?.["Price"] || p["Цена"] || p["Ціна"] || p["Price"];
     if (priceNode) {
       const priceVal = Array.isArray(priceNode) ? priceNode[0] : priceNode;
       price = parseFloat(
@@ -83,7 +92,7 @@ export function parseCommerceML(xml: string): CommerceMLResult {
 
     // Stock
     let stock: number | undefined;
-    const stockNode = p["Остатки"]?.["Остаток"] || p["Stocks"]?.["Stock"] || p["Количество"] || p["Quantity"];
+    const stockNode = p["Остатки"]?.["Остаток"] || p["Stocks"]?.["Stock"] || p["Количество"] || p["Кількість"] || p["Залишок"] || p["Quantity"];
     if (stockNode !== undefined) {
       const stockVal = Array.isArray(stockNode) ? stockNode[0] : stockNode;
       stock = parseInt(
@@ -93,7 +102,7 @@ export function parseCommerceML(xml: string): CommerceMLResult {
     }
 
     // Category reference
-    const categoryRef = p["Группы"]?.["Ид"] || p["Groups"]?.["Id"] || p["КатегорияИд"] || "";
+    const categoryRef = p["Группы"]?.["Ид"] || p["Groups"]?.["Id"] || p["Категорія"] || p["КатегорияИд"] || "";
 
     products.push({
       sku: String(sku),
@@ -102,6 +111,63 @@ export function parseCommerceML(xml: string): CommerceMLResult {
       price: isNaN(price as number) ? undefined : price,
       stock: isNaN(stock as number) ? undefined : stock,
       category: categoryRef ? String(categoryRef) : undefined,
+    });
+  }
+
+  return { categories, products };
+}
+
+// ---- YML (Yandex Market Language) Parser ----
+
+function parseYML(yml: any): CommerceMLResult {
+  const categories: ParsedCategory[] = [];
+  const products: ParsedProduct[] = [];
+
+  const shop = yml["shop"] || yml;
+
+  // Parse categories: <categories><category id="1">Name</category></categories>
+  const cats = shop["categories"]?.["category"] || [];
+  const categoryMap = new Map<string, string>();
+  for (const c of ensureArray(cats)) {
+    const id = String(c["@_id"] || "");
+    const name = String(c["#text"] || c["@_name"] || c || "");
+    if (id && name) {
+      categories.push({ id, name });
+      categoryMap.set(id, name);
+    }
+  }
+
+  // Parse offers: <offers><offer id="123">...</offer></offers>
+  const offers = shop["offers"]?.["offer"] || [];
+  for (const o of ensureArray(offers)) {
+    const sku = String(o["@_id"] || o["vendorCode"] || o["article"] || o["sku"] || "");
+    const name = String(o["name"] || o["model"] || o["title"] || "");
+    if (!sku || !name) continue;
+
+    const description = o["description"] || "";
+    const price = o["price"] !== undefined ? parseFloat(String(o["price"])) : undefined;
+    const stock = o["stock"] !== undefined ? parseInt(String(o["stock"]), 10)
+      : o["quantity"] !== undefined ? parseInt(String(o["quantity"]), 10)
+      : o["@_available"] === "true" ? undefined
+      : o["@_available"] === "false" ? 0
+      : undefined;
+
+    // Category — resolve name from categoryMap
+    const catId = String(o["categoryId"] || "");
+    const categoryName = categoryMap.get(catId) || catId || undefined;
+
+    // Image
+    const imgNode = o["picture"];
+    const image = imgNode ? String(Array.isArray(imgNode) ? imgNode[0] : imgNode) : undefined;
+
+    products.push({
+      sku,
+      name,
+      description: description ? String(description) : undefined,
+      price: price !== undefined && !isNaN(price) ? price : undefined,
+      stock: stock !== undefined && !isNaN(stock) ? stock : undefined,
+      category: categoryName,
+      image,
     });
   }
 

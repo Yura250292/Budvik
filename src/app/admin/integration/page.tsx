@@ -43,6 +43,7 @@ export default function IntegrationPage() {
   const [exportTo, setExportTo] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
 
   useEffect(() => {
     fetchLogs();
@@ -73,28 +74,45 @@ export default function IntegrationPage() {
     setImporting(true);
     setImportResult(null);
     setImportError("");
+    setUploadProgress(0);
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("format", file.name.endsWith(".xml") ? "xml" : "csv");
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("format", file.name.endsWith(".xml") ? "xml" : "csv");
 
-      const res = await fetch("/api/admin/import", { method: "POST", body: formData });
-      const data = await res.json();
+    const xhr = new XMLHttpRequest();
 
-      if (!res.ok) {
-        setImportError(data.error || "Помилка імпорту");
-      } else {
-        setImportResult(data);
-        setSelectedFile(null);
-        if (fileRef.current) fileRef.current.value = "";
-        fetchLogs();
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
       }
-    } catch (err: any) {
-      setImportError(err.message);
-    } finally {
+    };
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setImportResult(data);
+          setSelectedFile(null);
+          if (fileRef.current) fileRef.current.value = "";
+          fetchLogs();
+        } else {
+          setImportError(data.error || "Помилка імпорту");
+        }
+      } catch {
+        setImportError("Помилка обробки відповіді сервера");
+      }
       setImporting(false);
-    }
+    };
+
+    xhr.onerror = () => {
+      setImportError("Помилка з'єднання з сервером");
+      setImporting(false);
+    };
+
+    xhr.open("POST", "/api/admin/import");
+    xhr.send(formData);
   }
 
   async function handleExport() {
@@ -215,6 +233,23 @@ export default function IntegrationPage() {
                   )}
                 </label>
               </div>
+
+              {importing && (
+                <div className="mb-4">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-600">
+                      {uploadProgress < 100 ? "Завантаження файлу..." : "Обробка на сервері..."}
+                    </span>
+                    <span className="font-medium text-orange-600">{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div
+                      className="bg-orange-500 h-full rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               <button
                 type="submit"

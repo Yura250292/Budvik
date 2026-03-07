@@ -47,8 +47,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (products.length === 0) {
+      // Debug: show top-level XML keys to help diagnose format issues
+      let debugInfo = "";
+      if (format === "xml" || file.name.endsWith(".xml")) {
+        try {
+          const { XMLParser } = await import("fast-xml-parser");
+          const parser = new XMLParser({ ignoreAttributes: false });
+          const doc = parser.parse(text);
+          const topKeys = Object.keys(doc);
+          const rootKey = topKeys.find(k => k !== "?xml") || topKeys[0];
+          const root = doc[rootKey];
+          const innerKeys = root && typeof root === "object" ? Object.keys(root) : [];
+          debugInfo = ` Структура: ${rootKey} → [${innerKeys.join(", ")}]`;
+        } catch {}
+      }
       return NextResponse.json(
-        { error: "Не знайдено товарів у файлі. Перевірте формат." },
+        { error: `Не знайдено товарів у файлі. Перевірте формат.${debugInfo}` },
         { status: 400 }
       );
     }

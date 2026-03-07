@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import AiChatWidget from "@/components/ai/AiChatWidget";
 
 export const metadata: Metadata = {
   title: "Budvik - Інструменти для професіоналів",
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="flex-1 pb-20 md:pb-0">{children}</main>
           <Footer />
           <BottomNav />
+          <AiChatWidget />
           <ServiceWorkerRegister />
         </Providers>
       </body>

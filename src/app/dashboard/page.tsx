@@ -4,6 +4,8 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import AiSupportChat from "@/components/ai/AiSupportChat";
+import AiRecommendations from "@/components/ai/AiRecommendations";
 
 export default function DashboardPage() {
   const { data: session } = useSession();
@@ -91,7 +93,26 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">Адмін-панель та управління</p>
           </Link>
         )}
+        <Link href="/ai/wizard" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
+          <h3 className="font-semibold text-gray-900 group-hover:text-orange-600 mb-1">AI Підбір інструментів</h3>
+          <p className="text-sm text-gray-500">Розумний помічник підбере інструменти під ваші потреби</p>
+        </Link>
+        {role === "ADMIN" && (
+          <Link href="/ai/analytics" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
+            <h3 className="font-semibold text-gray-900 group-hover:text-orange-600 mb-1">AI Аналітика</h3>
+            <p className="text-sm text-gray-500">Аналіз продажів та рекомендації</p>
+          </Link>
+        )}
       </div>
+
+      {/* AI Support Chat */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">AI Підтримка</h2>
+        <AiSupportChat />
+      </div>
+
+      {/* AI Personal Recommendations */}
+      <AiRecommendations type="personal" title="Рекомендовано для вас" />
     </div>
   );
 }

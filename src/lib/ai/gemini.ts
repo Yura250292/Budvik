@@ -52,12 +52,12 @@ export async function chatWithGemini(
 
 export async function generateEmbedding(text: string): Promise<number[]> {
   const res = await fetch(
-    `${GEMINI_BASE_URL}/models/text-embedding-004:embedContent?key=${GEMINI_API_KEY}`,
+    `${GEMINI_BASE_URL}/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "models/text-embedding-004",
+        model: "models/gemini-embedding-001",
         content: { parts: [{ text }] },
       }),
     }
@@ -74,13 +74,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 export async function generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
   const res = await fetch(
-    `${GEMINI_BASE_URL}/models/text-embedding-004:batchEmbedContents?key=${GEMINI_API_KEY}`,
+    `${GEMINI_BASE_URL}/models/gemini-embedding-001:batchEmbedContents?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         requests: texts.map((text) => ({
-          model: "models/text-embedding-004",
+          model: "models/gemini-embedding-001",
           content: { parts: [{ text }] },
         })),
       }),

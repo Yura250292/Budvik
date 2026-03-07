@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import Link from "next/link";
+import AiSmartSearch from "@/components/ai/AiSmartSearch";
 
 export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ category?: string; search?: string }> }) {
   const params = await searchParams;
@@ -30,7 +31,12 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       <h1 className="text-3xl font-bold text-gray-900 mb-2">
         {activeCategory ? activeCategory.name : "Каталог інструментів"}
       </h1>
-      <p className="text-gray-500 mb-8">Знайдено {products.length} товарів</p>
+      <p className="text-gray-500 mb-6">Знайдено {products.length} товарів</p>
+
+      {/* AI Smart Search */}
+      <div className="mb-8">
+        <AiSmartSearch />
+      </div>
 
       <div className="flex flex-col md:flex-row gap-8">
         {/* Sidebar */}

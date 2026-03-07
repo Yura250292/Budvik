@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import AddToCartButton from "./AddToCartButton";
 import Link from "next/link";
+import AiRecommendations from "@/components/ai/AiRecommendations";
+import AiAccessories from "@/components/ai/AiAccessories";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -81,9 +83,26 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         </div>
       </div>
 
+      {/* AI Accessories */}
+      <AiAccessories productId={product.id} />
+
+      {/* AI Recommendations - Bought Together */}
+      <AiRecommendations
+        productId={product.id}
+        type="bought_together"
+        title="Часто купують разом"
+      />
+
+      {/* AI Recommendations - Similar */}
+      <AiRecommendations
+        productId={product.id}
+        type="similar"
+        title="Схожі товари (AI)"
+      />
+
       {relatedProducts.length > 0 && (
         <div className="mt-16">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Схожі товари</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">З цієї категорії</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {relatedProducts.map((p) => (
               <Link key={p.id} href={`/catalog/${p.slug}`} className="bg-white border rounded-lg p-4 hover:shadow-md transition">

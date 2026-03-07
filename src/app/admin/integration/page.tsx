@@ -42,6 +42,7 @@ export default function IntegrationPage() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchLogs();
@@ -56,10 +57,18 @@ export default function IntegrationPage() {
     }
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] || null;
+    setSelectedFile(file);
+  }
+
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) return;
+    const file = selectedFile;
+    if (!file) {
+      setImportError("Оберіть файл для імпорту");
+      return;
+    }
 
     setImporting(true);
     setImportResult(null);
@@ -77,6 +86,8 @@ export default function IntegrationPage() {
         setImportError(data.error || "Помилка імпорту");
       } else {
         setImportResult(data);
+        setSelectedFile(null);
+        if (fileRef.current) fileRef.current.value = "";
         fetchLogs();
       }
     } catch (err: any) {
@@ -171,33 +182,44 @@ export default function IntegrationPage() {
             </div>
 
             <form onSubmit={handleImport}>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
+              <div className={`border-2 border-dashed rounded-lg p-8 text-center mb-4 transition ${
+                selectedFile ? "border-orange-400 bg-orange-50" : "border-gray-300"
+              }`}>
                 <input
                   ref={fileRef}
                   type="file"
                   accept=".xml,.csv,.txt"
                   className="hidden"
                   id="import-file"
+                  onChange={handleFileChange}
                 />
                 <label htmlFor="import-file" className="cursor-pointer">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <p className="text-gray-600 mb-1">Натисніть для вибору файлу</p>
-                  <p className="text-sm text-gray-400">.xml (CommerceML) або .csv</p>
+                  {selectedFile ? (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-orange-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-orange-700 font-medium mb-1">{selectedFile.name}</p>
+                      <p className="text-sm text-orange-500">
+                        {(selectedFile.size / 1024).toFixed(1)} KB — натисніть щоб змінити файл
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <p className="text-gray-600 mb-1">Натисніть для вибору файлу</p>
+                      <p className="text-sm text-gray-400">.xml (CommerceML) або .csv</p>
+                    </>
+                  )}
                 </label>
               </div>
 
-              {fileRef.current?.files?.[0] && (
-                <p className="text-sm text-gray-600 mb-4">
-                  Обраний файл: <strong>{fileRef.current.files[0].name}</strong>
-                </p>
-              )}
-
               <button
                 type="submit"
-                disabled={importing}
-                className="bg-orange-600 text-white px-6 py-2.5 rounded-lg hover:bg-orange-500 transition disabled:opacity-50 font-medium"
+                disabled={importing || !selectedFile}
+                className="bg-orange-600 text-white px-6 py-2.5 rounded-lg hover:bg-orange-500 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
                 {importing ? "Імпортується..." : "Імпортувати"}
               </button>

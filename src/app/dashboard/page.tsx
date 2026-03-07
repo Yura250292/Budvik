@@ -5,11 +5,22 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import AiSupportChat from "@/components/ai/AiSupportChat";
-import AiRecommendations from "@/components/ai/AiRecommendations";
+
+interface Product {
+  id: string;
+  name: string;
+  slug: string;
+  price: number;
+  image?: string | null;
+  stock: number;
+  category?: { name: string };
+}
 
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState({ orders: 0, totalSpent: 0, bolts: 0 });
+  const [recommended, setRecommended] = useState<Product[]>([]);
+  const [loadingRec, setLoadingRec] = useState(true);
 
   useEffect(() => {
     if (!session) return;
@@ -29,13 +40,19 @@ export default function DashboardPage() {
       .then((data) => {
         setStats((prev) => ({ ...prev, bolts: data.balance }));
       });
+
+    fetch("/api/ai/recommend?type=personal")
+      .then((r) => r.json())
+      .then((data) => setRecommended(data.products || []))
+      .catch(() => setRecommended([]))
+      .finally(() => setLoadingRec(false));
   }, [session]);
 
   if (!session) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <h1 className="text-2xl font-bold mb-4">Увійдіть до свого акаунту</h1>
-        <Link href="/login" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg font-semibold">
+        <Link href="/login" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg">
           Увійти
         </Link>
       </div>
@@ -44,83 +61,246 @@ export default function DashboardPage() {
 
   const role = (session.user as any).role;
 
+  const menuItems = [
+    {
+      href: "/catalog",
+      title: "Каталог товарів",
+      desc: "Переглянути та замовити інструменти",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+      ),
+    },
+    {
+      href: "/dashboard/orders",
+      title: "Мої замовлення",
+      desc: "Історія та статуси замовлень",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      ),
+    },
+    {
+      href: "/dashboard/loyalty",
+      title: "Програма лояльності",
+      desc: "Баланс Болтів та історія транзакцій",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        </svg>
+      ),
+    },
+    {
+      href: "/dashboard/wholesale",
+      title: role === "WHOLESALE" ? "Оптовий кабінет" : "Стати оптовиком",
+      desc: role === "WHOLESALE" ? "Ваш статус та дані компанії" : "Подати заявку на оптові ціни",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+    },
+    {
+      href: "/ai/wizard",
+      title: "AI Підбір інструментів",
+      desc: "Розумний помічник підбере під ваші потреби",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+        </svg>
+      ),
+    },
+  ];
+
+  if (role === "ADMIN" || role === "SALES") {
+    menuItems.push({
+      href: "/admin",
+      title: "Панель управління",
+      desc: "Адмін-панель та управління",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    });
+  }
+
+  if (role === "ADMIN") {
+    menuItems.push({
+      href: "/ai/analytics",
+      title: "AI Аналітика",
+      desc: "Аналіз продажів та рекомендації",
+      icon: (
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      ),
+    });
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">
-        Вітаємо, {session.user.name}!
-      </h1>
-      <p className="text-gray-500 mb-8">
-        Роль: {role === "ADMIN" ? "Адміністратор" : role === "SALES" ? "Торговий менеджер" : role === "WHOLESALE" ? "Оптовий покупець" : "Клієнт"}
-      </p>
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-1">
+          Вітаємо, {session.user.name}!
+        </h1>
+        <p className="text-gray-500">
+          {role === "ADMIN" ? "Адміністратор" : role === "SALES" ? "Торговий менеджер" : role === "WHOLESALE" ? "Оптовий покупець" : "Клієнт"}
+        </p>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white border rounded-xl p-6">
-          <h3 className="text-sm text-gray-500 mb-1">Замовлень</h3>
-          <p className="text-3xl font-bold text-gray-900">{stats.orders}</p>
-          <Link href="/dashboard/orders" className="text-yellow-600 text-sm hover:underline mt-2 inline-block">
-            Переглянути
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Замовлень</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.orders}</p>
+            </div>
+          </div>
+          <Link href="/dashboard/orders" className="text-yellow-600 text-xs hover:underline mt-3 inline-block">
+            Переглянути всі
           </Link>
         </div>
-        <div className="bg-white border rounded-xl p-6">
-          <h3 className="text-sm text-gray-500 mb-1">Витрачено</h3>
-          <p className="text-3xl font-bold text-gray-900">{formatPrice(stats.totalSpent)}</p>
+
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Витрачено</p>
+              <p className="text-2xl font-bold text-gray-900">{formatPrice(stats.totalSpent)}</p>
+            </div>
+          </div>
         </div>
-        <div className="bg-gradient-to-r from-black to-gray-900 rounded-xl p-6 text-white">
-          <h3 className="text-sm opacity-80 mb-1">Болти на балансі</h3>
-          <p className="text-3xl font-bold">{stats.bolts}</p>
-          <Link href="/dashboard/loyalty" className="text-white text-sm hover:underline mt-2 inline-block opacity-80">
-            Деталі
+
+        <div className="bg-gradient-to-br from-black to-gray-900 rounded-xl p-5 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-yellow-400/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs text-yellow-400/80">Болти на балансі</p>
+              <p className="text-2xl font-bold text-white">{stats.bolts}</p>
+            </div>
+          </div>
+          <Link href="/dashboard/loyalty" className="text-yellow-400/80 text-xs hover:text-yellow-400 mt-3 inline-block transition">
+            Деталі програми
           </Link>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link href="/catalog" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-          <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">Каталог товарів</h3>
-          <p className="text-sm text-gray-500">Переглянути та замовити інструменти</p>
-        </Link>
-        <Link href="/dashboard/orders" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-          <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">Мої замовлення</h3>
-          <p className="text-sm text-gray-500">Історія та статуси замовлень</p>
-        </Link>
-        <Link href="/dashboard/loyalty" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-          <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">Програма лояльності</h3>
-          <p className="text-sm text-gray-500">Баланс Болтів та історія транзакцій</p>
-        </Link>
-        {(role === "ADMIN" || role === "SALES") && (
-          <Link href="/admin" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-            <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">Панель управління</h3>
-            <p className="text-sm text-gray-500">Адмін-панель та управління</p>
+      {/* Menu Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-10">
+        {menuItems.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center mb-3 group-hover:bg-yellow-400 group-hover:text-black transition-colors">
+              {item.icon}
+            </div>
+            <h3 className="font-semibold text-sm text-gray-900 group-hover:text-yellow-600 transition-colors mb-0.5">
+              {item.title}
+            </h3>
+            <p className="text-xs text-gray-400 line-clamp-2">{item.desc}</p>
           </Link>
-        )}
-        <Link href="/dashboard/wholesale" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-          <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">
-            {role === "WHOLESALE" ? "Оптовий кабінет" : "Стати оптовиком"}
-          </h3>
-          <p className="text-sm text-gray-500">
-            {role === "WHOLESALE" ? "Ваш статус та дані компанії" : "Подати заявку на оптові ціни"}
-          </p>
-        </Link>
-        <Link href="/ai/wizard" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-          <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">AI Підбір інструментів</h3>
-          <p className="text-sm text-gray-500">Розумний помічник підбере інструменти під ваші потреби</p>
-        </Link>
-        {role === "ADMIN" && (
-          <Link href="/ai/analytics" className="bg-white border rounded-xl p-6 hover:shadow-md transition group">
-            <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 mb-1">AI Аналітика</h3>
-            <p className="text-sm text-gray-500">Аналіз продажів та рекомендації</p>
-          </Link>
+        ))}
+      </div>
+
+      {/* Recommendations - products user never ordered */}
+      <div className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
+            <svg className="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Рекомендовано для вас</h2>
+          <span className="text-xs text-gray-400 ml-1">топ продажів, які ви ще не замовляли</span>
+        </div>
+
+        {loadingRec ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="bg-gray-100 rounded-xl h-52 animate-pulse" />
+            ))}
+          </div>
+        ) : recommended.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {recommended.slice(0, 8).map((product) => (
+              <Link
+                key={product.id}
+                href={`/catalog/${product.slug}`}
+                className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
+              >
+                <div className="h-32 bg-gray-50 flex items-center justify-center">
+                  {product.image ? (
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      className="h-full w-full object-contain p-2"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <svg className="w-12 h-12 text-gray-300 group-hover:text-yellow-300 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="p-3">
+                  {product.category && (
+                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">{product.category.name}</span>
+                  )}
+                  <h4 className="font-medium text-sm text-gray-900 group-hover:text-yellow-600 transition line-clamp-2 mt-0.5 mb-2">
+                    {product.name}
+                  </h4>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-900">{formatPrice(product.price)}</span>
+                    {product.stock > 0 ? (
+                      <span className="text-[10px] text-green-600 font-medium">В наявності</span>
+                    ) : (
+                      <span className="text-[10px] text-gray-400">Немає</span>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center text-gray-400 text-sm">
+            Поки що немає рекомендацій. Зробіть перше замовлення!
+          </div>
         )}
       </div>
 
       {/* AI Support Chat */}
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">AI Підтримка</h2>
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
+            <svg className="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">AI Підтримка</h2>
+        </div>
         <AiSupportChat />
       </div>
-
-      {/* AI Personal Recommendations */}
-      <AiRecommendations type="personal" title="Рекомендовано для вас" />
     </div>
   );
 }

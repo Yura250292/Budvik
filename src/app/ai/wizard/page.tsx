@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import AiMarkdown from "@/components/ai/AiMarkdown";
 
 const TASK_TYPES = [
   { value: "concrete", label: "Бетон / Цегла / Камінь" },
@@ -183,19 +184,8 @@ export default function WizardPage() {
       {step === 4 && (
         <div>
           <h2 className="text-xl font-semibold mb-4">Результати AI підбору</h2>
-          <div className="bg-white border rounded-xl p-6 prose prose-sm max-w-none">
-            <div dangerouslySetInnerHTML={{
-              __html: result
-                .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                .replace(/\*(.*?)\*/g, "<em>$1</em>")
-                .replace(/\|(.+)\|/g, (match) => `<code>${match}</code>`)
-                .replace(/#{3}\s(.+)/g, "<h3>$1</h3>")
-                .replace(/#{2}\s(.+)/g, "<h2>$1</h2>")
-                .replace(/#{1}\s(.+)/g, "<h1>$1</h1>")
-                .replace(/\n- /g, "\n<br/>• ")
-                .replace(/\n\d+\.\s/g, (match) => `<br/>${match.trim()} `)
-                .replace(/\n/g, "<br/>")
-            }} />
+          <div className="bg-white border rounded-xl p-6">
+            <AiMarkdown content={result} />
           </div>
           <button
             onClick={reset}

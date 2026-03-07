@@ -65,6 +65,61 @@ input, select, textarea, button {
   overflow: hidden;
 }
 
+/* Product description HTML styling */
+.product-description p {
+  margin-bottom: 0.75rem;
+  text-align: justify;
+}
+.product-description b,
+.product-description strong {
+  font-weight: 600;
+  color: #111827;
+}
+.product-description i,
+.product-description em {
+  font-style: italic;
+}
+.product-description ul,
+.product-description ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.product-description ul {
+  list-style-type: disc;
+}
+.product-description ol {
+  list-style-type: decimal;
+}
+.product-description li {
+  margin-bottom: 0.25rem;
+}
+.product-description h2,
+.product-description h3,
+.product-description h4 {
+  font-weight: 700;
+  color: #111827;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.product-description table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+}
+.product-description td,
+.product-description th {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem;
+  text-align: left;
+}
+.product-description th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+.product-description br + br {
+  display: none;
+}
+
 /* Standalone PWA mode */
 @media all and (display-mode: standalone) {
   header {

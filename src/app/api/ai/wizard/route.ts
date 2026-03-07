@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { chatWithGemini } from "@/lib/ai/gemini";
-import { getProductCatalogContext, getSystemPrompt } from "@/lib/ai/context";
+import { getProductCatalogContext, getSystemPrompt, searchProductsForAI } from "@/lib/ai/context";
 
 export async function POST(req: Request) {
   try {
@@ -13,8 +13,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const catalog = await getProductCatalogContext();
-    const systemPrompt = getSystemPrompt("wizard") + "\n\n" + catalog;
+    // Search for real products matching the task type and budget
+    const searchQuery = `${taskType} ${budget}`;
+    const [catalog, searchResults] = await Promise.all([
+      getProductCatalogContext(),
+      searchProductsForAI(searchQuery),
+    ]);
+
+    const systemPrompt = getSystemPrompt("wizard") + "\n\n" + catalog + searchResults;
 
     const userMessage = `Підбери мені інструменти для наступних потреб:
 
@@ -22,8 +28,8 @@ export async function POST(req: Request) {
 Частота використання: ${frequency}
 Бюджет: ${budget}
 
-Покажи ТОП 3-5 товарів з каталогу, порівняй їх та дай фінальну рекомендацію.
-Використовуй markdown таблицю для порівняння.`;
+ВАЖЛИВО: Рекомендуй ТІЛЬКИ товари з розділу РЕЗУЛЬТАТИ ПОШУКУ вище. Використовуй точні назви та ціни з результатів.
+Покажи ТОП 3-5 товарів, порівняй їх у таблиці та дай фінальну рекомендацію.`;
 
     const response = await chatWithGemini(
       [{ role: "user", parts: [{ text: userMessage }] }],

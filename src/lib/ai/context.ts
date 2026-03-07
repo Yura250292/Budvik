@@ -39,6 +39,44 @@ const STOP_WORDS = new Set([
   "сколько", "стоит", "рублей", "тысяч",
 ]);
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function extractPriceRange(query: string): { min?: number; max?: number } {
+  const result: { min?: number; max?: number } = {};
+
+  // "2.5-3 тис" or "2500-3000"
+  const rangeMatch = query.match(/(\d+[.,]?\d*)\s*[-–]\s*(\d+[.,]?\d*)\s*(тис|тисяч|тисячі)?/i);
+  if (rangeMatch) {
+    let min = parseFloat(rangeMatch[1].replace(",", "."));
+    let max = parseFloat(rangeMatch[2].replace(",", "."));
+    if (rangeMatch[3]) { min *= 1000; max *= 1000; }
+    result.min = min;
+    result.max = max;
+    return result;
+  }
+
+  // "до 5000" or "до 5 тис"
+  const upToMatch = query.match(/до\s+(\d+[.,]?\d*)\s*(тис|тисяч|тисячі)?/i);
+  if (upToMatch) {
+    let max = parseFloat(upToMatch[1].replace(",", "."));
+    if (upToMatch[2]) max *= 1000;
+    result.max = max;
+    return result;
+  }
+
+  // "від 3000" or "від 3 тис"
+  const fromMatch = query.match(/від\s+(\d+[.,]?\d*)\s*(тис|тисяч|тисячі)?/i);
+  if (fromMatch) {
+    let min = parseFloat(fromMatch[1].replace(",", "."));
+    if (fromMatch[2]) min *= 1000;
+    result.min = min;
+  }
+
+  return result;
+}
+
 export async function searchProductsForAI(query: string): Promise<string> {
   // Extract meaningful keywords, filtering stop words
   const keywords = query
@@ -52,10 +90,19 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
   if (unique.length === 0) return "";
 
+  // Extract price range from query
+  const priceRange = extractPriceRange(query);
+
+  // Build price filter
+  const priceFilter: Record<string, number> = {};
+  if (priceRange.min) priceFilter.gte = priceRange.min;
+  if (priceRange.max) priceFilter.lte = priceRange.max;
+
   // Search by each keyword with OR
   const products = await prisma.product.findMany({
     where: {
       isActive: true,
+      ...(Object.keys(priceFilter).length > 0 ? { price: priceFilter } : {}),
       OR: unique.flatMap((kw) => [
         { name: { contains: kw, mode: "insensitive" as const } },
         { description: { contains: kw, mode: "insensitive" as const } },
@@ -63,16 +110,40 @@ export async function searchProductsForAI(query: string): Promise<string> {
       ]),
     },
     include: { category: true },
-    orderBy: [{ stock: "desc" }, { name: "asc" }],
-    take: 50,
+    orderBy: [{ stock: "desc" }, { price: "asc" }],
+    take: 30,
   });
 
-  if (products.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
+  // If price-filtered search returned nothing, try without price filter
+  let finalProducts = products;
+  if (products.length === 0 && Object.keys(priceFilter).length > 0) {
+    finalProducts = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        OR: unique.flatMap((kw) => [
+          { name: { contains: kw, mode: "insensitive" as const } },
+          { description: { contains: kw, mode: "insensitive" as const } },
+          { category: { name: { contains: kw, mode: "insensitive" as const } } },
+        ]),
+      },
+      include: { category: true },
+      orderBy: [{ stock: "desc" }, { price: "asc" }],
+      take: 30,
+    });
+  }
 
-  let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${products.length} товарів):\n`;
-  for (const p of products) {
+  if (finalProducts.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
+
+  let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${finalProducts.length} товарів):\n`;
+  for (const p of finalProducts) {
     const stock = p.stock > 0 ? `В наявності: ${p.stock} шт` : "Немає в наявності";
-    context += `- ${p.name} | ${p.category.name} | Ціна: ${p.price} грн | ${stock} | ${p.description?.slice(0, 100) || ""}\n`;
+    const promo = p.isPromo && p.promoPrice ? ` | Акція: ${p.promoPrice} грн` : "";
+    const desc = stripHtml(p.description || "").slice(0, 150);
+    context += `- [${p.slug}] ${p.name} | ${p.category.name} | Ціна: ${p.price} грн${promo} | ${stock} | ${desc}\n`;
+  }
+
+  if (priceRange.min || priceRange.max) {
+    context += `\nЦіновий фільтр: ${priceRange.min ? `від ${priceRange.min} грн` : ""}${priceRange.min && priceRange.max ? " " : ""}${priceRange.max ? `до ${priceRange.max} грн` : ""}\n`;
   }
 
   return context;
@@ -199,48 +270,69 @@ export async function getSalesAnalyticsContext(): Promise<string> {
 export function getSystemPrompt(role: string): string {
   const prompts: Record<string, string> = {
     consultant: `Ти — AI-консультант інтернет-магазину інструментів BUDVIK.
-Ти розмовляєш українською мовою.
-Ти допомагаєш клієнтам обрати інструмент для їхніх потреб.
+Ти розмовляєш українською мовою. Ти експерт з інструментів.
 
-Правила:
-1. Відповідай ТІЛЬКИ на основі наданого каталогу товарів
-2. Рекомендуй конкретні товари з каталогу з цінами
-3. Порівнюй товари коли це доречно
-4. Вказуй переваги та недоліки
-5. Враховуй бюджет клієнта
-6. Якщо товару немає в каталозі — чесно скажи про це
-7. Будь дружнім та професійним
-8. Відповідай структуровано з форматуванням markdown
+ГОЛОВНІ ПРАВИЛА:
+1. Відповідай ТІЛЬКИ на основі наданих результатів пошуку — не вигадуй товари
+2. Рекомендуй конкретні товари з каталогу з ТОЧНИМИ цінами та назвами
+3. Завжди вказуй наявність на складі
+4. Враховуй бюджет клієнта — якщо вказано ціновий діапазон, дотримуйся його
+5. Якщо товар має акційну ціну — обов'язково зазнач це
+6. Якщо нічого не знайдено — чесно скажи і запропонуй розширити пошук
+7. Будь конкретним, уникай загальних фраз без прив'язки до товарів
 
-Форматування:
-- Використовуй **жирний** для назв товарів та цін
-- Використовуй списки для переваг і недоліків
-- ОБОВ'ЯЗКОВО будуй порівняльні таблиці коли клієнт порівнює 2+ товари або просить порекомендувати кілька варіантів
-- Формат таблиці (markdown GFM):
+СТРУКТУРА ВІДПОВІДІ (коли рекомендуєш товари):
 
-| Характеристика | Товар 1 | Товар 2 | Товар 3 |
+1. Короткий вступ (1 речення)
+2. Для кожного товару:
+   ### 🥇/🥈/🥉 [Назва товару]
+   - **Ціна:** X грн (якщо акція — вказати стару і нову ціну)
+   - **Категорія:** назва
+   - **Наявність:** X шт
+   - **Ключові характеристики:** витягни з опису (потужність, розмір, матеріал тощо)
+   - **Для кого:** коротко хто цільовий покупець
+3. Порівняльна таблиця (якщо 2+ товари)
+4. Фінальна рекомендація — який товар і чому обрати
+
+ФОРМАТ ТАБЛИЦІ:
+| Параметр | Товар 1 | Товар 2 | Товар 3 |
 |---|---|---|---|
 | Ціна | 1000 грн | 2000 грн | 3000 грн |
-| Потужність | 500 Вт | 800 Вт | 1200 Вт |
-| Наявність | В наявності | В наявності | Немає |
+| Бренд | YATO | SIGMA | Makita |
+| Наявність | ✅ 5 шт | ✅ 12 шт | ❌ Немає |
 | Рекомендація | Для дому | Універсальний | Професійний |
 
-- В кінці таблиці завжди додавай рядок "Рекомендація" або "Висновок"
-- Після таблиці додай коротку фінальну рекомендацію`,
+ВАЖЛИВО:
+- Не обрізай відповідь — завжди завершуй думку
+- Якщо клієнт просить ТОП-3 — дай рівно 3 товари з повною інформацією
+- Ціни бери ТІЛЬКИ з результатів пошуку, не округлюй і не вигадуй
+- Використовуй emoji для наочності: ✅ ❌ ⚡ 🔧 💰
+- Якщо товар поза бюджетом — позначай це явно`,
 
     wizard: `Ти — AI-помічник з підбору інструментів BUDVIK.
-Ти розмовляєш українською мовою.
+Ти розмовляєш українською мовою. Ти експерт з інструментів.
+
+КРИТИЧНЕ ПРАВИЛО: Рекомендуй ТІЛЬКИ реальні товари з розділу РЕЗУЛЬТАТИ ПОШУКУ.
+НІКОЛИ не вигадуй назви, моделі чи ціни товарів. Якщо в результатах пошуку немає підходящих товарів — чесно скажи це.
 
 Твоя задача — підібрати найкращі інструменти на основі:
-1. Типу роботи (дерево/метал/бетон/плитка тощо)
-2. Частоти використання (дім/ремонт/професійне)
+1. Типу роботи
+2. Частоти використання
 3. Бюджету
 
-Формат відповіді:
-- ТОП 3-5 товарів
-- Для кожного: назва, ціна, переваги, недоліки
-- Порівняльна таблиця (markdown)
-- Фінальна рекомендація`,
+СТРУКТУРА ВІДПОВІДІ:
+1. Короткий вступ (що підібрав і чому)
+2. Для кожного товару (3-5 штук):
+   ### 🥇/🥈/🥉 [ТОЧНА назва з каталогу]
+   - **Ціна:** точна ціна з результатів
+   - **Наявність:** кількість на складі
+   - **Переваги:** 2-3 пункти (витягни з характеристик)
+   - **Недоліки:** 1-2 пункти
+   - **Для кого:** цільова аудиторія
+3. Порівняльна таблиця (markdown)
+4. Фінальна рекомендація з поясненням
+
+Використовуй emoji: ✅ ❌ ⚡ 🔧 💰 🏠 🏗️`,
 
     support: `Ти — AI-помічник підтримки клієнтів BUDVIK.
 Ти розмовляєш українською мовою.

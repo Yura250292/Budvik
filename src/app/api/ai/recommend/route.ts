@@ -69,56 +69,78 @@ export async function GET(req: Request) {
     }
 
     if (type === "personal") {
-      // Personalized recommendations based on order history
+      // Top-selling & most popular products the user hasn't ordered yet
       const session = await getServerSession(authOptions);
-      if (!session) {
-        // Return popular products for anonymous users
-        const products = await prisma.product.findMany({
-          where: { isActive: true },
-          include: { category: true },
-          orderBy: { price: "desc" },
-          take: 8,
-        });
-        return NextResponse.json({ products, type: "popular" });
-      }
 
-      // Get user's purchased categories
-      const userOrders = await prisma.order.findMany({
-        where: { userId: session.user.id },
-        include: { items: { include: { product: true } } },
+      // Exclude niche categories (верстати, etc.) — too specific for general recommendations
+      const excludedCategorySlugs = ["1964", "1970", "1465", "1960", "1963", "1972"];
+      const excludedCats = await prisma.category.findMany({
+        where: { slug: { in: excludedCategorySlugs } },
+        select: { id: true },
+      });
+      const excludedCatIds = excludedCats.map((c) => c.id);
+
+      // Get top-selling products by order count
+      const topSelling = await prisma.orderItem.groupBy({
+        by: ["productId"],
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: 50,
       });
 
+      const topProductIds = topSelling.map((t) => t.productId);
       const purchasedIds = new Set<string>();
-      const categoryIds = new Set<string>();
-      for (const order of userOrders) {
-        for (const item of order.items) {
-          purchasedIds.add(item.productId);
-          categoryIds.add(item.product.categoryId);
+
+      if (session) {
+        const userOrders = await prisma.order.findMany({
+          where: { userId: session.user.id },
+          include: { items: { select: { productId: true } } },
+        });
+        for (const order of userOrders) {
+          for (const item of order.items) {
+            purchasedIds.add(item.productId);
+          }
         }
       }
 
-      if (categoryIds.size === 0) {
-        const products = await prisma.product.findMany({
-          where: { isActive: true },
-          include: { category: true },
-          orderBy: { price: "desc" },
-          take: 8,
-        });
-        return NextResponse.json({ products, type: "popular" });
-      }
+      // Exclude products user already bought
+      const filteredTopIds = topProductIds.filter((id) => !purchasedIds.has(id));
 
-      // Recommend from same categories but not yet purchased
-      const products = await prisma.product.findMany({
+      let products = await prisma.product.findMany({
         where: {
+          id: { in: filteredTopIds },
           isActive: true,
-          categoryId: { in: Array.from(categoryIds) },
-          id: { notIn: Array.from(purchasedIds) },
+          stock: { gt: 0 },
+          categoryId: { notIn: excludedCatIds },
+          NOT: { name: { contains: "верстат", mode: "insensitive" } },
         },
         include: { category: true },
-        take: 8,
       });
 
-      return NextResponse.json({ products, type: "personal" });
+      // Sort by sales volume
+      const salesMap = new Map(topSelling.map((t) => [t.productId, t._sum.quantity || 0]));
+      products.sort((a, b) => (salesMap.get(b.id) || 0) - (salesMap.get(a.id) || 0));
+
+      // If not enough top-sellers, fill with newest in-stock products
+      if (products.length < 8) {
+        const existingIds = new Set(products.map((p) => p.id));
+        const excludeIds = [...existingIds, ...purchasedIds];
+        const newest = await prisma.product.findMany({
+          where: {
+            isActive: true,
+            stock: { gt: 0 },
+            id: { notIn: excludeIds },
+            categoryId: { notIn: excludedCatIds },
+            NOT: { name: { contains: "верстат", mode: "insensitive" } },
+          },
+          include: { category: true },
+          orderBy: { createdAt: "desc" },
+          take: 8 - products.length,
+        });
+        products = [...products, ...newest];
+      }
+
+      return NextResponse.json({ products: products.slice(0, 8), type: "popular" });
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });

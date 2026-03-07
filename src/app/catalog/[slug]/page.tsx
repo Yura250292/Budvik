@@ -61,7 +61,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <div>
           <span className="text-sm text-yellow-600 font-medium">{product.category.name}</span>
           <h1 className="text-3xl font-bold text-gray-900 mt-1 mb-4">{product.name}</h1>
-          <p className="text-gray-600 mb-6 leading-relaxed">{product.description}</p>
+          <div
+            className="text-gray-600 mb-6 leading-relaxed product-description"
+            dangerouslySetInnerHTML={{ __html: product.description }}
+          />
 
           <div className="flex items-baseline gap-3 mb-6 flex-wrap">
             <span className={`text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-yellow-600" : "text-gray-900"}`}>

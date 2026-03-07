@@ -65,7 +65,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           }`}>
             {name}
           </h3>
-          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{description}</p>
+          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{description.replace(/<[^>]*>/g, '')}</p>
           <div className="flex items-center justify-between">
             <div>
               <span className={`text-lg font-bold ${

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { chatWithGemini, GeminiMessage } from "@/lib/ai/gemini";
-import { getProductCatalogContext, getSystemPrompt } from "@/lib/ai/context";
+import { getProductCatalogContext, getSystemPrompt, searchProductsForAI } from "@/lib/ai/context";
 
 export async function POST(req: Request) {
   try {
@@ -10,8 +10,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    const catalog = await getProductCatalogContext();
-    const systemPrompt = getSystemPrompt("consultant") + "\n\n" + catalog;
+    const [catalog, searchResults] = await Promise.all([
+      getProductCatalogContext(),
+      searchProductsForAI(message),
+    ]);
+    const systemPrompt = getSystemPrompt("consultant") + "\n\n" + catalog + searchResults;
 
     const messages: GeminiMessage[] = [
       ...history.map((h: { role: string; content: string }) => ({

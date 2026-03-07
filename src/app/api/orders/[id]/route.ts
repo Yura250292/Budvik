@@ -29,12 +29,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (session.user.role === "CLIENT") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { id } = await params;
   const { status } = await req.json();
+
+  // Clients can only change PENDING → PAID (test payment)
+  if (session.user.role === "CLIENT") {
+    const existing = await prisma.order.findUnique({ where: { id } });
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (existing.status !== "PENDING" || status !== "PAID") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
 
   const order = await prisma.order.update({
     where: { id },

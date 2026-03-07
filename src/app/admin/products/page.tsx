@@ -1,8 +1,10 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { formatPrice } from "@/lib/utils";
+
+const PAGE_SIZE = 50;
 
 export default function AdminProductsPage() {
   const { data: session } = useSession();
@@ -13,19 +15,42 @@ export default function AdminProductsPage() {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [form, setForm] = useState({ name: "", description: "", price: "", stock: "", categoryId: "" });
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const role = (session?.user as any)?.role;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const fetchProducts = useCallback(async (p: number, search?: string) => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(p) });
+    if (search) params.set("search", search);
+    const res = await fetch(`/api/products?${params}`);
+    const data = await res.json();
+    setProducts(data.products || []);
+    setTotal(data.total || 0);
+    setPage(data.page || 1);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/products").then((r) => r.json()),
+      fetchProducts(1),
       fetch("/api/categories").then((r) => r.json()),
-    ]).then(([prods, cats]) => {
-      setProducts(prods);
+    ]).then(([, cats]) => {
       setCategories(cats);
-      setLoading(false);
     });
-  }, []);
+  }, [fetchProducts]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchProducts(1, searchQuery);
+  };
+
+  const goToPage = (p: number) => {
+    fetchProducts(p, searchQuery);
+  };
 
   const resetForm = () => {
     setForm({ name: "", description: "", price: "", stock: "", categoryId: "" });
@@ -60,13 +85,8 @@ export default function AdminProductsPage() {
     });
 
     if (res.ok) {
-      const saved = await res.json();
-      if (editingProduct) {
-        setProducts((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
-      } else {
-        setProducts((prev) => [saved, ...prev]);
-      }
       resetForm();
+      fetchProducts(page, searchQuery);
     }
     setSaving(false);
   };
@@ -79,7 +99,7 @@ export default function AdminProductsPage() {
       body: JSON.stringify({ id }),
     });
     if (res.ok) {
-      setProducts((prev) => prev.filter((p) => p.id !== id));
+      fetchProducts(page, searchQuery);
     }
   };
 
@@ -90,7 +110,10 @@ export default function AdminProductsPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Управління товарами</h1>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Управління товарами</h1>
+          <p className="text-sm text-gray-500 mt-1">Всього: {total} товарів</p>
+        </div>
         <button
           onClick={() => { resetForm(); setShowForm(true); }}
           className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-500 transition"
@@ -98,6 +121,29 @@ export default function AdminProductsPage() {
           + Додати товар
         </button>
       </div>
+
+      {/* Search */}
+      <form onSubmit={handleSearch} className="mb-4 flex gap-2">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Пошук за назвою..."
+          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+        />
+        <button type="submit" className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition">
+          Знайти
+        </button>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(""); fetchProducts(1); }}
+            className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
+          >
+            Скинути
+          </button>
+        )}
+      </form>
 
       {/* Add/Edit Form */}
       {showForm && (
@@ -198,7 +244,7 @@ export default function AdminProductsPage() {
               </thead>
               <tbody className="divide-y">
                 {products.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
+                  <tr key={product.id} className={`hover:bg-gray-50 ${product.stock === 0 ? "opacity-50" : ""}`}>
                     <td className="px-4 py-3">
                       <span className="font-medium text-gray-900">{product.name}</span>
                     </td>
@@ -228,8 +274,70 @@ export default function AdminProductsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+              <p className="text-sm text-gray-500">
+                Сторінка {page} з {totalPages}
+              </p>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => goToPage(page - 1)}
+                  disabled={page <= 1}
+                  className="px-3 py-1.5 rounded border text-sm hover:bg-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  &larr; Назад
+                </button>
+
+                {paginationRange(page, totalPages).map((p, i) =>
+                  p === "..." ? (
+                    <span key={`dots-${i}`} className="px-2 py-1.5 text-gray-400 text-sm">...</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => goToPage(p as number)}
+                      className={`px-3 py-1.5 rounded text-sm font-medium transition ${
+                        p === page
+                          ? "bg-orange-600 text-white"
+                          : "border hover:bg-white"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+
+                <button
+                  onClick={() => goToPage(page + 1)}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1.5 rounded border text-sm hover:bg-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Далі &rarr;
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function paginationRange(current: number, total: number): (number | "...")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const items: (number | "...")[] = [];
+  items.push(1);
+
+  if (current > 3) items.push("...");
+
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) items.push(i);
+
+  if (current < total - 2) items.push("...");
+
+  items.push(total);
+  return items;
 }

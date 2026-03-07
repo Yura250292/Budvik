@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import AiMarkdown from "./AiMarkdown";
 
 interface Message {
   role: "user" | "assistant";
@@ -79,7 +80,7 @@ export default function AiChatWidget() {
 
       {/* Chat Window */}
       {isOpen && (
-        <div className="fixed bottom-40 md:bottom-22 right-4 z-50 w-[360px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: "500px" }}>
+        <div className="fixed bottom-40 md:bottom-22 right-4 z-50 w-[440px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: "550px" }}>
           {/* Header */}
           <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white px-4 py-3 rounded-t-xl flex items-center gap-3">
             <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
@@ -131,12 +132,7 @@ export default function AiChatWidget() {
                       : "bg-gray-100 text-gray-800 rounded-bl-sm"
                   }`}
                 >
-                  <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{
-                    __html: msg.content
-                      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-                      .replace(/\n/g, "<br/>")
-                  }} />
+                  <AiMarkdown content={msg.content} isUser={msg.role === "user"} />
                 </div>
               </div>
             ))}

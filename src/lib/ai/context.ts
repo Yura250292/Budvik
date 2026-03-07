@@ -1,30 +1,51 @@
 import { prisma } from "@/lib/prisma";
 
 export async function getProductCatalogContext(): Promise<string> {
-  const products = await prisma.product.findMany({
-    where: { isActive: true },
-    include: { category: true },
-    orderBy: { name: "asc" },
+  const categories = await prisma.category.findMany({
+    include: { _count: { select: { products: { where: { isActive: true } } } } },
   });
 
-  const grouped = products.reduce(
-    (acc, p) => {
-      const cat = p.category.name;
-      if (!acc[cat]) acc[cat] = [];
-      acc[cat].push(p);
-      return acc;
+  let context = "КАТАЛОГ BUDVIK — КАТЕГОРІЇ ТОВАРІВ:\n";
+  for (const c of categories) {
+    context += `- ${c.name} (${c._count.products} товарів)\n`;
+  }
+  context += `\nЗагалом товарів в магазині: ${categories.reduce((s, c) => s + c._count.products, 0)}\n`;
+  context += "\nПримітка: Щоб знайти конкретні товари для клієнта, використовуй дані з розділу РЕЗУЛЬТАТИ ПОШУКУ нижче.\n";
+
+  return context;
+}
+
+export async function searchProductsForAI(query: string): Promise<string> {
+  // Extract keywords from query (split by spaces, filter short words)
+  const keywords = query
+    .toLowerCase()
+    .replace(/[^\wа-яіїєґ\s]/gi, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+
+  if (keywords.length === 0) return "";
+
+  // Search by each keyword with OR
+  const products = await prisma.product.findMany({
+    where: {
+      isActive: true,
+      OR: keywords.flatMap((kw) => [
+        { name: { contains: kw, mode: "insensitive" as const } },
+        { description: { contains: kw, mode: "insensitive" as const } },
+        { category: { name: { contains: kw, mode: "insensitive" as const } } },
+      ]),
     },
-    {} as Record<string, typeof products>
-  );
+    include: { category: true },
+    orderBy: [{ stock: "desc" }, { name: "asc" }],
+    take: 50,
+  });
 
-  let context = "КАТАЛОГ ТОВАРІВ BUDVIK:\n\n";
+  if (products.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
 
-  for (const [category, items] of Object.entries(grouped)) {
-    context += `== ${category} ==\n`;
-    for (const p of items) {
-      context += `- ${p.name} | Ціна: ${p.price} грн | Наявність: ${p.stock} шт | ${p.description}\n`;
-    }
-    context += "\n";
+  let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${products.length} товарів):\n`;
+  for (const p of products) {
+    const stock = p.stock > 0 ? `В наявності: ${p.stock} шт` : "Немає в наявності";
+    context += `- ${p.name} | ${p.category.name} | Ціна: ${p.price} грн | ${stock} | ${p.description?.slice(0, 100) || ""}\n`;
   }
 
   return context;
@@ -162,7 +183,23 @@ export function getSystemPrompt(role: string): string {
 5. Враховуй бюджет клієнта
 6. Якщо товару немає в каталозі — чесно скажи про це
 7. Будь дружнім та професійним
-8. Відповідай структуровано з форматуванням markdown`,
+8. Відповідай структуровано з форматуванням markdown
+
+Форматування:
+- Використовуй **жирний** для назв товарів та цін
+- Використовуй списки для переваг і недоліків
+- ОБОВ'ЯЗКОВО будуй порівняльні таблиці коли клієнт порівнює 2+ товари або просить порекомендувати кілька варіантів
+- Формат таблиці (markdown GFM):
+
+| Характеристика | Товар 1 | Товар 2 | Товар 3 |
+|---|---|---|---|
+| Ціна | 1000 грн | 2000 грн | 3000 грн |
+| Потужність | 500 Вт | 800 Вт | 1200 Вт |
+| Наявність | В наявності | В наявності | Немає |
+| Рекомендація | Для дому | Універсальний | Професійний |
+
+- В кінці таблиці завжди додавай рядок "Рекомендація" або "Висновок"
+- Після таблиці додай коротку фінальну рекомендацію`,
 
     wizard: `Ти — AI-помічник з підбору інструментів BUDVIK.
 Ти розмовляєш українською мовою.

@@ -133,6 +133,7 @@ export async function POST(req: NextRequest) {
               ...(p.price !== undefined && !isNaN(p.price) && { price: p.price }),
               ...(p.stock !== undefined && !isNaN(p.stock) && { stock: p.stock }),
               ...(categoryId && { categoryId }),
+              ...(p.image && { image: p.image }),
             },
           });
           updated++;
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
               price: p.price || 0,
               stock: p.stock || 0,
               categoryId,
+              image: p.image || null,
             },
           });
           created++;

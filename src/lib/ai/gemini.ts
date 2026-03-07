@@ -1,4 +1,4 @@
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyAQ9V_t1Cv1y-xAk0E5eq6IiyaYWkPJi_w";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 export interface GeminiMessage {

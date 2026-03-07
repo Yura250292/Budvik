@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import AiMarkdown from "./AiMarkdown";
 
 interface Message {
   role: "user" | "assistant";
@@ -86,11 +87,7 @@ export default function AiSupportChat() {
                 ? "bg-orange-600 text-white rounded-br-sm"
                 : "bg-gray-100 text-gray-800 rounded-bl-sm"
             }`}>
-              <div className="whitespace-pre-wrap" dangerouslySetInnerHTML={{
-                __html: msg.content
-                  .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                  .replace(/\n/g, "<br/>")
-              }} />
+              <AiMarkdown content={msg.content} isUser={msg.role === "user"} />
             </div>
           </div>
         ))}

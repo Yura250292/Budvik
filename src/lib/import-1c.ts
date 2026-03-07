@@ -148,7 +148,7 @@ function parseYML(yml: any): CommerceMLResult {
     const price = o["price"] !== undefined ? parseFloat(String(o["price"])) : undefined;
     const stock = o["stock"] !== undefined ? parseInt(String(o["stock"]), 10)
       : o["quantity"] !== undefined ? parseInt(String(o["quantity"]), 10)
-      : o["@_available"] === "true" ? undefined
+      : o["@_available"] === "true" ? 1
       : o["@_available"] === "false" ? 0
       : undefined;
 

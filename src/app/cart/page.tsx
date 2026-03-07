@@ -54,8 +54,9 @@ export default function CartPage() {
       return;
     }
 
+    const order = await res.json();
     clearCart();
-    router.push("/dashboard/orders");
+    router.push(`/cart/checkout/${order.id}`);
   };
 
   if (cart.length === 0) {

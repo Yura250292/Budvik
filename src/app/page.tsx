@@ -9,13 +9,22 @@ import { BRANDS } from "@/lib/brands";
 export default async function HomePage() {
   const [featuredProducts, promoProducts, allProducts] = await Promise.all([
     prisma.product.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        name: { not: { contains: "верстат", mode: "insensitive" } },
+        category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
+      },
       include: { category: true },
       take: 8,
       orderBy: { price: "desc" },
     }),
     prisma.product.findMany({
-      where: { isActive: true, isPromo: true },
+      where: {
+        isActive: true,
+        isPromo: true,
+        name: { not: { contains: "верстат", mode: "insensitive" } },
+        category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
+      },
       include: { category: true },
       orderBy: { updatedAt: "desc" },
       take: 20,

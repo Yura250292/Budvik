@@ -65,9 +65,9 @@ export default function DashboardPage() {
     {
       href: "/catalog",
       title: "Каталог товарів",
-      desc: "Переглянути та замовити інструменти",
+      desc: "Переглянути та замовити",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       ),
@@ -75,9 +75,9 @@ export default function DashboardPage() {
     {
       href: "/dashboard/orders",
       title: "Мої замовлення",
-      desc: "Історія та статуси замовлень",
+      desc: "Історія та статуси",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
         </svg>
       ),
@@ -85,9 +85,9 @@ export default function DashboardPage() {
     {
       href: "/dashboard/loyalty",
       title: "Програма лояльності",
-      desc: "Баланс Болтів та історія транзакцій",
+      desc: "Болти та транзакції",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
         </svg>
       ),
@@ -95,19 +95,19 @@ export default function DashboardPage() {
     {
       href: "/dashboard/wholesale",
       title: role === "WHOLESALE" ? "Оптовий кабінет" : "Стати оптовиком",
-      desc: role === "WHOLESALE" ? "Ваш статус та дані компанії" : "Подати заявку на оптові ціни",
+      desc: role === "WHOLESALE" ? "Статус та дані компанії" : "Заявка на оптові ціни",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
     },
     {
       href: "/ai/wizard",
-      title: "AI Підбір інструментів",
-      desc: "Розумний помічник підбере під ваші потреби",
+      title: "AI Підбір",
+      desc: "Розумний помічник",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
         </svg>
       ),
@@ -118,9 +118,9 @@ export default function DashboardPage() {
     menuItems.push({
       href: "/admin",
       title: "Панель управління",
-      desc: "Адмін-панель та управління",
+      desc: "Адмін-панель",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
@@ -132,9 +132,9 @@ export default function DashboardPage() {
     menuItems.push({
       href: "/ai/analytics",
       title: "AI Аналітика",
-      desc: "Аналіз продажів та рекомендації",
+      desc: "Аналіз продажів",
       icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       ),
@@ -144,11 +144,11 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-1">
           Вітаємо, {session.user.name}!
         </h1>
-        <p className="text-gray-500">
+        <p className="text-gray-500 text-sm">
           {role === "ADMIN" ? "Адміністратор" : role === "SALES" ? "Торговий менеджер" : role === "WHOLESALE" ? "Оптовий покупець" : "Клієнт"}
         </p>
       </div>
@@ -204,41 +204,53 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Menu Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-10">
-        {menuItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
-          >
-            <div className="w-10 h-10 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center mb-3 group-hover:bg-yellow-400 group-hover:text-black transition-colors">
-              {item.icon}
-            </div>
-            <h3 className="font-semibold text-sm text-gray-900 group-hover:text-yellow-600 transition-colors mb-0.5">
-              {item.title}
-            </h3>
-            <p className="text-xs text-gray-400 line-clamp-2">{item.desc}</p>
-          </Link>
-        ))}
+      {/* Функції — gradient section */}
+      <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-2xl p-6 mb-8 shadow-sm">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Функції кабінету</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {menuItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-3.5 py-3 hover:shadow-md hover:border-yellow-400/40 transition-all duration-200 group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center flex-shrink-0 group-hover:bg-yellow-400 group-hover:text-black transition-colors">
+                {item.icon}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-[13px] text-gray-900 group-hover:text-yellow-600 transition-colors leading-tight">
+                  {item.title}
+                </h3>
+                <p className="text-[11px] text-gray-400 truncate">{item.desc}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
 
-      {/* Recommendations - products user never ordered */}
-      <div className="mb-10">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
-            <svg className="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
+      {/* Рекомендації — gradient section */}
+      <div className="bg-gradient-to-br from-yellow-50/80 via-white to-yellow-50/40 border border-yellow-200/50 rounded-2xl p-6 mb-8 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-black to-gray-800 flex items-center justify-center shadow-sm">
+              <svg className="w-4.5 h-4.5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Рекомендовано для вас</h2>
+              <p className="text-[11px] text-gray-400">Топ продажів, які ви ще не замовляли</p>
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-gray-900">Рекомендовано для вас</h2>
-          <span className="text-xs text-gray-400 ml-1">топ продажів, які ви ще не замовляли</span>
+          <Link href="/catalog" className="text-xs text-yellow-600 hover:text-yellow-700 font-medium hover:underline transition hidden sm:block">
+            Весь каталог &rarr;
+          </Link>
         </div>
 
         {loadingRec ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="bg-gray-100 rounded-xl h-52 animate-pulse" />
+              <div key={i} className="bg-white/80 rounded-xl h-52 animate-pulse" />
             ))}
           </div>
         ) : recommended.length > 0 ? (
@@ -247,9 +259,9 @@ export default function DashboardPage() {
               <Link
                 key={product.id}
                 href={`/catalog/${product.slug}`}
-                className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
+                className="bg-white border border-gray-100 rounded-xl overflow-hidden hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
               >
-                <div className="h-32 bg-gray-50 flex items-center justify-center">
+                <div className="h-28 bg-gray-50 flex items-center justify-center">
                   {product.image ? (
                     <img
                       src={product.image}
@@ -258,16 +270,16 @@ export default function DashboardPage() {
                       loading="lazy"
                     />
                   ) : (
-                    <svg className="w-12 h-12 text-gray-300 group-hover:text-yellow-300 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-10 h-10 text-gray-300 group-hover:text-yellow-300 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                     </svg>
                   )}
                 </div>
-                <div className="p-3">
+                <div className="p-2.5">
                   {product.category && (
                     <span className="text-[10px] text-gray-400 uppercase tracking-wide">{product.category.name}</span>
                   )}
-                  <h4 className="font-medium text-sm text-gray-900 group-hover:text-yellow-600 transition line-clamp-2 mt-0.5 mb-2">
+                  <h4 className="font-medium text-xs text-gray-900 group-hover:text-yellow-600 transition line-clamp-2 mt-0.5 mb-1.5">
                     {product.name}
                   </h4>
                   <div className="flex items-center justify-between">
@@ -283,21 +295,24 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center text-gray-400 text-sm">
+          <div className="bg-white/60 border border-gray-200 rounded-xl p-8 text-center text-gray-400 text-sm">
             Поки що немає рекомендацій. Зробіть перше замовлення!
           </div>
         )}
       </div>
 
-      {/* AI Support Chat */}
-      <div>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center">
-            <svg className="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {/* AI Support Chat — gradient section */}
+      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-black rounded-2xl p-6 shadow-lg">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-yellow-400/20 flex items-center justify-center">
+            <svg className="w-4.5 h-4.5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-gray-900">AI Підтримка</h2>
+          <div>
+            <h2 className="text-lg font-bold text-white">AI Підтримка</h2>
+            <p className="text-[11px] text-gray-400">Запитайте про замовлення, доставку або гарантію</p>
+          </div>
         </div>
         <AiSupportChat />
       </div>

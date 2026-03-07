@@ -57,7 +57,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           )}
         </div>
         <div className="p-4">
-          {category && (
+          {category && !/^\d+$/.test(category.name) && (
             <span className="text-xs text-gray-500 mb-1 block">{category.name}</span>
           )}
           <h3 className={`font-semibold mb-1 line-clamp-2 transition ${

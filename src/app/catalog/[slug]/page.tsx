@@ -8,6 +8,7 @@ import Link from "next/link";
 import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
+import ProductDescription from "@/components/ProductDescription";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -30,6 +31,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       id: { not: product.id },
       isActive: true,
     },
+    include: { category: true },
     take: 4,
   });
 
@@ -61,10 +63,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <div>
           <span className="text-sm text-yellow-600 font-medium">{product.category.name}</span>
           <h1 className="text-3xl font-bold text-gray-900 mt-1 mb-4">{product.name}</h1>
-          <div
-            className="text-gray-600 mb-6 leading-relaxed product-description"
-            dangerouslySetInnerHTML={{ __html: product.description }}
-          />
+          <ProductDescription description={product.description} />
 
           <div className="flex items-baseline gap-3 mb-6 flex-wrap">
             <span className={`text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-yellow-600" : "text-gray-900"}`}>
@@ -134,13 +133,37 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       />
 
       {relatedProducts.length > 0 && (
-        <div className="mt-16">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">З цієї категорії</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="mt-10">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-gray-800 to-black flex items-center justify-center shadow-sm">
+              <svg className="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">З цієї категорії</h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {relatedProducts.map((p) => (
-              <Link key={p.id} href={`/catalog/${p.slug}`} className="bg-white border rounded-lg p-4 hover:shadow-md transition">
-                <h3 className="font-medium text-sm text-gray-900 mb-2 line-clamp-2">{p.name}</h3>
-                <span className="text-gray-900 font-bold">{formatPrice(p.price)}</span>
+              <Link
+                key={p.id}
+                href={`/catalog/${p.slug}`}
+                className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
+              >
+                <div className="h-32 bg-gray-50 flex items-center justify-center">
+                  {p.image ? (
+                    <img src={p.image} alt={p.name} className="h-full w-full object-contain p-2" loading="lazy" />
+                  ) : (
+                    <svg className="w-10 h-10 text-gray-300 group-hover:text-yellow-300 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="p-2.5">
+                  <h3 className="font-medium text-xs text-gray-900 group-hover:text-yellow-600 transition line-clamp-2 mb-1.5">
+                    {p.name}
+                  </h3>
+                  <span className="text-sm font-bold text-gray-900">{formatPrice(p.price)}</span>
+                </div>
               </Link>
             ))}
           </div>

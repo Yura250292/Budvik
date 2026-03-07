@@ -7,6 +7,21 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+function extractProductNames(response: string): { cleanResponse: string; productNames: string[] } {
+  const match = response.match(/```products\s*\n([\s\S]*?)```/);
+  if (!match) return { cleanResponse: response, productNames: [] };
+
+  const productNames = match[1]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  // Remove the products block from the response text
+  const cleanResponse = response.replace(/```products\s*\n[\s\S]*?```/, "").trim();
+
+  return { cleanResponse, productNames };
+}
+
 export async function POST(req: Request) {
   try {
     const { message, history = [] } = await req.json();
@@ -15,7 +30,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    // Collect search text from current message + all user messages in history
     const allUserTexts = [
       ...history
         .filter((h: { role: string }) => h.role === "user")
@@ -37,42 +51,53 @@ export async function POST(req: Request) {
       { role: "user", parts: [{ text: message }] },
     ];
 
-    const response = await chatWithGemini(messages, systemPrompt);
+    const rawResponse = await chatWithGemini(messages, systemPrompt);
 
-    // Find products mentioned in the AI response by matching product names
-    const allProducts = await prisma.product.findMany({
-      where: { isActive: true },
-      include: { category: true },
-    });
+    // Parse product names from the AI response
+    const { cleanResponse, productNames } = extractProductNames(rawResponse);
 
-    // Match products that are mentioned in the AI response
-    const responseLower = response.toLowerCase();
-    const mentionedProducts = allProducts
-      .filter((p) => {
-        const nameLower = p.name.toLowerCase();
-        // Check if product name (or significant part) appears in response
-        if (responseLower.includes(nameLower)) return true;
-        // Check for partial match (first 30+ chars of name)
-        if (nameLower.length > 30 && responseLower.includes(nameLower.slice(0, 30))) return true;
-        return false;
-      })
-      .slice(0, 10)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        slug: p.slug,
-        description: stripHtml(p.description || "").slice(0, 200),
-        price: p.price,
-        image: p.image,
-        stock: p.stock,
-        isPromo: p.isPromo,
-        promoPrice: p.promoPrice,
-        promoLabel: p.promoLabel,
-        category: { name: p.category.name, slug: p.category.slug },
-      }));
+    let mentionedProducts: any[] = [];
+
+    if (productNames.length > 0) {
+      // Find products by exact or partial name match
+      const allProducts = await prisma.product.findMany({
+        where: {
+          isActive: true,
+          OR: productNames.map((name) => ({
+            name: { contains: name.slice(0, 30), mode: "insensitive" as const },
+          })),
+        },
+        include: { category: true },
+        take: 20,
+      });
+
+      // Match and order products according to AI's recommendation order
+      mentionedProducts = productNames
+        .map((name) => {
+          const nameLower = name.toLowerCase();
+          return allProducts.find((p) => {
+            const pLower = p.name.toLowerCase();
+            return pLower === nameLower || pLower.includes(nameLower) || nameLower.includes(pLower.slice(0, 30));
+          });
+        })
+        .filter(Boolean)
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          description: stripHtml(p.description || "").slice(0, 200),
+          price: p.price,
+          image: p.image,
+          stock: p.stock,
+          isPromo: p.isPromo,
+          promoPrice: p.promoPrice,
+          promoLabel: p.promoLabel,
+          category: { name: p.category.name, slug: p.category.slug },
+        }));
+    }
 
     return NextResponse.json({
-      response,
+      response: cleanResponse,
       products: mentionedProducts,
     });
   } catch (error: unknown) {

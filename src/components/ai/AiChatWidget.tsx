@@ -1,11 +1,147 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import AiMarkdown from "./AiMarkdown";
+import { formatPrice } from "@/lib/utils";
+
+interface AIProduct {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  price: number;
+  image: string | null;
+  stock: number;
+  isPromo: boolean;
+  promoPrice: number | null;
+  promoLabel: string | null;
+  category: { name: string; slug: string };
+}
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  products?: AIProduct[];
+}
+
+function ProductCard({ product }: { product: AIProduct }) {
+  return (
+    <Link
+      href={`/catalog/${product.slug}`}
+      className="flex gap-3 bg-white border border-gray-200 rounded-lg p-2.5 hover:border-yellow-400 hover:shadow-sm transition group"
+    >
+      <div className="w-14 h-14 bg-gray-100 rounded flex-shrink-0 overflow-hidden">
+        {product.image ? (
+          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <h5 className="text-xs font-medium text-gray-900 line-clamp-2 group-hover:text-yellow-700 transition">
+          {product.name}
+        </h5>
+        <div className="flex items-center gap-2 mt-1">
+          {product.isPromo && product.promoPrice ? (
+            <>
+              <span className="text-xs font-bold text-red-600">{formatPrice(product.promoPrice)}</span>
+              <span className="text-[10px] text-gray-400 line-through">{formatPrice(product.price)}</span>
+            </>
+          ) : (
+            <span className="text-xs font-bold text-gray-900">{formatPrice(product.price)}</span>
+          )}
+        </div>
+        <span className={`text-[10px] ${product.stock > 0 ? "text-green-600" : "text-red-500"}`}>
+          {product.stock > 0 ? `В наявності: ${product.stock} шт` : "Немає в наявності"}
+        </span>
+      </div>
+      <div className="flex items-center flex-shrink-0">
+        <span className="text-yellow-500 group-hover:text-yellow-600 transition">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+function ComparisonTable({ products }: { products: AIProduct[] }) {
+  return (
+    <div className="overflow-x-auto my-2 -mx-1">
+      <table className="w-full text-[10px] border-collapse border border-gray-200 rounded">
+        <thead>
+          <tr className="bg-yellow-50">
+            <th className="border border-gray-200 px-2 py-1.5 text-left font-semibold text-gray-600">Параметр</th>
+            {products.map((p) => (
+              <th key={p.id} className="border border-gray-200 px-2 py-1.5 text-left font-semibold text-gray-700">
+                {p.name.length > 25 ? p.name.slice(0, 25) + "..." : p.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="border border-gray-200 px-2 py-1 font-medium text-gray-600">Фото</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-2 py-1">
+                {p.image ? (
+                  <img src={p.image} alt={p.name} className="w-12 h-12 object-cover rounded" />
+                ) : (
+                  <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center text-gray-300 text-[8px]">Фото</div>
+                )}
+              </td>
+            ))}
+          </tr>
+          <tr className="bg-gray-50">
+            <td className="border border-gray-200 px-2 py-1 font-medium text-gray-600">Ціна</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-2 py-1 font-bold text-gray-900">
+                {p.isPromo && p.promoPrice ? (
+                  <span className="text-red-600">{formatPrice(p.promoPrice)}</span>
+                ) : (
+                  formatPrice(p.price)
+                )}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td className="border border-gray-200 px-2 py-1 font-medium text-gray-600">Категорія</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-2 py-1">{p.category.name}</td>
+            ))}
+          </tr>
+          <tr className="bg-gray-50">
+            <td className="border border-gray-200 px-2 py-1 font-medium text-gray-600">Наявність</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-2 py-1">
+                {p.stock > 0 ? (
+                  <span className="text-green-600">{p.stock} шт</span>
+                ) : (
+                  <span className="text-red-500">Немає</span>
+                )}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td className="border border-gray-200 px-2 py-1 font-medium text-gray-600">Посилання</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-2 py-1">
+                <Link href={`/catalog/${p.slug}`} className="text-yellow-600 hover:underline font-medium">
+                  Перейти
+                </Link>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default function AiChatWidget() {
@@ -13,11 +149,12 @@ export default function AiChatWidget() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [compareProducts, setCompareProducts] = useState<AIProduct[] | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, compareProducts]);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -26,6 +163,7 @@ export default function AiChatWidget() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setLoading(true);
+    setCompareProducts(null);
 
     try {
       const res = await fetch("/api/ai/chat", {
@@ -33,14 +171,18 @@ export default function AiChatWidget() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMessage,
-          history: messages,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
       const data = await res.json();
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.response || data.error || "Помилка" },
+        {
+          role: "assistant",
+          content: data.response || data.error || "Помилка",
+          products: data.products || [],
+        },
       ]);
     } catch {
       setMessages((prev) => [
@@ -80,7 +222,7 @@ export default function AiChatWidget() {
 
       {/* Chat Window */}
       {isOpen && (
-        <div className="fixed bottom-40 md:bottom-22 right-4 z-50 w-[440px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: "550px" }}>
+        <div className="fixed bottom-40 md:bottom-22 right-4 z-50 w-[440px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: "600px" }}>
           {/* Header */}
           <div className="bg-gradient-to-r from-black to-gray-900 text-white px-4 py-3 rounded-t-xl flex items-center gap-3">
             <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
@@ -101,9 +243,11 @@ export default function AiChatWidget() {
                 <p className="mb-4">Запитайте мене про інструменти!</p>
                 <div className="space-y-2">
                   {[
-                    "Який дриль підійде для бетону?",
-                    "Порадь болгарку для дому",
+                    "Потрібен дриль для дому",
+                    "Підбери болгарку",
                     "Що краще: Bosch чи Makita?",
+                    "Шуруповерт акумуляторний до 3000 грн",
+                    "Який інструмент для різки плитки?",
                   ].map((q) => (
                     <button
                       key={q}
@@ -121,19 +265,49 @@ export default function AiChatWidget() {
             )}
 
             {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
-                    msg.role === "user"
-                      ? "bg-black text-white rounded-br-sm"
-                      : "bg-gray-100 text-gray-800 rounded-bl-sm"
-                  }`}
-                >
-                  <AiMarkdown content={msg.content} isUser={msg.role === "user"} />
+              <div key={i}>
+                <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                      msg.role === "user"
+                        ? "bg-black text-white rounded-br-sm"
+                        : "bg-gray-100 text-gray-800 rounded-bl-sm"
+                    }`}
+                  >
+                    <AiMarkdown content={msg.content} isUser={msg.role === "user"} />
+                  </div>
                 </div>
+
+                {/* Product cards for assistant messages */}
+                {msg.role === "assistant" && msg.products && msg.products.length > 0 && (
+                  <div className="mt-2 space-y-1.5 ml-0 max-w-[95%]">
+                    <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Рекомендовані товари:</p>
+                    {msg.products.map((product) => (
+                      <ProductCard key={product.id} product={product} />
+                    ))}
+
+                    {/* Compare button for 2+ products */}
+                    {msg.products.length >= 2 && (
+                      <button
+                        onClick={() => setCompareProducts(
+                          compareProducts && compareProducts[0]?.id === msg.products![0]?.id
+                            ? null
+                            : msg.products!
+                        )}
+                        className="w-full text-center text-xs text-yellow-700 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-lg py-1.5 font-medium transition mt-1"
+                      >
+                        {compareProducts && compareProducts[0]?.id === msg.products[0]?.id
+                          ? "Сховати порівняння"
+                          : `Порівняти ${msg.products.length} товари`}
+                      </button>
+                    )}
+
+                    {/* Comparison table */}
+                    {compareProducts && compareProducts[0]?.id === msg.products[0]?.id && (
+                      <ComparisonTable products={compareProducts} />
+                    )}
+                  </div>
+                )}
               </div>
             ))}
 

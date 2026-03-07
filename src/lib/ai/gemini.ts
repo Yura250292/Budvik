@@ -22,7 +22,7 @@ export async function chatWithGemini(
     contents: messages,
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,
     },
   };
 

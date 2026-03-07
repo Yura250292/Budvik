@@ -27,7 +27,7 @@ export default function AiMarkdown({ content, isUser }: Props) {
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-orange-50">{children}</thead>
+            <thead className="bg-yellow-50">{children}</thead>
           ),
           th: ({ children }) => (
             <th className="border border-gray-300 px-2 py-1.5 text-left font-semibold text-gray-700 text-xs">
@@ -76,7 +76,7 @@ export default function AiMarkdown({ content, isUser }: Props) {
           hr: () => <hr className="my-2 border-gray-300" />,
           // Links
           a: ({ href, children }) => (
-            <a href={href} className="text-orange-600 underline hover:text-orange-700" target="_blank" rel="noopener noreferrer">
+            <a href={href} className="text-yellow-600 underline hover:text-yellow-700" target="_blank" rel="noopener noreferrer">
               {children}
             </a>
           ),

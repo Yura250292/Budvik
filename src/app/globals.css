@@ -119,6 +119,52 @@ input, select, textarea, button {
 .product-description br + br {
   display: none;
 }
+.product-description a {
+  color: #ca8a04;
+  text-decoration: underline;
+}
+.product-description a:hover {
+  color: #a16207;
+}
+.product-description iframe {
+  max-width: 100%;
+  border-radius: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+/* Auto-formatted specs table */
+.product-specs {
+  margin-bottom: 1rem;
+}
+.specs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+.specs-table tr {
+  border-bottom: 1px solid #f3f4f6;
+}
+.specs-table tr:last-child {
+  border-bottom: none;
+}
+.spec-key {
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  width: 40%;
+  vertical-align: top;
+}
+.spec-value {
+  padding: 0.5rem 0;
+  color: #4b5563;
+}
+.product-text {
+  margin-top: 1rem;
+  line-height: 1.75;
+  color: #4b5563;
+}
 
 /* Standalone PWA mode */
 @media all and (display-mode: standalone) {

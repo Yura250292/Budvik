@@ -48,14 +48,14 @@ export default function AiAccessories({ productId }: { productId: string }) {
           <Link
             key={acc.id}
             href={`/catalog/${acc.slug}`}
-            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-orange-300 transition"
+            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-yellow-400 transition"
           >
             <span className="text-xs text-gray-500">{acc.category?.name}</span>
             <h4 className="font-medium text-sm text-gray-900 mt-1 mb-1 line-clamp-2">{acc.name}</h4>
             {acc.reason && (
               <p className="text-xs text-gray-500 mb-2 line-clamp-2">{acc.reason}</p>
             )}
-            <span className="text-orange-600 font-bold text-sm">{formatPrice(acc.price)}</span>
+            <span className="text-gray-900 font-bold text-sm">{formatPrice(acc.price)}</span>
           </Link>
         ))}
       </div>

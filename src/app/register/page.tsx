@@ -56,7 +56,7 @@ export default function RegisterPage() {
       <div className="max-w-md w-full bg-white rounded-xl shadow-md p-8">
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-6">Реєстрація в Budvik</h1>
 
-        <div className="bg-orange-50 text-orange-700 p-3 rounded-lg mb-4 text-sm">
+        <div className="bg-yellow-50 text-yellow-700 border border-yellow-200 p-3 rounded-lg mb-4 text-sm">
           Отримайте 50 Болтів бонусу при реєстрації!
         </div>
 
@@ -72,7 +72,7 @@ export default function RegisterPage() {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
           <div>
@@ -82,7 +82,7 @@ export default function RegisterPage() {
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
           <div>
@@ -91,7 +91,7 @@ export default function RegisterPage() {
               type="tel"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
               placeholder="+380..."
             />
           </div>
@@ -102,7 +102,7 @@ export default function RegisterPage() {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
           <div>
@@ -112,13 +112,13 @@ export default function RegisterPage() {
               value={form.confirmPassword}
               onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-semibold hover:bg-orange-500 transition disabled:opacity-50"
+            className="w-full bg-yellow-400 text-black py-2.5 rounded-lg font-bold hover:bg-yellow-300 transition disabled:opacity-50"
           >
             {loading ? "Реєстрація..." : "Зареєструватися"}
           </button>
@@ -126,7 +126,7 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-gray-600 mt-4">
           Вже є акаунт?{" "}
-          <Link href="/login" className="text-orange-600 hover:underline font-medium">
+          <Link href="/login" className="text-yellow-600 hover:underline font-medium">
             Увійти
           </Link>
         </p>

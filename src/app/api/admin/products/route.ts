@@ -22,9 +22,13 @@ export async function POST(req: Request) {
       slug: slug + "-" + Date.now(),
       description: data.description,
       price: parseFloat(data.price),
+      wholesalePrice: data.wholesalePrice ? parseFloat(data.wholesalePrice) : null,
       stock: parseInt(data.stock),
       categoryId: data.categoryId,
       isActive: true,
+      isPromo: data.isPromo || false,
+      promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
+      promoLabel: data.promoLabel || null,
     },
   });
 
@@ -44,9 +48,13 @@ export async function PUT(req: Request) {
       name: data.name,
       description: data.description,
       price: parseFloat(data.price),
+      wholesalePrice: data.wholesalePrice ? parseFloat(data.wholesalePrice) : null,
       stock: parseInt(data.stock),
       categoryId: data.categoryId,
       isActive: data.isActive,
+      isPromo: data.isPromo ?? false,
+      promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
+      promoLabel: data.promoLabel || null,
     },
   });
 

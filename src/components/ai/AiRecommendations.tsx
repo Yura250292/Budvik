@@ -58,11 +58,11 @@ export default function AiRecommendations({ productId, type, title }: AiRecommen
           <Link
             key={product.id}
             href={`/catalog/${product.slug}`}
-            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-orange-300 transition"
+            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-yellow-400 transition"
           >
             <span className="text-xs text-gray-500">{product.category?.name}</span>
             <h4 className="font-medium text-sm text-gray-900 mt-1 mb-2 line-clamp-2">{product.name}</h4>
-            <span className="text-orange-600 font-bold">{formatPrice(product.price)}</span>
+            <span className="text-gray-900 font-bold">{formatPrice(product.price)}</span>
           </Link>
         ))}
       </div>

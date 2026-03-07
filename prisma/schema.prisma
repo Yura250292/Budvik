@@ -10,7 +10,22 @@ datasource db {
 enum Role {
   ADMIN
   SALES
+  WHOLESALE
   CLIENT
+}
+
+enum WholesaleApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BusinessType {
+  PRODUCTION
+  SHOP
+  SUBDISTRIBUTOR
+  MARKET_POINT
+  OTHER
 }
 
 enum OrderStatus {
@@ -40,6 +55,10 @@ model User {
 
   orders            Order[]
   boltsTransactions BoltsTransaction[]
+  wholesaleApplications WholesaleApplication[]
+
+  companyId String?
+  company   WholesaleCompany? @relation(fields: [companyId], references: [id])
 }
 
 model Category {
@@ -56,10 +75,14 @@ model Product {
   name        String
   slug        String   @unique
   description String
-  price       Float
+  price          Float
+  wholesalePrice Float?
   image       String?
   stock       Int      @default(0)
   isActive    Boolean  @default(true)
+  isPromo     Boolean  @default(false)
+  promoPrice  Float?
+  promoLabel  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -137,4 +160,46 @@ model AiChatHistory {
   role      String
   content   String
   createdAt DateTime @default(now())
+}
+
+model WholesaleCompany {
+  id           String   @id @default(cuid())
+  legalName    String
+  phone        String
+  email        String
+  address      String
+  businessType BusinessType
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  managers     User[]
+  applications WholesaleApplication[]
+}
+
+model WholesaleBrandDiscount {
+  id        String   @id @default(cuid())
+  brand     String   @unique
+  discount  Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WholesaleApplication {
+  id           String                     @id @default(cuid())
+  userId       String
+  companyId    String?
+  legalName    String
+  contactName  String
+  phone        String
+  email        String
+  address      String
+  businessType BusinessType
+  status       WholesaleApplicationStatus @default(PENDING)
+  reviewedBy   String?
+  reviewNote   String?
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id])
+  company WholesaleCompany? @relation(fields: [companyId], references: [id])
 }

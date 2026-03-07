@@ -31,7 +31,7 @@ export default function LoyaltyPage() {
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Програма лояльності &quot;Болти&quot;</h1>
 
       {/* Balance Card */}
-      <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-8 text-white mb-8">
+      <div className="bg-gradient-to-r from-black to-gray-900 rounded-xl p-8 text-white mb-8">
         <p className="text-lg opacity-80 mb-1">Ваш баланс</p>
         <p className="text-5xl font-bold mb-2">{data.balance} Болтів</p>
         <p className="opacity-80">= {formatPrice(data.balance)}</p>
@@ -42,21 +42,21 @@ export default function LoyaltyPage() {
         <h2 className="text-xl font-bold text-gray-900 mb-4">Як працюють Болти?</h2>
         <div className="grid md:grid-cols-3 gap-4">
           <div className="text-center p-4">
-            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <span className="text-xl">1</span>
             </div>
             <h3 className="font-semibold mb-1">Купуйте</h3>
             <p className="text-sm text-gray-500">Робіть покупки у нашому магазині</p>
           </div>
           <div className="text-center p-4">
-            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <span className="text-xl">2</span>
             </div>
             <h3 className="font-semibold mb-1">Отримуйте 5%</h3>
             <p className="text-sm text-gray-500">Кешбек нараховується при доставці</p>
           </div>
           <div className="text-center p-4">
-            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <span className="text-xl">3</span>
             </div>
             <h3 className="font-semibold mb-1">Економте до 30%</h3>

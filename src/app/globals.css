@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f9fafb;
-  --foreground: #171717;
+  --background: #ffffff;
+  --foreground: #0a0a0a;
 }
 
 @theme inline {
@@ -10,8 +10,8 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --color-primary: #f97316;
-  --color-primary-dark: #ea580c;
+  --color-primary: #FBBF24;
+  --color-primary-dark: #D97706;
 }
 
 body {
@@ -21,6 +21,27 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+}
+
+/* Premium card effect */
+.premium-card {
+  border-radius: 1rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+.premium-card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Gold gradient */
+.gold-gradient {
+  background: linear-gradient(135deg, #FBBF24, #D97706);
+}
+
+/* Black premium gradient */
+.black-gradient {
+  background: linear-gradient(135deg, #000000, #1a1a1a);
 }
 
 /* PWA safe areas */

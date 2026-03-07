@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const PAGE_SIZE = 24;
@@ -13,7 +15,7 @@ export async function GET(req: Request) {
   if (category) where.category = { slug: category };
   if (search) where.name = { contains: search, mode: "insensitive" };
 
-  const [products, total] = await Promise.all([
+  const [products, total, session] = await Promise.all([
     prisma.product.findMany({
       where,
       include: { category: true },
@@ -22,12 +24,22 @@ export async function GET(req: Request) {
       take: PAGE_SIZE,
     }),
     prisma.product.count({ where }),
+    getServerSession(authOptions),
   ]);
 
+  const isWholesale = session?.user?.role === "WHOLESALE";
+
+  const mappedProducts = products.map((p) => ({
+    ...p,
+    displayPrice: isWholesale && p.wholesalePrice ? p.wholesalePrice : p.price,
+    hasWholesalePrice: isWholesale && p.wholesalePrice != null,
+  }));
+
   return NextResponse.json({
-    products,
+    products: mappedProducts,
     total,
     page,
     totalPages: Math.ceil(total / PAGE_SIZE),
+    isWholesale,
   });
 }

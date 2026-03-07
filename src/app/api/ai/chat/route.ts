@@ -10,9 +10,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
+    // Collect search text from current message + all user messages in history
+    const allUserTexts = [
+      ...history
+        .filter((h: { role: string }) => h.role === "user")
+        .map((h: { content: string }) => h.content),
+      message,
+    ].join(" ");
+
     const [catalog, searchResults] = await Promise.all([
       getProductCatalogContext(),
-      searchProductsForAI(message),
+      searchProductsForAI(allUserTexts),
     ]);
     const systemPrompt = getSystemPrompt("consultant") + "\n\n" + catalog + searchResults;
 
@@ -29,9 +37,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ response });
   } catch (error: unknown) {
     console.error("AI Chat error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    const isRateLimit = msg.includes("перевантажений") || msg.includes("429");
     return NextResponse.json(
-      { error: "Помилка AI сервісу" },
-      { status: 500 }
+      {
+        error: isRateLimit
+          ? "AI сервіс тимчасово перевантажений. Спробуйте через хвилину."
+          : "Помилка AI сервісу. Спробуйте пізніше.",
+      },
+      { status: isRateLimit ? 429 : 500 }
     );
   }
 }

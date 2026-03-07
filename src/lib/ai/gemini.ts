@@ -32,17 +32,30 @@ export async function chatWithGemini(
     };
   }
 
-  const res = await fetch(
-    `${GEMINI_BASE_URL}/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }
-  );
+  const url = `${GEMINI_BASE_URL}/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const options = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+
+  let res = await fetch(url, options);
+
+  // Auto-retry once on rate limit (429)
+  if (res.status === 429) {
+    const retryAfter = Math.min(
+      parseInt(res.headers.get("retry-after") || "35", 10),
+      40
+    );
+    await new Promise((r) => setTimeout(r, retryAfter * 1000));
+    res = await fetch(url, options);
+  }
 
   if (!res.ok) {
     const err = await res.text();
+    if (res.status === 429) {
+      throw new Error("AI сервіс тимчасово перевантажений. Спробуйте через хвилину.");
+    }
     throw new Error(`Gemini API error: ${res.status} ${err}`);
   }
 

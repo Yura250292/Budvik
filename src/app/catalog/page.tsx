@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import ProductCard from "@/components/ProductCard";
 import Link from "next/link";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogSidebar from "@/components/CatalogSidebar";
 import { groupCategories, extractBrandsFromProducts } from "@/lib/category-tree";
+import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 const PAGE_SIZE = 24;
 
@@ -27,6 +30,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     ];
     delete where.name;
   }
+
+  const session = await getServerSession(authOptions);
+  const isWholesale = session?.user?.role === "WHOLESALE";
+  const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
 
   const [products, total, categories, activeCategory, brandProducts] = await Promise.all([
     prisma.product.findMany({
@@ -84,9 +91,9 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-        <Link href="/" className="hover:text-orange-600">Головна</Link>
+        <Link href="/" className="hover:text-yellow-600">Головна</Link>
         <span>/</span>
-        <Link href="/catalog" className={activeCategory ? "hover:text-orange-600" : "text-gray-900 font-medium"}>
+        <Link href="/catalog" className={activeCategory ? "hover:text-yellow-600" : "text-gray-900 font-medium"}>
           Каталог
         </Link>
         {activeGroup && (
@@ -108,7 +115,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       </h1>
       <p className="text-gray-500 mb-6">
         {total > 0 ? `Знайдено ${total} товарів` : "Товарів не знайдено"}
-        {brand && <span className="ml-2 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-medium">{brand}</span>}
+        {brand && <span className="ml-2 bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-medium">{brand}</span>}
       </p>
 
       {/* AI Smart Search */}
@@ -132,7 +139,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
           {products.length === 0 ? (
             <div className="text-center py-16 text-gray-500">
               <p className="text-lg">Товарів не знайдено</p>
-              <Link href="/catalog" className="text-orange-600 hover:underline mt-2 inline-block">
+              <Link href="/catalog" className="text-yellow-600 hover:underline mt-2 inline-block">
                 Переглянути всі товари
               </Link>
             </div>
@@ -140,7 +147,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {products.map((product) => (
-                  <ProductCard key={product.id} {...product} category={product.category} />
+                  <ProductCard
+                    key={product.id}
+                    {...product}
+                    category={product.category}
+                    wholesalePrice={isWholesale
+                      ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
+                      : undefined
+                    }
+                  />
                 ))}
               </div>
 
@@ -165,7 +180,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                         href={pageUrl(p as number)}
                         className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
                           p === page
-                            ? "bg-orange-600 text-white"
+                            ? "bg-black text-yellow-400"
                             : "border border-gray-300 hover:bg-gray-50"
                         }`}
                       >

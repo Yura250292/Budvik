@@ -35,7 +35,7 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
   PAID: "bg-blue-100 text-blue-800",
   PACKAGING: "bg-purple-100 text-purple-800",
-  IN_TRANSIT: "bg-orange-100 text-orange-800",
+  IN_TRANSIT: "bg-yellow-100 text-yellow-800",
   DELIVERED: "bg-green-100 text-green-800",
   CANCELLED: "bg-red-100 text-red-800",
 };

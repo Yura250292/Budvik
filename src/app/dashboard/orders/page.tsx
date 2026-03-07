@@ -38,7 +38,7 @@ export default function OrdersPage() {
       {orders.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-gray-500 text-lg mb-4">У вас поки немає замовлень</p>
-          <Link href="/catalog" className="bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold">
+          <Link href="/catalog" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg font-semibold">
             Перейти до каталогу
           </Link>
         </div>
@@ -66,12 +66,12 @@ export default function OrdersPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xl font-bold text-orange-600">{formatPrice(order.totalAmount)}</p>
+                  <p className="text-xl font-bold text-gray-900">{formatPrice(order.totalAmount)}</p>
                   {order.boltsUsed > 0 && (
                     <p className="text-xs text-green-600">Використано {order.boltsUsed} Болтів</p>
                   )}
                   {order.boltsEarned > 0 && (
-                    <p className="text-xs text-orange-500">+{order.boltsEarned} Болтів</p>
+                    <p className="text-xs text-yellow-600">+{order.boltsEarned} Болтів</p>
                   )}
                 </div>
               </div>

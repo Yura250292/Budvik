@@ -59,12 +59,14 @@ export default function AdminUsersPage() {
   const roleLabels: Record<string, string> = {
     ADMIN: "Адмін",
     SALES: "Торговий",
+    WHOLESALE: "Оптовик",
     CLIENT: "Клієнт",
   };
 
   const roleColors: Record<string, string> = {
-    ADMIN: "bg-red-100 text-red-700",
+    ADMIN: "bg-black text-yellow-400",
     SALES: "bg-blue-100 text-blue-700",
+    WHOLESALE: "bg-yellow-100 text-yellow-800",
     CLIENT: "bg-green-100 text-green-700",
   };
 
@@ -94,11 +96,11 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук за ім'ям, email або телефоном..."
-            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
           />
         </div>
         <div className="flex gap-2">
-          {["ALL", "CLIENT", "SALES", "ADMIN"].map((r) => (
+          {["ALL", "CLIENT", "WHOLESALE", "SALES", "ADMIN"].map((r) => (
             <button
               key={r}
               onClick={() => setFilterRole(r)}
@@ -141,7 +143,7 @@ export default function AdminUsersPage() {
                   <div>
                     <Link
                       href={`/admin/users/${user.id}`}
-                      className="font-semibold text-gray-900 hover:text-orange-600 transition"
+                      className="font-semibold text-gray-900 hover:text-yellow-600 transition"
                     >
                       {user.name}
                     </Link>
@@ -162,7 +164,7 @@ export default function AdminUsersPage() {
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-gray-400">Болти</p>
-                    <p className="font-bold text-orange-600">{user.boltsBalance}</p>
+                    <p className="font-bold text-yellow-600">{user.boltsBalance}</p>
                   </div>
                   <div className="text-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${roleColors[user.role]}`}>

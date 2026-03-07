@@ -80,13 +80,13 @@ export default function UserProfilePage() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <p className="text-gray-500 text-lg">Користувача не знайдено</p>
-        <Link href="/admin/users" className="text-orange-600 hover:underline mt-2 inline-block">Повернутись</Link>
+        <Link href="/admin/users" className="text-yellow-600 hover:underline mt-2 inline-block">Повернутись</Link>
       </div>
     );
   }
 
-  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", SALES: "Торговий менеджер", CLIENT: "Клієнт" };
-  const roleColors: Record<string, string> = { ADMIN: "bg-red-100 text-red-700", SALES: "bg-blue-100 text-blue-700", CLIENT: "bg-green-100 text-green-700" };
+  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", SALES: "Торговий менеджер", WHOLESALE: "Оптовик", CLIENT: "Клієнт" };
+  const roleColors: Record<string, string> = { ADMIN: "bg-black text-yellow-400", SALES: "bg-blue-100 text-blue-700", WHOLESALE: "bg-yellow-100 text-yellow-800", CLIENT: "bg-green-100 text-green-700" };
 
   const activeOrders = user.orders.filter((o: any) => !["DELIVERED", "CANCELLED"].includes(o.status));
   const completedOrders = user.orders.filter((o: any) => ["DELIVERED", "CANCELLED"].includes(o.status));
@@ -94,7 +94,7 @@ export default function UserProfilePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Back link */}
-      <Link href="/admin/users" className="text-orange-600 hover:underline text-sm mb-4 inline-block">
+      <Link href="/admin/users" className="text-yellow-600 hover:underline text-sm mb-4 inline-block">
         &larr; Назад до списку
       </Link>
 
@@ -103,10 +103,10 @@ export default function UserProfilePage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-              user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : "bg-gray-100"
+              user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : user.role === "WHOLESALE" ? "bg-yellow-100" : "bg-gray-100"
             }`}>
               <span className={`font-bold text-2xl ${
-                user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : "text-gray-700"
+                user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : user.role === "WHOLESALE" ? "text-yellow-700" : "text-gray-700"
               }`}>
                 {user.name.charAt(0).toUpperCase()}
               </span>
@@ -123,11 +123,27 @@ export default function UserProfilePage() {
               {roleLabels[user.role]}
             </span>
             {user.role === "CLIENT" && (
+              <>
+                <button
+                  onClick={() => changeRole("SALES")}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition"
+                >
+                  Зробити торговим
+                </button>
+                <button
+                  onClick={() => changeRole("WHOLESALE")}
+                  className="bg-yellow-400 text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-yellow-300 transition"
+                >
+                  Зробити оптовиком
+                </button>
+              </>
+            )}
+            {user.role === "WHOLESALE" && (
               <button
-                onClick={() => changeRole("SALES")}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition"
+                onClick={() => changeRole("CLIENT")}
+                className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 transition"
               >
-                Зробити торговим
+                Зняти роль оптовика
               </button>
             )}
             {user.role === "SALES" && (
@@ -150,7 +166,7 @@ export default function UserProfilePage() {
         </div>
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-400 uppercase mb-1">Активних</p>
-          <p className="text-2xl font-bold text-orange-600">{user.activeOrders}</p>
+          <p className="text-2xl font-bold text-yellow-600">{user.activeOrders}</p>
         </div>
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-400 uppercase mb-1">Витрачено</p>
@@ -158,7 +174,7 @@ export default function UserProfilePage() {
         </div>
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-400 uppercase mb-1">Болти</p>
-          <p className="text-2xl font-bold text-orange-600">{user.boltsBalance}</p>
+          <p className="text-2xl font-bold text-yellow-600">{user.boltsBalance}</p>
         </div>
         <div className="bg-white border rounded-xl p-4">
           <p className="text-xs text-gray-400 uppercase mb-1">Зареєстрований</p>
@@ -180,7 +196,7 @@ export default function UserProfilePage() {
               onClick={() => setActiveTab(tab.key as any)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition ${
                 activeTab === tab.key
-                  ? "border-orange-600 text-orange-600"
+                  ? "border-yellow-500 text-yellow-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               }`}
             >
@@ -292,7 +308,7 @@ export default function UserProfilePage() {
         <div className="bg-white border rounded-lg">
           <div className="p-4 border-b flex items-center justify-between">
             <h2 className="text-lg font-bold text-gray-900">Історія транзакцій Болтів</h2>
-            <span className="text-orange-600 font-bold">Баланс: {user.boltsBalance} Болтів</span>
+            <span className="text-yellow-600 font-bold">Баланс: {user.boltsBalance} Болтів</span>
           </div>
           {user.boltsTransactions.length === 0 ? (
             <p className="p-8 text-center text-gray-500">Транзакцій немає</p>
@@ -354,18 +370,18 @@ function OrderCard({
         </div>
 
         <div className="flex flex-col items-end gap-2 min-w-[160px]">
-          <span className="text-xl font-bold text-orange-600">{formatPrice(order.totalAmount)}</span>
+          <span className="text-xl font-bold text-yellow-600">{formatPrice(order.totalAmount)}</span>
           {order.boltsUsed > 0 && (
             <span className="text-xs text-green-600">-{order.boltsUsed} Болтів</span>
           )}
           {order.boltsEarned > 0 && (
-            <span className="text-xs text-orange-500">+{order.boltsEarned} кешбек</span>
+            <span className="text-xs text-yellow-600">+{order.boltsEarned} кешбек</span>
           )}
           {showStatusControl && (
             <select
               value={order.status}
               onChange={(e) => onStatusChange(order.id, e.target.value as OrderStatus)}
-              className="mt-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-full"
+              className="mt-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 w-full"
             >
               {ALL_STATUSES.map((s) => (
                 <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>

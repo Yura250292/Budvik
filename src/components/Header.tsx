@@ -19,21 +19,21 @@ export default function Header() {
   const role = (session?.user as any)?.role;
 
   return (
-    <header className="bg-gray-900 text-white shadow-lg sticky top-0 z-50">
+    <header className="bg-black text-white shadow-lg sticky top-0 z-50 border-b border-yellow-400/20">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-14 md:h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl md:text-2xl font-bold text-orange-500">BUDVIK</span>
+            <span className="text-xl md:text-2xl font-bold text-yellow-400">BUDVIK</span>
             <span className="text-xs text-gray-400 hidden sm:block">Iнструменти</span>
           </Link>
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-6">
-            <Link href="/catalog" className="hover:text-orange-400 transition text-sm">
+            <Link href="/catalog" className="hover:text-yellow-400 transition text-sm">
               Каталог
             </Link>
-            <Link href="/ai/wizard" className="hover:text-orange-400 transition text-sm flex items-center gap-1">
+            <Link href="/ai/wizard" className="hover:text-yellow-400 transition text-sm flex items-center gap-1">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
               </svg>
@@ -42,19 +42,19 @@ export default function Header() {
             {session ? (
               <>
                 {(role === "ADMIN" || role === "SALES") && (
-                  <Link href="/admin" className="hover:text-orange-400 transition text-sm">
+                  <Link href="/admin" className="hover:text-yellow-400 transition text-sm">
                     Панель управління
                   </Link>
                 )}
-                <Link href="/dashboard" className="hover:text-orange-400 transition text-sm">
+                <Link href="/dashboard" className="hover:text-yellow-400 transition text-sm">
                   Кабінет
                 </Link>
-                <Link href="/dashboard/orders" className="hover:text-orange-400 transition text-sm">
+                <Link href="/dashboard/orders" className="hover:text-yellow-400 transition text-sm">
                   Замовлення
                 </Link>
                 <Link
                   href="/dashboard/loyalty"
-                  className="flex items-center gap-1 bg-orange-600 px-3 py-1 rounded-full text-sm font-semibold hover:bg-orange-500 transition"
+                  className="flex items-center gap-1 bg-yellow-400 text-black px-3 py-1 rounded-full text-sm font-semibold hover:bg-yellow-300 transition"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -68,12 +68,12 @@ export default function Header() {
           {/* Right side */}
           <div className="flex items-center gap-3">
             {/* Cart - desktop only */}
-            <Link href="/cart" className="relative hover:text-orange-400 transition hidden md:block">
+            <Link href="/cart" className="relative hover:text-yellow-400 transition hidden md:block">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-yellow-400 text-black text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
                   {cartCount}
                 </span>
               )}
@@ -83,7 +83,7 @@ export default function Header() {
             {session && (
               <Link
                 href="/dashboard/loyalty"
-                className="md:hidden flex items-center gap-1 bg-orange-600/90 px-2.5 py-1 rounded-full text-xs font-semibold"
+                className="md:hidden flex items-center gap-1 bg-yellow-400/90 text-black px-2.5 py-1 rounded-full text-xs font-semibold"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -95,20 +95,25 @@ export default function Header() {
             {/* Auth buttons */}
             {session ? (
               <div className="flex items-center gap-2">
-                <span className="text-sm hidden lg:block">{session.user.name}</span>
+                <span className="text-sm hidden lg:block">
+                  {session.user.name}
+                  {role === "WHOLESALE" && (
+                    <span className="ml-1.5 bg-yellow-400 text-black text-[10px] px-1.5 py-0.5 rounded-full font-medium">ОПТ</span>
+                  )}
+                </span>
                 <button
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="text-xs md:text-sm bg-gray-700 px-2.5 md:px-3 py-1.5 rounded hover:bg-gray-600 transition"
+                  className="text-xs md:text-sm bg-gray-800 px-2.5 md:px-3 py-1.5 rounded hover:bg-gray-700 transition border border-gray-700"
                 >
                   Вийти
                 </button>
               </div>
             ) : (
               <div className="hidden md:flex items-center gap-2">
-                <Link href="/login" className="text-sm hover:text-orange-400 transition">
+                <Link href="/login" className="text-sm hover:text-yellow-400 transition">
                   Увійти
                 </Link>
-                <Link href="/register" className="text-sm bg-orange-600 px-3 py-1.5 rounded hover:bg-orange-500 transition">
+                <Link href="/register" className="text-sm bg-yellow-400 text-black px-3 py-1.5 rounded font-semibold hover:bg-yellow-300 transition">
                   Реєстрація
                 </Link>
               </div>

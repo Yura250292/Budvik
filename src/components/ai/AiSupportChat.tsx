@@ -53,7 +53,7 @@ export default function AiSupportChat() {
 
   return (
     <div className="bg-white border rounded-xl overflow-hidden" style={{ height: "500px" }}>
-      <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white px-6 py-4">
+      <div className="bg-gradient-to-r from-black to-gray-900 text-white px-6 py-4">
         <h3 className="font-bold">AI Підтримка</h3>
         <p className="text-sm opacity-80">Запитайте про замовлення, доставку або гарантію</p>
       </div>
@@ -71,7 +71,7 @@ export default function AiSupportChat() {
                 <button
                   key={q}
                   onClick={() => { setInput(q); }}
-                  className="block w-full text-left px-3 py-2 bg-gray-50 rounded-lg hover:bg-orange-50 text-gray-600 text-xs transition"
+                  className="block w-full text-left px-3 py-2 bg-gray-50 rounded-lg hover:bg-yellow-50 text-gray-600 text-xs transition"
                 >
                   {q}
                 </button>
@@ -84,7 +84,7 @@ export default function AiSupportChat() {
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[80%] px-4 py-2 rounded-xl text-sm ${
               msg.role === "user"
-                ? "bg-orange-600 text-white rounded-br-sm"
+                ? "bg-black text-white rounded-br-sm"
                 : "bg-gray-100 text-gray-800 rounded-bl-sm"
             }`}>
               <AiMarkdown content={msg.content} isUser={msg.role === "user"} />
@@ -115,13 +115,13 @@ export default function AiSupportChat() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             placeholder="Ваше питання..."
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
             disabled={loading}
           />
           <button
             onClick={sendMessage}
             disabled={loading || !input.trim()}
-            className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-500 disabled:opacity-50 transition"
+            className="bg-yellow-400 text-black px-4 py-2 rounded-lg hover:bg-yellow-300 disabled:opacity-50 transition"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

@@ -41,7 +41,7 @@ export default function OrderDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <Link href="/dashboard/orders" className="text-orange-600 hover:underline text-sm mb-4 inline-block">
+      <Link href="/dashboard/orders" className="text-yellow-600 hover:underline text-sm mb-4 inline-block">
         &larr; Назад до замовлень
       </Link>
 
@@ -63,7 +63,7 @@ export default function OrderDetailPage() {
                 <div className="flex flex-col items-center">
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                      i <= currentStep ? "bg-orange-500 text-white" : "bg-gray-200 text-gray-500"
+                      i <= currentStep ? "bg-yellow-400 text-black" : "bg-gray-200 text-gray-500"
                     }`}
                   >
                     {i <= currentStep ? "✓" : i + 1}
@@ -73,7 +73,7 @@ export default function OrderDetailPage() {
                   </span>
                 </div>
                 {i < statusSteps.length - 1 && (
-                  <div className={`flex-1 h-1 mx-2 ${i < currentStep ? "bg-orange-500" : "bg-gray-200"}`} />
+                  <div className={`flex-1 h-1 mx-2 ${i < currentStep ? "bg-yellow-400" : "bg-gray-200"}`} />
                 )}
               </div>
             ))}
@@ -106,10 +106,10 @@ export default function OrderDetailPage() {
           )}
           <div className="flex justify-between text-lg font-bold">
             <span>Всього</span>
-            <span className="text-orange-600">{formatPrice(order.totalAmount)}</span>
+            <span className="text-yellow-600">{formatPrice(order.totalAmount)}</span>
           </div>
           {order.boltsEarned > 0 && (
-            <p className="text-sm text-orange-500">Кешбек: +{order.boltsEarned} Болтів</p>
+            <p className="text-sm text-yellow-600">Кешбек: +{order.boltsEarned} Болтів</p>
           )}
         </div>
       </div>

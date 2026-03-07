@@ -15,21 +15,48 @@ export async function getProductCatalogContext(): Promise<string> {
   return context;
 }
 
+// Common stop words that pollute search results
+const STOP_WORDS = new Set([
+  // Ukrainian
+  "що", "які", "яка", "який", "яке", "для", "при", "або", "але", "так",
+  "дай", "дати", "дайте", "покажи", "покажіть", "порівняй", "порівняйте",
+  "топ", "кращі", "краще", "найкращі", "найкращий", "найкраще",
+  "хочу", "потрібно", "потрібен", "потрібна", "треба", "можна", "можеш",
+  "порадь", "порадьте", "підкажи", "підкажіть", "розкажи", "розкажіть",
+  "будь", "ласка", "давай", "давайте", "скільки", "коштує",
+  "допоможи", "допоможіть", "варіант", "варіанти", "варіантів",
+  "між", "межах", "грн", "гривень", "тис", "тисяч", "тисячі",
+  "про", "мені", "мене", "нам", "нас", "цей", "ця", "це", "ці",
+  "той", "та", "те", "ті", "від", "біл", "біля", "під", "над", "без",
+  "ще", "вже", "теж", "також", "тут", "там", "дуже", "трохи",
+  "всі", "усі", "все", "кожен", "інший", "інші", "інша", "ніж",
+  "просто", "саме", "лише", "тільки", "зараз", "сьогодні",
+  "добре", "гарно", "чудово", "окей", "ладно", "зрозумів", "дякую",
+  "привіт", "вітаю", "здрастуйте",
+  // Russian
+  "что", "какой", "какая", "какие", "для", "или", "дай", "покажи",
+  "лучший", "лучшие", "хочу", "нужно", "можно", "подскажи",
+  "сколько", "стоит", "рублей", "тысяч",
+]);
+
 export async function searchProductsForAI(query: string): Promise<string> {
-  // Extract keywords from query (split by spaces, filter short words)
+  // Extract meaningful keywords, filtering stop words
   const keywords = query
     .toLowerCase()
     .replace(/[^\wа-яіїєґ\s]/gi, "")
     .split(/\s+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 
-  if (keywords.length === 0) return "";
+  // Deduplicate
+  const unique = [...new Set(keywords)];
+
+  if (unique.length === 0) return "";
 
   // Search by each keyword with OR
   const products = await prisma.product.findMany({
     where: {
       isActive: true,
-      OR: keywords.flatMap((kw) => [
+      OR: unique.flatMap((kw) => [
         { name: { contains: kw, mode: "insensitive" as const } },
         { description: { contains: kw, mode: "insensitive" as const } },
         { category: { name: { contains: kw, mode: "insensitive" as const } } },

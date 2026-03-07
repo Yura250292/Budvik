@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import AddToCartButton from "./AddToCartButton";
 import Link from "next/link";
 import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
+import ProductImageZoom from "@/components/ProductImageZoom";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -15,6 +18,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   });
 
   if (!product) notFound();
+
+  const session = await getServerSession(authOptions);
+  const isWholesale = session?.user?.role === "WHOLESALE";
+  const basePrice = isWholesale && product.wholesalePrice ? product.wholesalePrice : product.price;
+  const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : basePrice;
 
   const relatedProducts = await prisma.product.findMany({
     where: {
@@ -28,29 +36,51 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <nav className="text-sm text-gray-500 mb-6">
-        <Link href="/catalog" className="hover:text-orange-600">Каталог</Link>
+        <Link href="/catalog" className="hover:text-yellow-600">Каталог</Link>
         {" / "}
-        <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-orange-600">
+        <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-yellow-600">
           {product.category.name}
         </Link>
         {" / "}
         <span className="text-gray-900">{product.name}</span>
       </nav>
 
-      <div className="grid md:grid-cols-2 gap-8">
-        <div className="bg-gray-100 rounded-xl flex items-center justify-center aspect-square">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-          </svg>
-        </div>
+      <div className="grid md:grid-cols-2 gap-8 relative">
+        {product.image ? (
+          <div className="relative">
+            <ProductImageZoom src={product.image} alt={product.name} />
+          </div>
+        ) : (
+          <div className="bg-gray-100 rounded-xl flex items-center justify-center aspect-square">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+          </div>
+        )}
 
         <div>
-          <span className="text-sm text-orange-600 font-medium">{product.category.name}</span>
+          <span className="text-sm text-yellow-600 font-medium">{product.category.name}</span>
           <h1 className="text-3xl font-bold text-gray-900 mt-1 mb-4">{product.name}</h1>
           <p className="text-gray-600 mb-6 leading-relaxed">{product.description}</p>
 
-          <div className="flex items-baseline gap-3 mb-6">
-            <span className="text-4xl font-bold text-orange-600">{formatPrice(product.price)}</span>
+          <div className="flex items-baseline gap-3 mb-6 flex-wrap">
+            <span className={`text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-yellow-600" : "text-gray-900"}`}>
+              {formatPrice(displayPrice)}
+            </span>
+            {product.isPromo && product.promoPrice && product.promoPrice < product.price && (
+              <>
+                <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
+                <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">
+                  {product.promoLabel || `- ${Math.round((1 - product.promoPrice / product.price) * 100)}%`}
+                </span>
+              </>
+            )}
+            {isWholesale && product.wholesalePrice && product.wholesalePrice < product.price && !product.isPromo && (
+              <>
+                <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
+                <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">Оптова ціна</span>
+              </>
+            )}
           </div>
 
           <div className="mb-6">
@@ -70,14 +100,14 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             <AddToCartButton
               productId={product.id}
               name={product.name}
-              price={product.price}
+              price={displayPrice}
               slug={product.slug}
             />
           )}
 
-          <div className="mt-8 bg-orange-50 rounded-lg p-4">
-            <p className="text-sm text-orange-700">
-              Кешбек за цей товар: <strong>{Math.floor(product.price * 0.05)} Болтів</strong>
+          <div className="mt-8 bg-yellow-50 rounded-lg p-4 border border-yellow-100">
+            <p className="text-sm text-yellow-700">
+              Кешбек за цей товар: <strong>{Math.floor(displayPrice * 0.05)} Болтів</strong>
             </p>
           </div>
         </div>
@@ -107,7 +137,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             {relatedProducts.map((p) => (
               <Link key={p.id} href={`/catalog/${p.slug}`} className="bg-white border rounded-lg p-4 hover:shadow-md transition">
                 <h3 className="font-medium text-sm text-gray-900 mb-2 line-clamp-2">{p.name}</h3>
-                <span className="text-orange-600 font-bold">{formatPrice(p.price)}</span>
+                <span className="text-gray-900 font-bold">{formatPrice(p.price)}</span>
               </Link>
             ))}
           </div>

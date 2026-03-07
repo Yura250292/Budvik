@@ -37,7 +37,7 @@ export default function AddToCartButton({ productId, name, price, slug }: {
         className={`flex-1 py-3 rounded-lg font-semibold transition ${
           added
             ? "bg-green-500 text-white"
-            : "bg-orange-600 text-white hover:bg-orange-500"
+            : "bg-yellow-400 text-black font-bold hover:bg-yellow-300 shadow-lg shadow-yellow-400/20"
         }`}
       >
         {added ? "Додано!" : "Додати в кошик"}

@@ -3,13 +3,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BOLTS_CASHBACK_RATE, BOLTS_MAX_USAGE_RATE } from "@/lib/utils";
+import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const where: any = {};
-  if (session.user.role === "CLIENT") {
+  if (session.user.role === "CLIENT" || session.user.role === "WHOLESALE") {
     where.userId = session.user.id;
   }
 
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
   let totalAmount = 0;
   const orderItems: { productId: string; quantity: number; price: number }[] = [];
 
+  const isWholesale = session.user.role === "WHOLESALE";
+  const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
+
   for (const item of items) {
     const product = products.find((p) => p.id === item.productId);
     if (!product) continue;
@@ -52,23 +56,30 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    let itemPrice = isWholesale
+      ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
+      : product.price;
+    if (!isWholesale && product.isPromo && product.promoPrice) {
+      itemPrice = product.promoPrice;
+    }
     orderItems.push({
       productId: product.id,
       quantity: item.quantity,
-      price: product.price,
+      price: itemPrice,
     });
-    totalAmount += product.price * item.quantity;
+    totalAmount += itemPrice * item.quantity;
   }
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   let boltsUsed = 0;
-  if (useBolts && user) {
+  // Wholesale users don't use or earn bolts
+  if (!isWholesale && useBolts && user) {
     const maxBolts = totalAmount * BOLTS_MAX_USAGE_RATE;
     boltsUsed = Math.min(user.boltsBalance, maxBolts);
   }
 
   const finalAmount = totalAmount - boltsUsed;
-  const boltsEarned = Math.floor(finalAmount * BOLTS_CASHBACK_RATE);
+  const boltsEarned = isWholesale ? 0 : Math.floor(finalAmount * BOLTS_CASHBACK_RATE);
 
   const order = await prisma.order.create({
     data: {

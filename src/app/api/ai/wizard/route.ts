@@ -13,8 +13,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // Search for real products matching the task type and budget
-    const searchQuery = `${taskType} ${budget}`;
+    // Map task types to relevant tool keywords for better search
+    const taskKeywords: Record<string, string> = {
+      "Бетон / Цегла / Камінь": "перфоратор дриль бур зубило коронка долото бетон",
+      "Дерево / Фанера / ДСП": "пила лобзик фрезер шліфмашина дриль свердло дерево",
+      "Метал / Профіль / Труби": "болгарка різак зварювання дриль свердло метал труборіз",
+      "Плитка / Кераміка": "плиткоріз болгарка коронка алмазний диск плитка",
+      "Гіпсокартон / Сухі суміші": "шуруповерт міксер рубанок різак гіпсокартон",
+      "Фарбування / Оздоблення": "фарбопульт валик шпатель шліфмашина фарба",
+      "Вимірювання / Розмітка": "рівень рулетка лазерний далекомір кутомір",
+      "Універсальне використання": "дриль шуруповерт болгарка набір інструмент",
+    };
+    const searchTerms = taskKeywords[taskType] || taskType;
+    const searchQuery = `${searchTerms} ${budget}`;
+
     const [catalog, searchResults] = await Promise.all([
       getProductCatalogContext(),
       searchProductsForAI(searchQuery),

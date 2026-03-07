@@ -111,7 +111,7 @@ export async function searchProductsForAI(query: string): Promise<string> {
     },
     include: { category: true },
     orderBy: [{ stock: "desc" }, { price: "asc" }],
-    take: 30,
+    take: 50,
   });
 
   // If price-filtered search returned nothing, try without price filter
@@ -128,18 +128,49 @@ export async function searchProductsForAI(query: string): Promise<string> {
       },
       include: { category: true },
       orderBy: [{ stock: "desc" }, { price: "asc" }],
-      take: 30,
+      take: 50,
     });
   }
 
   if (finalProducts.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
 
-  let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${finalProducts.length} товарів):\n`;
-  for (const p of finalProducts) {
-    const stock = p.stock > 0 ? `В наявності: ${p.stock} шт` : "Немає в наявності";
-    const promo = p.isPromo && p.promoPrice ? ` | Акція: ${p.promoPrice} грн` : "";
-    const desc = stripHtml(p.description || "").slice(0, 150);
-    context += `- [${p.slug}] ${p.name} | ${p.category.name} | Ціна: ${p.price} грн${promo} | ${stock} | ${desc}\n`;
+  // Score products by relevance (how many keywords match in name)
+  const scored = finalProducts.map((p) => {
+    const nameLower = p.name.toLowerCase();
+    const catLower = p.category.name.toLowerCase();
+    let score = 0;
+    for (const kw of unique) {
+      if (nameLower.includes(kw)) score += 3;
+      if (catLower.includes(kw)) score += 2;
+    }
+    if (p.stock > 0) score += 1;
+    return { product: p, score };
+  });
+
+  // Sort by score descending, then by price
+  scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
+
+  // Take top 30 most relevant
+  const topProducts = scored.slice(0, 30);
+
+  // Group by category for better AI understanding
+  const byCategory: Record<string, typeof topProducts> = {};
+  for (const item of topProducts) {
+    const cat = item.product.category.name;
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(item);
+  }
+
+  let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${finalProducts.length}, показано ${topProducts.length} найрелевантніших):\n`;
+
+  for (const [category, items] of Object.entries(byCategory)) {
+    context += `\n📁 ${category} (${items.length} товарів):\n`;
+    for (const { product: p } of items) {
+      const stock = p.stock > 0 ? `✅ ${p.stock} шт` : "❌ Немає";
+      const promo = p.isPromo && p.promoPrice ? ` | 🔥 Акція: ${p.promoPrice} грн` : "";
+      const desc = stripHtml(p.description || "").slice(0, 150);
+      context += `  - ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
+    }
   }
 
   if (priceRange.min || priceRange.max) {
@@ -307,7 +338,10 @@ export function getSystemPrompt(role: string): string {
 - Якщо клієнт просить ТОП-3 — дай рівно 3 товари з повною інформацією
 - Ціни бери ТІЛЬКИ з результатів пошуку, не округлюй і не вигадуй
 - Використовуй emoji для наочності: ✅ ❌ ⚡ 🔧 💰
-- Якщо товар поза бюджетом — позначай це явно`,
+- Якщо товар поза бюджетом — позначай це явно
+- ПОРІВНЮЙ ТІЛЬКИ однотипні товари! Результати пошуку згруповані по категоріях (📁). Порівнюй товари ТІЛЬКИ з однієї категорії. Наприклад, не порівнюй набір викруток з одиночною викруткою, дриль з болгаркою тощо
+- Обирай для порівняння товари схожого призначення, розміру та цінової категорії
+- Якщо рекомендуєш 2-3 товари — обов'язково додай порівняльну таблицю`,
 
     wizard: `Ти — AI-помічник з підбору інструментів BUDVIK.
 Ти розмовляєш українською мовою. Ти експерт з інструментів.
@@ -329,9 +363,10 @@ export function getSystemPrompt(role: string): string {
    - **Переваги:** 2-3 пункти (витягни з характеристик)
    - **Недоліки:** 1-2 пункти
    - **Для кого:** цільова аудиторія
-3. Порівняльна таблиця (markdown)
+3. Порівняльна таблиця (markdown) — порівнюй ТІЛЬКИ однотипні товари з однієї категорії
 4. Фінальна рекомендація з поясненням
 
+ВАЖЛИВО: Порівнюй лише однотипні товари. Результати згруповані по категоріях (📁) — бери товари з однієї категорії.
 Використовуй emoji: ✅ ❌ ⚡ 🔧 💰 🏠 🏗️`,
 
     support: `Ти — AI-помічник підтримки клієнтів BUDVIK.

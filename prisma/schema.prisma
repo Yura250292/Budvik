@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SALES
+  CLIENT
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PACKAGING
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum BoltsType {
+  EARNED
+  SPENT
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String
+  phone         String?
+  role          Role     @default(CLIENT)
+  boltsBalance  Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orders            Order[]
+  boltsTransactions BoltsTransaction[]
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  image    String?
+  products Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  sku         String?  @unique
+  name        String
+  slug        String   @unique
+  description String
+  price       Float
+  image       String?
+  stock       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categoryId String
+  category   Category    @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+  embedding  ProductEmbedding?
+}
+
+model ImportLog {
+  id        String   @id @default(cuid())
+  type      String
+  filename  String
+  status    String
+  created   Int      @default(0)
+  updated   Int      @default(0)
+  skipped   Int      @default(0)
+  errors    Int      @default(0)
+  details   String?
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  userId      String
+  totalAmount Float
+  boltsUsed   Float       @default(0)
+  boltsEarned Float       @default(0)
+  status      OrderStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user  User        @relation(fields: [userId], references: [id])
+  items OrderItem[]
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model BoltsTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Float
+  type        BoltsType
+  orderId     String?
+  description String
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model ProductEmbedding {
+  id          String   @id @default(cuid())
+  productId   String   @unique
+  embedding   String
+  textContent String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model AiChatHistory {
+  id        String   @id @default(cuid())
+  userId    String?
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}

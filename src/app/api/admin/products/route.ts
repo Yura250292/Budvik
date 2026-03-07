@@ -1,0 +1,69 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const data = await req.json();
+  const slug = data.name
+    .toLowerCase()
+    .replace(/[^a-zа-яіїєґ0-9\s]/g, "")
+    .replace(/\s+/g, "-")
+    .substring(0, 50);
+
+  const product = await prisma.product.create({
+    data: {
+      name: data.name,
+      slug: slug + "-" + Date.now(),
+      description: data.description,
+      price: parseFloat(data.price),
+      stock: parseInt(data.stock),
+      categoryId: data.categoryId,
+      isActive: true,
+    },
+  });
+
+  return NextResponse.json(product);
+}
+
+export async function PUT(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const data = await req.json();
+  const product = await prisma.product.update({
+    where: { id: data.id },
+    data: {
+      name: data.name,
+      description: data.description,
+      price: parseFloat(data.price),
+      stock: parseInt(data.stock),
+      categoryId: data.categoryId,
+      isActive: data.isActive,
+    },
+  });
+
+  return NextResponse.json(product);
+}
+
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await req.json();
+  await prisma.product.update({
+    where: { id },
+    data: { isActive: false },
+  });
+
+  return NextResponse.json({ success: true });
+}

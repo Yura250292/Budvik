@@ -19,38 +19,133 @@ interface WizardProduct {
   category: { name: string; slug: string };
 }
 
-const TASK_TYPES = [
-  { value: "concrete", label: "Бетон / Цегла / Камінь", icon: "🧱" },
-  { value: "wood", label: "Дерево / Фанера / ДСП", icon: "🪵" },
-  { value: "metal", label: "Метал / Профіль / Труби", icon: "🔩" },
-  { value: "tile", label: "Плитка / Кераміка", icon: "🏗" },
-  { value: "drywall", label: "Гіпсокартон / Сухі суміші", icon: "🏠" },
-  { value: "painting", label: "Фарбування / Оздоблення", icon: "🎨" },
-  { value: "measuring", label: "Вимірювання / Розмітка", icon: "📐" },
-  { value: "universal", label: "Універсальне використання", icon: "🔧" },
+// Step 1: What category of tool
+const TOOL_CATEGORIES = [
+  { value: "drilling", label: "Свердління / Перфорація", icon: "🔩", tools: "Дрилі, перфоратори, шуруповерти" },
+  { value: "cutting", label: "Різання / Розпил", icon: "🪚", tools: "Болгарки, пили, лобзики" },
+  { value: "grinding", label: "Шліфування / Полірування", icon: "✨", tools: "Шліфмашини, полірувальні машини" },
+  { value: "measuring", label: "Вимірювання / Розмітка", icon: "📐", tools: "Рівні, рулетки, далекоміри" },
+  { value: "welding", label: "Зварювання / Паяння", icon: "⚡", tools: "Зварювальні апарати, паяльники" },
+  { value: "painting", label: "Фарбування / Оздоблення", icon: "🎨", tools: "Фарбопульти, валики, шпателі" },
+  { value: "hand_tools", label: "Ручний інструмент", icon: "🔧", tools: "Ключі, набори, викрутки" },
+  { value: "other", label: "Інше / Не знаю", icon: "❓", tools: "Допоможу визначитись" },
 ];
 
+// Step 2: What material (depends on category)
+const MATERIALS: Record<string, { value: string; label: string }[]> = {
+  drilling: [
+    { value: "concrete", label: "Бетон / Цегла / Камінь" },
+    { value: "wood", label: "Дерево / Фанера / ДСП" },
+    { value: "metal", label: "Метал" },
+    { value: "drywall", label: "Гіпсокартон / Сухі суміші" },
+    { value: "mixed", label: "Різні матеріали" },
+  ],
+  cutting: [
+    { value: "wood", label: "Дерево / Фанера / ДСП" },
+    { value: "metal", label: "Метал / Профіль / Труби" },
+    { value: "concrete", label: "Бетон / Камінь / Плитка" },
+    { value: "mixed", label: "Різні матеріали" },
+  ],
+  grinding: [
+    { value: "wood", label: "Дерево" },
+    { value: "metal", label: "Метал" },
+    { value: "concrete", label: "Бетон / Камінь" },
+    { value: "paint", label: "Фарба / Лак / Покриття" },
+  ],
+  welding: [
+    { value: "thin_metal", label: "Тонкий метал (до 3 мм)" },
+    { value: "thick_metal", label: "Товстий метал (3+ мм)" },
+    { value: "pipes", label: "Труби / Профілі" },
+    { value: "auto", label: "Автомобільні роботи" },
+  ],
+};
+
+// Step 3: Specific tasks (depends on category + material)
+const SPECIFIC_TASKS: Record<string, { value: string; label: string }[]> = {
+  "drilling:concrete": [
+    { value: "small_holes", label: "Невеликі отвори (до 16 мм) — дюбелі, кріплення" },
+    { value: "large_holes", label: "Великі отвори (16+ мм) — коронки, підрозетники" },
+    { value: "demolition", label: "Довбання / демонтаж" },
+    { value: "anchors", label: "Анкера / хімічні болти" },
+  ],
+  "drilling:wood": [
+    { value: "assembly", label: "Збірка меблів / кріплення" },
+    { value: "holes", label: "Свердління отворів" },
+    { value: "screwing", label: "Закручування шурупів / саморізів" },
+  ],
+  "drilling:metal": [
+    { value: "thin", label: "Тонкий метал (листи, профілі)" },
+    { value: "thick", label: "Товстий метал (конструкції)" },
+    { value: "precision", label: "Точні отвори" },
+  ],
+  "cutting:wood": [
+    { value: "straight", label: "Прямий розпил дошок / брусів" },
+    { value: "curved", label: "Фігурний / криволінійний різ" },
+    { value: "trim", label: "Підрізка / торцювання" },
+    { value: "logs", label: "Розпил колод / великих заготовок" },
+  ],
+  "cutting:metal": [
+    { value: "sheets", label: "Листовий метал / профнастил" },
+    { value: "rebar", label: "Арматура / прутки" },
+    { value: "pipes", label: "Труби" },
+    { value: "precise", label: "Точний рівний різ" },
+  ],
+};
+
+// Step 4: Frequency
 const FREQUENCIES = [
-  { value: "home", label: "Для дому (рідко)", sub: "Кілька разів на рік" },
-  { value: "renovation", label: "Ремонт (помірно)", sub: "Кілька разів на місяць" },
-  { value: "professional", label: "Професійне (щоденно)", sub: "Кожен робочий день" },
+  { value: "rare", label: "Рідко — кілька разів на рік", sub: "Для дому, дрібні роботи" },
+  { value: "moderate", label: "Помірно — кілька разів на місяць", sub: "Ремонт, хобі, дача" },
+  { value: "frequent", label: "Часто — кілька разів на тиждень", sub: "Серйозні проекти" },
+  { value: "daily", label: "Щоденно — професійне використання", sub: "На роботі, на об'єктах" },
 ];
 
+// Step 5: Power source
+const POWER_SOURCES = [
+  { value: "corded", label: "Мережевий (220В)", sub: "Більша потужність, без обмежень по заряду" },
+  { value: "cordless", label: "Акумуляторний", sub: "Мобільність, зручність, без проводів" },
+  { value: "any", label: "Не має значення", sub: "Покажіть обидва варіанти" },
+];
+
+// Step 6: Brand preference
+const BRAND_PREFERENCES = [
+  { value: "bosch", label: "Bosch" },
+  { value: "makita", label: "Makita" },
+  { value: "dewalt", label: "DeWalt" },
+  { value: "milwaukee", label: "Milwaukee" },
+  { value: "yato", label: "YATO" },
+  { value: "sigma", label: "SIGMA" },
+  { value: "dnipro-m", label: "Dnipro-M" },
+  { value: "any", label: "Без переваг — покажіть найкращі" },
+];
+
+// Step 7: Budget
 const BUDGETS = [
-  { value: "до 1000 грн", label: "До 1000 грн" },
-  { value: "1000-3000 грн", label: "1000 - 3000 грн" },
-  { value: "3000-6000 грн", label: "3000 - 6000 грн" },
-  { value: "6000-10000 грн", label: "6000 - 10000 грн" },
-  { value: "більше 10000 грн", label: "Більше 10000 грн" },
+  { value: "до 1000 грн", label: "До 1000 грн", sub: "Базовий" },
+  { value: "1000-2500 грн", label: "1000 - 2500 грн", sub: "Середній" },
+  { value: "2500-5000 грн", label: "2500 - 5000 грн", sub: "Хороший" },
+  { value: "5000-10000 грн", label: "5000 - 10 000 грн", sub: "Преміум" },
+  { value: "більше 10000 грн", label: "Більше 10 000 грн", sub: "Професійний" },
 ];
 
-function ProductComparisonCard({ product, highlights }: { product: WizardProduct; highlights?: string[] }) {
+// Step 8: Additional requirements
+const ADDITIONAL_FEATURES = [
+  { value: "lightweight", label: "Легкий / компактний" },
+  { value: "powerful", label: "Максимальна потужність" },
+  { value: "quiet", label: "Тихий в роботі" },
+  { value: "warranty", label: "Тривала гарантія" },
+  { value: "accessories", label: "Багатий комплект (кейс, насадки)" },
+  { value: "ergonomic", label: "Зручний хват / ергономіка" },
+  { value: "dust", label: "Пиловідведення" },
+  { value: "none", label: "Без особливих вимог" },
+];
+
+function ProductComparisonCard({ product }: { product: WizardProduct }) {
   const [expanded, setExpanded] = useState(false);
   const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : product.price;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-yellow-400 hover:shadow-lg transition-all flex flex-col">
-      {/* Image */}
       <Link href={`/catalog/${product.slug}`} className="block">
         <div className="h-48 bg-gray-50 flex items-center justify-center overflow-hidden">
           {product.image ? (
@@ -62,14 +157,10 @@ function ProductComparisonCard({ product, highlights }: { product: WizardProduct
           )}
         </div>
       </Link>
-
-      {/* Content */}
       <div className="p-4 flex flex-col flex-1">
         <Link href={`/catalog/${product.slug}`} className="hover:text-yellow-600 transition">
           <h3 className="font-bold text-sm text-gray-900 line-clamp-2 mb-2">{product.name}</h3>
         </Link>
-
-        {/* Price */}
         <div className="flex items-baseline gap-2 mb-2">
           <span className={`text-xl font-bold ${product.isPromo && product.promoPrice ? "text-red-600" : "text-gray-900"}`}>
             {formatPrice(displayPrice)}
@@ -78,8 +169,6 @@ function ProductComparisonCard({ product, highlights }: { product: WizardProduct
             <span className="text-sm text-gray-400 line-through">{formatPrice(product.price)}</span>
           )}
         </div>
-
-        {/* Stock */}
         <div className="mb-3">
           {product.stock > 0 ? (
             <span className="inline-flex items-center gap-1 text-green-600 text-xs font-medium">
@@ -92,42 +181,20 @@ function ProductComparisonCard({ product, highlights }: { product: WizardProduct
             <span className="text-red-500 text-xs font-medium">Немає в наявності</span>
           )}
         </div>
-
-        {/* Description */}
         {product.description && (
           <div className="mb-3">
             <p className={`text-xs text-gray-500 leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
               {product.description}
             </p>
             {product.description.length > 100 && (
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="text-xs text-yellow-600 hover:text-yellow-700 mt-1 font-medium"
-              >
+              <button onClick={() => setExpanded(!expanded)} className="text-xs text-yellow-600 hover:text-yellow-700 mt-1 font-medium">
                 {expanded ? "Згорнути" : "Детальніше..."}
               </button>
             )}
           </div>
         )}
-
-        {/* Highlights */}
-        {highlights && highlights.length > 0 && (
-          <ul className="space-y-1 mb-3">
-            {highlights.map((h, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600">
-                <span className="text-yellow-500 mt-0.5 flex-shrink-0">+</span>
-                {h}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {/* Link */}
         <div className="mt-auto pt-2">
-          <Link
-            href={`/catalog/${product.slug}`}
-            className="block w-full text-center bg-yellow-400 hover:bg-yellow-300 text-black py-2 rounded-lg text-sm font-semibold transition"
-          >
+          <Link href={`/catalog/${product.slug}`} className="block w-full text-center bg-yellow-400 hover:bg-yellow-300 text-black py-2 rounded-lg text-sm font-semibold transition">
             Переглянути товар
           </Link>
         </div>
@@ -161,11 +228,7 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
                   {p.image ? (
                     <img src={p.image} alt={p.name} className="w-20 h-20 object-contain rounded mx-auto hover:scale-110 transition-transform" />
                   ) : (
-                    <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-gray-300 mx-auto">
-                      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
+                    <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-gray-300 mx-auto">Фото</div>
                   )}
                 </Link>
               </td>
@@ -176,11 +239,7 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
             {products.map((p) => (
               <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
                 {p.isPromo && p.promoPrice ? (
-                  <div>
-                    <span className="text-lg font-bold text-red-600">{formatPrice(p.promoPrice)}</span>
-                    <br />
-                    <span className="text-xs text-gray-400 line-through">{formatPrice(p.price)}</span>
-                  </div>
+                  <div><span className="text-lg font-bold text-red-600">{formatPrice(p.promoPrice)}</span><br /><span className="text-xs text-gray-400 line-through">{formatPrice(p.price)}</span></div>
                 ) : (
                   <span className="text-lg font-bold text-gray-900">{formatPrice(p.price)}</span>
                 )}
@@ -199,11 +258,7 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
             <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Наявність</td>
             {products.map((p) => (
               <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
-                {p.stock > 0 ? (
-                  <span className="text-green-600 font-medium">{p.stock} шт</span>
-                ) : (
-                  <span className="text-red-500 font-medium">Немає</span>
-                )}
+                {p.stock > 0 ? <span className="text-green-600 font-medium">{p.stock} шт</span> : <span className="text-red-500 font-medium">Немає</span>}
               </td>
             ))}
           </tr>
@@ -219,10 +274,7 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
             <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Дія</td>
             {products.map((p) => (
               <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
-                <Link
-                  href={`/catalog/${p.slug}`}
-                  className="inline-block bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-lg text-sm font-semibold transition"
-                >
+                <Link href={`/catalog/${p.slug}`} className="inline-block bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-lg text-sm font-semibold transition">
                   Перейти
                 </Link>
               </td>
@@ -234,35 +286,95 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
   );
 }
 
+const TOTAL_STEPS = 7;
+
 export default function WizardPage() {
   const [step, setStep] = useState(1);
-  const [taskType, setTaskType] = useState("");
+  const [toolCategory, setToolCategory] = useState("");
+  const [material, setMaterial] = useState("");
+  const [specificTask, setSpecificTask] = useState("");
   const [frequency, setFrequency] = useState("");
+  const [powerSource, setPowerSource] = useState("");
+  const [brandPref, setBrandPref] = useState("");
   const [budget, setBudget] = useState("");
+  const [additionalFeatures, setAdditionalFeatures] = useState<string[]>([]);
   const [result, setResult] = useState("");
   const [products, setProducts] = useState<WizardProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
 
+  // Determine which steps to show based on category
+  const hasMaterialStep = !!MATERIALS[toolCategory];
+  const hasTaskStep = !!SPECIFIC_TASKS[`${toolCategory}:${material}`];
+  const hasPowerStep = ["drilling", "cutting", "grinding"].includes(toolCategory);
+
+  // Calculate actual step mapping
+  const getStepContent = (currentStep: number) => {
+    const steps: string[] = ["category"];
+    if (hasMaterialStep) steps.push("material");
+    if (hasTaskStep) steps.push("task");
+    steps.push("frequency");
+    if (hasPowerStep) steps.push("power");
+    steps.push("brand", "budget", "features");
+    return steps[currentStep - 1] || "category";
+  };
+
+  const getTotalSteps = () => {
+    let count = 4; // category + frequency + brand + budget + features
+    if (hasMaterialStep) count++;
+    if (hasTaskStep) count++;
+    if (hasPowerStep) count++;
+    return count + 1; // +1 for features
+  };
+
+  const currentContent = getStepContent(step);
+  const totalSteps = getTotalSteps();
+
+  const goNext = () => setStep((s) => s + 1);
+  const goBack = () => setStep((s) => Math.max(1, s - 1));
+
+  const handleCategorySelect = (value: string) => {
+    setToolCategory(value);
+    setMaterial("");
+    setSpecificTask("");
+    setPowerSource("");
+    goNext();
+  };
+
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      const categoryLabel = TOOL_CATEGORIES.find((t) => t.value === toolCategory)?.label || toolCategory;
+      const materialLabel = MATERIALS[toolCategory]?.find((m) => m.value === material)?.label || material;
+      const taskLabel = SPECIFIC_TASKS[`${toolCategory}:${material}`]?.find((t) => t.value === specificTask)?.label || specificTask;
+      const frequencyLabel = FREQUENCIES.find((f) => f.value === frequency)?.label || frequency;
+      const powerLabel = POWER_SOURCES.find((p) => p.value === powerSource)?.label || powerSource;
+      const brandLabel = BRAND_PREFERENCES.find((b) => b.value === brandPref)?.label || brandPref;
+      const featuresLabels = additionalFeatures
+        .filter((f) => f !== "none")
+        .map((f) => ADDITIONAL_FEATURES.find((af) => af.value === f)?.label || f);
+
       const res = await fetch("/api/ai/wizard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskType: TASK_TYPES.find((t) => t.value === taskType)?.label || taskType,
-          frequency: FREQUENCIES.find((f) => f.value === frequency)?.label || frequency,
+          toolCategory: categoryLabel,
+          material: materialLabel,
+          specificTask: taskLabel,
+          frequency: frequencyLabel,
+          powerSource: powerLabel,
+          brand: brandLabel,
           budget,
+          additionalFeatures: featuresLabels.join(", "),
         }),
       });
       const data = await res.json();
       setResult(data.response || data.error || "Помилка");
       setProducts(data.products || []);
-      setStep(4);
+      setStep(99); // results
     } catch {
       setResult("Помилка з'єднання з AI");
-      setStep(4);
+      setStep(99);
     } finally {
       setLoading(false);
     }
@@ -270,117 +382,260 @@ export default function WizardPage() {
 
   const reset = () => {
     setStep(1);
-    setTaskType("");
+    setToolCategory("");
+    setMaterial("");
+    setSpecificTask("");
     setFrequency("");
+    setPowerSource("");
+    setBrandPref("");
     setBudget("");
+    setAdditionalFeatures([]);
     setResult("");
     setProducts([]);
     setShowComparison(false);
   };
 
+  const toggleFeature = (value: string) => {
+    if (value === "none") {
+      setAdditionalFeatures(["none"]);
+      return;
+    }
+    setAdditionalFeatures((prev) => {
+      const filtered = prev.filter((f) => f !== "none");
+      return filtered.includes(value) ? filtered.filter((f) => f !== value) : [...filtered, value];
+    });
+  };
+
+  // Summary of selections so far
+  const renderSummary = () => {
+    const items: { label: string; value: string }[] = [];
+    if (toolCategory) items.push({ label: "Категорія", value: TOOL_CATEGORIES.find((t) => t.value === toolCategory)?.label || "" });
+    if (material) items.push({ label: "Матеріал", value: MATERIALS[toolCategory]?.find((m) => m.value === material)?.label || "" });
+    if (specificTask) items.push({ label: "Задача", value: SPECIFIC_TASKS[`${toolCategory}:${material}`]?.find((t) => t.value === specificTask)?.label || "" });
+    if (frequency) items.push({ label: "Частота", value: FREQUENCIES.find((f) => f.value === frequency)?.label || "" });
+    if (powerSource && hasPowerStep) items.push({ label: "Живлення", value: POWER_SOURCES.find((p) => p.value === powerSource)?.label || "" });
+    if (brandPref) items.push({ label: "Бренд", value: BRAND_PREFERENCES.find((b) => b.value === brandPref)?.label || "" });
+    if (budget) items.push({ label: "Бюджет", value: budget });
+
+    if (items.length === 0) return null;
+
+    return (
+      <div className="mb-6 bg-gray-50 rounded-lg p-3 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span key={item.label} className="text-xs bg-white border border-gray-200 rounded-full px-3 py-1 text-gray-600">
+            <span className="font-medium text-gray-800">{item.label}:</span> {item.value}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">AI Підбір інструментів</h1>
-      <p className="text-gray-500 mb-8">Відповідайте на питання, і AI підбере найкращі інструменти для вас</p>
+      <p className="text-gray-500 mb-6">Відповідайте на питання — AI підбере найкращий інструмент саме для вас</p>
 
-      {/* Progress */}
-      {step <= 3 && (
-        <div className="flex items-center mb-8">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center flex-1">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                step >= s ? "bg-yellow-400 text-black" : "bg-gray-200 text-gray-500"
-              }`}>
-                {step > s ? (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  s
-                )}
-              </div>
-              {s < 3 && <div className={`flex-1 h-1 mx-2 rounded ${step > s ? "bg-yellow-400" : "bg-gray-200"}`} />}
-            </div>
-          ))}
+      {/* Progress bar */}
+      {step < 99 && (
+        <div className="mb-6">
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Крок {Math.min(step, totalSteps)} з {totalSteps}</span>
+            <span>{Math.round((Math.min(step, totalSteps) / totalSteps) * 100)}%</span>
+          </div>
+          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-yellow-400 rounded-full transition-all duration-300"
+              style={{ width: `${(Math.min(step, totalSteps) / totalSteps) * 100}%` }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Step 1: Task Type */}
-      {step === 1 && (
+      {/* Summary */}
+      {step > 1 && step < 99 && renderSummary()}
+
+      {/* Step: Tool Category */}
+      {currentContent === "category" && step < 99 && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Який тип роботи?</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {TASK_TYPES.map((t) => (
+          <h2 className="text-xl font-semibold mb-1">Що шукаєте?</h2>
+          <p className="text-sm text-gray-500 mb-4">Оберіть тип інструменту</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {TOOL_CATEGORIES.map((t) => (
               <button
                 key={t.value}
-                onClick={() => { setTaskType(t.value); setStep(2); }}
-                className={`p-4 rounded-lg border-2 text-left transition flex items-center gap-3 ${
-                  taskType === t.value
-                    ? "border-yellow-400 bg-yellow-50"
-                    : "border-gray-200 hover:border-yellow-300"
+                onClick={() => handleCategorySelect(t.value)}
+                className="p-4 rounded-xl border-2 text-left transition flex items-start gap-3 border-gray-200 hover:border-yellow-400 hover:bg-yellow-50"
+              >
+                <span className="text-2xl mt-0.5">{t.icon}</span>
+                <div>
+                  <span className="font-semibold text-gray-900 block">{t.label}</span>
+                  <span className="text-xs text-gray-500">{t.tools}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step: Material */}
+      {currentContent === "material" && step < 99 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-1">З яким матеріалом працюєте?</h2>
+          <p className="text-sm text-gray-500 mb-4">Це допоможе підібрати правильний тип</p>
+          <div className="grid grid-cols-1 gap-3">
+            {(MATERIALS[toolCategory] || []).map((m) => (
+              <button
+                key={m.value}
+                onClick={() => { setMaterial(m.value); setSpecificTask(""); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-left transition font-medium ${
+                  material === m.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
                 }`}
               >
-                <span className="text-2xl">{t.icon}</span>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+        </div>
+      )}
+
+      {/* Step: Specific Task */}
+      {currentContent === "task" && step < 99 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-1">Яка конкретна задача?</h2>
+          <p className="text-sm text-gray-500 mb-4">Уточніть, що саме будете робити</p>
+          <div className="grid grid-cols-1 gap-3">
+            {(SPECIFIC_TASKS[`${toolCategory}:${material}`] || []).map((t) => (
+              <button
+                key={t.value}
+                onClick={() => { setSpecificTask(t.value); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-left transition ${
+                  specificTask === t.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                }`}
+              >
                 <span className="font-medium text-gray-900">{t.label}</span>
               </button>
             ))}
           </div>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
         </div>
       )}
 
-      {/* Step 2: Frequency */}
-      {step === 2 && (
+      {/* Step: Frequency */}
+      {currentContent === "frequency" && step < 99 && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Як часто будете використовувати?</h2>
+          <h2 className="text-xl font-semibold mb-1">Як часто будете використовувати?</h2>
+          <p className="text-sm text-gray-500 mb-4">Від цього залежить клас інструменту</p>
           <div className="grid grid-cols-1 gap-3">
             {FREQUENCIES.map((f) => (
               <button
                 key={f.value}
-                onClick={() => { setFrequency(f.value); setStep(3); }}
-                className={`p-4 rounded-lg border-2 text-left transition ${
-                  frequency === f.value
-                    ? "border-yellow-400 bg-yellow-50"
-                    : "border-gray-200 hover:border-yellow-300"
+                onClick={() => { setFrequency(f.value); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-left transition ${
+                  frequency === f.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
                 }`}
               >
-                <span className="font-medium text-gray-900">{f.label}</span>
-                <span className="block text-sm text-gray-500 mt-0.5">{f.sub}</span>
+                <span className="font-semibold text-gray-900">{f.label}</span>
+                <span className="block text-xs text-gray-500 mt-0.5">{f.sub}</span>
               </button>
             ))}
           </div>
-          <button onClick={() => setStep(1)} className="mt-4 text-gray-500 hover:text-gray-700">
-            ← Назад
-          </button>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
         </div>
       )}
 
-      {/* Step 3: Budget */}
-      {step === 3 && (
+      {/* Step: Power Source */}
+      {currentContent === "power" && step < 99 && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Ваш бюджет?</h2>
+          <h2 className="text-xl font-semibold mb-1">Мережевий чи акумуляторний?</h2>
+          <p className="text-sm text-gray-500 mb-4">Тип живлення інструменту</p>
+          <div className="grid grid-cols-1 gap-3">
+            {POWER_SOURCES.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => { setPowerSource(p.value); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-left transition ${
+                  powerSource === p.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                }`}
+              >
+                <span className="font-semibold text-gray-900">{p.label}</span>
+                <span className="block text-xs text-gray-500 mt-0.5">{p.sub}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+        </div>
+      )}
+
+      {/* Step: Brand */}
+      {currentContent === "brand" && step < 99 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-1">Переваги по бренду?</h2>
+          <p className="text-sm text-gray-500 mb-4">Чи є улюблений виробник?</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {BRAND_PREFERENCES.map((b) => (
+              <button
+                key={b.value}
+                onClick={() => { setBrandPref(b.value); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-center transition font-medium ${
+                  brandPref === b.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                } ${b.value === "any" ? "col-span-2 sm:col-span-4" : ""}`}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+        </div>
+      )}
+
+      {/* Step: Budget */}
+      {currentContent === "budget" && step < 99 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-1">Ваш бюджет?</h2>
+          <p className="text-sm text-gray-500 mb-4">Скільки готові витратити</p>
           <div className="grid grid-cols-1 gap-3">
             {BUDGETS.map((b) => (
               <button
                 key={b.value}
-                onClick={() => { setBudget(b.value); }}
-                className={`p-4 rounded-lg border-2 text-left transition ${
-                  budget === b.value
-                    ? "border-yellow-400 bg-yellow-50"
-                    : "border-gray-200 hover:border-yellow-300"
+                onClick={() => { setBudget(b.value); goNext(); }}
+                className={`p-4 rounded-xl border-2 text-left transition flex justify-between items-center ${
+                  budget === b.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
                 }`}
               >
-                <span className="font-medium text-gray-900">{b.label}</span>
+                <span className="font-semibold text-gray-900">{b.label}</span>
+                <span className="text-xs text-gray-400">{b.sub}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+        </div>
+      )}
+
+      {/* Step: Additional Features */}
+      {currentContent === "features" && step < 99 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-1">Додаткові вимоги?</h2>
+          <p className="text-sm text-gray-500 mb-4">Оберіть що важливо (можна кілька)</p>
+          <div className="grid grid-cols-2 gap-3">
+            {ADDITIONAL_FEATURES.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => toggleFeature(f.value)}
+                className={`p-4 rounded-xl border-2 text-left transition font-medium ${
+                  additionalFeatures.includes(f.value) ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                } ${f.value === "none" ? "col-span-2" : ""}`}
+              >
+                {f.label}
               </button>
             ))}
           </div>
           <div className="mt-6 flex justify-between">
-            <button onClick={() => setStep(2)} className="text-gray-500 hover:text-gray-700">
-              ← Назад
-            </button>
+            <button onClick={goBack} className="text-sm text-gray-500 hover:text-gray-700">← Назад</button>
             <button
               onClick={handleSubmit}
-              disabled={!budget || loading}
-              className="bg-yellow-400 text-black px-8 py-3 rounded-lg hover:bg-yellow-300 disabled:opacity-50 font-semibold transition"
+              disabled={loading}
+              className="bg-yellow-400 text-black px-8 py-3 rounded-xl hover:bg-yellow-300 disabled:opacity-50 font-semibold transition"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -395,20 +650,20 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* Loading */}
-      {loading && step === 3 && (
+      {/* Loading overlay */}
+      {loading && (
         <div className="mt-8 text-center">
           <div className="animate-spin w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-gray-500">AI аналізує каталог та підбирає найкращі варіанти...</p>
+          <p className="text-gray-500">AI аналізує ваші потреби та каталог...</p>
+          <p className="text-xs text-gray-400 mt-1">Це може зайняти 10-20 секунд</p>
         </div>
       )}
 
-      {/* Step 4: Results */}
-      {step === 4 && (
+      {/* Results */}
+      {step === 99 && (
         <div>
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Результати AI підбору</h2>
 
-          {/* Product cards grid */}
           {products.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
@@ -425,14 +680,12 @@ export default function WizardPage() {
                 )}
               </div>
 
-              {/* Product cards */}
               <div className={`grid gap-4 ${products.length === 1 ? "grid-cols-1 max-w-sm" : products.length === 2 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"}`}>
                 {products.map((product) => (
                   <ProductComparisonCard key={product.id} product={product} />
                 ))}
               </div>
 
-              {/* Comparison table */}
               {showComparison && products.length >= 2 && (
                 <div className="mt-6 bg-white border border-gray-200 rounded-xl p-4">
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">Порівняння товарів</h3>
@@ -442,7 +695,6 @@ export default function WizardPage() {
             </div>
           )}
 
-          {/* AI text analysis */}
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center">
@@ -455,10 +707,7 @@ export default function WizardPage() {
             <AiMarkdown content={result} />
           </div>
 
-          <button
-            onClick={reset}
-            className="mt-6 bg-yellow-400 text-black px-6 py-3 rounded-lg hover:bg-yellow-300 font-semibold transition"
-          >
+          <button onClick={reset} className="mt-6 bg-yellow-400 text-black px-6 py-3 rounded-xl hover:bg-yellow-300 font-semibold transition">
             Підібрати ще раз
           </button>
         </div>

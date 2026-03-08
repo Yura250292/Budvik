@@ -143,15 +143,18 @@ export async function searchProductsForAI(query: string): Promise<string> {
       if (nameLower.includes(kw)) score += 3;
       if (catLower.includes(kw)) score += 2;
     }
-    if (p.stock > 0) score += 1;
+    // Heavily prioritize in-stock items
+    if (p.stock > 0) score += 20;
     return { product: p, score };
   });
 
   // Sort by score descending, then by price
   scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
-  // Take top 30 most relevant
-  const topProducts = scored.slice(0, 30);
+  // Prefer in-stock: take up to 25 in-stock first, fill remaining with out-of-stock
+  const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
+  const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
+  const topProducts = [...inStock, ...outOfStock].slice(0, 30);
 
   // Group by category for better AI understanding
   const byCategory: Record<string, typeof topProducts> = {};
@@ -163,6 +166,7 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
   let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${finalProducts.length}, показано ${topProducts.length} найрелевантніших):\n`;
   context += `УВАГА: Використовуй ТІЛЬКИ товари з цього списку. Копіюй назви ТОЧНО як написано.\n`;
+  context += `ВАЖЛИВО: Рекомендуй ТІЛЬКИ товари з позначкою ✅ (в наявності). Товари з ❌ (немає) — НЕ рекомендуй, якщо є альтернативи в наявності.\n`;
 
   for (const [category, items] of Object.entries(byCategory)) {
     context += `\n📁 ${category} (${items.length} товарів):\n`;
@@ -340,6 +344,7 @@ export function getSystemPrompt(role: string): string {
 - Рекомендувати товари з інтернету
 - Задавати більше 1 уточнюючого питання
 - Відповідати без товарів якщо вони є в результатах пошуку
+- Рекомендувати товари яких НЕМАЄ В НАЯВНОСТІ (❌), якщо є альтернативи в наявності (✅)
 - Якщо питання не про інструменти — ввічливо поверни до теми магазину`,
 
     wizard: `Ти — AI-помічник з підбору інструментів магазину BUDVIK.
@@ -382,7 +387,8 @@ export function getSystemPrompt(role: string): string {
 - Вигадувати товари яких немає в результатах пошуку
 - Писати ціни яких немає в результатах
 - Рекомендувати товари з інтернету
-- Додавати моделі яких немає в нашому магазині`,
+- Додавати моделі яких немає в нашому магазині
+- Рекомендувати товари яких НЕМАЄ В НАЯВНОСТІ (❌), якщо є альтернативи в наявності (✅)`,
 
     support: `Ти — AI-помічник підтримки клієнтів BUDVIK.
 Ти розмовляєш українською мовою.

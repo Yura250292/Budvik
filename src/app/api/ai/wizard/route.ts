@@ -105,6 +105,7 @@ export async function POST(req: Request) {
       searchParts.push(brand);
     }
 
+    // Budget goes into price filter via extractPriceRange, not as keywords
     const searchQuery = `${searchParts.join(" ")} ${budget}`;
 
     const [catalog, searchResults] = await Promise.all([
@@ -162,14 +163,31 @@ ${details.join("\n")}
         return conditions;
       });
 
-      const allProducts = await prisma.product.findMany({
-        where: {
-          isActive: true,
-          OR: searchConditions,
-        },
-        include: { category: true },
-        take: 50,
-      });
+      // Prefer in-stock products; fetch separately and merge
+      const [inStockProducts, allStockProducts] = await Promise.all([
+        prisma.product.findMany({
+          where: {
+            isActive: true,
+            stock: { gt: 0 },
+            OR: searchConditions,
+          },
+          include: { category: true },
+          take: 40,
+        }),
+        prisma.product.findMany({
+          where: {
+            isActive: true,
+            OR: searchConditions,
+          },
+          include: { category: true },
+          take: 50,
+        }),
+      ]);
+
+      // Merge: in-stock first, then fill with out-of-stock (deduped)
+      const seenIds = new Set(inStockProducts.map((p) => p.id));
+      const outOfStock = allStockProducts.filter((p) => !seenIds.has(p.id)).slice(0, 10);
+      const allProducts = [...inStockProducts, ...outOfStock];
 
       // Smart matching: find best match for each AI-recommended name
       const usedIds = new Set<string>();
@@ -211,7 +229,7 @@ ${details.join("\n")}
             }
           }
 
-          if (bestMatch && bestScore >= 15) {
+          if (bestMatch && bestScore >= 20) {
             usedIds.add(bestMatch.id);
             return bestMatch;
           }

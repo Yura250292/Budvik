@@ -113,7 +113,7 @@ export async function POST(req: Request) {
             if (score > bestScore) { bestScore = score; bestMatch = p; }
           }
 
-          if (bestMatch && bestScore >= 15) {
+          if (bestMatch && bestScore >= 20) {
             usedIds.add(bestMatch.id);
             return bestMatch;
           }

@@ -40,16 +40,14 @@ export default function AdminProductsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState<string | null>(null);
 
   const role = (session?.user as any)?.role;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const fetchProducts = useCallback(async (p: number, search?: string, categoryId?: string | null) => {
+  const fetchProducts = useCallback(async (p: number, search?: string) => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(p) });
     if (search) params.set("search", search);
-    if (categoryId) params.set("category", categoryId);
     const res = await fetch(`/api/products?${params}`);
     const data = await res.json();
     setProducts(data.products || []);
@@ -69,16 +67,11 @@ export default function AdminProductsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchProducts(1, searchQuery, activeCategoryFilter);
+    fetchProducts(1, searchQuery);
   };
 
   const goToPage = (p: number) => {
-    fetchProducts(p, searchQuery, activeCategoryFilter);
-  };
-
-  const handleCategoryFilter = (categoryId: string | null) => {
-    setActiveCategoryFilter(categoryId);
-    fetchProducts(1, searchQuery, categoryId);
+    fetchProducts(p, searchQuery);
   };
 
   const resetForm = () => {
@@ -104,7 +97,7 @@ export default function AdminProductsPage() {
         promoLabel: product.promoLabel,
       }),
     });
-    if (res.ok) fetchProducts(page, searchQuery, activeCategoryFilter);
+    if (res.ok) fetchProducts(page, searchQuery);
   };
 
   const startEdit = (product: any) => {
@@ -139,7 +132,7 @@ export default function AdminProductsPage() {
 
     if (res.ok) {
       resetForm();
-      fetchProducts(page, searchQuery, activeCategoryFilter);
+      fetchProducts(page, searchQuery);
     }
     setSaving(false);
   };
@@ -152,7 +145,7 @@ export default function AdminProductsPage() {
       body: JSON.stringify({ id }),
     });
     if (res.ok) {
-      fetchProducts(page, searchQuery, activeCategoryFilter);
+      fetchProducts(page, searchQuery);
     }
   };
 
@@ -190,7 +183,7 @@ export default function AdminProductsPage() {
         {searchQuery && (
           <button
             type="button"
-            onClick={() => { setSearchQuery(""); setActiveCategoryFilter(null); fetchProducts(1); }}
+            onClick={() => { setSearchQuery(""); fetchProducts(1); }}
             className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
           >
             Скинути
@@ -326,42 +319,6 @@ export default function AdminProductsPage() {
         </div>
       )}
 
-      {/* Category Filters */}
-      {categories.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-gray-500 mr-1">Фільтр:</span>
-            <button
-              onClick={() => handleCategoryFilter(null)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
-                activeCategoryFilter === null
-                  ? "bg-gray-800 text-white border-gray-800"
-                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"
-              }`}
-            >
-              Всі
-            </button>
-            {categories.map((cat) => {
-              const color = getCategoryColor(cat.id);
-              const isActive = activeCategoryFilter === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => handleCategoryFilter(isActive ? null : cat.id)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
-                    isActive
-                      ? `${color.bg} ${color.text} ${color.border} ring-2 ring-offset-1 ring-current`
-                      : `bg-white ${color.text} ${color.border} hover:${color.bg}`
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Products Table */}
       {loading ? (
         <div className="animate-pulse space-y-3">
@@ -395,7 +352,10 @@ export default function AdminProductsPage() {
                       </td>
                       <td className="px-4 py-3">
                         {product.category?.name && catColor ? (
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${catColor.bg} ${catColor.text} border ${catColor.border}`}>
+                          <span
+                            title={product.category.name}
+                            className={`inline-block max-w-[180px] truncate px-2.5 py-0.5 rounded-full text-xs font-semibold ${catColor.bg} ${catColor.text} border ${catColor.border} cursor-default`}
+                          >
                             {product.category.name}
                           </span>
                         ) : (

@@ -7,7 +7,7 @@ import AiRecommendations from "@/components/ai/AiRecommendations";
 import PromoCarousel from "@/components/PromoCarousel";
 import BrandCard from "@/components/BrandCard";
 import VikingMascotIcon from "@/components/ai/VikingMascot";
-import ToolMatrixRain from "@/components/ToolMatrixRain";
+import HeroToolShowcase from "@/components/HeroToolShowcase";
 import { BRANDS } from "@/lib/brands";
 
 export default async function HomePage() {
@@ -76,9 +76,8 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative bg-gradient-to-b from-[#141414] via-[#1E1E1E] to-[#2A2A2A] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
-        <ToolMatrixRain />
-        <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
+      <section className="relative bg-gradient-to-b from-[#0A0A0A] via-[#141414] to-[#1E1E1E] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
             <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
           </h1>
@@ -100,6 +99,9 @@ export default async function HomePage() {
               Реєстрація
             </Link>
           </div>
+
+          {/* Tool icons with video on hover */}
+          <HeroToolShowcase />
         </div>
       </section>
 

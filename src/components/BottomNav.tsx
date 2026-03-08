@@ -25,11 +25,11 @@ export default function BottomNav() {
     return pathname.startsWith(path);
   };
 
-  const activeClass = "text-[#FFB800]";
-  const inactiveClass = "text-[#9E9E9E]";
+  const activeClass = "text-[#FFD600]";
+  const inactiveClass = "text-white/50";
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-[#EFEFEF] z-50 safe-area-bottom" style={{ boxShadow: '0 -1px 3px rgba(0,0,0,0.04)' }}>
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] border-t border-white/10 z-50 safe-area-bottom" style={{ boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
       <div className="flex items-center justify-around h-16 px-2">
         {/* Home */}
         <Link href="/" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 ${isActive("/") && !isActive("/catalog") && !isActive("/cart") && !isActive("/dashboard") && !isActive("/admin") ? activeClass : inactiveClass}`}>

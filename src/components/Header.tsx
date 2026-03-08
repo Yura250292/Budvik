@@ -38,12 +38,9 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-14 md:h-16 gap-3">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 flex-shrink-0">
+          <Link href="/" className="flex flex-col items-center flex-shrink-0">
             <Image src="/logo.png" alt="БУДВІК" width={36} height={36} className="h-8 w-auto md:h-9 invert logo-animated" />
-            <div className="flex flex-col">
-              <span className="text-lg md:text-xl font-bold leading-tight logo-text-animated">БУДВІК</span>
-              <span className="text-[10px] text-[#9E9E9E] hidden sm:block leading-tight">Ваш світ інструментів</span>
-            </div>
+            <span className="text-[9px] md:text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
           </Link>
 
           {/* Desktop nav */}

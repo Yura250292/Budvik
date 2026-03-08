@@ -64,19 +64,23 @@ html {
   transform: translateY(-4px);
 }
 
-/* Animated logo shimmer — always bright, pulsing glow */
+/* Animated logo shimmer — vivid pulsing glow, never fades out */
 @keyframes logo-shimmer {
-  0% { filter: brightness(1.2) drop-shadow(0 0 3px rgba(255, 214, 0, 0.3)); }
-  50% { filter: brightness(1.5) drop-shadow(0 0 10px rgba(255, 214, 0, 0.7)); }
-  100% { filter: brightness(1.2) drop-shadow(0 0 3px rgba(255, 214, 0, 0.3)); }
+  0% { filter: brightness(1.6) drop-shadow(0 0 6px rgba(255, 214, 0, 0.6)); }
+  50% { filter: brightness(2.0) drop-shadow(0 0 18px rgba(255, 214, 0, 1)) drop-shadow(0 0 30px rgba(255, 214, 0, 0.5)); }
+  100% { filter: brightness(1.6) drop-shadow(0 0 6px rgba(255, 214, 0, 0.6)); }
 }
 @keyframes logo-text-shimmer {
   0% { background-position: -200% center; }
   100% { background-position: 200% center; }
 }
+@keyframes subtitle-fade-in {
+  0% { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 .logo-animated {
-  filter: brightness(1.2);
-  animation: logo-shimmer 3s ease-in-out infinite;
+  filter: brightness(1.6);
+  animation: logo-shimmer 2.5s ease-in-out infinite;
 }
 .logo-text-animated {
   background: linear-gradient(
@@ -94,6 +98,14 @@ html {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: logo-text-shimmer 5s linear infinite;
+}
+.logo-subtitle-animated {
+  animation: subtitle-fade-in 0.8s ease-out forwards, logo-text-shimmer 6s linear infinite;
+  background: linear-gradient(90deg, #9E9E9E 0%, #E0E0E0 40%, #FFFFFF 50%, #E0E0E0 60%, #9E9E9E 100%);
+  background-size: 300% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* Viking mascot floating animation */

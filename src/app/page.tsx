@@ -7,6 +7,7 @@ import AiRecommendations from "@/components/ai/AiRecommendations";
 import PromoCarousel from "@/components/PromoCarousel";
 import BrandCard from "@/components/BrandCard";
 import VikingMascotIcon from "@/components/ai/VikingMascot";
+import ToolMatrixRain from "@/components/ToolMatrixRain";
 import { BRANDS } from "@/lib/brands";
 
 export default async function HomePage() {
@@ -75,25 +76,26 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="bg-gradient-to-br from-[#0A0A0A] via-[#121212] to-[#1A1A1A] text-white py-14 sm:py-24 md:py-32">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-3xl sm:text-4xl md:text-6xl font-bold mb-4 sm:mb-5 tracking-tight">
+      <section className="relative bg-gradient-to-br from-[#0A0A0A] via-[#0D0D0D] to-[#141414] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
+        <ToolMatrixRain />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
+          <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
             <span className="text-[#FFD600]">BUDVIK</span> — Ваш свiт iнструментiв
           </h1>
-          <p className="text-base sm:text-lg md:text-xl text-[#9E9E9E] mb-6 sm:mb-10 max-w-2xl mx-auto leading-relaxed px-2">
+          <p className="text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
             Електро та ручний iнструмент вiд провiдних виробникiв. Програма лояльностi
-            &quot;Болти&quot; — отримуйте кешбек з кожної покупки!
+            &quot;Болти&quot; — кешбек з кожної покупки!
           </p>
           <div className="flex gap-3 sm:gap-4 justify-center flex-wrap px-4">
             <Link
               href="/catalog"
-              className="bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] text-[#0A0A0A] px-6 sm:px-8 py-3 sm:py-3.5 rounded-[10px] text-base sm:text-lg font-bold transition duration-200"
+              className="bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-bold transition duration-200"
             >
               До каталогу
             </Link>
             <Link
               href="/register"
-              className="border border-[#FFD600]/40 text-[#FFD600] hover:bg-[#FFD600] hover:text-[#0A0A0A] px-6 sm:px-8 py-3 sm:py-3.5 rounded-[10px] text-base sm:text-lg font-semibold transition duration-200"
+              className="border border-[#FFD600]/40 text-[#FFD600] hover:bg-[#FFD600] hover:text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-semibold transition duration-200"
             >
               Реєстрація
             </Link>

@@ -121,24 +121,76 @@ ${details.join("\n")}
     let products: any[] = [];
 
     if (productNames.length > 0) {
+      // Build flexible search: split each name into significant words
+      const searchConditions = productNames.flatMap((name) => {
+        const conditions = [
+          { name: { contains: name.slice(0, 30), mode: "insensitive" as const } },
+        ];
+        // Also search by significant words (3+ chars) from the name
+        const words = name.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
+        if (words.length >= 2) {
+          // Search by first 2-3 significant words combined
+          for (const word of words.slice(0, 3)) {
+            conditions.push({ name: { contains: word, mode: "insensitive" as const } });
+          }
+        }
+        return conditions;
+      });
+
       const allProducts = await prisma.product.findMany({
         where: {
           isActive: true,
-          OR: productNames.map((name) => ({
-            name: { contains: name.slice(0, 30), mode: "insensitive" as const },
-          })),
+          OR: searchConditions,
         },
         include: { category: true },
-        take: 20,
+        take: 50,
       });
 
+      // Smart matching: find best match for each AI-recommended name
+      const usedIds = new Set<string>();
       products = productNames
         .map((name) => {
-          const nameLower = name.toLowerCase();
-          return allProducts.find((p) => {
+          const nameLower = name.toLowerCase().trim();
+          const nameWords = nameLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
+
+          // Score each product against this name
+          let bestMatch: typeof allProducts[0] | null = null;
+          let bestScore = 0;
+
+          for (const p of allProducts) {
+            if (usedIds.has(p.id)) continue;
             const pLower = p.name.toLowerCase();
-            return pLower === nameLower || pLower.includes(nameLower) || nameLower.includes(pLower.slice(0, 30));
-          });
+
+            // Exact match
+            if (pLower === nameLower) { bestMatch = p; bestScore = 100; break; }
+
+            let score = 0;
+            // Full name contains
+            if (pLower.includes(nameLower)) score += 50;
+            if (nameLower.includes(pLower)) score += 40;
+
+            // Word-level matching
+            for (const word of nameWords) {
+              if (pLower.includes(word)) score += 10;
+            }
+
+            // Product name words in search name
+            const pWords = pLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
+            for (const word of pWords) {
+              if (nameLower.includes(word)) score += 5;
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = p;
+            }
+          }
+
+          if (bestMatch && bestScore >= 15) {
+            usedIds.add(bestMatch.id);
+            return bestMatch;
+          }
+          return null;
         })
         .filter(Boolean)
         .map((p: any) => ({

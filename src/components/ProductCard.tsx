@@ -6,6 +6,7 @@ import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
 import { toggleWishlist, isInWishlist } from "@/lib/wishlist";
 import { toggleCompare, isInCompare } from "@/lib/compare";
+import { useSession } from "next-auth/react";
 
 interface ProductCardProps {
   id: string;
@@ -23,6 +24,8 @@ interface ProductCardProps {
 }
 
 export default function ProductCard({ id, name, slug, description, price, wholesalePrice, isPromo, promoPrice, promoLabel, stock, image, category }: ProductCardProps) {
+  const { data: session } = useSession();
+  const isWholesale = (session?.user as any)?.role === "WHOLESALE";
   const basePrice = wholesalePrice ?? price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
@@ -176,7 +179,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               <span className="text-xs sm:text-sm text-[#9E9E9E] font-medium">Немає в наявності</span>
             )}
           </div>
-          {stock > 0 && stock <= 5 && (
+          {isWholesale && stock > 0 && stock <= 5 && (
             <p className="text-[10px] sm:text-xs text-[#FFB800] mt-1.5 font-medium">Залишилось {stock} шт.</p>
           )}
         </div>

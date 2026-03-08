@@ -139,31 +139,121 @@ export default function AdminPage() {
 
   const visibleNavItems = navItems.filter((item) => item.roles.includes(role));
 
+  const accentColors: Record<string, string> = {
+    "/admin/orders": "#FFD600",
+    "/admin/products": "#3B82F6",
+    "/admin/users": "#10B981",
+    "/admin/wholesale": "#F59E0B",
+    "/admin/sales": "#6366F1",
+    "/admin/integration": "#64748B",
+  };
+
+  const statCards = [
+    {
+      label: "Замовлення",
+      value: stats.orders,
+      sub: stats.activeOrders > 0 ? `${stats.activeOrders} активних` : null,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>
+      ),
+      color: "#FFD600",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      label: "Товари",
+      value: stats.products,
+      sub: null,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+      ),
+      color: "#3B82F6",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      label: "Клієнти",
+      value: stats.clients,
+      sub: null,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+      ),
+      color: "#10B981",
+      roles: ["ADMIN"],
+    },
+    {
+      label: "Оптовики",
+      value: stats.wholesale,
+      sub: stats.pendingWholesale > 0 ? `${stats.pendingWholesale} заявок` : null,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+      color: "#F59E0B",
+      roles: ["ADMIN"],
+    },
+    {
+      label: "Торгові",
+      value: stats.sales,
+      sub: null,
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+      color: "#6366F1",
+      roles: ["ADMIN"],
+    },
+  ];
+
+  const visibleStats = statCards.filter((s) => s.roles.includes(role));
+
   return (
-    <div className="min-h-screen">
-      {/* Hero header */}
-      <div className="bg-gradient-to-br from-[#0A0A0A] via-[#141414] to-[#1E1E1E] text-white">
-        <div className="max-w-7xl mx-auto px-4 pt-6 sm:pt-8 pb-20 sm:pb-24">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 bg-gradient-to-br from-[#FFD600] to-[#FFB800] rounded-xl flex items-center justify-center shadow-lg shadow-yellow-500/20">
-                  <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold">Панель управління</h1>
-                  <p className="text-white/50 text-sm mt-0.5">
-                    {role === "ADMIN" ? "Адміністратор" : "Торговий менеджер"} — {session?.user?.name}
-                  </p>
-                </div>
-              </div>
+    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
+      {/* Sticky Header */}
+      <header
+        className="sticky top-0 z-50 bg-white"
+        style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}
+      >
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: "#FFD600" }}
+            >
+              <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
             </div>
+            <div>
+              <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1.2 }}>
+                Панель управління
+              </h1>
+              <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "2px" }}>
+                {role === "ADMIN" ? "Адміністратор" : "Торговий менеджер"} — {session?.user?.name}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="hidden sm:flex items-center gap-2 text-white/50 hover:text-white transition text-sm"
+              className="hidden sm:inline-flex items-center gap-2 transition-colors duration-200"
+              style={{
+                background: "#FFD600",
+                color: "#0A0A0A",
+                padding: "10px 16px",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "14px",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#FFC400")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "#FFD600")}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -172,120 +262,167 @@ export default function AdminPage() {
             </Link>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Stats cards - pull up over hero */}
-      <div className="max-w-7xl mx-auto px-4 -mt-14 sm:-mt-16 relative z-10">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4 mb-8">
-          {/* Orders */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)' }}>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              <span className="text-[11px] text-[#9E9E9E] uppercase tracking-wider font-semibold">Замовлень</span>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-[#0A0A0A]">{stats.orders}</p>
-            {stats.activeOrders > 0 && (
-              <p className="text-xs text-amber-600 font-medium mt-1">{stats.activeOrders} активних</p>
-            )}
-          </div>
-
-          {/* Products */}
-          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)' }}>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
-              </div>
-              <span className="text-[11px] text-[#9E9E9E] uppercase tracking-wider font-semibold">Товарів</span>
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-[#0A0A0A]">{stats.products}</p>
-          </div>
-
-          {role === "ADMIN" && (
-            <>
-              {/* Clients */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)' }}>
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "32px", paddingBottom: "40px" }}>
+        {/* Section: Statistics Dashboard */}
+        <section style={{ marginBottom: "40px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+            Статистика
+          </h2>
+          <div
+            className="grid gap-5"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
+          >
+            {visibleStats.map((card) => (
+              <div
+                key={card.label}
+                className="group"
+                style={{
+                  background: "white",
+                  borderRadius: "12px",
+                  padding: "20px",
+                  border: "1px solid #EFEFEF",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                  cursor: "default",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-3px)";
+                  e.currentTarget.style.boxShadow = "0 10px 25px rgba(0,0,0,0.08)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
+                }}
+              >
+                <div className="flex items-center gap-3" style={{ marginBottom: "12px" }}>
+                  <div
+                    className="flex items-center justify-center flex-shrink-0"
+                    style={{
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "10px",
+                      background: `${card.color}18`,
+                      color: card.color,
+                    }}
+                  >
+                    {card.icon}
                   </div>
-                  <span className="text-[11px] text-[#9E9E9E] uppercase tracking-wider font-semibold">Клієнтів</span>
+                  <span style={{ fontSize: "14px", color: "#6B7280", fontWeight: 500 }}>
+                    {card.label}
+                  </span>
                 </div>
-                <p className="text-2xl sm:text-3xl font-bold text-[#0A0A0A]">{stats.clients}</p>
-              </div>
-
-              {/* Wholesale */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)' }}>
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-9 h-9 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                  </div>
-                  <span className="text-[11px] text-[#9E9E9E] uppercase tracking-wider font-semibold">Оптовиків</span>
-                </div>
-                <p className="text-2xl sm:text-3xl font-bold text-[#FFB800]">{stats.wholesale}</p>
-                {stats.pendingWholesale > 0 && (
-                  <p className="text-xs text-amber-600 font-medium mt-1">{stats.pendingWholesale} заявок</p>
+                <p style={{ fontSize: "28px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1 }}>
+                  {card.value}
+                </p>
+                {card.sub && (
+                  <p style={{ fontSize: "13px", color: card.color, fontWeight: 500, marginTop: "8px" }}>
+                    {card.sub}
+                  </p>
                 )}
               </div>
+            ))}
+          </div>
+        </section>
 
-              {/* Sales managers */}
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)' }}>
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
+        {/* Section: Management Modules */}
+        <section>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+            Управління
+          </h2>
+          <div
+            className="grid gap-6"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
+          >
+            {visibleNavItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="group block"
+                style={{
+                  background: "white",
+                  borderRadius: "12px",
+                  padding: "22px",
+                  border: "1px solid #EFEFEF",
+                  borderLeft: `4px solid ${accentColors[item.href] || "#FFD600"}`,
+                  cursor: "pointer",
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
+                  textDecoration: "none",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-4px)";
+                  e.currentTarget.style.boxShadow = "0 12px 30px rgba(0,0,0,0.08)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
+                }}
+              >
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`w-12 h-12 bg-gradient-to-br ${item.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white`}
+                  >
+                    {item.icon}
                   </div>
-                  <span className="text-[11px] text-[#9E9E9E] uppercase tracking-wider font-semibold">Торгових</span>
-                </div>
-                <p className="text-2xl sm:text-3xl font-bold text-[#0A0A0A]">{stats.sales}</p>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Navigation cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-8">
-          {visibleNavItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group bg-white rounded-2xl p-5 sm:p-6 border border-[#EFEFEF] hover:border-[#FFD600]/40 transition-all duration-200 hover:-translate-y-0.5 relative overflow-hidden"
-              style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04)' }}
-            >
-              {/* Accent line */}
-              <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${item.color} opacity-0 group-hover:opacity-100 transition-opacity duration-200`} />
-
-              <div className="flex items-start gap-4">
-                <div className={`w-12 h-12 bg-gradient-to-br ${item.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white shadow-sm`}>
-                  {item.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-bold text-[#0A0A0A] group-hover:text-[#0A0A0A] text-[15px]">{item.title}</h3>
-                    {item.badge && (
-                      <span className="text-[10px] font-bold bg-[#FFD600] text-[#0A0A0A] px-2 py-0.5 rounded-full">{item.badge}</span>
-                    )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2" style={{ marginBottom: "4px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>
+                        {item.title}
+                      </h3>
+                      {item.badge && (
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            background: "#FFD600",
+                            color: "#0A0A0A",
+                            padding: "2px 8px",
+                            borderRadius: "9999px",
+                          }}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                      {item.desc}
+                    </p>
                   </div>
-                  <p className="text-sm text-[#9E9E9E] leading-relaxed">{item.desc}</p>
+                  <svg
+                    className="w-5 h-5 flex-shrink-0 transition-colors duration-200"
+                    style={{ color: "#D1D5DB", marginTop: "4px" }}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    onMouseEnter={() => {}}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
                 </div>
-                <svg className="w-5 h-5 text-[#DADADA] group-hover:text-[#FFB800] transition flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        </section>
       </div>
+
+      {/* Footer */}
+      <footer
+        style={{
+          marginTop: "60px",
+          padding: "40px 24px",
+          background: "#FAFAFA",
+          borderTop: "1px solid #EFEFEF",
+        }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <p style={{ fontSize: "13px", color: "#6B7280" }}>
+            Budvik — Панель управління
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

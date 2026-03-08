@@ -7,7 +7,6 @@ import AiRecommendations from "@/components/ai/AiRecommendations";
 import PromoCarousel from "@/components/PromoCarousel";
 import BrandCard from "@/components/BrandCard";
 import VikingMascotIcon from "@/components/ai/VikingMascot";
-import HeroToolShowcase from "@/components/HeroToolShowcase";
 import { BRANDS } from "@/lib/brands";
 
 export default async function HomePage() {
@@ -19,7 +18,7 @@ export default async function HomePage() {
 
   const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
-      where: excludeFilter,
+      where: { ...excludeFilter, stock: { gt: 0 } },
       include: { category: true },
       take: 8,
       orderBy: { price: "desc" },
@@ -76,8 +75,10 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative text-white py-10 sm:py-14 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(to bottom, #0A0A0A 0%, #111111 20%, #1A1A1A 40%, #2A2A2A 60%, #4A4A4A 75%, #8A8A8A 88%, #C8C8C8 95%, #FFFFFF 100%)' }}>
-        <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
+      <section className="relative text-white py-10 sm:py-14 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
+        {/* Yellow accent line under header */}
+        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
+        <div className="max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
             <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
           </h1>
@@ -85,23 +86,20 @@ export default async function HomePage() {
             Електро та ручний iнструмент вiд провiдних виробникiв. Програма лояльностi
             &quot;Болти&quot; — кешбек з кожної покупки!
           </p>
-          {/* Buttons with video V-shape */}
-          <HeroToolShowcase>
-            <div className="flex gap-3 sm:gap-4 justify-center flex-wrap">
-              <Link
-                href="/catalog"
-                className="bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-bold transition duration-200"
-              >
-                До каталогу
-              </Link>
-              <Link
-                href="/register"
-                className="border border-[#FFD600]/40 text-[#FFD600] hover:bg-[#FFD600] hover:text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-semibold transition duration-200"
-              >
-                Реєстрація
-              </Link>
-            </div>
-          </HeroToolShowcase>
+          <div className="flex gap-3 sm:gap-4 justify-center flex-wrap">
+            <Link
+              href="/catalog"
+              className="bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-bold transition duration-200"
+            >
+              До каталогу
+            </Link>
+            <Link
+              href="/register"
+              className="border border-[#FFD600]/40 text-[#FFD600] hover:bg-[#FFD600] hover:text-[#0A0A0A] px-5 sm:px-7 py-2.5 sm:py-3 rounded-[10px] text-sm sm:text-base font-semibold transition duration-200"
+            >
+              Реєстрація
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -148,27 +146,6 @@ export default async function HomePage() {
           </div>
         </section>
       )}
-
-      {/* Loyalty Banner */}
-      <section className="py-12">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="bg-white rounded-xl p-5 sm:p-8 md:p-10 flex flex-col md:flex-row items-center gap-4 sm:gap-6 border border-[#EFEFEF]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' }}>
-            <div className="flex-shrink-0 w-16 h-16 bg-[#FFD600]/15 rounded-2xl flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-[#FFB800]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="flex-1 text-center md:text-left">
-              <h2 className="text-2xl font-bold text-[#0A0A0A] mb-1.5">Програма лояльностi &quot;Болти&quot;</h2>
-              <p className="text-[#555] leading-relaxed">
-                Отримуйте <span className="font-bold text-[#0A0A0A]">5% кешбек</span> з кожної покупки у вигляді Болтів.
-                Використовуйте Болти для оплати до <span className="font-bold text-[#0A0A0A]">30%</span> наступного замовлення.
-                1 Болт = 1 грн.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Brands */}
       {activeBrands.length > 0 && (

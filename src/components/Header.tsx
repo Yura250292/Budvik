@@ -34,7 +34,9 @@ export default function Header() {
   const navLinkClass = "text-white/80 hover:text-[#FFD600] transition text-sm font-medium text-center";
 
   return (
-    <header className="bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] text-white sticky top-0 z-50 border-b border-white/10" style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.2)' }}>
+    <header className="bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] text-white sticky top-0 z-50" style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.2)' }}>
+      {/* Yellow accent line */}
+      <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-14 md:h-16 gap-3">
           {/* Logo */}

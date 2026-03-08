@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import AiMarkdown from "@/components/ai/AiMarkdown";
 import VikingMascot from "@/components/ai/VikingMascot";
+import VikingToolCatchGame from "@/components/ai/VikingToolCatchGame";
 import { formatPrice } from "@/lib/utils";
 
 interface WizardProduct {
@@ -718,14 +719,8 @@ export default function WizardPage() {
         </div>
       )}
 
-      {/* Loading overlay */}
-      {loading && (
-        <div className="mt-8 text-center">
-          <div className="animate-spin w-10 h-10 border-4 border-yellow-400 border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-gray-500">AI аналізує ваші потреби та каталог...</p>
-          <p className="text-xs text-gray-400 mt-1">Це може зайняти 10-20 секунд</p>
-        </div>
-      )}
+      {/* Mini-game while AI is working */}
+      {loading && <VikingToolCatchGame isLoading={loading} />}
 
       {/* Results */}
       {step === 99 && (

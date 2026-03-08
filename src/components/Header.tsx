@@ -39,9 +39,7 @@ export default function Header() {
         <div className="flex items-center justify-between h-14 md:h-16 gap-3">
           {/* Logo */}
           <Link href="/" className="flex flex-col items-center flex-shrink-0">
-            <div className="rounded-full border-2 border-[#FFD600]/60 p-0.5 logo-border-glow">
-              <Image src="/logo.png" alt="БУДВІК" width={36} height={36} className="h-8 w-auto md:h-9 logo-gold" />
-            </div>
+            <Image src="/logo.png" alt="БУДВІК" width={36} height={36} className="h-8 w-auto md:h-9 logo-gold" />
             <span className="text-[9px] md:text-[10px] font-bold leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
           </Link>
 

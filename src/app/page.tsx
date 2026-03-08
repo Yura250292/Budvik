@@ -76,8 +76,8 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative bg-gradient-to-b from-[#0A0A0A] via-[#141414] to-[#1E1E1E] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 text-center">
+      <section className="relative text-white py-10 sm:py-14 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(to bottom, #0A0A0A 0%, #111111 20%, #1A1A1A 40%, #2A2A2A 60%, #4A4A4A 75%, #8A8A8A 88%, #C8C8C8 95%, #FFFFFF 100%)' }}>
+        <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
             <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
           </h1>

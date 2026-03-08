@@ -13,9 +13,14 @@ export default function AiSupportChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0) return;
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   const sendMessage = async () => {
@@ -58,7 +63,7 @@ export default function AiSupportChat() {
         <p className="text-sm opacity-80">Запитайте про замовлення, доставку або гарантію</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ height: "calc(100% - 130px)" }}>
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3" style={{ height: "calc(100% - 130px)" }}>
         {messages.length === 0 && (
           <div className="text-center text-gray-400 text-sm mt-8">
             <p className="mb-4">Чим можу допомогти?</p>

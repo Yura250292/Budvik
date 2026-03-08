@@ -16,7 +16,7 @@ export default async function HomePage() {
     category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
   };
 
-  const popularKeywords = ["викрутк", "шуруповерт", "болгарк", "дриль", "дрель", "зварк", "зварюв", "перфоратор", "набір", "ключ"];
+  const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгов", "болгарк", "шліфмашин", "кутов", "генератор", "дриль", "дрель", "перфоратор"];
 
   const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({

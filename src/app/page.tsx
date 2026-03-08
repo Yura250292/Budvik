@@ -16,13 +16,14 @@ export default async function HomePage() {
     category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
   };
 
-  const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгов", "болгарк", "шліфмашин", "кутов", "генератор", "дриль", "дрель", "перфоратор"];
+  const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгова пил", "болгарк", "шліфмашин", "генератор", "дриль", "дрель", "перфоратор"];
 
   const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
         stock: { gt: 0 },
+        price: { gte: 500 },
         OR: popularKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
       },
       include: { category: true },

@@ -112,7 +112,7 @@ export async function GET(req: Request) {
           isActive: true,
           stock: { gt: 0 },
           categoryId: { notIn: excludedCatIds },
-          NOT: { name: { contains: "верстат", mode: "insensitive" } },
+          NOT: { name: { contains: "верстат" } },
         },
         include: { category: true },
       });
@@ -131,7 +131,7 @@ export async function GET(req: Request) {
             stock: { gt: 0 },
             id: { notIn: excludeIds },
             categoryId: { notIn: excludedCatIds },
-            NOT: { name: { contains: "верстат", mode: "insensitive" } },
+            NOT: { name: { contains: "верстат" } },
           },
           include: { category: true },
           orderBy: { createdAt: "desc" },

@@ -9,24 +9,21 @@ import BrandCard from "@/components/BrandCard";
 import { BRANDS } from "@/lib/brands";
 
 export default async function HomePage() {
-  const [featuredProducts, promoProducts, allProducts] = await Promise.all([
+  const excludeFilter = {
+    isActive: true as const,
+    NOT: { name: { contains: "верстат" } },
+    category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
+  };
+
+  const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
-      where: {
-        isActive: true,
-        NOT: { name: { contains: "верстат" } },
-        category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
-      },
+      where: excludeFilter,
       include: { category: true },
       take: 8,
       orderBy: { price: "desc" },
     }),
     prisma.product.findMany({
-      where: {
-        isActive: true,
-        isPromo: true,
-        NOT: { name: { contains: "верстат" } },
-        category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
-      },
+      where: { ...excludeFilter, isPromo: true },
       include: { category: true },
       orderBy: { updatedAt: "desc" },
       take: 20,
@@ -35,7 +32,27 @@ export default async function HomePage() {
       where: { isActive: true },
       select: { name: true },
     }),
+    // Best sellers: products most ordered
+    prisma.orderItem.groupBy({
+      by: ["productId"],
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 8,
+    }),
   ]);
+
+  // Fetch best seller product details
+  const bestSellerIds = topOrderedItems.map((i) => i.productId);
+  const bestSellers = bestSellerIds.length > 0
+    ? await prisma.product.findMany({
+        where: { id: { in: bestSellerIds }, isActive: true },
+        include: { category: true },
+      })
+    : [];
+  // Keep order by sales
+  const sortedBestSellers = bestSellerIds
+    .map((id) => bestSellers.find((p) => p.id === id))
+    .filter(Boolean) as typeof bestSellers;
 
   // Count products per brand
   const brandCounts: Record<string, number> = {};
@@ -82,6 +99,30 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Best Sellers */}
+      {sortedBestSellers.length > 0 && (
+        <section className="py-12 bg-white">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-11 h-11 bg-[#0A0A0A] rounded-xl flex items-center justify-center">
+                <svg className="h-5 w-5 text-[#FFD600]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-[#0A0A0A]">Хіти продажу</h2>
+                <p className="text-sm text-[#9E9E9E]">Найпопулярніші товари серед наших покупців</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-6">
+              {sortedBestSellers.map((product) => (
+                <ProductCard key={product.id} {...product} category={product.category} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Promo Products */}
       {promoProducts.length > 0 && (

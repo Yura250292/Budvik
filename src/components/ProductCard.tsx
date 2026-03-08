@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
+import { toggleWishlist, isInWishlist } from "@/lib/wishlist";
+import { toggleCompare, isInCompare } from "@/lib/compare";
 
 interface ProductCardProps {
   id: string;
@@ -24,9 +27,40 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
 
+  const [inWishlist, setInWishlist] = useState(false);
+  const [inCompare, setInCompare] = useState(false);
+  const [compareFull, setCompareFull] = useState(false);
+
+  useEffect(() => {
+    setInWishlist(isInWishlist(id));
+    setInCompare(isInCompare(id));
+    const onW = () => setInWishlist(isInWishlist(id));
+    const onC = () => setInCompare(isInCompare(id));
+    window.addEventListener("wishlist-updated", onW);
+    window.addEventListener("compare-updated", onC);
+    return () => {
+      window.removeEventListener("wishlist-updated", onW);
+      window.removeEventListener("compare-updated", onC);
+    };
+  }, [id]);
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
     addToCart({ productId: id, name, price: displayPrice, slug });
+  };
+
+  const handleWishlist = (e: React.MouseEvent) => {
+    e.preventDefault();
+    toggleWishlist({ productId: id, name, slug, price: displayPrice, image });
+  };
+
+  const handleCompare = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const result = toggleCompare({ productId: id, name, slug, price: displayPrice, image, category: category?.name, description: description.replace(/<[^>]*>/g, '').slice(0, 200) });
+    if (result.full) {
+      setCompareFull(true);
+      setTimeout(() => setCompareFull(false), 2000);
+    }
   };
 
   return (
@@ -58,6 +92,43 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <span className="absolute top-2 left-2 bg-[#0A0A0A] text-[#FFD600] text-[10px] sm:text-xs font-bold px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg">
               {promoLabel || "Акція"}
             </span>
+          )}
+
+          {/* Wishlist & Compare buttons */}
+          {stock > 0 && (
+            <div className="absolute top-2 right-2 flex flex-col gap-1.5">
+              <button
+                onClick={handleWishlist}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  inWishlist
+                    ? "bg-red-500 text-white shadow-md"
+                    : "bg-white/90 text-[#9E9E9E] hover:text-red-500 shadow-sm hover:shadow-md"
+                }`}
+                title={inWishlist ? "Видалити з обраного" : "Додати в обране"}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill={inWishlist ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+              </button>
+              <button
+                onClick={handleCompare}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 relative ${
+                  inCompare
+                    ? "bg-[#FFD600] text-[#0A0A0A] shadow-md"
+                    : "bg-white/90 text-[#9E9E9E] hover:text-[#FFD600] shadow-sm hover:shadow-md"
+                }`}
+                title={inCompare ? "Видалити з порівняння" : "Додати до порівняння"}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+                </svg>
+                {compareFull && (
+                  <span className="absolute -bottom-8 right-0 bg-[#0A0A0A] text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">
+                    Макс. 4
+                  </span>
+                )}
+              </button>
+            </div>
           )}
         </div>
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import AiMarkdown from "@/components/ai/AiMarkdown";
+import VikingMascot from "@/components/ai/VikingMascot";
 import { formatPrice } from "@/lib/utils";
 
 interface WizardProduct {
@@ -494,8 +495,13 @@ export default function WizardPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">AI Підбір інструментів</h1>
-      <p className="text-gray-500 mb-6">Відповідайте на питання — AI підбере найкращий інструмент саме для вас</p>
+      <div className="flex items-center gap-4 mb-2">
+        <VikingMascot size={56} variant="wink" animated />
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">AI Підбір інструментів</h1>
+          <p className="text-gray-500">Відповідайте на питання — Вікінг підбере найкращий інструмент для вас</p>
+        </div>
+      </div>
 
       {/* Progress bar */}
       {step < 99 && (

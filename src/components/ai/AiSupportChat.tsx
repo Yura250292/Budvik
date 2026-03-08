@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import AiMarkdown from "./AiMarkdown";
+import VikingMascot from "./VikingMascot";
 
 interface Message {
   role: "user" | "assistant";
@@ -58,15 +59,23 @@ export default function AiSupportChat() {
 
   return (
     <div className="bg-white border rounded-xl overflow-hidden" style={{ height: "500px" }}>
-      <div className="bg-gradient-to-r from-black to-gray-900 text-white px-6 py-4">
-        <h3 className="font-bold">AI Підтримка</h3>
-        <p className="text-sm opacity-80">Запитайте про замовлення, доставку або гарантію</p>
+      <div className="bg-gradient-to-r from-black to-gray-900 text-white px-6 py-4 flex items-center gap-3">
+        <div className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center overflow-hidden border border-[#FFD600]/30 flex-shrink-0">
+          <VikingMascot size={32} variant="default" />
+        </div>
+        <div>
+          <h3 className="font-bold">Вікінг — AI Підтримка</h3>
+          <p className="text-sm opacity-80">Запитайте про замовлення, доставку або гарантію</p>
+        </div>
       </div>
 
       <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3" style={{ height: "calc(100% - 130px)" }}>
         {messages.length === 0 && (
-          <div className="text-center text-gray-400 text-sm mt-8">
-            <p className="mb-4">Чим можу допомогти?</p>
+          <div className="text-center text-gray-400 text-sm mt-4">
+            <div className="flex justify-center mb-3">
+              <VikingMascot size={64} variant="thinking" animated />
+            </div>
+            <p className="mb-4 text-gray-600 font-medium">Чим можу допомогти?</p>
             <div className="space-y-2">
               {[
                 "Де моє замовлення?",

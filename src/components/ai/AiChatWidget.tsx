@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import AiMarkdown from "./AiMarkdown";
+import VikingMascot from "./VikingMascot";
 import { formatPrice } from "@/lib/utils";
 
 interface AIProduct {
@@ -206,7 +207,7 @@ export default function AiChatWidget() {
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-24 md:bottom-6 right-4 z-50 bg-black hover:bg-gray-900 text-yellow-400 w-14 h-14 rounded-full shadow-lg border border-yellow-400/30 flex items-center justify-center transition-all"
+        className="fixed bottom-24 md:bottom-6 right-4 z-50 bg-black hover:bg-gray-900 text-yellow-400 w-14 h-14 rounded-full shadow-lg border border-yellow-400/30 flex items-center justify-center transition-all overflow-hidden"
         aria-label="AI Консультант"
       >
         {isOpen ? (
@@ -214,9 +215,7 @@ export default function AiChatWidget() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-          </svg>
+          <VikingMascot size={40} variant="wink" />
         )}
       </button>
 
@@ -225,13 +224,11 @@ export default function AiChatWidget() {
         <div className="fixed z-50 bg-white shadow-2xl border border-[#EFEFEF] flex flex-col inset-0 md:inset-auto md:bottom-22 md:right-4 md:w-[440px] md:rounded-xl md:max-w-[calc(100vw-2rem)] h-full md:h-[600px]">
           {/* Header */}
           <div className="bg-gradient-to-r from-[#0A0A0A] to-[#1A1A1A] text-white px-4 py-3 md:rounded-t-xl flex items-center gap-3 safe-area-top">
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-              </svg>
+            <div className="w-9 h-9 bg-white/10 rounded-full flex items-center justify-center overflow-hidden border border-[#FFD600]/30">
+              <VikingMascot size={32} variant="default" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-sm">AI Консультант BUDVIK</h3>
+              <h3 className="font-semibold text-sm">Вікінг — AI Консультант</h3>
               <p className="text-xs opacity-80">Допоможу обрати інструмент</p>
             </div>
             <button
@@ -247,8 +244,12 @@ export default function AiChatWidget() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.length === 0 && (
-              <div className="text-center text-gray-400 text-sm mt-8">
-                <p className="mb-4">Запитайте мене про інструменти!</p>
+              <div className="text-center text-gray-400 text-sm mt-4">
+                <div className="flex justify-center mb-3">
+                  <VikingMascot size={72} variant="wink" animated />
+                </div>
+                <p className="mb-1 text-gray-700 font-semibold text-base">Привіт! Я Вікінг 🛡️</p>
+                <p className="mb-4 text-xs">Ваш AI-помічник з підбору інструментів</p>
                 <div className="space-y-2">
                   {[
                     "Потрібен дриль для дому",

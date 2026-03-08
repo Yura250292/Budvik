@@ -23,7 +23,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#111827",
+  themeColor: "#ffffff",
   viewportFit: "cover",
 };
 
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body className="min-h-screen flex flex-col antialiased bg-gray-50">
+      <body className="min-h-screen flex flex-col antialiased bg-[#F7F7F7]">
         <Providers>
           <Header />
           <main className="flex-1 pb-20 md:pb-0">{children}</main>

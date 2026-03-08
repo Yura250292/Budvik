@@ -92,32 +92,32 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-        <Link href="/" className="hover:text-yellow-600">Головна</Link>
-        <span>/</span>
-        <Link href="/catalog" className={activeCategory ? "hover:text-yellow-600" : "text-gray-900 font-medium"}>
+      <nav className="flex items-center gap-2 text-sm text-[#9E9E9E] mb-6">
+        <Link href="/" className="hover:text-[#FFB800] transition duration-200">Головна</Link>
+        <span className="text-[#DADADA]">/</span>
+        <Link href="/catalog" className={activeCategory ? "hover:text-[#FFB800] transition duration-200" : "text-[#0A0A0A] font-medium"}>
           Каталог
         </Link>
         {activeGroup && (
           <>
-            <span>/</span>
-            <span className="text-gray-500">{activeGroup.group}</span>
+            <span className="text-[#DADADA]">/</span>
+            <span className="text-[#9E9E9E]">{activeGroup.group}</span>
           </>
         )}
         {activeCategory && (
           <>
-            <span>/</span>
-            <span className="text-gray-900 font-medium">{activeCategory.name}</span>
+            <span className="text-[#DADADA]">/</span>
+            <span className="text-[#0A0A0A] font-medium">{activeCategory.name}</span>
           </>
         )}
       </nav>
 
-      <h1 className="text-3xl font-bold text-gray-900 mb-1">
+      <h1 className="text-3xl font-bold text-[#0A0A0A] mb-1">
         {activeCategory ? activeCategory.name : "Каталог інструментів"}
       </h1>
-      <p className="text-gray-500 mb-6">
+      <p className="text-[#9E9E9E] mb-8">
         {total > 0 ? `Знайдено ${total} товарів` : "Товарів не знайдено"}
-        {brand && <span className="ml-2 bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-medium">{brand}</span>}
+        {brand && <span className="ml-2 bg-[#FFD600]/15 text-[#0A0A0A] px-2.5 py-0.5 rounded-md text-xs font-semibold">{brand}</span>}
       </p>
 
       {/* AI Smart Search */}
@@ -139,15 +139,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         {/* Products Grid */}
         <div className="flex-1 min-w-0">
           {products.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
+            <div className="text-center py-16 text-[#9E9E9E]">
               <p className="text-lg">Товарів не знайдено</p>
-              <Link href="/catalog" className="text-yellow-600 hover:underline mt-2 inline-block">
+              <Link href="/catalog" className="text-[#FFB800] hover:text-[#FFC400] font-medium mt-2 inline-block transition duration-200">
                 Переглянути всі товари
               </Link>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                 {products.map((product) => (
                   <ProductCard
                     key={product.id}
@@ -163,11 +163,11 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <nav className="flex items-center justify-center gap-1 mt-10">
+                <nav className="flex items-center justify-center gap-1.5 mt-12">
                   {page > 1 && (
                     <Link
                       href={pageUrl(page - 1)}
-                      className="px-3 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50 transition"
+                      className="px-4 py-2.5 rounded-[10px] border border-[#DADADA] bg-white text-sm hover:bg-[#FAFAFA] transition duration-200 font-medium text-[#1A1A1A]"
                     >
                       &larr; Назад
                     </Link>
@@ -175,15 +175,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
                   {paginationRange(page, totalPages).map((p, i) =>
                     p === "..." ? (
-                      <span key={`dots-${i}`} className="px-2 py-2 text-gray-400 text-sm">...</span>
+                      <span key={`dots-${i}`} className="px-2 py-2 text-[#9E9E9E] text-sm">...</span>
                     ) : (
                       <Link
                         key={p}
                         href={pageUrl(p as number)}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                        className={`px-3.5 py-2.5 rounded-[10px] text-sm font-medium transition duration-200 ${
                           p === page
-                            ? "bg-black text-yellow-400"
-                            : "border border-gray-300 hover:bg-gray-50"
+                            ? "bg-[#0A0A0A] text-[#FFD600]"
+                            : "border border-[#DADADA] bg-white hover:bg-[#FAFAFA] text-[#1A1A1A]"
                         }`}
                       >
                         {p}
@@ -194,7 +194,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   {page < totalPages && (
                     <Link
                       href={pageUrl(page + 1)}
-                      className="px-3 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50 transition"
+                      className="px-4 py-2.5 rounded-[10px] border border-[#DADADA] bg-white text-sm hover:bg-[#FAFAFA] transition duration-200 font-medium text-[#1A1A1A]"
                     >
                       Далі &rarr;
                     </Link>

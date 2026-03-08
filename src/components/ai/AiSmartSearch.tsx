@@ -51,10 +51,10 @@ export default function AiSmartSearch() {
 
   return (
     <div className="w-full">
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-3 mb-4">
         <div className="relative flex-1">
           <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9E9E9E]"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -67,70 +67,74 @@ export default function AiSmartSearch() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Розумний пошук: наприклад 'дриль для бетону' або 'недорога болгарка'"
-            className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500"
+            className="w-full bg-white border border-[#E0E0E0] rounded-[10px] pl-11 pr-4 py-3 text-[#0A0A0A] placeholder-[#9E9E9E] transition duration-200"
+            style={{ height: '44px' }}
           />
         </div>
         <button
           onClick={search}
           disabled={loading}
-          className="bg-yellow-400 text-black font-semibold px-6 py-3 rounded-lg hover:bg-yellow-300 disabled:opacity-50 transition font-medium"
+          className="bg-[#FFD600] text-[#0A0A0A] font-semibold px-6 rounded-[10px] hover:bg-[#FFC400] disabled:opacity-50 transition duration-200 hover:-translate-y-px"
+          style={{ height: '44px' }}
         >
           {loading ? "..." : "AI Пошук"}
         </button>
       </div>
 
       {searchType && (
-        <div className="mb-3">
-          <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full">
+        <div className="mb-4">
+          <span className="text-xs bg-[#FFD600]/15 text-[#0A0A0A] px-2.5 py-1 rounded-md font-medium">
             {searchType === "semantic" ? "Семантичний пошук" : searchType === "keyword" ? "Текстовий пошук" : "Пошук"}
           </span>
-          <span className="text-sm text-gray-500 ml-2">
+          <span className="text-sm text-[#9E9E9E] ml-2">
             Знайдено {results.length} товарів
           </span>
         </div>
       )}
 
       {loading && (
-        <div className="text-center py-8 text-gray-500">
-          <div className="animate-spin w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full mx-auto mb-2" />
+        <div className="text-center py-8 text-[#9E9E9E]">
+          <div className="animate-spin w-8 h-8 border-2 border-[#FFD600] border-t-transparent rounded-full mx-auto mb-2" />
           AI аналізує ваш запит...
         </div>
       )}
 
       {!loading && searched && results.length === 0 && (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-[#9E9E9E]">
           Нічого не знайдено. Спробуйте інший запит.
         </div>
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
           {results.map((product) => (
             <Link
               key={product.id}
               href={`/catalog/${product.slug}`}
               className="group"
             >
-              <div className={`border rounded-lg overflow-hidden transition-shadow ${
+              <div className={`rounded-xl overflow-hidden transition-all duration-200 border ${
                 product.stock > 0
-                  ? "border-gray-200 hover:shadow-lg bg-white"
-                  : "border-gray-200 bg-gray-50 opacity-60"
-              }`}>
+                  ? "border-[#EFEFEF] bg-white hover:shadow-[0_10px_30px_rgba(0,0,0,0.12)] hover:-translate-y-1"
+                  : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
+              }`}
+                style={{ boxShadow: product.stock > 0 ? '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' : 'none' }}
+              >
                 <div className={`h-48 flex items-center justify-center ${
-                  product.stock > 0 ? "bg-gray-100" : "bg-gray-200"
+                  product.stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"
                 }`}>
                   {product.image ? (
                     <img
                       src={product.image}
                       alt={product.name}
-                      className="h-full w-full object-contain p-2"
+                      className="h-full w-full object-contain p-2.5"
                       loading="lazy"
                     />
                   ) : (
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
-                      className={`h-20 w-20 transition ${
-                        product.stock > 0 ? "text-gray-300 group-hover:text-yellow-300" : "text-gray-300"
+                      className={`h-20 w-20 transition duration-200 ${
+                        product.stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"
                       }`}
                       fill="none"
                       viewBox="0 0 24 24"
@@ -143,33 +147,34 @@ export default function AiSmartSearch() {
 
                 <div className="p-4">
                   {product.category && (
-                    <span className="text-xs text-gray-500 mb-1 block">{product.category.name}</span>
+                    <span className="inline-block text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{product.category.name}</span>
                   )}
-                  <h3 className={`font-semibold mb-1 line-clamp-2 transition ${
-                    product.stock > 0 ? "text-gray-900 group-hover:text-yellow-600" : "text-gray-400"
+                  <h3 className={`text-[15px] font-semibold mb-1.5 line-clamp-2 transition duration-200 leading-snug ${
+                    product.stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"
                   }`}>
                     {product.name}
                   </h3>
-                  <p className="text-sm text-gray-500 mb-3 line-clamp-2">{product.description}</p>
+                  <p className="text-sm text-[#555] mb-3 line-clamp-2 leading-relaxed">{product.description}</p>
                   <div className="flex items-center justify-between">
-                    <span className={`text-lg font-bold ${
-                      product.stock > 0 ? "text-gray-900" : "text-gray-400"
+                    <span className={`text-xl font-bold ${
+                      product.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"
                     }`}>
                       {formatPrice(product.price)}
                     </span>
                     {product.stock > 0 ? (
                       <button
                         onClick={(e) => handleAddToCart(e, product)}
-                        className="bg-yellow-400 text-black font-semibold px-3 py-1.5 rounded text-sm hover:bg-yellow-300 transition"
+                        className="bg-[#FFD600] text-[#0A0A0A] px-4 py-2 rounded-[10px] text-sm font-semibold hover:bg-[#FFC400] hover:-translate-y-px transition-all duration-200"
+                        style={{ height: '40px' }}
                       >
                         У кошик
                       </button>
                     ) : (
-                      <span className="text-sm text-gray-400 font-medium">Немає в наявності</span>
+                      <span className="text-sm text-[#9E9E9E] font-medium">Немає в наявності</span>
                     )}
                   </div>
                   {product.stock > 0 && product.stock <= 5 && (
-                    <p className="text-xs text-yellow-600 mt-2">Залишилось {product.stock} шт.</p>
+                    <p className="text-xs text-[#FFB800] mt-2 font-medium">Залишилось {product.stock} шт.</p>
                   )}
                 </div>
               </div>

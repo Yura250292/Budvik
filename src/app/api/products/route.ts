@@ -12,7 +12,10 @@ export async function GET(req: Request) {
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
 
   const where: any = { isActive: true };
-  if (category) where.category = { slug: category };
+  if (category) {
+    // Support both slug and ID for category filtering
+    where.category = category.length > 20 ? { id: category } : { slug: category };
+  }
   if (search) where.name = { contains: search, mode: "insensitive" };
 
   const [products, total, session] = await Promise.all([

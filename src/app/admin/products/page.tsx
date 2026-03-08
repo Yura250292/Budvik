@@ -6,6 +6,28 @@ import { formatPrice } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
+const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; row: string }> = {};
+const COLOR_PALETTE = [
+  { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", row: "bg-blue-50/40" },
+  { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", row: "bg-emerald-50/40" },
+  { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", row: "bg-purple-50/40" },
+  { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", row: "bg-amber-50/40" },
+  { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", row: "bg-rose-50/40" },
+  { bg: "bg-cyan-50", text: "text-cyan-700", border: "border-cyan-200", row: "bg-cyan-50/40" },
+  { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", row: "bg-orange-50/40" },
+  { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200", row: "bg-indigo-50/40" },
+  { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-200", row: "bg-teal-50/40" },
+  { bg: "bg-pink-50", text: "text-pink-700", border: "border-pink-200", row: "bg-pink-50/40" },
+];
+
+function getCategoryColor(categoryId: string) {
+  if (!CATEGORY_COLORS[categoryId]) {
+    const idx = Object.keys(CATEGORY_COLORS).length % COLOR_PALETTE.length;
+    CATEGORY_COLORS[categoryId] = COLOR_PALETTE[idx];
+  }
+  return CATEGORY_COLORS[categoryId];
+}
+
 export default function AdminProductsPage() {
   const { data: session } = useSession();
   const [products, setProducts] = useState<any[]>([]);
@@ -18,14 +40,16 @@ export default function AdminProductsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<string | null>(null);
 
   const role = (session?.user as any)?.role;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const fetchProducts = useCallback(async (p: number, search?: string) => {
+  const fetchProducts = useCallback(async (p: number, search?: string, categoryId?: string | null) => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(p) });
     if (search) params.set("search", search);
+    if (categoryId) params.set("category", categoryId);
     const res = await fetch(`/api/products?${params}`);
     const data = await res.json();
     setProducts(data.products || []);
@@ -45,11 +69,16 @@ export default function AdminProductsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchProducts(1, searchQuery);
+    fetchProducts(1, searchQuery, activeCategoryFilter);
   };
 
   const goToPage = (p: number) => {
-    fetchProducts(p, searchQuery);
+    fetchProducts(p, searchQuery, activeCategoryFilter);
+  };
+
+  const handleCategoryFilter = (categoryId: string | null) => {
+    setActiveCategoryFilter(categoryId);
+    fetchProducts(1, searchQuery, categoryId);
   };
 
   const resetForm = () => {
@@ -75,7 +104,7 @@ export default function AdminProductsPage() {
         promoLabel: product.promoLabel,
       }),
     });
-    if (res.ok) fetchProducts(page, searchQuery);
+    if (res.ok) fetchProducts(page, searchQuery, activeCategoryFilter);
   };
 
   const startEdit = (product: any) => {
@@ -110,7 +139,7 @@ export default function AdminProductsPage() {
 
     if (res.ok) {
       resetForm();
-      fetchProducts(page, searchQuery);
+      fetchProducts(page, searchQuery, activeCategoryFilter);
     }
     setSaving(false);
   };
@@ -123,7 +152,7 @@ export default function AdminProductsPage() {
       body: JSON.stringify({ id }),
     });
     if (res.ok) {
-      fetchProducts(page, searchQuery);
+      fetchProducts(page, searchQuery, activeCategoryFilter);
     }
   };
 
@@ -161,7 +190,7 @@ export default function AdminProductsPage() {
         {searchQuery && (
           <button
             type="button"
-            onClick={() => { setSearchQuery(""); fetchProducts(1); }}
+            onClick={() => { setSearchQuery(""); setActiveCategoryFilter(null); fetchProducts(1); }}
             className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
           >
             Скинути
@@ -297,71 +326,143 @@ export default function AdminProductsPage() {
         </div>
       )}
 
+      {/* Category Filters */}
+      {categories.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-500 mr-1">Фільтр:</span>
+            <button
+              onClick={() => handleCategoryFilter(null)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
+                activeCategoryFilter === null
+                  ? "bg-gray-800 text-white border-gray-800"
+                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"
+              }`}
+            >
+              Всі
+            </button>
+            {categories.map((cat) => {
+              const color = getCategoryColor(cat.id);
+              const isActive = activeCategoryFilter === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => handleCategoryFilter(isActive ? null : cat.id)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
+                    isActive
+                      ? `${color.bg} ${color.text} ${color.border} ring-2 ring-offset-1 ring-current`
+                      : `bg-white ${color.text} ${color.border} hover:${color.bg}`
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Products Table */}
       {loading ? (
         <div className="animate-pulse space-y-3">
           {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-16 bg-gray-200 rounded"></div>)}
         </div>
       ) : (
-        <div className="bg-white border rounded-lg overflow-hidden">
+        <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Назва</th>
-                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Категорія</th>
-                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Ціна</th>
-                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Опт. ціна</th>
-                  <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Акція</th>
-                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Склад</th>
-                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Дії</th>
+              <thead>
+                <tr className="bg-gray-800 text-white">
+                  <th className="text-left px-4 py-3 text-sm font-semibold">Назва</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold">Категорія</th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold">Ціна</th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold">Опт. ціна</th>
+                  <th className="text-center px-4 py-3 text-sm font-semibold">Акція</th>
+                  <th className="text-center px-4 py-3 text-sm font-semibold">Склад</th>
+                  <th className="text-right px-4 py-3 text-sm font-semibold">Дії</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
-                {products.map((product) => (
-                  <tr key={product.id} className={`hover:bg-gray-50 ${product.stock === 0 ? "opacity-50" : ""}`}>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-gray-900">{product.name}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{product.category?.name}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">{formatPrice(product.price)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-yellow-700">
-                      {product.wholesalePrice ? formatPrice(product.wholesalePrice) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => togglePromo(product)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition ${
-                          product.isPromo
-                            ? "bg-red-100 text-red-700 hover:bg-red-200"
-                            : "bg-gray-100 text-gray-400 hover:bg-gray-200"
-                        }`}
-                        title={product.isPromo ? "Зняти акцію" : "Додати в акцію"}
-                      >
-                        {product.isPromo ? (product.promoLabel || "Акція") : "—"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className={product.stock > 5 ? "text-green-600" : product.stock > 0 ? "text-gray-900" : "text-red-600"}>
-                        {product.stock}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => startEdit(product)}
-                        className="text-blue-600 hover:text-blue-800 text-sm mr-3"
-                      >
-                        Редагувати
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product.id)}
-                        className="text-red-600 hover:text-red-800 text-sm"
-                      >
-                        Видалити
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-gray-100">
+                {products.map((product) => {
+                  const catColor = product.categoryId ? getCategoryColor(product.categoryId) : null;
+                  return (
+                    <tr
+                      key={product.id}
+                      className={`transition-colors hover:bg-gray-100 ${product.stock === 0 ? "opacity-50" : ""} ${catColor ? catColor.row : ""}`}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-gray-900">{product.name}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {product.category?.name && catColor ? (
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${catColor.bg} ${catColor.text} border ${catColor.border}`}>
+                            {product.category.name}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-bold text-gray-900">{formatPrice(product.price)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {product.wholesalePrice ? (
+                          <span className="font-semibold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
+                            {formatPrice(product.wholesalePrice)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => togglePromo(product)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-bold transition ${
+                            product.isPromo
+                              ? "bg-red-500 text-white hover:bg-red-600 shadow-sm"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                          }`}
+                          title={product.isPromo ? "Зняти акцію" : "Додати в акцію"}
+                        >
+                          {product.isPromo ? (product.promoLabel || "Акція") : "—"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {product.stock === 0 ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                            Немає
+                          </span>
+                        ) : product.stock <= 5 ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">
+                            {product.stock} шт
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                            {product.stock} шт
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => startEdit(product)}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition"
+                            title="Редагувати"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(product.id)}
+                            className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 transition"
+                            title="Видалити"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -11,7 +11,7 @@ export default async function HomePage() {
     prisma.product.findMany({
       where: {
         isActive: true,
-        name: { not: { contains: "верстат", mode: "insensitive" } },
+        NOT: { name: { contains: "верстат" } },
         category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
       },
       include: { category: true },
@@ -22,7 +22,7 @@ export default async function HomePage() {
       where: {
         isActive: true,
         isPromo: true,
-        name: { not: { contains: "верстат", mode: "insensitive" } },
+        NOT: { name: { contains: "верстат" } },
         category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
       },
       include: { category: true },

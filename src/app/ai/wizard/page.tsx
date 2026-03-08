@@ -17,6 +17,8 @@ interface WizardProduct {
   promoPrice: number | null;
   promoLabel: string | null;
   category: { name: string; slug: string };
+  pros?: string[];
+  cons?: string[];
 }
 
 // Step 1: What category of tool
@@ -193,6 +195,28 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
             )}
           </div>
         )}
+        {/* Pros */}
+        {product.pros && product.pros.length > 0 && (
+          <div className="mb-2">
+            {product.pros.map((p, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-xs text-green-700 mb-0.5">
+                <span className="flex-shrink-0 mt-0.5">+</span>
+                <span>{p}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Cons */}
+        {product.cons && product.cons.length > 0 && (
+          <div className="mb-2">
+            {product.cons.map((c, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-xs text-red-500 mb-0.5">
+                <span className="flex-shrink-0 mt-0.5">−</span>
+                <span>{c}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mt-auto pt-2">
           <Link href={`/catalog/${product.slug}`} className="block w-full text-center bg-yellow-400 hover:bg-yellow-300 text-black py-2 rounded-lg text-sm font-semibold transition">
             Переглянути товар
@@ -259,6 +283,44 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
             {products.map((p) => (
               <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
                 {p.stock > 0 ? <span className="text-green-600 font-medium">{p.stock} шт</span> : <span className="text-red-500 font-medium">Немає</span>}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <td className="border border-gray-200 px-4 py-3 font-medium text-green-700">Переваги</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-4 py-3">
+                {p.pros && p.pros.length > 0 ? (
+                  <ul className="space-y-1">
+                    {p.pros.map((pro, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-green-700">
+                        <span className="flex-shrink-0 font-bold">+</span>
+                        <span>{pro}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-xs text-gray-400">—</span>
+                )}
+              </td>
+            ))}
+          </tr>
+          <tr className="bg-red-50/30">
+            <td className="border border-gray-200 px-4 py-3 font-medium text-red-600">Недоліки</td>
+            {products.map((p) => (
+              <td key={p.id} className="border border-gray-200 px-4 py-3">
+                {p.cons && p.cons.length > 0 ? (
+                  <ul className="space-y-1">
+                    {p.cons.map((con, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-red-600">
+                        <span className="flex-shrink-0 font-bold">−</span>
+                        <span>{con}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-xs text-gray-400">—</span>
+                )}
               </td>
             ))}
           </tr>

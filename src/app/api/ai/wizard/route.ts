@@ -7,6 +7,12 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+interface ProductComparison {
+  name: string;
+  pros: string[];
+  cons: string[];
+}
+
 function extractProductNames(response: string): { cleanResponse: string; productNames: string[] } {
   const match = response.match(/```products\s*\n([\s\S]*?)```/);
   if (!match) return { cleanResponse: response, productNames: [] };
@@ -18,6 +24,22 @@ function extractProductNames(response: string): { cleanResponse: string; product
 
   const cleanResponse = response.replace(/```products\s*\n[\s\S]*?```/, "").trim();
   return { cleanResponse, productNames };
+}
+
+function extractComparison(response: string): { cleanResponse: string; comparison: ProductComparison[] } {
+  const match = response.match(/```comparison\s*\n([\s\S]*?)```/);
+  if (!match) return { cleanResponse: response, comparison: [] };
+
+  let comparison: ProductComparison[] = [];
+  try {
+    comparison = JSON.parse(match[1]);
+  } catch {
+    // If JSON parsing fails, try to extract manually
+    comparison = [];
+  }
+
+  const cleanResponse = response.replace(/```comparison\s*\n[\s\S]*?```/, "").trim();
+  return { cleanResponse, comparison };
 }
 
 export async function POST(req: Request) {
@@ -116,7 +138,10 @@ ${details.join("\n")}
       systemPrompt
     );
 
-    const { cleanResponse, productNames } = extractProductNames(rawResponse);
+    // Extract comparison block first
+    const { cleanResponse: withoutComparison, comparison } = extractComparison(rawResponse);
+    // Then extract product names
+    const { cleanResponse, productNames } = extractProductNames(withoutComparison);
 
     let products: any[] = [];
 
@@ -208,7 +233,21 @@ ${details.join("\n")}
         }));
     }
 
-    return NextResponse.json({ response: cleanResponse, products });
+    // Match comparison pros/cons to matched products
+    const productsWithComparison = products.map((p: any) => {
+      const comp = comparison.find((c) => {
+        const cLower = c.name.toLowerCase();
+        const pLower = p.name.toLowerCase();
+        return pLower === cLower || pLower.includes(cLower) || cLower.includes(pLower.slice(0, 25));
+      });
+      return {
+        ...p,
+        pros: comp?.pros || [],
+        cons: comp?.cons || [],
+      };
+    });
+
+    return NextResponse.json({ response: cleanResponse, products: productsWithComparison });
   } catch (error: unknown) {
     console.error("AI Wizard error:", error);
     const msg = error instanceof Error ? error.message : String(error);

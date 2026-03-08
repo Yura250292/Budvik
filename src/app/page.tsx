@@ -76,11 +76,11 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative bg-gradient-to-br from-[#0A0A0A] via-[#0D0D0D] to-[#141414] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
+      <section className="relative bg-gradient-to-b from-[#141414] via-[#1E1E1E] to-[#2A2A2A] text-white py-10 sm:py-14 md:py-20 overflow-hidden">
         <ToolMatrixRain />
         <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
-            <span className="text-[#FFD600]">BUDVIK</span> — Ваш свiт iнструментiв
+            <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
             Електро та ручний iнструмент вiд провiдних виробникiв. Програма лояльностi

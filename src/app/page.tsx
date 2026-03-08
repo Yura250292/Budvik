@@ -16,12 +16,18 @@ export default async function HomePage() {
     category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
   };
 
+  const popularKeywords = ["викрутк", "шуруповерт", "болгарк", "дриль", "дрель", "зварк", "зварюв", "перфоратор", "набір", "ключ"];
+
   const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
-      where: { ...excludeFilter, stock: { gt: 0 } },
+      where: {
+        ...excludeFilter,
+        stock: { gt: 0 },
+        OR: popularKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
+      },
       include: { category: true },
       take: 8,
-      orderBy: { price: "desc" },
+      orderBy: { price: "asc" },
     }),
     prisma.product.findMany({
       where: { ...excludeFilter, isPromo: true },

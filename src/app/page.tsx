@@ -153,25 +153,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Brands */}
-      {activeBrands.length > 0 && (
-        <section className="py-12 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
-            <h2 className="text-3xl font-bold text-[#0A0A0A] mb-2 text-center">Бренди</h2>
-            <p className="text-[#9E9E9E] text-center mb-8">Iнструменти вiд провiдних виробникiв</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
-              {activeBrands.map((brand) => (
-                <BrandCard
-                  key={brand.slug}
-                  brand={brand}
-                  count={brandCounts[brand.slug] || 0}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* Featured Products */}
       <section className="py-12">
         <div className="max-w-7xl mx-auto px-4">
@@ -192,26 +173,23 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* AI Wizard Banner */}
-      <section className="py-12 bg-white">
+      {/* AI Wizard Banner — compact */}
+      <section className="py-8 bg-white">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="bg-gradient-to-br from-[#0A0A0A] via-[#121212] to-[#1A1A1A] rounded-2xl p-8 md:p-12 text-white flex flex-col md:flex-row items-center gap-8">
-            <div className="flex-1">
-              <h2 className="text-2xl md:text-3xl font-bold mb-3">AI Підбір інструментів</h2>
-              <p className="text-[#9E9E9E] mb-6 leading-relaxed">
-                Не знаєте, який інструмент обрати? Наш AI-помічник підбере
-                ідеальний варіант під ваші потреби та бюджет.
-              </p>
-              <Link
-                href="/ai/wizard"
-                className="inline-block bg-[#FFD600] text-[#0A0A0A] px-6 py-3 rounded-[10px] font-bold hover:bg-[#FFC400] transition duration-200 hover:-translate-y-px"
-              >
-                Підібрати інструмент
-              </Link>
+          <div className="bg-gradient-to-br from-[#0A0A0A] via-[#121212] to-[#1A1A1A] rounded-xl p-5 md:p-6 text-white flex items-center gap-5">
+            <div className="w-14 h-14 bg-white/5 rounded-xl flex items-center justify-center flex-shrink-0 border border-[#FFD600]/20">
+              <VikingMascotIcon size={48} variant="wink" animated />
             </div>
-            <div className="w-28 h-28 bg-white/5 rounded-2xl flex items-center justify-center flex-shrink-0 border border-[#FFD600]/20">
-              <VikingMascotIcon size={96} variant="wink" animated />
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg md:text-xl font-bold">AI Підбір інструментів</h2>
+              <p className="text-sm text-[#9E9E9E] mt-0.5 hidden sm:block">Не знаєте, що обрати? AI підбере ідеальний варіант</p>
             </div>
+            <Link
+              href="/ai/wizard"
+              className="bg-[#FFD600] text-[#0A0A0A] px-5 py-2.5 rounded-[10px] text-sm font-bold hover:bg-[#FFC400] transition duration-200 flex-shrink-0 whitespace-nowrap"
+            >
+              Підібрати
+            </Link>
           </div>
         </div>
       </section>
@@ -222,6 +200,25 @@ export default async function HomePage() {
           <AiRecommendations type="personal" title="Рекомендовано для вас" />
         </div>
       </section>
+
+      {/* Brands */}
+      {activeBrands.length > 0 && (
+        <section className="py-12 bg-white">
+          <div className="max-w-7xl mx-auto px-4">
+            <h2 className="text-3xl font-bold text-[#0A0A0A] mb-2 text-center">Бренди</h2>
+            <p className="text-[#9E9E9E] text-center mb-8">Iнструменти вiд провiдних виробникiв</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
+              {activeBrands.map((brand) => (
+                <BrandCard
+                  key={brand.slug}
+                  brand={brand}
+                  count={brandCounts[brand.slug] || 0}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

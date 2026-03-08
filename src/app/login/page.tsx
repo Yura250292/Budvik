@@ -79,15 +79,6 @@ export default function LoginPage() {
             Зареєструватися
           </Link>
         </p>
-
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500 mb-2 font-medium">Тестові акаунти:</p>
-          <div className="space-y-1 text-xs text-gray-500">
-            <p>Admin: admin@budvik.ua / admin123</p>
-            <p>Sales: sales@budvik.ua / sales123</p>
-            <p>Client: client@budvik.ua / client123</p>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -85,9 +85,9 @@ html {
   0% { opacity: 0; transform: translateY(-4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
-/* Make logo appear golden: invert to white, then sepia+saturate+hue-rotate to gold */
+/* Make logo appear golden: bright yellow on dark header */
 .logo-gold {
-  filter: invert(1) sepia(1) saturate(3) hue-rotate(5deg) brightness(1.1);
+  filter: invert(1) sepia(1) saturate(5) hue-rotate(10deg) brightness(1.3) drop-shadow(0 0 4px rgba(255, 214, 0, 0.5));
   animation: logo-gold-pulse 3s ease-in-out infinite;
 }
 .logo-border-glow {

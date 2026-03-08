@@ -222,18 +222,26 @@ export default function AiChatWidget() {
 
       {/* Chat Window */}
       {isOpen && (
-        <div className="fixed bottom-40 md:bottom-22 right-4 z-50 w-[440px] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: "600px" }}>
+        <div className="fixed z-50 bg-white shadow-2xl border border-[#EFEFEF] flex flex-col inset-0 md:inset-auto md:bottom-22 md:right-4 md:w-[440px] md:rounded-xl md:max-w-[calc(100vw-2rem)] h-full md:h-[600px]">
           {/* Header */}
-          <div className="bg-gradient-to-r from-black to-gray-900 text-white px-4 py-3 rounded-t-xl flex items-center gap-3">
+          <div className="bg-gradient-to-r from-[#0A0A0A] to-[#1A1A1A] text-white px-4 py-3 md:rounded-t-xl flex items-center gap-3 safe-area-top">
             <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
               </svg>
             </div>
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-sm">AI Консультант BUDVIK</h3>
               <p className="text-xs opacity-80">Допоможу обрати інструмент</p>
             </div>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           {/* Messages */}

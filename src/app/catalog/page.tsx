@@ -90,9 +90,9 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-2 text-sm text-[#9E9E9E] mb-6">
+      <nav className="breadcrumb-scroll flex items-center gap-2 text-sm text-[#9E9E9E] mb-4 sm:mb-6">
         <Link href="/" className="hover:text-[#FFB800] transition duration-200">Головна</Link>
         <span className="text-[#DADADA]">/</span>
         <Link href="/catalog" className={activeCategory ? "hover:text-[#FFB800] transition duration-200" : "text-[#0A0A0A] font-medium"}>
@@ -112,10 +112,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         )}
       </nav>
 
-      <h1 className="text-3xl font-bold text-[#0A0A0A] mb-1">
+      <h1 className="text-2xl sm:text-3xl font-bold text-[#0A0A0A] mb-1">
         {activeCategory ? activeCategory.name : "Каталог інструментів"}
       </h1>
-      <p className="text-[#9E9E9E] mb-8">
+      <p className="text-sm sm:text-base text-[#9E9E9E] mb-4 sm:mb-8">
         {total > 0 ? `Знайдено ${total} товарів` : "Товарів не знайдено"}
         {brand && <span className="ml-2 bg-[#FFD600]/15 text-[#0A0A0A] px-2.5 py-0.5 rounded-md text-xs font-semibold">{brand}</span>}
       </p>
@@ -125,7 +125,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         <AiSmartSearch />
       </div>
 
-      <div className="flex flex-col md:flex-row gap-8">
+      <div className="flex flex-col md:flex-row gap-4 sm:gap-8">
         {/* Tree sidebar */}
         <CatalogSidebar
           grouped={grouped}
@@ -147,7 +147,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
                 {products.map((product) => (
                   <ProductCard
                     key={product.id}

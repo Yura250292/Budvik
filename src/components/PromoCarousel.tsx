@@ -77,10 +77,10 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
             <Link
               key={product.id}
               href={`/catalog/${product.slug}`}
-              className="group flex-shrink-0 w-[280px] bg-white border border-[#EFEFEF] rounded-xl overflow-hidden hover:-translate-y-1 transition-all duration-200"
+              className="group flex-shrink-0 w-[200px] sm:w-[280px] bg-white border border-[#EFEFEF] rounded-xl overflow-hidden hover:-translate-y-1 transition-all duration-200"
               style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' }}
             >
-              <div className="relative h-48 bg-[#FAFAFA] flex items-center justify-center">
+              <div className="relative h-36 sm:h-48 bg-[#FAFAFA] flex items-center justify-center">
                 {product.image ? (
                   <img
                     src={product.image}
@@ -109,24 +109,24 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
                 </div>
               </div>
 
-              <div className="p-4">
-                <span className="inline-block text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{product.category.name}</span>
-                <h3 className="font-semibold text-[#0A0A0A] group-hover:text-[#FFB800] transition duration-200 mb-2 line-clamp-2 text-sm leading-snug">
+              <div className="p-3 sm:p-4">
+                <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1.5 sm:px-2 py-0.5 rounded-md mb-1.5 sm:mb-2 font-medium truncate max-w-full">{product.category.name}</span>
+                <h3 className="font-semibold text-[#0A0A0A] group-hover:text-[#FFB800] transition duration-200 mb-2 line-clamp-2 text-[13px] sm:text-sm leading-snug">
                   {product.name}
                 </h3>
 
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xl font-bold text-[#0A0A0A]">{formatPrice(finalPrice)}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2">
+                  <div className="min-w-0">
+                    <span className="text-base sm:text-xl font-bold text-[#0A0A0A]">{formatPrice(finalPrice)}</span>
                     {product.promoPrice && product.promoPrice < product.price && (
-                      <span className="text-sm text-[#9E9E9E] line-through ml-1.5">{formatPrice(product.price)}</span>
+                      <span className="text-[10px] sm:text-sm text-[#9E9E9E] line-through ml-1">{formatPrice(product.price)}</span>
                     )}
                   </div>
                   {product.stock > 0 && (
                     <button
                       onClick={(e) => handleAddToCart(e, product)}
-                      className="bg-[#FFD600] text-[#0A0A0A] px-4 py-2 rounded-[10px] text-sm font-semibold hover:bg-[#FFC400] hover:-translate-y-px transition-all duration-200"
-                      style={{ height: '40px' }}
+                      className="bg-[#FFD600] text-[#0A0A0A] px-3 sm:px-4 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] transition-all duration-200 w-full sm:w-auto"
+                      style={{ minHeight: '40px' }}
                     >
                       У кошик
                     </button>

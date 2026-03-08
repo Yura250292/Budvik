@@ -38,18 +38,18 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <nav className="text-sm text-gray-500 mb-6">
-        <Link href="/catalog" className="hover:text-yellow-600">Каталог</Link>
-        {" / "}
-        <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-yellow-600">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
+      <nav className="breadcrumb-scroll text-sm text-[#9E9E9E] mb-4 sm:mb-6">
+        <Link href="/catalog" className="hover:text-[#FFB800]">Каталог</Link>
+        <span className="text-[#DADADA]">{" / "}</span>
+        <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-[#FFB800]">
           {product.category.name}
         </Link>
-        {" / "}
-        <span className="text-gray-900">{product.name}</span>
+        <span className="text-[#DADADA]">{" / "}</span>
+        <span className="text-[#0A0A0A]">{product.name}</span>
       </nav>
 
-      <div className="grid md:grid-cols-2 gap-8 relative">
+      <div className="grid md:grid-cols-2 gap-4 sm:gap-8 relative">
         {product.image ? (
           <div className="relative">
             <ProductImageZoom src={product.image} alt={product.name} />
@@ -64,11 +64,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
         <div>
           <span className="text-sm text-yellow-600 font-medium">{product.category.name}</span>
-          <h1 className="text-3xl font-bold text-gray-900 mt-1 mb-4">{product.name}</h1>
+          <h1 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mt-1 mb-3 sm:mb-4 leading-snug">{product.name}</h1>
           <ProductDescription description={product.description} />
 
-          <div className="flex items-baseline gap-3 mb-6 flex-wrap">
-            <span className={`text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-yellow-600" : "text-gray-900"}`}>
+          <div className="flex items-baseline gap-2 sm:gap-3 mb-4 sm:mb-6 flex-wrap">
+            <span className={`text-2xl sm:text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-[#0A0A0A]" : "text-[#0A0A0A]"}`}>
               {formatPrice(displayPrice)}
             </span>
             {product.isPromo && product.promoPrice && product.promoPrice < product.price && (

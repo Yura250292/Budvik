@@ -44,6 +44,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
 }
 
 /* Premium card effect */
@@ -198,9 +203,70 @@ input:focus, select:focus, textarea:focus {
   color: #555;
 }
 
+/* Drawer overlay */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 60;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.drawer-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Drawer panel */
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 85%;
+  max-width: 320px;
+  background: #F7F7F7;
+  z-index: 61;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.drawer-panel.open {
+  transform: translateX(0);
+}
+
+/* Scrollable breadcrumbs */
+.breadcrumb-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+.breadcrumb-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile spec table fix */
+@media (max-width: 640px) {
+  .spec-key {
+    white-space: normal;
+    width: 45%;
+    font-size: 0.8125rem;
+  }
+  .specs-table {
+    font-size: 0.8125rem;
+  }
+}
+
 /* Standalone PWA mode */
 @media all and (display-mode: standalone) {
   header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .drawer-panel {
     padding-top: env(safe-area-inset-top, 0px);
   }
 }

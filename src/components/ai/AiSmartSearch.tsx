@@ -51,10 +51,10 @@ export default function AiSmartSearch() {
 
   return (
     <div className="w-full">
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4">
         <div className="relative flex-1">
           <svg
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9E9E9E]"
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9E9E9E]"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -66,16 +66,16 @@ export default function AiSmartSearch() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Розумний пошук: наприклад 'дриль для бетону' або 'недорога болгарка'"
-            className="w-full bg-white border border-[#E0E0E0] rounded-[10px] pl-11 pr-4 py-3 text-[#0A0A0A] placeholder-[#9E9E9E] transition duration-200"
-            style={{ height: '44px' }}
+            placeholder="Пошук: 'дриль для бетону', 'болгарка'..."
+            className="w-full bg-white border border-[#E0E0E0] rounded-[10px] pl-10 pr-4 py-3 text-[#0A0A0A] placeholder-[#9E9E9E] transition duration-200"
+            style={{ height: '48px' }}
           />
         </div>
         <button
           onClick={search}
           disabled={loading}
-          className="bg-[#FFD600] text-[#0A0A0A] font-semibold px-6 rounded-[10px] hover:bg-[#FFC400] disabled:opacity-50 transition duration-200 hover:-translate-y-px"
-          style={{ height: '44px' }}
+          className="bg-[#FFD600] text-[#0A0A0A] font-semibold px-6 rounded-[10px] hover:bg-[#FFC400] active:bg-[#FFB800] disabled:opacity-50 transition duration-200 flex-shrink-0"
+          style={{ height: '48px', minHeight: '48px' }}
         >
           {loading ? "..." : "AI Пошук"}
         </button>
@@ -106,13 +106,9 @@ export default function AiSmartSearch() {
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
           {results.map((product) => (
-            <Link
-              key={product.id}
-              href={`/catalog/${product.slug}`}
-              className="group"
-            >
+            <Link key={product.id} href={`/catalog/${product.slug}`} className="group block">
               <div className={`rounded-xl overflow-hidden transition-all duration-200 border ${
                 product.stock > 0
                   ? "border-[#EFEFEF] bg-white hover:shadow-[0_10px_30px_rgba(0,0,0,0.12)] hover:-translate-y-1"
@@ -120,62 +116,41 @@ export default function AiSmartSearch() {
               }`}
                 style={{ boxShadow: product.stock > 0 ? '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' : 'none' }}
               >
-                <div className={`h-48 flex items-center justify-center ${
+                <div className={`h-36 sm:h-48 flex items-center justify-center ${
                   product.stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"
                 }`}>
                   {product.image ? (
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="h-full w-full object-contain p-2.5"
-                      loading="lazy"
-                    />
+                    <img src={product.image} alt={product.name} className="h-full w-full object-contain p-2" loading="lazy" />
                   ) : (
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className={`h-20 w-20 transition duration-200 ${
-                        product.stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"
-                      }`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-14 sm:h-20 w-14 sm:w-20 transition duration-200 ${product.stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                     </svg>
                   )}
                 </div>
-
-                <div className="p-4">
+                <div className="p-3 sm:p-4">
                   {product.category && (
-                    <span className="inline-block text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{product.category.name}</span>
+                    <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1.5 sm:px-2 py-0.5 rounded-md mb-1.5 font-medium truncate max-w-full">{product.category.name}</span>
                   )}
-                  <h3 className={`text-[15px] font-semibold mb-1.5 line-clamp-2 transition duration-200 leading-snug ${
-                    product.stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"
-                  }`}>
+                  <h3 className={`text-[13px] sm:text-[15px] font-semibold mb-1 line-clamp-2 transition duration-200 leading-snug ${product.stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"}`}>
                     {product.name}
                   </h3>
-                  <p className="text-sm text-[#555] mb-3 line-clamp-2 leading-relaxed">{product.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xl font-bold ${
-                      product.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"
-                    }`}>
+                  <p className="hidden sm:block text-sm text-[#555] mb-3 line-clamp-2 leading-relaxed">{product.description}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <span className={`text-base sm:text-xl font-bold ${product.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"}`}>
                       {formatPrice(product.price)}
                     </span>
                     {product.stock > 0 ? (
                       <button
                         onClick={(e) => handleAddToCart(e, product)}
-                        className="bg-[#FFD600] text-[#0A0A0A] px-4 py-2 rounded-[10px] text-sm font-semibold hover:bg-[#FFC400] hover:-translate-y-px transition-all duration-200"
-                        style={{ height: '40px' }}
+                        className="bg-[#FFD600] text-[#0A0A0A] px-3 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] transition-all duration-200 w-full sm:w-auto"
+                        style={{ minHeight: '40px' }}
                       >
                         У кошик
                       </button>
                     ) : (
-                      <span className="text-sm text-[#9E9E9E] font-medium">Немає в наявності</span>
+                      <span className="text-xs text-[#9E9E9E] font-medium">Немає в наявності</span>
                     )}
                   </div>
-                  {product.stock > 0 && product.stock <= 5 && (
-                    <p className="text-xs text-[#FFB800] mt-2 font-medium">Залишилось {product.stock} шт.</p>
-                  )}
                 </div>
               </div>
             </Link>

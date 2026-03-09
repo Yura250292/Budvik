@@ -38,15 +38,13 @@ export default function Header() {
       {/* Yellow accent line */}
       <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-14 md:h-16 gap-3">
-          {/* Logo — mobile: bigger with brand name */}
-          <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="relative">
-              <Image src="/logo.png" alt="БУДВІК" width={40} height={40} className="h-9 w-auto md:h-9 logo-gold" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-base md:text-lg font-extrabold leading-none logo-text-animated tracking-wide">БУДВІК</span>
-              <span className="text-[8px] md:text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
+        <div className="relative flex items-center justify-between h-14 md:h-16 gap-3">
+          {/* Logo — mobile: centered, desktop: left with brand name */}
+          <Link href="/" className="flex items-center gap-2.5 flex-shrink-0 md:relative absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0">
+            <Image src="/logo.png" alt="БУДВІК" width={44} height={44} className="h-10 w-auto md:h-9 logo-gold" />
+            <div className="hidden md:flex flex-col">
+              <span className="text-lg font-extrabold leading-none logo-text-animated tracking-wide">БУДВІК</span>
+              <span className="text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
             </div>
           </Link>
 

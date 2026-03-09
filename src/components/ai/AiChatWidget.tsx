@@ -19,6 +19,9 @@ interface AIProduct {
   promoPrice: number | null;
   promoLabel: string | null;
   category: { name: string; slug: string };
+  specs?: Record<string, string>;
+  pros?: string[];
+  cons?: string[];
 }
 
 interface Message {
@@ -111,14 +114,27 @@ function ProductCard({ product }: { product: AIProduct }) {
 }
 
 function ComparisonTable({ products }: { products: AIProduct[] }) {
+  // Collect all unique spec keys across all products
+  const allSpecKeys: string[] = [];
+  for (const p of products) {
+    if (p.specs) {
+      for (const key of Object.keys(p.specs)) {
+        if (!allSpecKeys.includes(key)) allSpecKeys.push(key);
+      }
+    }
+  }
+  const hasSpecs = allSpecKeys.length > 0;
+  const hasPros = products.some((p) => p.pros && p.pros.length > 0);
+  const hasCons = products.some((p) => p.cons && p.cons.length > 0);
+
   return (
     <div className="overflow-x-auto my-2 -mx-1">
       <table className="w-full text-[10px] border-collapse border border-g200 rounded">
         <thead>
           <tr className="bg-primary/10">
-            <th className="border border-g200 px-2 py-1.5 text-left font-semibold text-g500">Параметр</th>
+            <th className="border border-g200 px-2 py-1.5 text-left font-semibold text-g500 min-w-[70px]">Параметр</th>
             {products.map((p) => (
-              <th key={p.id} className="border border-g200 px-2 py-1.5 text-left font-semibold text-g600">
+              <th key={p.id} className="border border-g200 px-2 py-1.5 text-left font-semibold text-g600 min-w-[100px]">
                 {p.name.length > 25 ? p.name.slice(0, 25) + "..." : p.name}
               </th>
             ))}
@@ -150,23 +166,62 @@ function ComparisonTable({ products }: { products: AIProduct[] }) {
             ))}
           </tr>
           <tr>
-            <td className="border border-g200 px-2 py-1 font-medium text-g500">Категорія</td>
-            {products.map((p) => (
-              <td key={p.id} className="border border-g200 px-2 py-1">{p.category.name}</td>
-            ))}
-          </tr>
-          <tr className="bg-g50">
             <td className="border border-g200 px-2 py-1 font-medium text-g500">Наявність</td>
             {products.map((p) => (
               <td key={p.id} className="border border-g200 px-2 py-1">
                 {p.stock > 0 ? (
-                  <span className="text-green-600">{p.stock} шт</span>
+                  <span className="text-green-600 font-medium">{p.stock} шт</span>
                 ) : (
                   <span className="text-red-500">Немає</span>
                 )}
               </td>
             ))}
           </tr>
+          {/* Dynamic specs rows from AI comparison */}
+          {hasSpecs && allSpecKeys.map((specKey, i) => (
+            <tr key={specKey} className={i % 2 === 0 ? "bg-g50" : ""}>
+              <td className="border border-g200 px-2 py-1 font-medium text-g500">{specKey}</td>
+              {products.map((p) => (
+                <td key={p.id} className="border border-g200 px-2 py-1">
+                  {p.specs?.[specKey] || "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {/* Pros row */}
+          {hasPros && (
+            <tr className="bg-green-50">
+              <td className="border border-g200 px-2 py-1 font-medium text-green-700">Переваги</td>
+              {products.map((p) => (
+                <td key={p.id} className="border border-g200 px-2 py-1">
+                  {p.pros && p.pros.length > 0 ? (
+                    <ul className="list-none space-y-0.5">
+                      {p.pros.map((pro, j) => (
+                        <li key={j} className="text-green-700">+ {pro}</li>
+                      ))}
+                    </ul>
+                  ) : "—"}
+                </td>
+              ))}
+            </tr>
+          )}
+          {/* Cons row */}
+          {hasCons && (
+            <tr className="bg-red-50">
+              <td className="border border-g200 px-2 py-1 font-medium text-red-600">Недоліки</td>
+              {products.map((p) => (
+                <td key={p.id} className="border border-g200 px-2 py-1">
+                  {p.cons && p.cons.length > 0 ? (
+                    <ul className="list-none space-y-0.5">
+                      {p.cons.map((con, j) => (
+                        <li key={j} className="text-red-600">- {con}</li>
+                      ))}
+                    </ul>
+                  ) : "—"}
+                </td>
+              ))}
+            </tr>
+          )}
           <tr>
             <td className="border border-g200 px-2 py-1 font-medium text-g500">Посилання</td>
             {products.map((p) => (

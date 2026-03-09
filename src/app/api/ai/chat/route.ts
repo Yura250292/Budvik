@@ -7,6 +7,13 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+interface ProductComparison {
+  name: string;
+  specs?: Record<string, string>;
+  pros?: string[];
+  cons?: string[];
+}
+
 function extractProductNames(response: string): { cleanResponse: string; productNames: string[] } {
   const match = response.match(/```products\s*\n([\s\S]*?)```/);
   if (!match) return { cleanResponse: response, productNames: [] };
@@ -16,10 +23,23 @@ function extractProductNames(response: string): { cleanResponse: string; product
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  // Remove the products block from the response text
   const cleanResponse = response.replace(/```products\s*\n[\s\S]*?```/, "").trim();
-
   return { cleanResponse, productNames };
+}
+
+function extractComparison(response: string): { cleanResponse: string; comparison: ProductComparison[] } {
+  const match = response.match(/```comparison\s*\n([\s\S]*?)```/);
+  if (!match) return { cleanResponse: response, comparison: [] };
+
+  let comparison: ProductComparison[] = [];
+  try {
+    comparison = JSON.parse(match[1]);
+  } catch {
+    comparison = [];
+  }
+
+  const cleanResponse = response.replace(/```comparison\s*\n[\s\S]*?```/, "").trim();
+  return { cleanResponse, comparison };
 }
 
 export async function POST(req: Request) {
@@ -53,8 +73,9 @@ export async function POST(req: Request) {
 
     const rawResponse = await chatWithGemini(messages, systemPrompt);
 
-    // Parse product names from the AI response
-    const { cleanResponse, productNames } = extractProductNames(rawResponse);
+    // Extract comparison block first, then product names
+    const { cleanResponse: withoutComparison, comparison } = extractComparison(rawResponse);
+    const { cleanResponse, productNames } = extractProductNames(withoutComparison);
 
     let mentionedProducts: any[] = [];
 
@@ -120,19 +141,31 @@ export async function POST(req: Request) {
           return null;
         })
         .filter(Boolean)
-        .map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          slug: p.slug,
-          description: stripHtml(p.description || "").slice(0, 200),
-          price: p.price,
-          image: p.image,
-          stock: p.stock,
-          isPromo: p.isPromo,
-          promoPrice: p.promoPrice,
-          promoLabel: p.promoLabel,
-          category: { name: p.category.name, slug: p.category.slug },
-        }));
+        .map((p: any) => {
+          // Match comparison data to this product
+          const comp = comparison.find((c) => {
+            const cLower = c.name.toLowerCase();
+            const pLower = p.name.toLowerCase();
+            return pLower === cLower || pLower.includes(cLower) || cLower.includes(pLower.slice(0, 25));
+          });
+
+          return {
+            id: p.id,
+            name: p.name,
+            slug: p.slug,
+            description: stripHtml(p.description || "").slice(0, 200),
+            price: p.price,
+            image: p.image,
+            stock: p.stock,
+            isPromo: p.isPromo,
+            promoPrice: p.promoPrice,
+            promoLabel: p.promoLabel,
+            category: { name: p.category.name, slug: p.category.slug },
+            specs: comp?.specs || {},
+            pros: comp?.pros || [],
+            cons: comp?.cons || [],
+          };
+        });
     }
 
     return NextResponse.json({

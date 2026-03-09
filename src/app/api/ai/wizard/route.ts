@@ -312,51 +312,68 @@ ${filterHints.join("\n")}
     let products: any[] = [];
 
     if (productNames.length > 0) {
-      // Build flexible search: split each name into significant words
+      // Extract model numbers for precise matching
+      function extractModelCodes(name: string): string[] {
+        const codes: string[] = [];
+        const modelPatterns = name.match(/[A-Z]{2,}[\s\-]?\d{2,}[A-Z]*/gi) || [];
+        codes.push(...modelPatterns.map((m) => m.replace(/\s+/g, "")));
+        const articleMatch = name.match(/\((\d{5,})\)/);
+        if (articleMatch) codes.push(articleMatch[1]);
+        return codes;
+      }
+
+      // Exact search per product name + broad fallback
+      const exactSearches = productNames.map((name) =>
+        prisma.product.findMany({
+          where: {
+            isActive: true,
+            name: { contains: name, mode: "insensitive" as const },
+          },
+          include: { category: true },
+          take: 5,
+        })
+      );
+
       const searchConditions = productNames.flatMap((name) => {
         const conditions = [
-          { name: { contains: name.slice(0, 30), mode: "insensitive" as const } },
+          { name: { contains: name.slice(0, 40), mode: "insensitive" as const } },
         ];
-        const words = name.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
-        if (words.length >= 2) {
-          for (const word of words.slice(0, 3)) {
-            conditions.push({ name: { contains: word, mode: "insensitive" as const } });
-          }
+        const models = extractModelCodes(name);
+        for (const model of models) {
+          conditions.push({ name: { contains: model, mode: "insensitive" as const } });
         }
         return conditions;
       });
 
-      // Prefer in-stock products; fetch separately and merge
-      const [inStockProducts, allStockProducts] = await Promise.all([
+      const [exactResults, broadProducts] = await Promise.all([
+        Promise.all(exactSearches),
         prisma.product.findMany({
-          where: {
-            isActive: true,
-            stock: { gt: 0 },
-            OR: searchConditions,
-          },
-          include: { category: true },
-          take: 40,
-        }),
-        prisma.product.findMany({
-          where: {
-            isActive: true,
-            OR: searchConditions,
-          },
+          where: { isActive: true, OR: searchConditions },
           include: { category: true },
           take: 50,
         }),
       ]);
 
-      // Merge: in-stock first, then fill with out-of-stock (deduped)
-      const seenIds = new Set(inStockProducts.map((p) => p.id));
-      const outOfStock = allStockProducts.filter((p) => !seenIds.has(p.id)).slice(0, 10);
-      const allProducts = [...inStockProducts, ...outOfStock];
+      const allProductsMap = new Map<string, typeof broadProducts[0]>();
+      for (const results of exactResults) {
+        for (const p of results) allProductsMap.set(p.id, p);
+      }
+      for (const p of broadProducts) {
+        if (!allProductsMap.has(p.id)) allProductsMap.set(p.id, p);
+      }
+      const allProducts = Array.from(allProductsMap.values());
 
-      // Smart matching: find best match for each AI-recommended name
       const usedIds = new Set<string>();
       products = productNames
-        .map((name) => {
+        .map((name, nameIdx) => {
+          const exactMatch = exactResults[nameIdx]?.[0];
+          if (exactMatch && !usedIds.has(exactMatch.id)) {
+            usedIds.add(exactMatch.id);
+            return exactMatch;
+          }
+
           const nameLower = name.toLowerCase().trim();
+          const nameModels = extractModelCodes(name);
           const nameWords = nameLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
 
           let bestMatch: typeof allProducts[0] | null = null;
@@ -366,25 +383,24 @@ ${filterHints.join("\n")}
             if (usedIds.has(p.id)) continue;
             const pLower = p.name.toLowerCase();
 
-            if (pLower === nameLower) { bestMatch = p; bestScore = 100; break; }
+            if (pLower === nameLower) { bestMatch = p; bestScore = 200; break; }
 
             let score = 0;
+            const pModels = extractModelCodes(p.name);
+            for (const nm of nameModels) {
+              for (const pm of pModels) {
+                if (nm.toLowerCase() === pm.toLowerCase()) score += 80;
+              }
+            }
+
             if (pLower.includes(nameLower)) score += 50;
             if (nameLower.includes(pLower)) score += 40;
 
             for (const word of nameWords) {
-              if (pLower.includes(word)) score += 10;
+              if (pLower.includes(word)) score += 5;
             }
 
-            const pWords = pLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
-            for (const word of pWords) {
-              if (nameLower.includes(word)) score += 5;
-            }
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestMatch = p;
-            }
+            if (score > bestScore) { bestScore = score; bestMatch = p; }
           }
 
           if (bestMatch && bestScore >= 20) {

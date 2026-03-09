@@ -80,34 +80,78 @@ export async function POST(req: Request) {
     let mentionedProducts: any[] = [];
 
     if (productNames.length > 0) {
-      // Build flexible search conditions
+      // Strategy: try EXACT search first for each name, then fall back to fuzzy
+      // This prevents wrong matches like "Grosser GPS 301" when looking for "Grosser GCD 521T"
+
+      // Extract model numbers (alphanumeric codes like GCD521T, D650, 13/850)
+      function extractModelCodes(name: string): string[] {
+        const codes: string[] = [];
+        // Match patterns like "GCD 521T", "GAG 120R", "D650", "13/850", "OS-20"
+        const modelPatterns = name.match(/[A-Z]{2,}[\s\-]?\d{2,}[A-Z]*/gi) || [];
+        codes.push(...modelPatterns.map((m) => m.replace(/\s+/g, "")));
+        // Match article numbers in parentheses like (1941055)
+        const articleMatch = name.match(/\((\d{5,})\)/);
+        if (articleMatch) codes.push(articleMatch[1]);
+        return codes;
+      }
+
+      // First: try exact name search for each product
+      const exactSearches = productNames.map((name) =>
+        prisma.product.findMany({
+          where: {
+            isActive: true,
+            name: { contains: name, mode: "insensitive" as const },
+          },
+          include: { category: true },
+          take: 5,
+        })
+      );
+
+      // Also build broad search as fallback
       const searchConditions = productNames.flatMap((name) => {
         const conditions = [
-          { name: { contains: name.slice(0, 30), mode: "insensitive" as const } },
+          { name: { contains: name.slice(0, 40), mode: "insensitive" as const } },
         ];
-        const words = name.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
-        if (words.length >= 2) {
-          for (const word of words.slice(0, 3)) {
-            conditions.push({ name: { contains: word, mode: "insensitive" as const } });
-          }
+        // Add model code searches (most precise identifiers)
+        const models = extractModelCodes(name);
+        for (const model of models) {
+          conditions.push({ name: { contains: model, mode: "insensitive" as const } });
         }
         return conditions;
       });
 
-      const allProducts = await prisma.product.findMany({
-        where: {
-          isActive: true,
-          OR: searchConditions,
-        },
-        include: { category: true },
-        take: 50,
-      });
+      const [exactResults, broadProducts] = await Promise.all([
+        Promise.all(exactSearches),
+        prisma.product.findMany({
+          where: { isActive: true, OR: searchConditions },
+          include: { category: true },
+          take: 50,
+        }),
+      ]);
 
-      // Smart matching with scoring
+      // Merge all products (dedup)
+      const allProductsMap = new Map<string, typeof broadProducts[0]>();
+      for (const results of exactResults) {
+        for (const p of results) allProductsMap.set(p.id, p);
+      }
+      for (const p of broadProducts) {
+        if (!allProductsMap.has(p.id)) allProductsMap.set(p.id, p);
+      }
+      const allProducts = Array.from(allProductsMap.values());
+
+      // Smart matching with model-number priority
       const usedIds = new Set<string>();
       mentionedProducts = productNames
-        .map((name) => {
+        .map((name, nameIdx) => {
+          // First: check if exact search found it
+          const exactMatch = exactResults[nameIdx]?.[0];
+          if (exactMatch && !usedIds.has(exactMatch.id)) {
+            usedIds.add(exactMatch.id);
+            return exactMatch;
+          }
+
           const nameLower = name.toLowerCase().trim();
+          const nameModels = extractModelCodes(name);
           const nameWords = nameLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
 
           let bestMatch: typeof allProducts[0] | null = null;
@@ -117,18 +161,26 @@ export async function POST(req: Request) {
             if (usedIds.has(p.id)) continue;
             const pLower = p.name.toLowerCase();
 
-            if (pLower === nameLower) { bestMatch = p; bestScore = 100; break; }
+            // Exact match
+            if (pLower === nameLower) { bestMatch = p; bestScore = 200; break; }
 
             let score = 0;
+
+            // Model number match — strongest signal (GCD521T in both names)
+            const pModels = extractModelCodes(p.name);
+            for (const nm of nameModels) {
+              for (const pm of pModels) {
+                if (nm.toLowerCase() === pm.toLowerCase()) score += 80;
+              }
+            }
+
+            // Full name containment
             if (pLower.includes(nameLower)) score += 50;
             if (nameLower.includes(pLower)) score += 40;
 
+            // Word matching
             for (const word of nameWords) {
-              if (pLower.includes(word)) score += 10;
-            }
-            const pWords = pLower.split(/[\s,\-\/]+/).filter((w) => w.length >= 3);
-            for (const word of pWords) {
-              if (nameLower.includes(word)) score += 5;
+              if (pLower.includes(word)) score += 5;
             }
 
             if (score > bestScore) { bestScore = score; bestMatch = p; }

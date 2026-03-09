@@ -1,0 +1,334 @@
+"use client";
+
+import { useSession } from "next-auth/react";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { formatPrice } from "@/lib/utils";
+
+interface CartItem {
+  productId: string;
+  name: string;
+  sku: string;
+  stock: number;
+  basePrice: number;
+  sellingPrice: number;
+  quantity: number;
+}
+
+export default function NewOrderPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження...</div>}>
+      <NewOrderContent />
+    </Suspense>
+  );
+}
+
+function NewOrderContent() {
+  const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const presetClientId = searchParams.get("clientId") || "";
+
+  const [clients, setClients] = useState<any[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState(presetClientId);
+  const [clientSearch, setClientSearch] = useState("");
+  const [showClientPicker, setShowClientPicker] = useState(false);
+
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const role = (session?.user as any)?.role;
+
+  // Load clients
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/erp/counterparties")
+      .then((r) => r.json())
+      .then((data) => {
+        const arr = Array.isArray(data) ? data : [];
+        setClients(arr.filter((c: any) => c.type === "CUSTOMER" || c.type === "BOTH"));
+      });
+  }, [session]);
+
+  // Search products
+  const searchProducts = useCallback(async (query: string) => {
+    if (query.length < 2) { setProductResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(`/api/products?search=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setProductResults((data.products || data || []).slice(0, 20));
+    } catch { /* ignore */ }
+    setSearchLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchProducts(productSearch), 300);
+    return () => clearTimeout(timer);
+  }, [productSearch, searchProducts]);
+
+  const addToCart = (product: any) => {
+    const existing = cart.find((c) => c.productId === product.id);
+    if (existing) {
+      setCart(cart.map((c) => c.productId === product.id ? { ...c, quantity: c.quantity + 1 } : c));
+    } else {
+      setCart([...cart, {
+        productId: product.id,
+        name: product.name,
+        sku: product.sku || "",
+        stock: product.stock || 0,
+        basePrice: product.price,
+        sellingPrice: product.price,
+        quantity: 1,
+      }]);
+    }
+    setProductSearch("");
+    setProductResults([]);
+  };
+
+  const updateCartItem = (idx: number, field: keyof CartItem, value: number) => {
+    setCart(cart.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  };
+
+  const removeFromCart = (idx: number) => {
+    setCart(cart.filter((_, i) => i !== idx));
+  };
+
+  const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.sellingPrice, 0);
+  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  const handleSubmit = async () => {
+    if (cart.length === 0) return;
+    setSaving(true);
+
+    try {
+      const res = await fetch("/api/erp/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          counterpartyId: selectedClientId || null,
+          items: cart.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            sellingPrice: item.sellingPrice,
+          })),
+          notes: notes || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        router.push(`/sales/orders`);
+      } else {
+        alert(data.error || "Помилка створення");
+      }
+    } catch {
+      alert("Мережева помилка");
+    }
+    setSaving(false);
+  };
+
+  const selectedClient = clients.find((c) => c.id === selectedClientId);
+  const filteredClients = clientSearch
+    ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clients;
+
+  if (role !== "ADMIN" && role !== "SALES") {
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "12px 16px" }}>
+        <div className="max-w-lg mx-auto flex items-center gap-3">
+          <Link href="/sales" className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F3F4F6" }}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#0A0A0A" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </Link>
+          <h1 style={{ fontSize: "20px", fontWeight: 700, flex: 1 }}>Нове замовлення</h1>
+          {cart.length > 0 && (
+            <span style={{ background: "#22C55E", color: "white", padding: "2px 10px", borderRadius: "20px", fontSize: "13px", fontWeight: 600 }}>
+              {totalItems}
+            </span>
+          )}
+        </div>
+      </header>
+
+      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "120px" }}>
+        {/* Client selector */}
+        <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
+          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>Клієнт</p>
+          <button onClick={() => setShowClientPicker(true)} className="w-full text-left"
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "15px", background: "#FAFAFA" }}>
+            {selectedClient ? (
+              <span style={{ fontWeight: 500 }}>{selectedClient.name}</span>
+            ) : (
+              <span style={{ color: "#9CA3AF" }}>Обрати клієнта...</span>
+            )}
+          </button>
+        </div>
+
+        {/* Product search */}
+        <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
+          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>Додати товар</p>
+          <input
+            type="search"
+            placeholder="Пошук по назві або артикулу..."
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            className="w-full"
+            style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "15px" }}
+          />
+          {searchLoading && <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "4px" }}>Шукаю...</p>}
+
+          {/* Product results */}
+          {productResults.length > 0 && (
+            <div className="mt-2 max-h-60 overflow-auto" style={{ border: "1px solid #E5E7EB", borderRadius: "8px" }}>
+              {productResults.map((p) => (
+                <button key={p.id} onClick={() => addToCart(p)}
+                  className="w-full text-left flex items-center justify-between p-3 hover:bg-yellow-50"
+                  style={{ borderBottom: "1px solid #F3F4F6", fontSize: "14px" }}>
+                  <div className="flex-1 min-w-0">
+                    <p style={{ fontWeight: 500 }} className="truncate">{p.name}</p>
+                    <div className="flex gap-3" style={{ fontSize: "12px", color: "#9CA3AF" }}>
+                      {p.sku && <span>{p.sku}</span>}
+                      <span>Залишок: {p.stock || 0}</span>
+                    </div>
+                  </div>
+                  <span style={{ fontWeight: 600, marginLeft: "8px", whiteSpace: "nowrap" }}>{formatPrice(p.price)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Cart */}
+        {cart.length > 0 && (
+          <div className="bg-white rounded-xl mb-3" style={{ border: "1px solid #EFEFEF" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #EFEFEF" }}>
+              <p style={{ fontSize: "14px", fontWeight: 600 }}>Кошик ({cart.length} позицій)</p>
+            </div>
+            {cart.map((item, idx) => (
+              <div key={item.productId} style={{ padding: "12px 16px", borderBottom: "1px solid #F9FAFB" }}>
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p style={{ fontSize: "14px", fontWeight: 500 }} className="truncate">{item.name}</p>
+                    <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{item.sku} | Залишок: {item.stock}</p>
+                  </div>
+                  <button onClick={() => removeFromCart(idx)} style={{ color: "#DC2626", fontSize: "18px", padding: "0 4px" }}>&times;</button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => updateCartItem(idx, "quantity", Math.max(1, item.quantity - 1))}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: "1px solid #E5E7EB", fontSize: "16px" }}>-</button>
+                    <input type="number" value={item.quantity} onChange={(e) => updateCartItem(idx, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-14 text-center" style={{ padding: "4px", border: "1px solid #E5E7EB", borderRadius: "8px", fontSize: "15px", fontWeight: 600 }} />
+                    <button onClick={() => updateCartItem(idx, "quantity", item.quantity + 1)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: "1px solid #E5E7EB", fontSize: "16px" }}>+</button>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#9CA3AF" }}>&times;</div>
+                  <input type="number" step="0.01" value={item.sellingPrice}
+                    onChange={(e) => updateCartItem(idx, "sellingPrice", parseFloat(e.target.value) || 0)}
+                    className="w-24 text-right" style={{ padding: "4px 8px", border: "1px solid #E5E7EB", borderRadius: "8px", fontSize: "15px" }} />
+                  <div className="text-right flex-1">
+                    <p style={{ fontSize: "15px", fontWeight: 700 }}>{formatPrice(item.quantity * item.sellingPrice)}</p>
+                    {item.sellingPrice < item.basePrice && (
+                      <p style={{ fontSize: "11px", color: "#F59E0B" }}>-{Math.round((1 - item.sellingPrice / item.basePrice) * 100)}%</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Notes */}
+        {cart.length > 0 && (
+          <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
+            <input
+              placeholder="Примітка (опціонально)..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full"
+              style={{ padding: "8px 0", fontSize: "14px", border: "none", outline: "none" }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Bottom bar */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white" style={{ borderTop: "1px solid #EFEFEF", padding: "12px 16px", boxShadow: "0 -4px 12px rgba(0,0,0,0.05)" }}>
+          <div className="max-w-lg mx-auto">
+            <div className="flex items-center justify-between mb-3">
+              <span style={{ fontSize: "15px", color: "#6B7280" }}>{totalItems} товарів</span>
+              <span style={{ fontSize: "22px", fontWeight: 700 }}>{formatPrice(totalAmount)}</span>
+            </div>
+            <button onClick={handleSubmit} disabled={saving || cart.length === 0}
+              className="w-full"
+              style={{
+                background: "#22C55E", color: "white", padding: "14px", borderRadius: "12px",
+                fontWeight: 700, fontSize: "16px", opacity: saving ? 0.5 : 1, border: "none",
+              }}>
+              {saving ? "Створюю..." : "Створити замовлення"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Client picker modal */}
+      {showClientPicker && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid #EFEFEF" }}>
+            <div className="flex items-center gap-3 mb-3">
+              <button onClick={() => setShowClientPicker(false)} style={{ fontSize: "14px", color: "#6B7280" }}>Скасувати</button>
+              <h2 style={{ fontSize: "18px", fontWeight: 700, flex: 1, textAlign: "center" }}>Обрати клієнта</h2>
+              <div style={{ width: "70px" }} />
+            </div>
+            <input
+              type="search"
+              placeholder="Пошук..."
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              autoFocus
+              style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "15px" }}
+            />
+          </div>
+          <div className="flex-1 overflow-auto" style={{ padding: "8px 16px" }}>
+            <button onClick={() => { setSelectedClientId(""); setShowClientPicker(false); }}
+              className="w-full text-left p-3 rounded-lg mb-1" style={{ color: "#9CA3AF", fontSize: "14px" }}>
+              Без клієнта
+            </button>
+            {filteredClients.map((c) => (
+              <button key={c.id} onClick={() => { setSelectedClientId(c.id); setShowClientPicker(false); setClientSearch(""); }}
+                className="w-full text-left flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50"
+                style={{ borderBottom: "1px solid #F9FAFB" }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: "#EFF6FF", color: "#3B82F6", fontWeight: 600, fontSize: "13px" }}>
+                  {c.name.charAt(0)}
+                </div>
+                <div className="flex-1">
+                  <p style={{ fontSize: "15px", fontWeight: 500 }}>{c.name}</p>
+                  {c.phone && <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{c.phone}</p>}
+                </div>
+                {selectedClientId === c.id && (
+                  <svg className="w-5 h-5" fill="#22C55E" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -289,20 +289,29 @@ html {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* AI Chat — full-screen mobile PWA fit */
-.ai-chat-mobile {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  max-height: -webkit-fill-available;
-  background: white;
+/* AI Chat — full-screen mobile, floating panel on desktop */
+@media (max-width: 767px) {
+  .ai-chat-mobile {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-height: -webkit-fill-available;
+    background: white;
+  }
 }
-@supports (height: 100dvh) {
+@media (max-width: 767px) and (supports: (height: 100dvh)) {
   .ai-chat-mobile { height: 100dvh; }
+}
+@media (min-width: 768px) {
+  .ai-chat-mobile {
+    display: flex;
+    flex-direction: column;
+    background: white;
+  }
 }
 
 html {

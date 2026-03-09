@@ -31,7 +31,7 @@ export default function AiAccessories({ productId }: { productId: string }) {
     return (
       <div className="mt-10">
         <h3 className="text-xl font-bold text-bk mb-4">Сумісні аксесуари</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-g100 rounded-xl h-56 animate-pulse" />
           ))}
@@ -52,7 +52,7 @@ export default function AiAccessories({ productId }: { productId: string }) {
         </div>
         <h3 className="text-xl font-bold text-bk">Сумісні аксесуари та витратні матеріали</h3>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
         {accessories.map((acc) => (
           <Link
             key={acc.id}

@@ -40,7 +40,7 @@ export default function AiRecommendations({ productId, type, title }: AiRecommen
     return (
       <div className="py-6">
         <h3 className="text-xl font-bold text-bk mb-4">{title}</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-g100 rounded-xl h-56 animate-pulse" />
           ))}
@@ -69,7 +69,7 @@ export default function AiRecommendations({ productId, type, title }: AiRecommen
         </div>
         <h3 className="text-xl font-bold text-bk">{title}</h3>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
         {products.slice(0, 8).map((product) => (
           <Link
             key={product.id}

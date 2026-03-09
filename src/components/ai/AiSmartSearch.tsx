@@ -109,7 +109,7 @@ export default function AiSmartSearch() {
       )}
 
       {!loading && results.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
+        <div className="grid grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-6">
           {results.map((product) => (
             <Link key={product.id} href={`/catalog/${product.slug}`} className="group block">
               <div className={`rounded-xl overflow-hidden transition-all duration-200 border ${

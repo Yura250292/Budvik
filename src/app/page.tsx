@@ -113,7 +113,7 @@ export default async function HomePage() {
                 <p className="text-sm text-[#9E9E9E]">Найпопулярніші товари серед наших покупців</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-6">
+            <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
               {sortedBestSellers.map((product) => (
                 <ProductCard key={product.id} {...product} category={product.category} />
               ))}
@@ -146,7 +146,7 @@ export default async function HomePage() {
       <section className="py-12">
         <div className="max-w-7xl mx-auto px-4">
           <h2 className="text-3xl font-bold text-[#0A0A0A] mb-8 text-center">Популярні товари</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-6">
+          <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
             {featuredProducts.map((product) => (
               <ProductCard key={product.id} {...product} category={product.category} />
             ))}

@@ -248,13 +248,13 @@ export default function DashboardPage() {
         </div>
 
         {loadingRec ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="bg-white/80 rounded-xl h-52 animate-pulse" />
             ))}
           </div>
         ) : recommended.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
             {recommended.slice(0, 8).map((product) => (
               <Link
                 key={product.id}

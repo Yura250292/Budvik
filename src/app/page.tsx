@@ -1,4 +1,4 @@
-export const revalidate = 300; // revalidate every 5 minutes
+export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";

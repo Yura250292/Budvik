@@ -11,25 +11,30 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export async function generateProductEmbeddings(): Promise<number> {
+export async function generateProductEmbeddings(force = false): Promise<number> {
   const products = await prisma.product.findMany({
     where: { isActive: true },
     include: { category: true },
   });
 
-  // Filter products that don't have embeddings yet
-  const existing = await prisma.productEmbedding.findMany({
-    select: { productId: true },
-  });
-  const existingIds = new Set(existing.map((e) => e.productId));
-  const toEmbed = products.filter((p) => !existingIds.has(p.id));
+  let toEmbed = products;
+
+  if (!force) {
+    // Filter products that don't have embeddings yet
+    const existing = await prisma.productEmbedding.findMany({
+      select: { productId: true },
+    });
+    const existingIds = new Set(existing.map((e) => e.productId));
+    toEmbed = products.filter((p) => !existingIds.has(p.id));
+  }
 
   if (toEmbed.length === 0) return 0;
 
   // Create text representations for embedding
+  // Include category prominently and use-case context for better semantic matching
   const texts = toEmbed.map(
     (p) =>
-      `${p.name}. Категорія: ${p.category.name}. ${p.description}. Ціна: ${p.price} грн.`
+      `Інструмент: ${p.name}. Тип: ${p.category.name}. Категорія: ${p.category.name}. Опис: ${p.description}. Ціна: ${p.price} грн.`
   );
 
   // Process in batches of 100

@@ -3,14 +3,22 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { generateProductEmbeddings } from "@/lib/ai/embeddings";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || (session.user as any).role !== "ADMIN") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const count = await generateProductEmbeddings();
+    let force = false;
+    try {
+      const body = await req.json();
+      force = body?.force === true;
+    } catch {
+      // No body or invalid JSON — use defaults
+    }
+
+    const count = await generateProductEmbeddings(force);
 
     return NextResponse.json({
       message: `Згенеровано embeddings для ${count} товарів`,

@@ -81,10 +81,38 @@ async function keywordSearch(query: string, limit = 16) {
     return { product: p, score, matchedKeywords };
   });
 
-  // Filter out products that matched only 1 keyword when query has multiple
+  // When query has multiple keywords, strongly prefer products matching ALL of them
   if (keywords.length > 1) {
-    const multiMatch = scored.filter((s) => s.matchedKeywords >= 2);
-    if (multiMatch.length >= 4) {
+    const allMatch = scored.filter((s) => s.matchedKeywords === keywords.length);
+    const multiMatch = scored.filter((s) => s.matchedKeywords >= 2 && s.matchedKeywords < keywords.length);
+
+    // If we have products matching ALL keywords, return them first
+    if (allMatch.length > 0) {
+      allMatch.sort((a, b) => b.score - a.score);
+      const seen = new Set(exact.map((p) => p.id));
+      const merged = [...exact];
+      for (const { product } of allMatch) {
+        if (!seen.has(product.id)) {
+          seen.add(product.id);
+          merged.push(product);
+        }
+      }
+      // Only add partial matches if we still need more results
+      if (merged.length < limit) {
+        multiMatch.sort((a, b) => b.score - a.score);
+        for (const { product } of multiMatch) {
+          if (!seen.has(product.id)) {
+            seen.add(product.id);
+            merged.push(product);
+          }
+          if (merged.length >= limit) break;
+        }
+      }
+      return merged.slice(0, limit);
+    }
+
+    // No full match — use multi-match if available
+    if (multiMatch.length > 0) {
       multiMatch.sort((a, b) => b.score - a.score);
       const seen = new Set(exact.map((p) => p.id));
       const merged = [...exact];

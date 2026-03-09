@@ -63,13 +63,18 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     "name-desc": [{ name: "desc" }],
     "newest": [{ createdAt: "desc" }],
   };
-  const orderBy = orderByMap[sort || ""] || [{ stock: "desc" }, { name: "asc" }];
+  // Default: priority (high first) → in stock first → name
+  const orderBy = orderByMap[sort || ""] || [{ priority: "desc" }, { stock: "desc" }, { name: "asc" }];
+
+  // Daily rotation seed for default sort — shifts products so visitors see different items each day
+  const useRotation = !sort;
+  const daySeed = Math.floor(Date.now() / (1000 * 60 * 60 * 24)); // changes daily
 
   const session = await getServerSession(authOptions);
   const isWholesale = session?.user?.role === "WHOLESALE";
   const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
 
-  const [products, total, categories, activeCategory, brandProducts] = await Promise.all([
+  const [rawProducts, total, categories, activeCategory, brandProducts] = await Promise.all([
     prisma.product.findMany({
       where,
       include: { category: true },
@@ -96,6 +101,22 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       take: 5000,
     }),
   ]);
+
+  // Daily rotation: on default sort, shuffle non-priority products so visitors see different items
+  let products = rawProducts;
+  if (useRotation && page === 1) {
+    const pinned = rawProducts.filter((p) => p.priority > 0);
+    const regular = rawProducts.filter((p) => p.priority === 0);
+    // Deterministic shuffle based on day — same order all day, different next day
+    const shuffled = regular
+      .map((p) => ({ p, sort: hashCode(p.id + daySeed) }))
+      .sort((a, b) => a.sort - b.sort)
+      .map(({ p }) => p);
+    // In-stock first within shuffled
+    const inStock = shuffled.filter((p) => p.stock > 0);
+    const outOfStock = shuffled.filter((p) => p.stock <= 0);
+    products = [...pinned, ...inStock, ...outOfStock];
+  }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -314,6 +335,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       </div>
     </div>
   );
+}
+
+// Simple deterministic hash for daily rotation
+function hashCode(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
 }
 
 function paginationRange(current: number, total: number): (number | "...")[] {

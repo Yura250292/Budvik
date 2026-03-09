@@ -114,6 +114,7 @@ model Product {
   image       String?
   stock       Int      @default(0)
   isActive    Boolean  @default(true)
+  priority    Int      @default(0)
   isPromo     Boolean  @default(false)
   promoPrice  Float?
   promoLabel  String?

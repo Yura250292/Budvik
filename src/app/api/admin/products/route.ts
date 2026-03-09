@@ -29,6 +29,7 @@ export async function POST(req: Request) {
       isPromo: data.isPromo || false,
       promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
       promoLabel: data.promoLabel || null,
+      priority: data.priority ? parseInt(data.priority) : 0,
     },
   });
 
@@ -55,6 +56,7 @@ export async function PUT(req: Request) {
       isPromo: data.isPromo ?? false,
       promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
       promoLabel: data.promoLabel || null,
+      priority: data.priority != null ? parseInt(data.priority) : 0,
     },
   });
 

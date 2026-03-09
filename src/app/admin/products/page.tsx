@@ -35,7 +35,7 @@ export default function AdminProductsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -75,7 +75,7 @@ export default function AdminProductsPage() {
   };
 
   const resetForm = () => {
-    setForm({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "" });
+    setForm({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
     setEditingProduct(null);
     setShowForm(false);
   };
@@ -95,6 +95,29 @@ export default function AdminProductsPage() {
         isPromo: !product.isPromo,
         promoPrice: product.promoPrice,
         promoLabel: product.promoLabel,
+        priority: product.priority || 0,
+      }),
+    });
+    if (res.ok) fetchProducts(page, searchQuery);
+  };
+
+  const togglePriority = async (product: any) => {
+    const newPriority = (product.priority || 0) > 0 ? 0 : 10;
+    const res = await fetch("/api/admin/products", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        wholesalePrice: product.wholesalePrice,
+        stock: product.stock,
+        categoryId: product.categoryId,
+        isPromo: product.isPromo,
+        promoPrice: product.promoPrice,
+        promoLabel: product.promoLabel,
+        priority: newPriority,
       }),
     });
     if (res.ok) fetchProducts(page, searchQuery);
@@ -111,6 +134,7 @@ export default function AdminProductsPage() {
       isPromo: product.isPromo || false,
       promoPrice: product.promoPrice ? String(product.promoPrice) : "",
       promoLabel: product.promoLabel || "",
+      priority: String(product.priority || 0),
     });
     setEditingProduct(product);
     setShowForm(true);
@@ -336,6 +360,7 @@ export default function AdminProductsPage() {
                   <th className="text-right px-4 py-3 text-sm font-semibold">Опт. ціна</th>
                   <th className="text-center px-4 py-3 text-sm font-semibold">Акція</th>
                   <th className="text-center px-4 py-3 text-sm font-semibold">Склад</th>
+                  <th className="text-center px-4 py-3 text-sm font-semibold" title="Закріпити зверху каталогу">⭐</th>
                   <th className="text-right px-4 py-3 text-sm font-semibold">Дії</th>
                 </tr>
               </thead>
@@ -406,6 +431,21 @@ export default function AdminProductsPage() {
                             {product.stock} шт
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => togglePriority(product)}
+                          className={`p-1.5 rounded-lg transition ${
+                            (product.priority || 0) > 0
+                              ? "text-amber-500 hover:bg-amber-50"
+                              : "text-g300 hover:bg-g100"
+                          }`}
+                          title={(product.priority || 0) > 0 ? "Зняти закріплення" : "Закріпити зверху"}
+                        >
+                          <svg className="w-4 h-4" fill={(product.priority || 0) > 0 ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                          </svg>
+                        </button>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">

@@ -7,6 +7,7 @@ import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import AiChatWidget from "@/components/ai/AiChatWidget";
 import SwipeNavigator from "@/components/SwipeNavigator";
+import PageTransition from "@/components/PageTransition";
 
 export const metadata: Metadata = {
   title: "Budvik - Інструменти для професіоналів",
@@ -40,7 +41,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Header />
           <SwipeNavigator>
-            <main className="flex-1 pb-20 md:pb-0">{children}</main>
+            <PageTransition>
+              <main className="flex-1 pb-20 md:pb-0">{children}</main>
+            </PageTransition>
           </SwipeNavigator>
           <Footer />
           <BottomNav />

@@ -3,9 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 export default function Footer() {
+  const pathname = usePathname();
   const [showCallback, setShowCallback] = useState(false);
+  if (pathname?.startsWith("/sales")) return null;
   const [callbackPhone, setCallbackPhone] = useState("");
   const [callbackSent, setCallbackSent] = useState(false);
 

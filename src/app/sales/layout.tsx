@@ -12,5 +12,10 @@ export const viewport: Viewport = {
 };
 
 export default function SalesLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      <style>{`main { padding-bottom: 0 !important; }`}</style>
+      {children}
+    </>
+  );
 }

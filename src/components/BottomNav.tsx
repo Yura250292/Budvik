@@ -20,6 +20,8 @@ export default function BottomNav() {
 
   const role = (session?.user as any)?.role;
 
+  if (pathname?.startsWith("/sales")) return null;
+
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";
     return pathname.startsWith(path);

@@ -3,13 +3,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getCart, getCartCount } from "@/lib/cart";
 import { getWishlistCount } from "@/lib/wishlist";
 import { getCompareCount } from "@/lib/compare";
 
 export default function Header() {
+  const pathname = usePathname();
   const { data: session } = useSession();
+  if (pathname?.startsWith("/sales")) return null;
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
   const [compareCount, setCompareCount] = useState(0);

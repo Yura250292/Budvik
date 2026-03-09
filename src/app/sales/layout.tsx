@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import SalesBottomNav from "@/components/sales/SalesBottomNav";
 
 export const metadata: Metadata = {
   title: "Budvik — Торговий",
@@ -16,6 +17,7 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
     <>
       <style>{`main { padding-bottom: 0 !important; }`}</style>
       {children}
+      <SalesBottomNav />
     </>
   );
 }

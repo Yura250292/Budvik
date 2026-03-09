@@ -146,16 +146,24 @@ function NewOrderContent() {
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "12px 16px" }}>
-        <div className="max-w-lg mx-auto flex items-center gap-3">
-          <Link href="/sales" className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F3F4F6" }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#0A0A0A" strokeWidth={2}>
+      <header className="sticky top-0 z-50" style={{
+        background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+      }}>
+        <div style={{ height: "2px", background: "linear-gradient(to right, transparent, #FFD600, transparent)" }} />
+        <div className="max-w-lg mx-auto flex items-center gap-3" style={{ padding: "12px 16px" }}>
+          <Link href="/sales" className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.7)" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 style={{ fontSize: "20px", fontWeight: 700, flex: 1 }}>Нове замовлення</h1>
+          <h1 style={{ fontSize: "20px", fontWeight: 700, flex: 1, color: "white" }}>Нове замовлення</h1>
           {cart.length > 0 && (
-            <span style={{ background: "#22C55E", color: "white", padding: "2px 10px", borderRadius: "20px", fontSize: "13px", fontWeight: 600 }}>
+            <span style={{
+              background: "linear-gradient(135deg, #FFD600, #FFA000)",
+              color: "#0A0A0A", padding: "3px 12px", borderRadius: "20px",
+              fontSize: "13px", fontWeight: 700,
+            }}>
               {totalItems}
             </span>
           )}
@@ -164,8 +172,8 @@ function NewOrderContent() {
 
       <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "120px" }}>
         {/* Client selector */}
-        <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
-          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>Клієнт</p>
+        <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px", fontWeight: 500 }}>Клієнт</p>
           <button onClick={() => setShowClientPicker(true)} className="w-full text-left"
             style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "15px", background: "#FAFAFA" }}>
             {selectedClient ? (
@@ -177,8 +185,8 @@ function NewOrderContent() {
         </div>
 
         {/* Product search */}
-        <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
-          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>Додати товар</p>
+        <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px", fontWeight: 500 }}>Додати товар</p>
           <input
             type="search"
             placeholder="Пошук по назві або артикулу..."
@@ -212,7 +220,7 @@ function NewOrderContent() {
 
         {/* Cart */}
         {cart.length > 0 && (
-          <div className="bg-white rounded-xl mb-3" style={{ border: "1px solid #EFEFEF" }}>
+          <div className="bg-white rounded-2xl mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #EFEFEF" }}>
               <p style={{ fontSize: "14px", fontWeight: 600 }}>Кошик ({cart.length} позицій)</p>
             </div>
@@ -252,7 +260,7 @@ function NewOrderContent() {
 
         {/* Notes */}
         {cart.length > 0 && (
-          <div className="bg-white rounded-xl p-4 mb-3" style={{ border: "1px solid #EFEFEF" }}>
+          <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
             <input
               placeholder="Примітка (опціонально)..."
               value={notes}
@@ -266,17 +274,24 @@ function NewOrderContent() {
 
       {/* Bottom bar */}
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white" style={{ borderTop: "1px solid #EFEFEF", padding: "12px 16px", boxShadow: "0 -4px 12px rgba(0,0,0,0.05)" }}>
+        <div className="fixed bottom-0 left-0 right-0" style={{
+          background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          padding: "14px 16px",
+          boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
+        }}>
           <div className="max-w-lg mx-auto">
             <div className="flex items-center justify-between mb-3">
-              <span style={{ fontSize: "15px", color: "#6B7280" }}>{totalItems} товарів</span>
-              <span style={{ fontSize: "22px", fontWeight: 700 }}>{formatPrice(totalAmount)}</span>
+              <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>{totalItems} товарів</span>
+              <span style={{ fontSize: "24px", fontWeight: 700, color: "#FFD600" }}>{formatPrice(totalAmount)}</span>
             </div>
             <button onClick={handleSubmit} disabled={saving || cart.length === 0}
               className="w-full"
               style={{
-                background: "#22C55E", color: "white", padding: "14px", borderRadius: "12px",
+                background: "linear-gradient(135deg, #FFD600 0%, #FFA000 100%)",
+                color: "#0A0A0A", padding: "14px", borderRadius: "14px",
                 fontWeight: 700, fontSize: "16px", opacity: saving ? 0.5 : 1, border: "none",
+                boxShadow: "0 4px 16px rgba(255,214,0,0.3)",
               }}>
               {saving ? "Створюю..." : "Створити замовлення"}
             </button>
@@ -286,41 +301,51 @@ function NewOrderContent() {
 
       {/* Client picker modal */}
       {showClientPicker && (
-        <div className="fixed inset-0 z-50 bg-white flex flex-col">
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #EFEFEF" }}>
-            <div className="flex items-center gap-3 mb-3">
-              <button onClick={() => setShowClientPicker(false)} style={{ fontSize: "14px", color: "#6B7280" }}>Скасувати</button>
-              <h2 style={{ fontSize: "18px", fontWeight: 700, flex: 1, textAlign: "center" }}>Обрати клієнта</h2>
-              <div style={{ width: "70px" }} />
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#F7F7F7" }}>
+          <div style={{
+            background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+          }}>
+            <div style={{ height: "2px", background: "linear-gradient(to right, transparent, #FFD600, transparent)" }} />
+            <div style={{ padding: "12px 16px" }}>
+              <div className="flex items-center gap-3 mb-3">
+                <button onClick={() => setShowClientPicker(false)} style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>Скасувати</button>
+                <h2 style={{ fontSize: "18px", fontWeight: 700, flex: 1, textAlign: "center", color: "white" }}>Обрати клієнта</h2>
+                <div style={{ width: "70px" }} />
+              </div>
+              <input
+                type="search"
+                placeholder="Пошук..."
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                autoFocus
+                style={{
+                  width: "100%", padding: "10px 14px", borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.1)", fontSize: "15px",
+                  background: "rgba(255,255,255,0.06)", color: "white",
+                }}
+              />
             </div>
-            <input
-              type="search"
-              placeholder="Пошук..."
-              value={clientSearch}
-              onChange={(e) => setClientSearch(e.target.value)}
-              autoFocus
-              style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "15px" }}
-            />
           </div>
           <div className="flex-1 overflow-auto" style={{ padding: "8px 16px" }}>
             <button onClick={() => { setSelectedClientId(""); setShowClientPicker(false); }}
-              className="w-full text-left p-3 rounded-lg mb-1" style={{ color: "#9CA3AF", fontSize: "14px" }}>
+              className="w-full text-left p-3 rounded-xl mb-1" style={{ color: "#9CA3AF", fontSize: "14px" }}>
               Без клієнта
             </button>
             {filteredClients.map((c) => (
               <button key={c.id} onClick={() => { setSelectedClientId(c.id); setShowClientPicker(false); setClientSearch(""); }}
-                className="w-full text-left flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50"
-                style={{ borderBottom: "1px solid #F9FAFB" }}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: "#EFF6FF", color: "#3B82F6", fontWeight: 600, fontSize: "13px" }}>
+                className="w-full text-left flex items-center gap-3 p-3 rounded-xl bg-white mb-1"
+                style={{ border: selectedClientId === c.id ? "2px solid #FFD600" : "1px solid #EFEFEF" }}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: "#EFF6FF", color: "#3B82F6", fontWeight: 600, fontSize: "14px" }}>
                   {c.name.charAt(0)}
                 </div>
                 <div className="flex-1">
-                  <p style={{ fontSize: "15px", fontWeight: 500 }}>{c.name}</p>
+                  <p style={{ fontSize: "15px", fontWeight: 500, color: "#0A0A0A" }}>{c.name}</p>
                   {c.phone && <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{c.phone}</p>}
                 </div>
                 {selectedClientId === c.id && (
-                  <svg className="w-5 h-5" fill="#22C55E" viewBox="0 0 20 20">
+                  <svg className="w-5 h-5" fill="#FFD600" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                 )}

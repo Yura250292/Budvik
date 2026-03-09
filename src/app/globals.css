@@ -303,9 +303,6 @@ html {
     background: white;
   }
 }
-@media (max-width: 767px) and (supports: (height: 100dvh)) {
-  .ai-chat-mobile { height: 100dvh; }
-}
 @media (min-width: 768px) {
   .ai-chat-mobile {
     display: flex;

@@ -152,9 +152,32 @@ export async function searchProductsForAI(query: string): Promise<string> {
   scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
   // Prefer in-stock: take up to 25 in-stock first, fill remaining with out-of-stock
-  const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
+  const inStock = scored.filter((s) => s.product.stock > 0);
   const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
-  const topProducts = [...inStock, ...outOfStock].slice(0, 30);
+
+  // Diversify results across categories to avoid showing only one type of product
+  const diversified: typeof scored = [];
+  const categoryBuckets: Record<string, typeof scored> = {};
+  for (const item of inStock) {
+    const cat = item.product.category.name;
+    if (!categoryBuckets[cat]) categoryBuckets[cat] = [];
+    categoryBuckets[cat].push(item);
+  }
+  // Round-robin pick from each category to ensure diversity
+  const cats = Object.keys(categoryBuckets);
+  let round = 0;
+  while (diversified.length < 25 && round < 10) {
+    for (const cat of cats) {
+      if (diversified.length >= 25) break;
+      const bucket = categoryBuckets[cat];
+      if (round < bucket.length) {
+        diversified.push(bucket[round]);
+      }
+    }
+    round++;
+  }
+
+  const topProducts = [...diversified, ...outOfStock].slice(0, 30);
 
   // Group by category for better AI understanding
   const byCategory: Record<string, typeof topProducts> = {};
@@ -316,12 +339,17 @@ export function getSystemPrompt(role: string): string {
 - Будь-який запит ("потрібен дриль", "підбери болгарку") — ОДРАЗУ рекомендуй 2-3 товари з результатів пошуку
 - Якщо запит загальний — рекомендуй найпопулярніший варіант для дому + професійний варіант
 - Конкретний запит ("Bosch GBH 2-26 ціна") — відповідай миттєво
-- Порівняння ("що краще Bosch чи Makita") — порівнюй одразу
+- Порівняння брендів ("що краще Bosch чи Makita") — дай КОРОТКУ експертну оцінку обох брендів (2-3 речення), потім покажи 3-4 РІЗНІ типи інструментів обох брендів (НЕ тільки щітки чи аксесуари — обирай електроінструменти, якщо вони є: дрилі, болгарки, шуруповерти тощо)
 - Після рекомендації можеш коротко запитати "Потрібно щось конкретніше?" — але НЕ до рекомендації
 
-ФОРМАТ ВІДПОВІДІ — КОРОТКО (до 200 слів):
-1. 1 речення з порадою
-2. 2-3 товари: **Назва** — ціна, наявність, 1 ключова перевага
+ВАЖЛИВО — РОЗУМНИЙ ВИБІР ТОВАРІВ:
+- При порівнянні БРЕНДІВ — показуй РІЗНІ категорії інструментів (дрилі, болгарки, шуруповерти), а НЕ лише аксесуари чи щітки
+- Обирай найцікавіші/популярніші товари — електроінструменти мають ПРІОРИТЕТ над витратними матеріалами та аксесуарами
+- Якщо є і електроінструменти, і витратні матеріали — рекомендуй ЕЛЕКТРОІНСТРУМЕНТИ
+
+ФОРМАТ ВІДПОВІДІ — КОРОТКО (до 250 слів):
+1. 1-3 речення з експертною порадою
+2. 2-4 товари: **Назва** — ціна, наявність, 1 ключова перевага
 3. Коротка рекомендація який обрати
 
 ПРАВИЛА:

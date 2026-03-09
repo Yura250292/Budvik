@@ -5,6 +5,7 @@ import Link from "next/link";
 import AiMarkdown from "./AiMarkdown";
 import VikingMascot from "./VikingMascot";
 import { formatPrice } from "@/lib/utils";
+import { addToCart } from "@/lib/cart";
 
 interface AIProduct {
   id: string;
@@ -27,6 +28,22 @@ interface Message {
 }
 
 function ProductCard({ product }: { product: AIProduct }) {
+  const [added, setAdded] = useState(false);
+
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (product.stock <= 0) return;
+    addToCart({
+      productId: product.id,
+      name: product.name,
+      price: product.isPromo && product.promoPrice ? product.promoPrice : product.price,
+      slug: product.slug,
+    });
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1500);
+  };
+
   return (
     <Link
       href={`/catalog/${product.slug}`}
@@ -61,9 +78,30 @@ function ProductCard({ product }: { product: AIProduct }) {
           {product.stock > 0 ? `В наявності: ${product.stock} шт` : "Немає в наявності"}
         </span>
       </div>
-      <div className="flex items-center flex-shrink-0">
+      <div className="flex flex-col items-center justify-center gap-1 flex-shrink-0">
+        {product.stock > 0 && (
+          <button
+            onClick={handleAddToCart}
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+              added
+                ? "bg-green-500 text-white"
+                : "bg-yellow-400 hover:bg-yellow-300 text-black"
+            }`}
+            title="Додати в кошик"
+          >
+            {added ? (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+              </svg>
+            )}
+          </button>
+        )}
         <span className="text-yellow-500 group-hover:text-yellow-600 transition">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </span>
@@ -157,12 +195,12 @@ export default function AiChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, compareProducts]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = async (directMessage?: string) => {
+    const text = directMessage || input.trim();
+    if (!text || loading) return;
 
-    const userMessage = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
     setLoading(true);
     setCompareProducts(null);
 
@@ -171,7 +209,7 @@ export default function AiChatWidget() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage,
+          message: text,
           history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -260,10 +298,7 @@ export default function AiChatWidget() {
                   ].map((q) => (
                     <button
                       key={q}
-                      onClick={() => {
-                        setInput(q);
-                        setTimeout(() => sendMessage(), 0);
-                      }}
+                      onClick={() => sendMessage(q)}
                       className="block w-full text-left px-3 py-2 bg-gray-50 rounded-lg hover:bg-yellow-50 text-gray-600 text-xs transition"
                     >
                       {q}
@@ -348,7 +383,7 @@ export default function AiChatWidget() {
                 disabled={loading}
               />
               <button
-                onClick={sendMessage}
+                onClick={() => sendMessage()}
                 disabled={loading || !input.trim()}
                 className="bg-yellow-400 text-black px-3 py-2 rounded-lg hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
               >

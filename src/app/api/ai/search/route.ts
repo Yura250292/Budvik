@@ -13,17 +13,23 @@ function extractKeywords(query: string): string[] {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+    .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }
 
+// Minimum cosine similarity — raised to avoid irrelevant noise
+const MIN_SIMILARITY = 0.65;
+
 async function keywordSearch(query: string, limit = 16) {
-  // First try exact phrase match
+  const keywords = extractKeywords(query);
+
+  // First try exact phrase match in name, description, AND category name
   const exact = await prisma.product.findMany({
     where: {
       isActive: true,
       OR: [
         { name: { contains: query, mode: "insensitive" } },
         { description: { contains: query, mode: "insensitive" } },
+        { category: { name: { contains: query, mode: "insensitive" } } },
       ],
     },
     include: { category: true },
@@ -32,13 +38,13 @@ async function keywordSearch(query: string, limit = 16) {
 
   if (exact.length >= 4) return exact;
 
-  // Split into individual keywords and search each
-  const keywords = extractKeywords(query);
   if (keywords.length === 0) return exact;
 
+  // Search each keyword in name, description, AND category name
   const conditions = keywords.flatMap((kw) => [
     { name: { contains: kw, mode: "insensitive" as const } },
     { description: { contains: kw, mode: "insensitive" as const } },
+    { category: { name: { contains: kw, mode: "insensitive" as const } } },
   ]);
 
   const all = await prisma.product.findMany({
@@ -47,21 +53,51 @@ async function keywordSearch(query: string, limit = 16) {
       OR: conditions,
     },
     include: { category: true },
-    take: 100,
+    take: 200,
   });
 
-  // Score by number of keyword matches + stock priority
+  // Score by keyword matches: name > category > description, stock priority
   const scored = all.map((p) => {
     let score = 0;
     const nameL = p.name.toLowerCase();
     const descL = (p.description || "").toLowerCase();
+    const catL = (p.category?.name || "").toLowerCase();
+    let matchedKeywords = 0;
+
     for (const kw of keywords) {
-      if (nameL.includes(kw)) score += 3;
-      if (descL.includes(kw)) score += 1;
+      let matched = false;
+      if (nameL.includes(kw)) { score += 5; matched = true; }
+      if (catL.includes(kw)) { score += 4; matched = true; }
+      if (descL.includes(kw)) { score += 1; matched = true; }
+      if (matched) matchedKeywords++;
     }
-    if (p.stock > 0) score += 5;
-    return { product: p, score };
+
+    // Bonus for matching ALL keywords (much more relevant)
+    if (keywords.length > 1 && matchedKeywords === keywords.length) {
+      score += 10;
+    }
+
+    if (p.stock > 0) score += 3;
+    return { product: p, score, matchedKeywords };
   });
+
+  // Filter out products that matched only 1 keyword when query has multiple
+  if (keywords.length > 1) {
+    const multiMatch = scored.filter((s) => s.matchedKeywords >= 2);
+    if (multiMatch.length >= 4) {
+      multiMatch.sort((a, b) => b.score - a.score);
+      const seen = new Set(exact.map((p) => p.id));
+      const merged = [...exact];
+      for (const { product } of multiMatch) {
+        if (!seen.has(product.id)) {
+          seen.add(product.id);
+          merged.push(product);
+        }
+        if (merged.length >= limit) break;
+      }
+      return merged;
+    }
+  }
 
   scored.sort((a, b) => b.score - a.score);
 
@@ -87,41 +123,53 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Query parameter 'q' is required" }, { status: 400 });
   }
 
-  // Try semantic search first
+  // 1. Try keyword search FIRST (fast, precise for specific queries)
   try {
-    const results = await semanticSearch(query, 16);
+    const kwProducts = await keywordSearch(query);
+    if (kwProducts.length >= 3) {
+      return NextResponse.json({ products: kwProducts, type: "keyword" });
+    }
+  } catch (error) {
+    console.error("Keyword search failed:", error);
+  }
+
+  // 2. Fallback to semantic search (for natural language queries)
+  try {
+    const results = await semanticSearch(query, 24);
 
     if (results.length > 0) {
-      const productIds = results.map((r) => r.productId);
-      const products = await prisma.product.findMany({
-        where: { id: { in: productIds }, isActive: true },
-        include: { category: true },
-      });
+      const relevant = results.filter((r) => r.score >= MIN_SIMILARITY);
 
-      // Preserve semantic ordering
-      const scoreMap = new Map(results.map((r) => [r.productId, r.score]));
-      const sorted = products.sort(
-        (a, b) => (scoreMap.get(b.id) || 0) - (scoreMap.get(a.id) || 0)
-      );
-
-      if (sorted.length > 0) {
-        return NextResponse.json({
-          products: sorted,
-          scores: Object.fromEntries(scoreMap),
-          type: "semantic",
+      if (relevant.length > 0) {
+        const productIds = relevant.map((r) => r.productId);
+        const products = await prisma.product.findMany({
+          where: { id: { in: productIds }, isActive: true },
+          include: { category: true },
         });
+
+        const scoreMap = new Map<string, number>(relevant.map((r) => [r.productId, r.score]));
+        const sorted = products.sort(
+          (a, b) => (scoreMap.get(b.id) || 0) - (scoreMap.get(a.id) || 0)
+        );
+
+        if (sorted.length > 0) {
+          return NextResponse.json({
+            products: sorted.slice(0, 12),
+            scores: Object.fromEntries(scoreMap),
+            type: "semantic",
+          });
+        }
       }
     }
   } catch (error) {
-    console.error("Semantic search failed, falling back to keyword:", error);
+    console.error("Semantic search failed:", error);
   }
 
-  // Fallback to smart keyword search
+  // 3. Last resort — return whatever keyword search found (even if < 3)
   try {
     const products = await keywordSearch(query);
     return NextResponse.json({ products, type: "keyword" });
-  } catch (error) {
-    console.error("Keyword search failed:", error);
+  } catch {
     return NextResponse.json({ products: [], type: "error" });
   }
 }

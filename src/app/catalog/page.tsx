@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import ProductCard from "@/components/ProductCard";
+import CatalogGrid from "@/components/CatalogGrid";
 import Link from "next/link";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogSidebar from "@/components/CatalogSidebar";
@@ -147,19 +148,14 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-6">
-                {products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    {...product}
-                    category={product.category}
-                    wholesalePrice={isWholesale
-                      ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
-                      : undefined
-                    }
-                  />
-                ))}
-              </div>
+              <CatalogGrid
+                products={products.map((product) => ({
+                  ...product,
+                  wholesalePrice: isWholesale
+                    ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
+                    : undefined,
+                }))}
+              />
 
               {/* Pagination */}
               {totalPages > 1 && (

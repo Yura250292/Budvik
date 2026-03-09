@@ -16,7 +16,8 @@ export interface GeminiResponse {
 
 export async function chatWithGemini(
   messages: GeminiMessage[],
-  systemInstruction?: string
+  systemInstruction?: string,
+  options?: { useGoogleSearch?: boolean }
 ): Promise<string> {
   const body: Record<string, unknown> = {
     contents: messages,
@@ -32,14 +33,19 @@ export async function chatWithGemini(
     };
   }
 
+  // Enable Google Search grounding — AI can search internet for missing specs
+  if (options?.useGoogleSearch) {
+    body.tools = [{ googleSearch: {} }];
+  }
+
   const url = `${GEMINI_BASE_URL}/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
-  const options = {
+  const fetchOptions = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };
 
-  let res = await fetch(url, options);
+  let res = await fetch(url, fetchOptions);
 
   // Auto-retry once on rate limit (429)
   if (res.status === 429) {
@@ -48,7 +54,7 @@ export async function chatWithGemini(
       40
     );
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    res = await fetch(url, options);
+    res = await fetch(url, fetchOptions);
   }
 
   if (!res.ok) {

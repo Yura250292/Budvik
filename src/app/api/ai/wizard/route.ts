@@ -300,7 +300,8 @@ ${filterHints.join("\n")}
 
     const rawResponse = await chatWithGemini(
       [{ role: "user", parts: [{ text: userMessage }] }],
-      systemPrompt
+      systemPrompt,
+      { useGoogleSearch: true }
     );
 
     // Extract comparison block first

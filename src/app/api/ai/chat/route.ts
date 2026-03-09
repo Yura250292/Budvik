@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       { role: "user", parts: [{ text: message }] },
     ];
 
-    const rawResponse = await chatWithGemini(messages, systemPrompt);
+    const rawResponse = await chatWithGemini(messages, systemPrompt, { useGoogleSearch: true });
 
     // Extract comparison block first, then product names
     const { cleanResponse: withoutComparison, comparison } = extractComparison(rawResponse);

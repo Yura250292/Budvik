@@ -245,8 +245,25 @@ export async function searchProductsForAI(query: string): Promise<string> {
   ]);
   const userWantsTool = keywords.some((kw) => toolKeywords.has(kw));
 
-  // Accessory category patterns (discs, brushes, bits, etc.)
-  const accessoryCategories = /круг|диск|щітк|свердл|біт|насад|коронк|бур |патрон|зачис|відріз|шліфувал.*круг/i;
+  // Tool category whitelist — categories that contain actual power tools
+  const toolCategoryPatterns = /болгарк|кшм|шліфмашин|дрил|перфоратор|шуруповерт|лобзик|пил[аиі]|фрезер|рубанок|фен|зварюв|компресор|генератор|електроінструмент|гайковерт|реноватор|повітродув|тример|кущоріз|секатор|відбійн/i;
+
+  // Accessory indicators — check both category AND product name
+  const accessoryCategoryPatterns = /круг|диск|щітк|свердл|біт[іи\s]|насад|коронк|бур[иі\s]|патрон|зачис|відріз|витратн|ріжуч|плашк|мітчик|зубил|чаша/i;
+  const accessoryNamePatterns = /круг |диск |щітка|щітк[аи]|коронк|чаша |тримач кола|бур\s|свердл|полотн|ланцюг для|зірочка для|цанг|цанк|ролик для|фільтр для/i;
+
+  // Determine if a product is an actual tool vs accessory/consumable
+  function isActualTool(catName: string, productName: string): boolean {
+    const cat = catName.toLowerCase();
+    const name = productName.toLowerCase();
+    // If category is explicitly a tool category → tool
+    if (toolCategoryPatterns.test(cat)) return true;
+    // If category OR name matches accessory patterns → NOT a tool
+    if (accessoryCategoryPatterns.test(cat)) return false;
+    if (accessoryNamePatterns.test(name)) return false;
+    // Default: not clearly a tool
+    return false;
+  }
 
   // Score products by relevance: keyword matches + semantic score bonus
   const scored = finalProducts.map((p) => {
@@ -257,12 +274,11 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
     // Keyword matching — NAME match is worth much more than description match
     let nameMatch = false;
-    let catMatch = false;
     let matchedKeywords = 0;
     for (const kw of unique) {
       let matched = false;
       if (nameLower.includes(kw)) { score += 10; matched = true; nameMatch = true; }
-      if (catLower.includes(kw)) { score += 6; matched = true; catMatch = true; }
+      if (catLower.includes(kw)) { score += 6; matched = true; }
       if (descLower.includes(kw)) { score += 1; matched = true; }
       if (matched) matchedKeywords++;
     }
@@ -275,21 +291,12 @@ export async function searchProductsForAI(query: string): Promise<string> {
     }
 
     // CRITICAL: When user asks for a TOOL, heavily boost actual tools and penalize accessories
+    const isTool = isActualTool(p.category.name, p.name);
     if (userWantsTool) {
-      const isAccessory = accessoryCategories.test(catLower);
-      const isToolCategory = catLower.includes("болгарк") || catLower.includes("кшм") ||
-        catLower.includes("дрил") || catLower.includes("перфоратор") ||
-        catLower.includes("шуруповерт") || catLower.includes("пил") ||
-        catLower.includes("лобзик") || catLower.includes("фрезер") ||
-        catLower.includes("рубанок") || catLower.includes("шліфмашин") ||
-        catLower.includes("фен") || catLower.includes("зварюв") ||
-        catLower.includes("компресор") || catLower.includes("генератор") ||
-        catLower.includes("електроінструмент");
-
-      if (isToolCategory || (nameMatch && !isAccessory)) {
-        score += 50; // Massive boost for actual tools
-      } else if (isAccessory && !nameMatch) {
-        score -= 30; // Penalize accessories that only match in description
+      if (isTool) {
+        score += 50;
+      } else {
+        score -= 30;
       }
     }
 
@@ -301,7 +308,7 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
     // Heavily prioritize in-stock items
     if (p.stock > 0) score += 20;
-    return { product: p, score };
+    return { product: p, score, isTool };
   });
 
   // Sort by score descending, then by price
@@ -310,18 +317,12 @@ export async function searchProductsForAI(query: string): Promise<string> {
   // When user wants a TOOL: separate tools from accessories, show tools first
   let topProducts: typeof scored;
   if (userWantsTool) {
-    const tools = scored.filter((s) => {
-      const cat = s.product.category.name.toLowerCase();
-      return !accessoryCategories.test(cat);
-    });
-    const accessories = scored.filter((s) => {
-      const cat = s.product.category.name.toLowerCase();
-      return accessoryCategories.test(cat);
-    });
-    // Show ALL tools first, then max 5 accessories as supplement
+    const tools = scored.filter((s) => s.isTool);
+    const accessories = scored.filter((s) => !s.isTool);
+    // Show ALL tools first, then max 3 accessories as supplement
     const toolsInStock = tools.filter((s) => s.product.stock > 0).slice(0, 20);
     const toolsOutOfStock = tools.filter((s) => s.product.stock <= 0).slice(0, 3);
-    const accInStock = accessories.filter((s) => s.product.stock > 0).slice(0, 5);
+    const accInStock = accessories.filter((s) => s.product.stock > 0).slice(0, 3);
     topProducts = [...toolsInStock, ...toolsOutOfStock, ...accInStock].slice(0, 25);
   } else {
     const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
@@ -350,8 +351,8 @@ export async function searchProductsForAI(query: string): Promise<string> {
       const stock = p.stock > 0 ? `✅ ${p.stock} шт` : "❌ Немає";
       const promo = p.isPromo && p.promoPrice ? ` | 🔥 Акція: ${p.promoPrice} грн` : "";
       const desc = stripHtml(p.description || "").slice(0, 150);
-      const isAcc = accessoryCategories.test(p.category.name.toLowerCase());
-      const typeTag = userWantsTool ? (isAcc ? "🔩" : "🔧") : "";
+      const itemIsTool = isActualTool(p.category.name, p.name);
+      const typeTag = userWantsTool ? (itemIsTool ? "🔧" : "🔩") : "";
       context += `  - ${typeTag}[ID:${p.id.slice(-8)}] ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
     }
   }

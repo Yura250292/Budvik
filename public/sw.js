@@ -1,4 +1,4 @@
-const CACHE_NAME = "budvik-v1";
+const CACHE_NAME = "budvik-v2";
 const STATIC_ASSETS = [
   "/",
   "/catalog",
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
+  // Don't block installation - cache in background
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
@@ -32,30 +33,38 @@ self.addEventListener("fetch", (event) => {
   // Skip non-GET requests
   if (request.method !== "GET") return;
 
-  // Skip API and auth routes
   const url = new URL(request.url);
+
+  // Skip API, auth and Next.js internal routes
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/")) return;
 
+  // For navigation requests: network first with fast fallback
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
+    );
+    return;
+  }
+
+  // For static assets (images, css, js): cache first, then network
   event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // Cache successful page responses
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      return fetch(request).then((response) => {
         if (response.status === 200) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
-      })
-      .catch(() => {
-        // Serve from cache when offline
-        return caches.match(request).then((cached) => {
-          if (cached) return cached;
-          // Fallback to homepage for navigation requests
-          if (request.mode === "navigate") {
-            return caches.match("/");
-          }
-          return new Response("Offline", { status: 503 });
-        });
-      })
+      }).catch(() => new Response("Offline", { status: 503 }));
+    })
   );
 });

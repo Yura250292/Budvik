@@ -5,7 +5,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
-import AiChatWidget from "@/components/ai/AiChatWidget";
+import AiChatWidget from "@/components/ai/AiChatWidgetLoader";
 import SwipeNavigator from "@/components/SwipeNavigator";
 import PageTransition from "@/components/PageTransition";
 
@@ -33,7 +33,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#0A0A0A",
+  themeColor: "#FFD600",
   viewportFit: "cover",
 };
 
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Тестовий банер */}
           <div className="w-full bg-[#0A0A0A] border-y border-[#FFD600]/30 overflow-hidden z-40 relative">
             <div className="flex animate-marquee whitespace-nowrap py-1.5">
-              {Array.from({ length: 8 }).map((_, i) => (
+              {Array.from({ length: 3 }).map((_, i) => (
                 <span key={i} className="mx-8 text-sm font-semibold tracking-wide">
                   <span className="text-[#FFD600]">⚠</span>
                   <span className="text-white/90 mx-2">ТЕСТОВА ВЕРСІЯ — не робіть замовлення, сайт у процесі тестування!</span>

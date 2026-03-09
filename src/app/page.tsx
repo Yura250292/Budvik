@@ -1,4 +1,4 @@
-export const dynamic = "force-dynamic";
+export const revalidate = 300; // revalidate every 5 minutes
 
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -40,6 +40,7 @@ export default async function HomePage() {
     prisma.product.findMany({
       where: { isActive: true },
       select: { name: true },
+      take: 500,
     }),
     // Best sellers: products most ordered
     prisma.orderItem.groupBy({

@@ -104,7 +104,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         ...(categorySlug ? { category: { slug: categorySlug } } : {}),
       },
       select: { name: true },
-      take: 5000,
+      take: 300,
     }),
   ]);
 

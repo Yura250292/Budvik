@@ -44,7 +44,7 @@ export default function Header() {
 
           {/* Logo — mobile: centered, desktop: left with brand name */}
           <Link href="/" className="flex items-center gap-2.5 flex-shrink-0 md:relative absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-10">
-            <Image src="/logo.png" alt="БУДВІК" width={48} height={48} className="h-11 w-auto md:h-9 logo-gold" />
+            <Image src="/logo-gold.png" alt="БУДВІК" width={48} height={48} className="h-11 w-auto md:h-9 logo-glow" />
             <div className="hidden md:flex flex-col">
               <span className="text-lg font-extrabold leading-none logo-text-animated tracking-wide">БУДВІК</span>
               <span className="text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>

@@ -18,7 +18,7 @@ export default function Footer() {
           {/* Про компанію */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Image src="/logo.png" alt="БУДВІК" width={28} height={28} className="logo-gold" />
+              <Image src="/logo-gold.png" alt="БУДВІК" width={28} height={28} className="logo-glow" />
               <span className="text-lg font-bold logo-text-animated">БУДВІК</span>
             </div>
             <p className="text-sm leading-relaxed mb-4">

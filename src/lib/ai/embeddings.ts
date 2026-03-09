@@ -65,15 +65,24 @@ export async function semanticSearch(
   query: string,
   limit: number = 10
 ): Promise<{ productId: string; score: number }[]> {
-  const queryEmbedding = await generateEmbedding(query);
-
   const allEmbeddings = await prisma.productEmbedding.findMany();
+  if (allEmbeddings.length === 0) return [];
 
-  const scored = allEmbeddings.map((entry) => {
-    const embedding = JSON.parse(entry.embedding) as number[];
-    const score = cosineSimilarity(queryEmbedding, embedding);
-    return { productId: entry.productId, score };
-  });
+  const queryEmbedding = await generateEmbedding(query);
+  if (!queryEmbedding || queryEmbedding.length === 0) return [];
+
+  const scored = allEmbeddings
+    .map((entry) => {
+      try {
+        const embedding = JSON.parse(entry.embedding) as number[];
+        if (embedding.length !== queryEmbedding.length) return null;
+        const score = cosineSimilarity(queryEmbedding, embedding);
+        return { productId: entry.productId, score };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { productId: string; score: number } => x !== null);
 
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);

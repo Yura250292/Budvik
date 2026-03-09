@@ -30,11 +30,14 @@ export default function AiSmartSearch() {
 
     try {
       const res = await fetch(`/api/ai/search?q=${encodeURIComponent(query.trim())}`);
+      if (!res.ok) throw new Error("Search failed");
       const data = await res.json();
       setResults(data.products || []);
       setSearchType(data.type || "");
-    } catch {
+    } catch (err) {
+      console.error("AI Search error:", err);
       setResults([]);
+      setSearchType("error");
     } finally {
       setLoading(false);
     }

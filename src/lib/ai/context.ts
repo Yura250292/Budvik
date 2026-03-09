@@ -117,12 +117,42 @@ function extractPriceRange(query: string): { min?: number; max?: number } {
   return result;
 }
 
+// Map tool keywords to their actual DB category names for direct category search
+const TOOL_TO_CATEGORIES: Record<string, string[]> = {
+  "болгарка": ["Кутові шліфмашини (Болгарки)", "Акумуляторні болгарки (КШМ)"],
+  "болгарку": ["Кутові шліфмашини (Болгарки)", "Акумуляторні болгарки (КШМ)"],
+  "болгарки": ["Кутові шліфмашини (Болгарки)", "Акумуляторні болгарки (КШМ)"],
+  "кшм": ["Кутові шліфмашини (Болгарки)", "Акумуляторні болгарки (КШМ)"],
+  "шліфмашина": ["Кутові шліфмашини (Болгарки)", "Шліфувальні машини", "Акумуляторні болгарки (КШМ)", "Акумуляторні шліфувальні машинки"],
+  "шліфмашину": ["Кутові шліфмашини (Болгарки)", "Шліфувальні машини", "Акумуляторні болгарки (КШМ)"],
+  "дриль": ["Дрилі", "Ударні дрилі"],
+  "дрель": ["Дрилі", "Ударні дрилі"],
+  "шуруповерт": ["Акумуляторні шуруповерти", "Шуруповерти"],
+  "перфоратор": ["Перфоратори", "Прямі перфоратори", "Бочкові перфоратори", "Акумуляторні перфоратори"],
+  "лобзик": ["Електролобзики", "Акумуляторні лобзики"],
+  "електролобзик": ["Електролобзики", "Акумуляторні лобзики"],
+  "пила": ["Циркулярні пили", "Електропили", "Акумуляторні циркулярні пили", "Акумуляторні ланцюгові пилки"],
+  "пилу": ["Циркулярні пили", "Електропили", "Акумуляторні циркулярні пили", "Акумуляторні ланцюгові пилки"],
+  "циркулярка": ["Циркулярні пили", "Акумуляторні циркулярні пили"],
+  "фрезер": ["Ручний електроінструмент"],
+  "рубанок": ["Електрорубанки"],
+  "електрорубанок": ["Електрорубанки"],
+  "фен": ["Будівельні фени"],
+  "компресор": ["Повітряні компресори"],
+  "генератор": [],
+  "зварка": [],
+  "зварювальний": [],
+  "інвертор": [],
+  "гайковерт": ["Акумуляторні гайковерти", "Пневмогайковерти"],
+  "реноватор": ["Акумуляторні реноватори"],
+  "краскопульт": ["Електиричні фарбопульти", "Фарборозпилювачі HVLP", "Фарборозпилювачі HP і MP", "Фарборозпилювачі LVMP"],
+};
+
 export async function searchProductsForAI(query: string): Promise<string> {
   // Support "keyword query | natural language query" format
-  // The part after | is used for semantic search for better intent understanding
   const parts = query.split("|").map((s) => s.trim());
   const keywordQuery = parts[0];
-  const semanticQuery = parts[1] || parts[0]; // fallback to same query
+  const semanticQuery = parts[1] || parts[0];
 
   // Extract meaningful keywords, filtering stop words
   const keywords = keywordQuery
@@ -137,21 +167,42 @@ export async function searchProductsForAI(query: string): Promise<string> {
     const syns = SYNONYMS[kw];
     if (syns) expanded.push(...syns);
   }
-
-  // Deduplicate
   const unique = [...new Set(expanded)];
 
   if (unique.length === 0) return "";
 
   // Extract price range from query
   const priceRange = extractPriceRange(keywordQuery);
-
-  // Build price filter
   const priceFilter: Record<string, number> = {};
   if (priceRange.min) priceFilter.gte = priceRange.min;
   if (priceRange.max) priceFilter.lte = priceRange.max;
 
-  // Run keyword search AND semantic search in parallel
+  // Detect if user wants a specific tool type → search directly in its DB categories
+  const matchedCategories: string[] = [];
+  for (const kw of keywords) {
+    const cats = TOOL_TO_CATEGORIES[kw];
+    if (cats) matchedCategories.push(...cats);
+  }
+  const uniqueCategories = [...new Set(matchedCategories)];
+  const userWantsTool = uniqueCategories.length > 0;
+
+  // Run 3 searches in parallel:
+  // 1. DIRECT category search (most precise — actual tools from the right category)
+  // 2. Keyword search (broader, catches things not in mapped categories)
+  // 3. Semantic search (natural language understanding)
+  const categorySearchPromise = uniqueCategories.length > 0
+    ? prisma.product.findMany({
+        where: {
+          isActive: true,
+          category: { name: { in: uniqueCategories } },
+          ...(Object.keys(priceFilter).length > 0 ? { price: priceFilter } : {}),
+        },
+        include: { category: true },
+        orderBy: [{ stock: "desc" }, { price: "asc" }],
+        take: 30,
+      })
+    : Promise.resolve([]);
+
   const keywordSearchPromise = prisma.product.findMany({
     where: {
       isActive: true,
@@ -167,10 +218,10 @@ export async function searchProductsForAI(query: string): Promise<string> {
     take: 50,
   });
 
-  // Semantic search uses the natural language query for better intent understanding
   const semanticSearchPromise = semanticSearch(semanticQuery, 20).catch(() => [] as { productId: string; score: number }[]);
 
-  const [keywordProducts, semanticResults] = await Promise.all([
+  const [categoryProducts, keywordProducts, semanticResults] = await Promise.all([
+    categorySearchPromise,
     keywordSearchPromise,
     semanticSearchPromise,
   ]);
@@ -194,136 +245,86 @@ export async function searchProductsForAI(query: string): Promise<string> {
     }
   }
 
-  // Merge keyword + semantic results (dedup by id)
+  // Merge results: CATEGORY FIRST → keyword → semantic (dedup by id)
   const seenIds = new Set<string>();
   const allProducts: typeof keywordProducts = [];
-  // Add keyword results first
-  for (const p of keywordProducts) {
-    if (!seenIds.has(p.id)) {
-      seenIds.add(p.id);
-      allProducts.push(p);
-    }
+  // Category results are the most relevant — add first
+  for (const p of categoryProducts) {
+    if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
   }
-  // Add semantic-only results
+  for (const p of keywordProducts) {
+    if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
+  }
   for (const p of semanticProducts) {
-    if (!seenIds.has(p.id)) {
-      seenIds.add(p.id);
-      allProducts.push(p);
-    }
+    if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
   }
 
   // If price-filtered search returned nothing, try without price filter
   let finalProducts = allProducts;
   if (allProducts.length === 0 && Object.keys(priceFilter).length > 0) {
-    finalProducts = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        OR: unique.flatMap((kw) => [
-          { name: { contains: kw, mode: "insensitive" as const } },
-          { description: { contains: kw, mode: "insensitive" as const } },
-          { category: { name: { contains: kw, mode: "insensitive" as const } } },
-        ]),
-      },
-      include: { category: true },
-      orderBy: [{ stock: "desc" }, { price: "asc" }],
-      take: 50,
-    });
+    const fallback = uniqueCategories.length > 0
+      ? prisma.product.findMany({
+          where: { isActive: true, category: { name: { in: uniqueCategories } } },
+          include: { category: true },
+          orderBy: [{ stock: "desc" }, { price: "asc" }],
+          take: 30,
+        })
+      : prisma.product.findMany({
+          where: {
+            isActive: true,
+            OR: unique.flatMap((kw) => [
+              { name: { contains: kw, mode: "insensitive" as const } },
+              { description: { contains: kw, mode: "insensitive" as const } },
+              { category: { name: { contains: kw, mode: "insensitive" as const } } },
+            ]),
+          },
+          include: { category: true },
+          orderBy: [{ stock: "desc" }, { price: "asc" }],
+          take: 50,
+        });
+    finalProducts = await fallback;
   }
 
   if (finalProducts.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
 
-  // Detect if user is asking for a TOOL (not an accessory)
-  // Original keywords (before synonym expansion) determine user intent
-  const toolKeywords = new Set([
-    "болгарка", "болгарку", "болгарки", "кшм", "шліфмашина", "шліфмашину",
-    "дриль", "дрель", "шуруповерт", "перфоратор",
-    "лобзик", "електролобзик", "пила", "пилу", "циркулярка",
-    "фрезер", "рубанок", "електрорубанок",
-    "фен", "степлер", "краскопульт", "компресор", "генератор",
-    "зварка", "зварювальний", "інвертор",
-    "реноватор", "гайковерт", "міксер", "різак",
-  ]);
-  const userWantsTool = keywords.some((kw) => toolKeywords.has(kw));
-
-  // Tool category whitelist — categories that contain actual power tools
-  const toolCategoryPatterns = /болгарк|кшм|шліфмашин|дрил|перфоратор|шуруповерт|лобзик|пил[аиі]|фрезер|рубанок|фен|зварюв|компресор|генератор|електроінструмент|гайковерт|реноватор|повітродув|тример|кущоріз|секатор|відбійн/i;
-
-  // Accessory indicators — check both category AND product name
-  const accessoryCategoryPatterns = /круг|диск|щітк|свердл|біт[іи\s]|насад|коронк|бур[иі\s]|патрон|зачис|відріз|витратн|ріжуч|плашк|мітчик|зубил|чаша/i;
-  const accessoryNamePatterns = /круг |диск |щітка|щітк[аи]|коронк|чаша |тримач кола|бур\s|свердл|полотн|ланцюг для|зірочка для|цанг|цанк|ролик для|фільтр для/i;
-
-  // Determine if a product is an actual tool vs accessory/consumable
-  function isActualTool(catName: string, productName: string): boolean {
-    const cat = catName.toLowerCase();
-    const name = productName.toLowerCase();
-    // FIRST check accessory patterns — "Диски для болгарки" contains "болгарк" but is NOT a tool!
-    if (accessoryCategoryPatterns.test(cat)) return false;
-    if (accessoryNamePatterns.test(name)) return false;
-    // Then check if category is a tool category
-    if (toolCategoryPatterns.test(cat)) return true;
-    // Default: not clearly a tool
-    return false;
-  }
-
-  // Score products by relevance: keyword matches + semantic score bonus
+  // Score products by relevance
   const scored = finalProducts.map((p) => {
     const nameLower = p.name.toLowerCase();
     const descLower = (p.description || "").toLowerCase();
     const catLower = p.category.name.toLowerCase();
     let score = 0;
 
-    // Keyword matching — NAME match is worth much more than description match
-    let nameMatch = false;
-    let matchedKeywords = 0;
+    // Is this product from a directly matched category?
+    const isFromTargetCategory = uniqueCategories.some((c) => c === p.category.name);
+    if (isFromTargetCategory) score += 60; // Massive boost — this IS what the user is looking for
+
+    // Keyword matching
     for (const kw of unique) {
-      let matched = false;
-      if (nameLower.includes(kw)) { score += 10; matched = true; nameMatch = true; }
-      if (catLower.includes(kw)) { score += 6; matched = true; }
-      if (descLower.includes(kw)) { score += 1; matched = true; }
-      if (matched) matchedKeywords++;
+      if (nameLower.includes(kw)) score += 10;
+      if (catLower.includes(kw)) score += 6;
+      if (descLower.includes(kw)) score += 1;
     }
 
-    // Bonus for matching many keywords (product is more relevant)
-    if (unique.length > 1 && matchedKeywords === unique.length) {
-      score += 15;
-    } else if (unique.length > 2 && matchedKeywords >= unique.length - 1) {
-      score += 8;
-    }
-
-    // CRITICAL: When user asks for a TOOL, heavily boost actual tools and penalize accessories
-    const isTool = isActualTool(p.category.name, p.name);
-    if (userWantsTool) {
-      if (isTool) {
-        score += 50;
-      } else {
-        score -= 30;
-      }
-    }
-
-    // Semantic relevance bonus (products AI considers similar to the query)
+    // Semantic relevance bonus
     const semanticScore = semanticScoreMap.get(p.id);
-    if (semanticScore) {
-      score += Math.round(semanticScore * 20); // 0.55-1.0 → 11-20 bonus points
-    }
+    if (semanticScore) score += Math.round(semanticScore * 20);
 
-    // Heavily prioritize in-stock items
+    // In-stock priority
     if (p.stock > 0) score += 20;
-    return { product: p, score, isTool };
+    return { product: p, score, isFromTargetCategory };
   });
 
-  // Sort by score descending, then by price
   scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
-  // When user wants a TOOL: separate tools from accessories, show tools first
+  // When user wants a tool: show target category products first, limit others
   let topProducts: typeof scored;
   if (userWantsTool) {
-    const tools = scored.filter((s) => s.isTool);
-    const accessories = scored.filter((s) => !s.isTool);
-    // Show ALL tools first, then max 3 accessories as supplement
+    const tools = scored.filter((s) => s.isFromTargetCategory);
+    const others = scored.filter((s) => !s.isFromTargetCategory);
     const toolsInStock = tools.filter((s) => s.product.stock > 0).slice(0, 20);
     const toolsOutOfStock = tools.filter((s) => s.product.stock <= 0).slice(0, 3);
-    const accInStock = accessories.filter((s) => s.product.stock > 0).slice(0, 3);
-    topProducts = [...toolsInStock, ...toolsOutOfStock, ...accInStock].slice(0, 25);
+    const othersInStock = others.filter((s) => s.product.stock > 0).slice(0, 3);
+    topProducts = [...toolsInStock, ...toolsOutOfStock, ...othersInStock].slice(0, 25);
   } else {
     const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
     const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
@@ -342,18 +343,19 @@ export async function searchProductsForAI(query: string): Promise<string> {
   context += `УВАГА: Використовуй ТІЛЬКИ товари з цього списку. Копіюй назви ТОЧНО як написано.\n`;
   context += `ВАЖЛИВО: Рекомендуй ТІЛЬКИ товари з позначкою ✅ (в наявності). Товари з ❌ (немає) — НЕ рекомендуй, якщо є альтернативи в наявності.\n`;
   if (userWantsTool) {
-    context += `⚡ КЛІЄНТ ШУКАЄ ІНСТРУМЕНТ — рекомендуй ІНСТРУМЕНТИ (позначені 🔧), а НЕ витратні матеріали (позначені 🔩)!\n`;
+    context += `⚡ КЛІЄНТ ШУКАЄ ІНСТРУМЕНТ — рекомендуй товари з категорій: ${uniqueCategories.join(", ")}.\n`;
+    context += `НЕ рекомендуй витратні матеріали (круги, диски, щітки, свердла) замість самого інструменту!\n`;
   }
 
   for (const [category, items] of Object.entries(byCategory)) {
-    context += `\n📁 ${category} (${items.length} товарів):\n`;
+    const isTarget = uniqueCategories.includes(category);
+    const marker = userWantsTool ? (isTarget ? "🎯" : "📁") : "📁";
+    context += `\n${marker} ${category} (${items.length} товарів)${isTarget ? " — ОСНОВНА КАТЕГОРІЯ" : ""}:\n`;
     for (const { product: p } of items) {
       const stock = p.stock > 0 ? `✅ ${p.stock} шт` : "❌ Немає";
       const promo = p.isPromo && p.promoPrice ? ` | 🔥 Акція: ${p.promoPrice} грн` : "";
       const desc = stripHtml(p.description || "").slice(0, 150);
-      const itemIsTool = isActualTool(p.category.name, p.name);
-      const typeTag = userWantsTool ? (itemIsTool ? "🔧" : "🔩") : "";
-      context += `  - ${typeTag}[ID:${p.id.slice(-8)}] ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
+      context += `  - [ID:${p.id.slice(-8)}] ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
     }
   }
 

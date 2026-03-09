@@ -30,16 +30,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    const allUserTexts = [
-      ...history
-        .filter((h: { role: string }) => h.role === "user")
-        .map((h: { content: string }) => h.content),
-      message,
-    ].join(" ");
+    // Use current message as primary search, add last user message for context
+    const lastUserMsg = history
+      .filter((h: { role: string }) => h.role === "user")
+      .map((h: { content: string }) => h.content)
+      .slice(-1)[0];
+    const searchQuery = lastUserMsg ? `${message} ${lastUserMsg}` : message;
 
     const [catalog, searchResults] = await Promise.all([
       getProductCatalogContext(),
-      searchProductsForAI(allUserTexts),
+      searchProductsForAI(searchQuery),
     ]);
     const systemPrompt = getSystemPrompt("consultant") + "\n\n" + catalog + searchResults;
 

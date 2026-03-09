@@ -3,11 +3,8 @@
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
-
 export default function AdminPage() {
   const { data: session } = useSession();
-  const pathname = usePathname();
   const [stats, setStats] = useState({ clients: 0, sales: 0, wholesale: 0, orders: 0, products: 0, activeOrders: 0, pendingWholesale: 0 });
 
   const role = (session?.user as any)?.role;
@@ -50,109 +47,12 @@ export default function AdminPage() {
     );
   }
 
-  const navItems = [
-    {
-      href: "/admin/orders",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
-      ),
-      title: "Замовлення",
-      desc: "Управління замовленнями та статусами",
-      color: "from-amber-500 to-orange-600",
-      bgLight: "bg-amber-50",
-      badge: stats.activeOrders > 0 ? `${stats.activeOrders} активних` : null,
-      roles: ["ADMIN", "SALES"],
-    },
-    {
-      href: "/admin/products",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-        </svg>
-      ),
-      title: "Товари",
-      desc: "Управління каталогом товарів",
-      color: "from-emerald-500 to-green-600",
-      bgLight: "bg-emerald-50",
-      badge: null,
-      roles: ["ADMIN"],
-    },
-    {
-      href: "/admin/users",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      ),
-      title: "Клієнти",
-      desc: "Профілі, історія, призначення ролей",
-      color: "from-violet-500 to-purple-600",
-      bgLight: "bg-violet-50",
-      badge: null,
-      roles: ["ADMIN"],
-    },
-    {
-      href: "/admin/wholesale",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-        </svg>
-      ),
-      title: "Оптовики",
-      desc: "Заявки та управління оптовиками",
-      color: "from-yellow-500 to-amber-600",
-      bgLight: "bg-yellow-50",
-      badge: stats.pendingWholesale > 0 ? `${stats.pendingWholesale} нових` : null,
-      roles: ["ADMIN"],
-    },
-    {
-      href: "/admin/sales",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-      title: "Торгові менеджери",
-      desc: "Список торгових, зняття ролі",
-      color: "from-blue-500 to-indigo-600",
-      bgLight: "bg-blue-50",
-      badge: null,
-      roles: ["ADMIN"],
-    },
-    {
-      href: "/admin/integration",
-      icon: (
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-        </svg>
-      ),
-      title: "Інтеграція 1С",
-      desc: "Імпорт/експорт товарів та замовлень",
-      color: "from-slate-500 to-gray-700",
-      bgLight: "bg-slate-50",
-      badge: null,
-      roles: ["ADMIN"],
-    },
-  ];
-
-  const visibleNavItems = navItems.filter((item) => item.roles.includes(role));
-
-  const accentColors: Record<string, string> = {
-    "/admin/orders": "#FFD600",
-    "/admin/products": "#3B82F6",
-    "/admin/users": "#10B981",
-    "/admin/wholesale": "#F59E0B",
-    "/admin/sales": "#6366F1",
-    "/admin/integration": "#64748B",
-  };
-
   const statCards = [
     {
       label: "Замовлення",
       value: stats.orders,
       sub: stats.activeOrders > 0 ? `${stats.activeOrders} активних` : null,
+      href: "/admin/orders",
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -165,6 +65,7 @@ export default function AdminPage() {
       label: "Товари",
       value: stats.products,
       sub: null,
+      href: "/admin/products",
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -177,6 +78,7 @@ export default function AdminPage() {
       label: "Клієнти",
       value: stats.clients,
       sub: null,
+      href: "/admin/users",
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -189,6 +91,7 @@ export default function AdminPage() {
       label: "Оптовики",
       value: stats.wholesale,
       sub: stats.pendingWholesale > 0 ? `${stats.pendingWholesale} заявок` : null,
+      href: "/admin/wholesale",
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -201,6 +104,7 @@ export default function AdminPage() {
       label: "Торгові",
       value: stats.sales,
       sub: null,
+      href: "/admin/sales",
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -256,9 +160,10 @@ export default function AdminPage() {
           </h2>
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
             {visibleStats.map((card) => (
-              <div
+              <Link
                 key={card.label}
-                className="admin-card group p-3 sm:p-4 cursor-default"
+                href={card.href}
+                className="admin-card group p-3 sm:p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <div
@@ -282,7 +187,7 @@ export default function AdminPage() {
                     {card.sub}
                   </p>
                 )}
-              </div>
+              </Link>
             ))}
           </div>
         </section>
@@ -437,54 +342,6 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* Section: Management Modules */}
-        <section>
-          <h2 className="text-base font-semibold text-bk mb-3">
-            Управління
-          </h2>
-          <div className="grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleNavItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="admin-nav-card admin-nav-card--compact group block"
-                style={{ borderLeft: `3px solid ${accentColors[item.href] || "#FFD600"}` }}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-9 h-9 bg-gradient-to-br ${item.color} rounded-lg flex items-center justify-center flex-shrink-0 text-white`}
-                  >
-                    {item.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <h3 className="text-sm font-semibold text-bk truncate">
-                        {item.title}
-                      </h3>
-                      {item.badge && (
-                        <span className="text-[10px] font-bold bg-primary text-bk px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
-                          {item.badge}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-g500 truncate hidden sm:block">
-                      {item.desc}
-                    </p>
-                  </div>
-                  <svg
-                    className="w-4 h-4 flex-shrink-0 text-g300"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
       </div>
 
       {/* Footer */}

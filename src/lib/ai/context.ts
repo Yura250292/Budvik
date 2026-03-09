@@ -307,10 +307,27 @@ export async function searchProductsForAI(query: string): Promise<string> {
   // Sort by score descending, then by price
   scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
-  // Take top results, preferring in-stock
-  const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
-  const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
-  const topProducts = [...inStock, ...outOfStock].slice(0, 30);
+  // When user wants a TOOL: separate tools from accessories, show tools first
+  let topProducts: typeof scored;
+  if (userWantsTool) {
+    const tools = scored.filter((s) => {
+      const cat = s.product.category.name.toLowerCase();
+      return !accessoryCategories.test(cat);
+    });
+    const accessories = scored.filter((s) => {
+      const cat = s.product.category.name.toLowerCase();
+      return accessoryCategories.test(cat);
+    });
+    // Show ALL tools first, then max 5 accessories as supplement
+    const toolsInStock = tools.filter((s) => s.product.stock > 0).slice(0, 20);
+    const toolsOutOfStock = tools.filter((s) => s.product.stock <= 0).slice(0, 3);
+    const accInStock = accessories.filter((s) => s.product.stock > 0).slice(0, 5);
+    topProducts = [...toolsInStock, ...toolsOutOfStock, ...accInStock].slice(0, 25);
+  } else {
+    const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
+    const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
+    topProducts = [...inStock, ...outOfStock].slice(0, 30);
+  }
 
   // Group by category for better AI understanding
   const byCategory: Record<string, typeof topProducts> = {};

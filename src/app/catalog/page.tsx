@@ -24,24 +24,30 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const where: any = { isActive: true };
   if (categorySlug) where.category = { slug: categorySlug };
   if (search) {
-    // Smart search: search in name, description, and category name
+    // Search in product name and category name only (not description — too many false positives)
     const searchTerms = search
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
       .filter((w: string) => w.length > 1);
 
-    if (searchTerms.length > 0) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { description: { contains: search, mode: "insensitive" } },
-        { category: { name: { contains: search, mode: "insensitive" } } },
-        // Also search each individual term in name
-        ...searchTerms.map((term: string) => ({ name: { contains: term, mode: "insensitive" } })),
-        ...searchTerms.map((term: string) => ({ category: { name: { contains: term, mode: "insensitive" } } })),
+    if (searchTerms.length > 1) {
+      // Multi-word: require ALL terms to match in name or category
+      where.AND = [
+        ...(where.AND || []),
+        ...searchTerms.map((term: string) => ({
+          OR: [
+            { name: { contains: term, mode: "insensitive" } },
+            { category: { name: { contains: term, mode: "insensitive" } } },
+          ],
+        })),
       ];
     } else {
-      where.name = { contains: search, mode: "insensitive" };
+      // Single word: match in name or category
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { category: { name: { contains: search, mode: "insensitive" } } },
+      ];
     }
   }
   if (brand && !search) {

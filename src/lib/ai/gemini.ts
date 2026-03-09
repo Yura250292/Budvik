@@ -32,7 +32,7 @@ export async function chatWithGemini(
     };
   }
 
-  const url = `${GEMINI_BASE_URL}/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `${GEMINI_BASE_URL}/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
   const options = {
     method: "POST",
     headers: { "Content-Type": "application/json" },

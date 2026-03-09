@@ -218,7 +218,7 @@ export default function DashboardPage() {
                 {item.icon}
               </div>
               <div className="min-w-0">
-                <h3 className="font-semibold text-[13px] text-bk group-hover:text-primary-dark transition-colors leading-tight">
+                <h3 className="font-semibold text-[13px] text-bk group-hover:text-primary-dark transition-colors leading-tight truncate">
                   {item.title}
                 </h3>
                 <p className="text-[11px] text-g400 truncate">{item.desc}</p>

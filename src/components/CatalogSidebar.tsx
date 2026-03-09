@@ -305,7 +305,7 @@ export default function CatalogSidebar({
                 }`}
                 style={{ minHeight: '40px' }}
               >
-                <span>{b.brand}</span>
+                <span className="truncate">{b.brand}</span>
                 <span className="text-xs text-[#9E9E9E]">{b.count}</span>
               </Link>
             ))}

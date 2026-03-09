@@ -348,16 +348,21 @@ export default function AdminProductsPage() {
                       className={`transition-colors hover:bg-gray-100 ${product.stock === 0 ? "opacity-50" : ""} ${catColor ? catColor.row : ""}`}
                     >
                       <td className="px-4 py-3">
-                        <span className="font-medium text-gray-900">{product.name}</span>
+                        <span className="font-medium text-gray-900 text-sm">{product.name}</span>
                       </td>
                       <td className="px-4 py-3">
                         {product.category?.name && catColor ? (
-                          <span
-                            title={product.category.name}
-                            className={`inline-block max-w-[180px] truncate px-2.5 py-0.5 rounded-full text-xs font-semibold ${catColor.bg} ${catColor.text} border ${catColor.border} cursor-default`}
-                          >
-                            {product.category.name}
-                          </span>
+                          <div className="relative group/cat">
+                            <span
+                              className={`inline-block max-w-[160px] truncate px-2 py-0.5 rounded-full text-[11px] font-semibold ${catColor.bg} ${catColor.text} border ${catColor.border} cursor-default`}
+                            >
+                              {product.category.name}
+                            </span>
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 invisible group-hover/cat:opacity-100 group-hover/cat:visible transition-all duration-150 z-50 pointer-events-none">
+                              {product.category.name}
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-sm text-gray-400">—</span>
                         )}

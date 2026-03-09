@@ -66,30 +66,30 @@ export async function POST(req: Request) {
       );
     }
 
-    // Build search query from all parameters
+    // Build search query — use fewer, more focused keywords
     const searchParts: string[] = [];
 
-    // Category-based keywords
+    // Category-based keywords — reduced to main tool types only (not consumables)
     const categoryKeywords: Record<string, string> = {
-      "Свердління / Перфорація": "дриль перфоратор шуруповерт свердло",
-      "Різання / Розпил": "болгарка пила лобзик різак ножівка",
-      "Шліфування / Полірування": "шліфмашина полірувальна шліфувальна наждак",
-      "Вимірювання / Розмітка": "рівень рулетка лазерний далекомір кутомір",
-      "Зварювання / Паяння": "зварювальний інвертор паяльник зварка",
-      "Фарбування / Оздоблення": "фарбопульт краскопульт шпатель валик",
-      "Ручний інструмент": "набір ключ викрутка плоскогубці молоток",
+      "Свердління / Перфорація": "дриль перфоратор",
+      "Різання / Розпил": "болгарка пила лобзик",
+      "Шліфування / Полірування": "шліфмашина полірувальна",
+      "Вимірювання / Розмітка": "рівень лазерний далекомір",
+      "Зварювання / Паяння": "зварювальний інвертор паяльник",
+      "Фарбування / Оздоблення": "фарбопульт краскопульт",
+      "Ручний інструмент": "набір ключ викрутка плоскогубці",
     };
     searchParts.push(categoryKeywords[category] || category);
 
-    // Material keywords
+    // Material keywords — only add specific tool-type hints, not generic materials
     if (material) {
       const materialKeywords: Record<string, string> = {
-        "Бетон / Цегла / Камінь": "бетон перфоратор бур SDS",
-        "Дерево / Фанера / ДСП": "дерево фанера",
+        "Бетон / Цегла / Камінь": "перфоратор SDS",
+        "Дерево / Фанера / ДСП": "дерево",
         "Метал": "метал",
-        "Метал / Профіль / Труби": "метал труба профіль",
-        "Бетон / Камінь / Плитка": "бетон плитка камінь алмазний",
-        "Гіпсокартон / Сухі суміші": "гіпсокартон шуруповерт",
+        "Метал / Профіль / Труби": "метал",
+        "Бетон / Камінь / Плитка": "бетон алмазний",
+        "Гіпсокартон / Сухі суміші": "шуруповерт",
       };
       searchParts.push(materialKeywords[material] || material);
     }
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
     // Power source
     if (powerSource && powerSource !== "Не має значення") {
       if (powerSource.includes("Акумулятор")) searchParts.push("акумуляторний");
-      if (powerSource.includes("Мережевий")) searchParts.push("мережевий");
+      if (powerSource.includes("Мережевий")) searchParts.push("мережевий 220");
     }
 
     // Brand
@@ -105,12 +105,22 @@ export async function POST(req: Request) {
       searchParts.push(brand);
     }
 
+    // Build a natural language query for semantic search (better intent understanding)
+    const naturalQuery = [
+      category,
+      material ? `для ${material}` : "",
+      powerSource && powerSource !== "Не має значення" ? powerSource : "",
+      brand && brand !== "Без переваг — покажіть найкращі" ? `бренд ${brand}` : "",
+      specificTask || "",
+    ].filter(Boolean).join(", ");
+
     // Budget goes into price filter via extractPriceRange, not as keywords
     const searchQuery = `${searchParts.join(" ")} ${budget}`;
 
+    // Search with both keyword query AND natural language query for semantic search
     const [catalog, searchResults] = await Promise.all([
       getProductCatalogContext(),
-      searchProductsForAI(searchQuery),
+      searchProductsForAI(`${searchQuery} | ${naturalQuery}`),
     ]);
 
     const systemPrompt = getSystemPrompt("wizard") + "\n\n" + catalog + searchResults;
@@ -126,13 +136,27 @@ export async function POST(req: Request) {
     details.push(`Бюджет: ${budget}`);
     if (additionalFeatures) details.push(`Додаткові вимоги: ${additionalFeatures}`);
 
+    // Add strict filtering hints for the AI
+    const filterHints: string[] = [];
+    if (powerSource && powerSource !== "Не має значення") {
+      if (powerSource.includes("Мережевий")) {
+        filterHints.push("ФІЛЬТР: Рекомендуй ТІЛЬКИ мережеві інструменти (220В, з кабелем). НЕ рекомендуй акумуляторні інструменти.");
+      } else if (powerSource.includes("Акумулятор")) {
+        filterHints.push("ФІЛЬТР: Рекомендуй ТІЛЬКИ акумуляторні інструменти. НЕ рекомендуй мережеві (220В).");
+      }
+    }
+    filterHints.push("ФІЛЬТР: Рекомендуй ТІЛЬКИ інструменти (електро/ручні), а НЕ витратні матеріали, свердла, бури, диски, насадки.");
+
     const userMessage = `Підбери мені інструмент за наступними критеріями:
 
 ${details.join("\n")}
 
+${filterHints.join("\n")}
+
 ВАЖЛИВО: Рекомендуй ТІЛЬКИ товари з розділу РЕЗУЛЬТАТИ ПОШУКУ вище. Використовуй точні назви та ціни.
 Покажи ТОП 3-5 товарів що найкраще підходять під ці критерії. Поясни чому кожен підходить.
-Дай фінальну рекомендацію — який один товар найкращий вибір і чому.`;
+Дай фінальну рекомендацію — який один товар найкращий вибір і чому.
+Якщо серед результатів немає товарів що відповідають УСІМ критеріям — чесно скажи і покажи найближчі альтернативи.`;
 
     const rawResponse = await chatWithGemini(
       [{ role: "user", parts: [{ text: userMessage }] }],

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { semanticSearch } from "@/lib/ai/embeddings";
 
 export async function getProductCatalogContext(): Promise<string> {
   const categories = await prisma.category.findMany({
@@ -78,8 +79,14 @@ function extractPriceRange(query: string): { min?: number; max?: number } {
 }
 
 export async function searchProductsForAI(query: string): Promise<string> {
+  // Support "keyword query | natural language query" format
+  // The part after | is used for semantic search for better intent understanding
+  const parts = query.split("|").map((s) => s.trim());
+  const keywordQuery = parts[0];
+  const semanticQuery = parts[1] || parts[0]; // fallback to same query
+
   // Extract meaningful keywords, filtering stop words
-  const keywords = query
+  const keywords = keywordQuery
     .toLowerCase()
     .replace(/[^\wа-яіїєґ\s]/gi, "")
     .split(/\s+/)
@@ -91,15 +98,15 @@ export async function searchProductsForAI(query: string): Promise<string> {
   if (unique.length === 0) return "";
 
   // Extract price range from query
-  const priceRange = extractPriceRange(query);
+  const priceRange = extractPriceRange(keywordQuery);
 
   // Build price filter
   const priceFilter: Record<string, number> = {};
   if (priceRange.min) priceFilter.gte = priceRange.min;
   if (priceRange.max) priceFilter.lte = priceRange.max;
 
-  // Search by each keyword with OR
-  const products = await prisma.product.findMany({
+  // Run keyword search AND semantic search in parallel
+  const keywordSearchPromise = prisma.product.findMany({
     where: {
       isActive: true,
       ...(Object.keys(priceFilter).length > 0 ? { price: priceFilter } : {}),
@@ -114,9 +121,54 @@ export async function searchProductsForAI(query: string): Promise<string> {
     take: 50,
   });
 
+  // Semantic search uses the natural language query for better intent understanding
+  const semanticSearchPromise = semanticSearch(semanticQuery, 20).catch(() => [] as { productId: string; score: number }[]);
+
+  const [keywordProducts, semanticResults] = await Promise.all([
+    keywordSearchPromise,
+    semanticSearchPromise,
+  ]);
+
+  // Fetch semantic search products
+  let semanticProducts: typeof keywordProducts = [];
+  const semanticScoreMap = new Map<string, number>();
+  if (semanticResults.length > 0) {
+    const relevant = semanticResults.filter((r) => r.score >= 0.55);
+    if (relevant.length > 0) {
+      for (const r of relevant) semanticScoreMap.set(r.productId, r.score);
+      const semanticIds = relevant.map((r) => r.productId);
+      semanticProducts = await prisma.product.findMany({
+        where: {
+          id: { in: semanticIds },
+          isActive: true,
+          ...(Object.keys(priceFilter).length > 0 ? { price: priceFilter } : {}),
+        },
+        include: { category: true },
+      });
+    }
+  }
+
+  // Merge keyword + semantic results (dedup by id)
+  const seenIds = new Set<string>();
+  const allProducts: typeof keywordProducts = [];
+  // Add keyword results first
+  for (const p of keywordProducts) {
+    if (!seenIds.has(p.id)) {
+      seenIds.add(p.id);
+      allProducts.push(p);
+    }
+  }
+  // Add semantic-only results
+  for (const p of semanticProducts) {
+    if (!seenIds.has(p.id)) {
+      seenIds.add(p.id);
+      allProducts.push(p);
+    }
+  }
+
   // If price-filtered search returned nothing, try without price filter
-  let finalProducts = products;
-  if (products.length === 0 && Object.keys(priceFilter).length > 0) {
+  let finalProducts = allProducts;
+  if (allProducts.length === 0 && Object.keys(priceFilter).length > 0) {
     finalProducts = await prisma.product.findMany({
       where: {
         isActive: true,
@@ -134,15 +186,36 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
   if (finalProducts.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
 
-  // Score products by relevance (how many keywords match in name)
+  // Score products by relevance: keyword matches + semantic score bonus
   const scored = finalProducts.map((p) => {
     const nameLower = p.name.toLowerCase();
+    const descLower = (p.description || "").toLowerCase();
     const catLower = p.category.name.toLowerCase();
     let score = 0;
+
+    // Keyword matching
+    let matchedKeywords = 0;
     for (const kw of unique) {
-      if (nameLower.includes(kw)) score += 3;
-      if (catLower.includes(kw)) score += 2;
+      let matched = false;
+      if (nameLower.includes(kw)) { score += 3; matched = true; }
+      if (catLower.includes(kw)) { score += 2; matched = true; }
+      if (descLower.includes(kw)) { score += 1; matched = true; }
+      if (matched) matchedKeywords++;
     }
+
+    // Bonus for matching many keywords (product is more relevant)
+    if (unique.length > 1 && matchedKeywords === unique.length) {
+      score += 15;
+    } else if (unique.length > 2 && matchedKeywords >= unique.length - 1) {
+      score += 8;
+    }
+
+    // Semantic relevance bonus (products AI considers similar to the query)
+    const semanticScore = semanticScoreMap.get(p.id);
+    if (semanticScore) {
+      score += Math.round(semanticScore * 20); // 0.55-1.0 → 11-20 bonus points
+    }
+
     // Heavily prioritize in-stock items
     if (p.stock > 0) score += 20;
     return { product: p, score };
@@ -151,33 +224,10 @@ export async function searchProductsForAI(query: string): Promise<string> {
   // Sort by score descending, then by price
   scored.sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
-  // Prefer in-stock: take up to 25 in-stock first, fill remaining with out-of-stock
-  const inStock = scored.filter((s) => s.product.stock > 0);
+  // Take top results, preferring in-stock
+  const inStock = scored.filter((s) => s.product.stock > 0).slice(0, 25);
   const outOfStock = scored.filter((s) => s.product.stock <= 0).slice(0, 5);
-
-  // Diversify results across categories to avoid showing only one type of product
-  const diversified: typeof scored = [];
-  const categoryBuckets: Record<string, typeof scored> = {};
-  for (const item of inStock) {
-    const cat = item.product.category.name;
-    if (!categoryBuckets[cat]) categoryBuckets[cat] = [];
-    categoryBuckets[cat].push(item);
-  }
-  // Round-robin pick from each category to ensure diversity
-  const cats = Object.keys(categoryBuckets);
-  let round = 0;
-  while (diversified.length < 25 && round < 10) {
-    for (const cat of cats) {
-      if (diversified.length >= 25) break;
-      const bucket = categoryBuckets[cat];
-      if (round < bucket.length) {
-        diversified.push(bucket[round]);
-      }
-    }
-    round++;
-  }
-
-  const topProducts = [...diversified, ...outOfStock].slice(0, 30);
+  const topProducts = [...inStock, ...outOfStock].slice(0, 30);
 
   // Group by category for better AI understanding
   const byCategory: Record<string, typeof topProducts> = {};

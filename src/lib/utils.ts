@@ -32,12 +32,12 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  PAID: "bg-blue-100 text-blue-800",
-  PACKAGING: "bg-purple-100 text-purple-800",
-  IN_TRANSIT: "bg-yellow-100 text-yellow-800",
-  DELIVERED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
+  PENDING: "bg-[#FFF8E1] text-[#B8860B]",
+  PAID: "bg-[#E3F2FD] text-[#1565C0]",
+  PACKAGING: "bg-[#F3E8FF] text-[#7C3AED]",
+  IN_TRANSIT: "bg-[#FFF3E0] text-[#E65100]",
+  DELIVERED: "bg-[#E8F5E9] text-[#2E7D32]",
+  CANCELLED: "bg-[#FFEAEA] text-[#C62828]",
 };
 
 export const BOLTS_CASHBACK_RATE = 0.05; // 5%

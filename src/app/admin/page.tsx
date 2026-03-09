@@ -36,13 +36,13 @@ export default function AdminPage() {
   if (role !== "ADMIN" && role !== "SALES") {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <div className="w-14 h-14 bg-[#FFEAEA] rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <svg className="w-7 h-7 text-[#C62828]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-[#0A0A0A]">Доступ заборонено</h1>
-        <p className="text-[#9E9E9E] mt-2">У вас немає доступу до панелі управління</p>
+        <h1 className="text-xl font-bold text-bk">Доступ заборонено</h1>
+        <p className="text-g400 mt-2 text-sm">У вас немає доступу до панелі управління</p>
       </div>
     );
   }
@@ -58,7 +58,6 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
       ),
-      color: "#FFD600",
       roles: ["ADMIN", "SALES"],
     },
     {
@@ -71,7 +70,6 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       ),
-      color: "#3B82F6",
       roles: ["ADMIN", "SALES"],
     },
     {
@@ -84,7 +82,6 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
         </svg>
       ),
-      color: "#10B981",
       roles: ["ADMIN"],
     },
     {
@@ -97,7 +94,6 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
-      color: "#F59E0B",
       roles: ["ADMIN"],
     },
     {
@@ -110,21 +106,114 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       ),
-      color: "#6366F1",
       roles: ["ADMIN"],
     },
   ];
 
   const visibleStats = statCards.filter((s) => s.roles.includes(role));
 
+  const erpModules = [
+    {
+      href: "/admin/erp/counterparties",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+      title: "Контрагенти",
+      desc: "Постачальники та покупці",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      href: "/admin/erp/purchase-orders",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      title: "Прихід",
+      desc: "Прихідні накладні",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      href: "/admin/erp/sales",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      title: "Продаж",
+      desc: "Документи B2B/оффлайн",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      href: "/admin/erp/invoices",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+        </svg>
+      ),
+      title: "Видаткові накладні",
+      desc: "Генерація та оплати",
+      roles: ["ADMIN"],
+    },
+    {
+      href: "/admin/erp/commissions",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        </svg>
+      ),
+      title: "Мотивація",
+      desc: "Комісії менеджерів",
+      roles: ["ADMIN"],
+    },
+    {
+      href: "/admin/erp/stats",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      ),
+      title: "Статистика",
+      desc: "Аналітика та звіти",
+      roles: ["ADMIN"],
+    },
+    {
+      href: "/admin/erp/scan",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+        </svg>
+      ),
+      title: "AI Сканер",
+      desc: "Фото \u2192 документ",
+      roles: ["ADMIN", "SALES"],
+    },
+    {
+      href: "/admin/erp/import",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+        </svg>
+      ),
+      title: "Імпорт з 1С",
+      desc: "Контрагенти та документи",
+      roles: ["ADMIN"],
+    },
+  ];
+
+  const visibleModules = erpModules.filter((item) => item.roles.includes(role));
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Sticky Header */}
+      {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-g200 px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-              <svg className="w-4.5 h-4.5 text-bk" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-bk flex items-center justify-center flex-shrink-0">
+              <svg className="w-4.5 h-4.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -133,57 +222,49 @@ export default function AdminPage() {
               <h1 className="text-lg sm:text-xl font-bold text-bk leading-tight truncate">
                 Панель управління
               </h1>
-              <p className="text-xs text-g500">
+              <p className="text-xs text-g400">
                 {role === "ADMIN" ? "Адміністратор" : "Торговий менеджер"} — {session?.user?.name}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="btn-primary hidden sm:inline-flex items-center gap-2 px-4 py-2.5 text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              На сайт
-            </Link>
-          </div>
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-bk bg-primary hover:bg-primary-hover rounded-[var(--radius-btn)] transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            <span className="hidden sm:inline">На сайт</span>
+          </Link>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-8">
-        {/* Section: Statistics Dashboard */}
+        {/* Stats */}
         <section className="mb-6">
-          <h2 className="text-base font-semibold text-bk mb-3">
+          <h2 className="text-[13px] font-semibold text-g400 uppercase tracking-wider mb-3">
             Статистика
           </h2>
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
             {visibleStats.map((card) => (
               <Link
                 key={card.label}
                 href={card.href}
-                className="admin-card group p-3 sm:p-4 hover:shadow-md transition-shadow"
+                className="bg-white rounded-[var(--radius-card)] border border-g200 p-3.5 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 transition-all group"
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <div
-                    className="w-8 h-8 rounded-[var(--radius-btn)] flex items-center justify-center flex-shrink-0"
-                    style={{
-                      background: `${card.color}18`,
-                      color: card.color,
-                    }}
-                  >
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-bk flex items-center justify-center flex-shrink-0 text-primary">
                     {card.icon}
                   </div>
-                  <span className="text-xs text-g500 font-medium truncate">
+                  <span className="text-[12px] text-g400 font-medium truncate uppercase tracking-wide">
                     {card.label}
                   </span>
                 </div>
-                <p className="text-xl sm:text-2xl font-bold text-bk leading-none">
+                <p className="text-2xl sm:text-[28px] font-bold text-bk leading-none tracking-tight">
                   {card.value}
                 </p>
                 {card.sub && (
-                  <p className="text-[11px] font-medium mt-1" style={{ color: card.color }}>
+                  <p className="text-[11px] font-medium text-primary-dark mt-1.5">
                     {card.sub}
                   </p>
                 )}
@@ -192,162 +273,48 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* Section: ERP Modules */}
-        <section className="mb-6">
-          <h2 className="text-base font-semibold text-bk mb-3">
+        {/* ERP Modules */}
+        <section>
+          <h2 className="text-[13px] font-semibold text-g400 uppercase tracking-wider mb-3">
             ERP — Облік
           </h2>
-          <div className="grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {[
-              {
-                href: "/admin/erp/counterparties",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                ),
-                title: "Контрагенти",
-                desc: "Постачальники та покупці",
-                color: "from-teal-500 to-cyan-600",
-                accentColor: "#14B8A6",
-                roles: ["ADMIN", "SALES"],
-              },
-              {
-                href: "/admin/erp/purchase-orders",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                ),
-                title: "Прихід",
-                desc: "Прихідні накладні від постачальників",
-                color: "from-sky-500 to-blue-600",
-                accentColor: "#0EA5E9",
-                roles: ["ADMIN", "SALES"],
-              },
-              {
-                href: "/admin/erp/sales",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ),
-                title: "Продаж",
-                desc: "Документи продажу B2B/оффлайн",
-                color: "from-green-500 to-emerald-600",
-                accentColor: "#22C55E",
-                roles: ["ADMIN", "SALES"],
-              },
-              {
-                href: "/admin/erp/invoices",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
-                  </svg>
-                ),
-                title: "Видаткові накладні",
-                desc: "Генерація та трекінг оплат",
-                color: "from-orange-500 to-red-500",
-                accentColor: "#F97316",
-                roles: ["ADMIN"],
-              },
-              {
-                href: "/admin/erp/commissions",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                  </svg>
-                ),
-                title: "Мотивація",
-                desc: "Комісії торгових менеджерів",
-                color: "from-yellow-500 to-orange-500",
-                accentColor: "#EAB308",
-                roles: ["ADMIN"],
-              },
-              {
-                href: "/admin/erp/stats",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                ),
-                title: "Статистика",
-                desc: "Аналітика та бухгалтерські звіти",
-                color: "from-indigo-500 to-violet-600",
-                accentColor: "#6366F1",
-                roles: ["ADMIN"],
-              },
-              {
-                href: "/admin/erp/scan",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-                  </svg>
-                ),
-                title: "AI Сканер",
-                desc: "Фото накладної → документ",
-                color: "from-purple-500 to-fuchsia-600",
-                accentColor: "#A855F7",
-                roles: ["ADMIN", "SALES"],
-              },
-              {
-                href: "/admin/erp/import",
-                icon: (
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                ),
-                title: "Імпорт з 1С",
-                desc: "Контрагенти та документи",
-                color: "from-rose-500 to-pink-600",
-                accentColor: "#F43F5E",
-                roles: ["ADMIN"],
-              },
-            ]
-              .filter((item) => item.roles.includes(role))
-              .map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="admin-nav-card admin-nav-card--compact group block"
-                  style={{ borderLeft: `3px solid ${item.accentColor}` }}
+          <div className="grid gap-2 sm:gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {visibleModules.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-3 bg-white rounded-[var(--radius-card)] border border-g200 px-3.5 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 transition-all group"
+              >
+                <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-bk flex items-center justify-center flex-shrink-0 text-primary [&>svg]:w-[18px] [&>svg]:h-[18px]">
+                  {item.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-[13px] font-semibold text-bk truncate leading-tight">
+                    {item.title}
+                  </h3>
+                  <p className="text-[11px] text-g400 truncate hidden sm:block mt-0.5">
+                    {item.desc}
+                  </p>
+                </div>
+                <svg
+                  className="w-4 h-4 flex-shrink-0 text-g300 group-hover:text-g400 transition-colors"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-9 h-9 bg-gradient-to-br ${item.color} rounded-lg flex items-center justify-center flex-shrink-0 text-white [&>svg]:w-[18px] [&>svg]:h-[18px]`}
-                    >
-                      {item.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-bk truncate">
-                        {item.title}
-                      </h3>
-                      <p className="text-xs text-g500 truncate hidden sm:block">
-                        {item.desc}
-                      </p>
-                    </div>
-                    <svg
-                      className="w-4 h-4 flex-shrink-0 text-g300"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </Link>
-              ))}
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            ))}
           </div>
         </section>
-
       </div>
 
       {/* Footer */}
-      <footer className="mt-8 px-6 py-6 bg-g50 border-t border-g200">
+      <footer className="mt-8 px-6 py-5 border-t border-g200">
         <div className="max-w-7xl mx-auto">
-          <p className="text-[13px] text-g500">
+          <p className="text-[12px] text-g400">
             Budvik — Панель управління
           </p>
         </div>

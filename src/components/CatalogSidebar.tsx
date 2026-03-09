@@ -30,7 +30,19 @@ interface Props {
   activeCategory?: string;
   activeBrand?: string;
   search?: string;
+  activeSort?: string;
 }
+
+type DrawerTab = "categories" | "filter";
+
+const SORT_OPTIONS = [
+  { value: "", label: "За замовчуванням", icon: "📋" },
+  { value: "price-asc", label: "Найдешевші", icon: "💰" },
+  { value: "price-desc", label: "Найдорожчі", icon: "💎" },
+  { value: "name-asc", label: "За назвою А→Я", icon: "🔤" },
+  { value: "name-desc", label: "За назвою Я→А", icon: "🔠" },
+  { value: "newest", label: "Новинки", icon: "🆕" },
+];
 
 export default function CatalogSidebar({
   grouped,
@@ -39,6 +51,7 @@ export default function CatalogSidebar({
   activeCategory,
   activeBrand,
   search,
+  activeSort,
 }: Props) {
   const pathname = usePathname();
 
@@ -55,6 +68,7 @@ export default function CatalogSidebar({
   const [showAllBrands, setShowAllBrands] = useState(false);
   const [showUngrouped, setShowUngrouped] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("categories");
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -139,12 +153,14 @@ export default function CatalogSidebar({
     });
   };
 
-  function buildUrl(params: { category?: string; brand?: string }) {
+  function buildUrl(params: { category?: string; brand?: string; sort?: string }) {
     const sp = new URLSearchParams();
     if (params.category) sp.set("category", params.category);
     if (params.brand) sp.set("brand", params.brand);
     else if (activeBrand && params.category) sp.set("brand", activeBrand);
     if (search) sp.set("search", search);
+    const sortVal = params.sort !== undefined ? params.sort : activeSort;
+    if (sortVal) sp.set("sort", sortVal);
     const qs = sp.toString();
     return `/catalog${qs ? `?${qs}` : ""}`;
   }
@@ -324,24 +340,108 @@ export default function CatalogSidebar({
     </>
   );
 
+  const filterContent = (
+    <>
+      {/* Sort options */}
+      <div className="bg-white rounded-xl overflow-hidden border border-[#EFEFEF] md:shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_20px_rgba(0,0,0,0.05)]">
+        <div className="px-4 py-3 border-b border-[#EFEFEF]">
+          <h3 className="font-bold text-[#0A0A0A] text-sm uppercase tracking-wide">Сортування</h3>
+        </div>
+        <div className="p-2">
+          {SORT_OPTIONS.map((opt) => (
+            <Link
+              key={opt.value}
+              href={buildUrl({ category: activeCategory, sort: opt.value })}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition duration-200 ${
+                (activeSort || "") === opt.value
+                  ? "bg-[#FFD600] text-[#0A0A0A] font-semibold"
+                  : "hover:bg-[#F7F7F7] text-[#1A1A1A] active:bg-[#EFEFEF]"
+              }`}
+              style={{ minHeight: '44px' }}
+            >
+              <span className="text-base flex-shrink-0">{opt.icon}</span>
+              <span>{opt.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Brands filter (also in filter tab) */}
+      {brands.length > 0 && (
+        <div className="bg-white rounded-xl overflow-hidden border border-[#EFEFEF] md:shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_20px_rgba(0,0,0,0.05)]">
+          <div className="px-4 py-3 border-b border-[#EFEFEF]">
+            <h3 className="font-bold text-[#0A0A0A] text-sm uppercase tracking-wide">Бренди</h3>
+          </div>
+          <div className="p-2">
+            {activeBrand && (
+              <Link
+                href={buildUrl({ category: activeCategory })}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#FFB800] hover:bg-[#FFD600]/10 transition duration-200 mb-1 font-medium"
+                style={{ minHeight: '44px' }}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Скинути фільтр
+              </Link>
+            )}
+            {visibleBrands.map((b) => (
+              <Link
+                key={b.brand}
+                href={buildUrl({ category: activeCategory, brand: b.brand })}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition duration-200 ${
+                  activeBrand === b.brand
+                    ? "bg-[#FFD600] text-[#0A0A0A] font-semibold"
+                    : "hover:bg-[#F7F7F7] text-[#555] active:bg-[#EFEFEF]"
+                }`}
+                style={{ minHeight: '40px' }}
+              >
+                <span className="truncate">{b.brand}</span>
+                <span className="text-xs text-[#9E9E9E]">{b.count}</span>
+              </Link>
+            ))}
+            {brands.length > 10 && (
+              <button
+                onClick={() => setShowAllBrands(!showAllBrands)}
+                className="w-full text-center text-sm text-[#FFB800] hover:text-[#FFC400] font-medium py-2.5 transition duration-200"
+                style={{ minHeight: '44px' }}
+              >
+                {showAllBrands ? "Згорнути" : `Показати всі (${brands.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <aside className="w-full md:w-72 flex-shrink-0">
-      {/* Mobile: Open drawer button */}
-      <button
-        onClick={() => setDrawerOpen(true)}
-        className="md:hidden w-full flex items-center justify-between bg-white border border-[#EFEFEF] rounded-xl px-4 py-3 text-sm font-semibold text-[#0A0A0A] active:bg-[#FAFAFA]"
-        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 6px 20px rgba(0,0,0,0.05)', minHeight: '48px' }}
-      >
-        <span className="flex items-center gap-2">
+      {/* Mobile: Two buttons - Categories & Filter */}
+      <div className="md:hidden flex gap-2">
+        <button
+          onClick={() => { setDrawerTab("categories"); setDrawerOpen(true); }}
+          className="flex-1 flex items-center justify-center gap-2 bg-white border border-[#EFEFEF] rounded-xl px-3 py-3 text-sm font-semibold text-[#0A0A0A] active:bg-[#FAFAFA]"
+          style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 6px 20px rgba(0,0,0,0.05)', minHeight: '48px' }}
+        >
+          <svg className="w-5 h-5 text-[#9E9E9E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+          </svg>
+          <span>Категорії</span>
+          {activeCategory && <span className="w-2 h-2 rounded-full bg-[#FFD600] flex-shrink-0" />}
+        </button>
+        <button
+          onClick={() => { setDrawerTab("filter"); setDrawerOpen(true); }}
+          className="flex-1 flex items-center justify-center gap-2 bg-white border border-[#EFEFEF] rounded-xl px-3 py-3 text-sm font-semibold text-[#0A0A0A] active:bg-[#FAFAFA]"
+          style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 6px 20px rgba(0,0,0,0.05)', minHeight: '48px' }}
+        >
           <svg className="w-5 h-5 text-[#9E9E9E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
-          Фільтри та категорії
-        </span>
-        <svg className="w-5 h-5 text-[#9E9E9E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+          <span>Фільтр</span>
+          {(activeSort || activeBrand) && <span className="w-2 h-2 rounded-full bg-[#FFD600] flex-shrink-0" />}
+        </button>
+      </div>
 
       {/* Mobile: Slide-in drawer from left */}
       <div
@@ -371,25 +471,75 @@ export default function CatalogSidebar({
         <div className="flex justify-center pt-2 pb-0">
           <div className="w-8 h-1 rounded-full bg-[#DADADA]" />
         </div>
-        <div className="sticky top-0 z-10 bg-white border-b border-[#EFEFEF] px-4 py-3 flex items-center justify-between" style={{ minHeight: '56px' }}>
-          <h2 className="font-bold text-[#0A0A0A] text-base">Фільтри</h2>
-          <button
-            onClick={() => setDrawerOpen(false)}
-            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[#F7F7F7] active:bg-[#EFEFEF] transition"
-          >
-            <svg className="w-5 h-5 text-[#9E9E9E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="sticky top-0 z-10 bg-white border-b border-[#EFEFEF]">
+          <div className="px-4 py-3 flex items-center justify-between" style={{ minHeight: '56px' }}>
+            <h2 className="font-bold text-[#0A0A0A] text-base">
+              {drawerTab === "categories" ? "Категорії" : "Фільтр"}
+            </h2>
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[#F7F7F7] active:bg-[#EFEFEF] transition"
+            >
+              <svg className="w-5 h-5 text-[#9E9E9E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {/* Tab switcher inside drawer */}
+          <div className="flex px-3 pb-2 gap-1">
+            <button
+              onClick={() => setDrawerTab("categories")}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition ${
+                drawerTab === "categories"
+                  ? "bg-[#0A0A0A] text-[#FFD600]"
+                  : "bg-[#F7F7F7] text-[#9E9E9E]"
+              }`}
+            >
+              Категорії
+            </button>
+            <button
+              onClick={() => setDrawerTab("filter")}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition ${
+                drawerTab === "filter"
+                  ? "bg-[#0A0A0A] text-[#FFD600]"
+                  : "bg-[#F7F7F7] text-[#9E9E9E]"
+              }`}
+            >
+              Фільтр
+            </button>
+          </div>
         </div>
         <div className="p-3 space-y-3 pb-24">
-          {sidebarContent}
+          {drawerTab === "categories" ? sidebarContent : filterContent}
         </div>
       </div>
 
       {/* Desktop content */}
       <div className="hidden md:block space-y-4">
         {sidebarContent}
+        {/* Sort options on desktop */}
+        <div className="bg-white rounded-xl overflow-hidden border border-[#EFEFEF] md:shadow-[0_1px_3px_rgba(0,0,0,0.03),0_6px_20px_rgba(0,0,0,0.05)]">
+          <div className="px-4 py-3 border-b border-[#EFEFEF]">
+            <h3 className="font-bold text-[#0A0A0A] text-sm uppercase tracking-wide">Сортування</h3>
+          </div>
+          <div className="p-2">
+            {SORT_OPTIONS.map((opt) => (
+              <Link
+                key={opt.value}
+                href={buildUrl({ category: activeCategory, sort: opt.value })}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition duration-200 ${
+                  (activeSort || "") === opt.value
+                    ? "bg-[#FFD600] text-[#0A0A0A] font-semibold"
+                    : "hover:bg-[#F7F7F7] text-[#1A1A1A] active:bg-[#EFEFEF]"
+                }`}
+                style={{ minHeight: '40px' }}
+              >
+                <span className="text-base flex-shrink-0">{opt.icon}</span>
+                <span>{opt.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
     </aside>
   );

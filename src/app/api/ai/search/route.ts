@@ -64,9 +64,10 @@ const accessoryNamePatterns = /круг |диск |щітка|щітк[аи]|к�
 function isActualTool(catName: string, productName: string): boolean {
   const cat = catName.toLowerCase();
   const name = productName.toLowerCase();
-  if (toolCategoryPatterns.test(cat)) return true;
+  // FIRST check accessory — "Диски для болгарки" contains "болгарк" but is NOT a tool!
   if (accessoryCategoryPatterns.test(cat)) return false;
   if (accessoryNamePatterns.test(name)) return false;
+  if (toolCategoryPatterns.test(cat)) return true;
   return false;
 }
 

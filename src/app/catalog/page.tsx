@@ -23,16 +23,36 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
   const where: any = { isActive: true };
   if (categorySlug) where.category = { slug: categorySlug };
-  if (search) where.name = { contains: search, mode: "insensitive" };
-  if (brand) where.name = { contains: brand, mode: "insensitive" };
+  if (search) {
+    // Smart search: search in name, description, and category name
+    const searchTerms = search
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter((w: string) => w.length > 1);
 
-  // If both search and brand, combine them
+    if (searchTerms.length > 0) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+        { category: { name: { contains: search, mode: "insensitive" } } },
+        // Also search each individual term in name
+        ...searchTerms.map((term: string) => ({ name: { contains: term, mode: "insensitive" } })),
+        ...searchTerms.map((term: string) => ({ category: { name: { contains: term, mode: "insensitive" } } })),
+      ];
+    } else {
+      where.name = { contains: search, mode: "insensitive" };
+    }
+  }
+  if (brand && !search) {
+    where.name = { contains: brand, mode: "insensitive" };
+  }
+
+  // If both search and brand, add brand filter
   if (search && brand) {
     where.AND = [
-      { name: { contains: search, mode: "insensitive" } },
       { name: { contains: brand, mode: "insensitive" } },
     ];
-    delete where.name;
   }
 
   // Build orderBy based on sort param
@@ -140,10 +160,16 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             <span className="text-[#0A0A0A] font-medium">{activeCategory.name}</span>
           </>
         )}
+        {search && (
+          <>
+            <span className="text-[#DADADA]">/</span>
+            <span className="text-[#0A0A0A] font-medium">Пошук</span>
+          </>
+        )}
       </nav>
 
       <h1 className="text-2xl sm:text-3xl font-bold text-[#0A0A0A] mb-1">
-        {activeCategory ? activeCategory.name : "Каталог інструментів"}
+        {search ? `Результати пошуку: "${search}"` : activeCategory ? activeCategory.name : "Каталог інструментів"}
       </h1>
       <p className="text-sm sm:text-base text-[#9E9E9E] mb-4 sm:mb-8">
         {total > 0 ? `Знайдено ${total} товарів` : "Товарів не знайдено"}
@@ -152,7 +178,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
       {/* AI Smart Search */}
       <div className="mb-4 sm:mb-8">
-        <AiSmartSearch />
+        <AiSmartSearch currentSearch={search} />
       </div>
 
       {/* Mobile: Category pills */}

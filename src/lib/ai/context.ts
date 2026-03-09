@@ -256,11 +256,11 @@ export async function searchProductsForAI(query: string): Promise<string> {
   function isActualTool(catName: string, productName: string): boolean {
     const cat = catName.toLowerCase();
     const name = productName.toLowerCase();
-    // If category is explicitly a tool category → tool
-    if (toolCategoryPatterns.test(cat)) return true;
-    // If category OR name matches accessory patterns → NOT a tool
+    // FIRST check accessory patterns — "Диски для болгарки" contains "болгарк" but is NOT a tool!
     if (accessoryCategoryPatterns.test(cat)) return false;
     if (accessoryNamePatterns.test(name)) return false;
+    // Then check if category is a tool category
+    if (toolCategoryPatterns.test(cat)) return true;
     // Default: not clearly a tool
     return false;
   }

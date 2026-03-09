@@ -1,60 +1,32 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import Link from "next/link";
-import { formatPrice } from "@/lib/utils";
-import { addToCart } from "@/lib/cart";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  price: number;
-  image?: string | null;
-  stock: number;
-  category: { name: string };
-}
+export default function AiSmartSearch({ currentSearch }: { currentSearch?: string }) {
+  const [query, setQuery] = useState(currentSearch || "");
+  const router = useRouter();
 
-export default function AiSmartSearch() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchType, setSearchType] = useState("");
-  const [searched, setSearched] = useState(false);
-
-  const search = useCallback(async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    setSearched(true);
-
-    try {
-      const res = await fetch(`/api/ai/search?q=${encodeURIComponent(query.trim())}`);
-      if (!res.ok) throw new Error("Search failed");
-      const data = await res.json();
-      setResults(data.products || []);
-      setSearchType(data.type || "");
-    } catch (err) {
-      console.error("AI Search error:", err);
-      setResults([]);
-      setSearchType("error");
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
+  const search = () => {
+    const q = query.trim();
+    if (!q) return;
+    const params = new URLSearchParams();
+    params.set("search", q);
+    router.push(`/catalog?${params.toString()}`);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") search();
   };
 
-  const handleAddToCart = (e: React.MouseEvent, product: Product) => {
-    e.preventDefault();
-    addToCart({ productId: product.id, name: product.name, price: product.price, slug: product.slug });
+  const clear = () => {
+    setQuery("");
+    router.push("/catalog");
   };
 
   return (
     <div className="w-full">
-      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
         <div className="relative flex-1">
           <svg
             className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9E9E9E]"
@@ -76,90 +48,21 @@ export default function AiSmartSearch() {
         </div>
         <button
           onClick={search}
-          disabled={loading}
-          className="bg-[#FFD600] text-[#0A0A0A] font-semibold px-6 rounded-[10px] hover:bg-[#FFC400] active:bg-[#FFB800] disabled:opacity-50 transition duration-200 flex-shrink-0"
+          className="bg-[#FFD600] text-[#0A0A0A] font-semibold px-6 rounded-[10px] hover:bg-[#FFC400] active:bg-[#FFB800] transition duration-200 flex-shrink-0"
           style={{ height: '48px', minHeight: '48px' }}
         >
-          {loading ? "..." : "AI Пошук"}
+          Пошук
         </button>
+        {currentSearch && (
+          <button
+            onClick={clear}
+            className="px-4 rounded-[10px] border border-[#E0E0E0] text-[#555] hover:bg-[#F5F5F5] transition duration-200 flex-shrink-0 text-sm"
+            style={{ height: '48px', minHeight: '48px' }}
+          >
+            Скинути
+          </button>
+        )}
       </div>
-
-      {searchType && (
-        <div className="mb-4">
-          <span className="text-xs bg-[#FFD600]/15 text-[#0A0A0A] px-2.5 py-1 rounded-md font-medium">
-            {searchType === "semantic" ? "Семантичний пошук" : searchType === "keyword" ? "Текстовий пошук" : "Пошук"}
-          </span>
-          <span className="text-sm text-[#9E9E9E] ml-2">
-            Знайдено {results.length} товарів
-          </span>
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-center py-8 text-[#9E9E9E]">
-          <div className="animate-spin w-8 h-8 border-2 border-[#FFD600] border-t-transparent rounded-full mx-auto mb-2" />
-          AI аналізує ваш запит...
-        </div>
-      )}
-
-      {!loading && searched && results.length === 0 && (
-        <div className="text-center py-8 text-[#9E9E9E]">
-          Нічого не знайдено. Спробуйте інший запит.
-        </div>
-      )}
-
-      {!loading && results.length > 0 && (
-        <div className="grid grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-6">
-          {results.map((product) => (
-            <Link key={product.id} href={`/catalog/${product.slug}`} className="group block">
-              <div className={`rounded-xl overflow-hidden transition-all duration-200 border ${
-                product.stock > 0
-                  ? "border-[#EFEFEF] bg-white hover:shadow-[0_10px_30px_rgba(0,0,0,0.12)] hover:-translate-y-1"
-                  : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
-              }`}
-                style={{ boxShadow: product.stock > 0 ? '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' : 'none' }}
-              >
-                <div className={`h-36 sm:h-48 flex items-center justify-center ${
-                  product.stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"
-                }`}>
-                  {product.image ? (
-                    <img src={product.image} alt={product.name} className="h-full w-full object-contain p-2" loading="lazy" />
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-14 sm:h-20 w-14 sm:w-20 transition duration-200 ${product.stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                    </svg>
-                  )}
-                </div>
-                <div className="p-3 sm:p-4">
-                  {product.category && (
-                    <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1.5 sm:px-2 py-0.5 rounded-md mb-1.5 font-medium truncate max-w-full">{product.category.name}</span>
-                  )}
-                  <h3 className={`text-[13px] sm:text-[15px] font-semibold mb-1 line-clamp-2 transition duration-200 leading-snug ${product.stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"}`}>
-                    {product.name}
-                  </h3>
-                  <p className="hidden sm:block text-sm text-[#555] mb-3 line-clamp-2 leading-relaxed">{product.description}</p>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <span className={`text-base sm:text-xl font-bold ${product.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"}`}>
-                      {formatPrice(product.price)}
-                    </span>
-                    {product.stock > 0 ? (
-                      <button
-                        onClick={(e) => handleAddToCart(e, product)}
-                        className="bg-[#FFD600] text-[#0A0A0A] px-3 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] transition-all duration-200 w-full sm:w-auto"
-                        style={{ minHeight: '40px' }}
-                      >
-                        У кошик
-                      </button>
-                    ) : (
-                      <span className="text-xs text-[#9E9E9E] font-medium">Немає в наявності</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

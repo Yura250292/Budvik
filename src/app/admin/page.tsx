@@ -214,28 +214,22 @@ export default function AdminPage() {
   const visibleStats = statCards.filter((s) => s.roles.includes(role));
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
+    <div className="min-h-screen bg-background">
       {/* Sticky Header */}
-      <header
-        className="sticky top-0 z-50 bg-white"
-        style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}
-      >
+      <header className="sticky top-0 z-50 bg-white border-b border-g200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: "#FFD600" }}
-            >
-              <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+              <svg className="w-5 h-5 text-bk" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
             <div>
-              <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1.2 }}>
+              <h1 className="text-[26px] font-bold text-bk leading-tight">
                 Панель управління
               </h1>
-              <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "2px" }}>
+              <p className="text-sm text-g500 mt-0.5">
                 {role === "ADMIN" ? "Адміністратор" : "Торговий менеджер"} — {session?.user?.name}
               </p>
             </div>
@@ -243,17 +237,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="hidden sm:inline-flex items-center gap-2 transition-colors duration-200"
-              style={{
-                background: "#FFD600",
-                color: "#0A0A0A",
-                padding: "10px 16px",
-                borderRadius: "8px",
-                fontWeight: 600,
-                fontSize: "14px",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#FFC400")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "#FFD600")}
+              className="btn-primary hidden sm:inline-flex items-center gap-2 px-4 py-2.5 text-sm"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -264,60 +248,37 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "32px", paddingBottom: "40px" }}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 pb-10">
         {/* Section: Statistics Dashboard */}
-        <section style={{ marginBottom: "40px" }}>
-          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+        <section className="mb-10">
+          <h2 className="text-lg font-semibold text-bk mb-5">
             Статистика
           </h2>
-          <div
-            className="grid gap-5"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
-          >
+          <div className="grid gap-5 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
             {visibleStats.map((card) => (
               <div
                 key={card.label}
-                className="group"
-                style={{
-                  background: "white",
-                  borderRadius: "12px",
-                  padding: "20px",
-                  border: "1px solid #EFEFEF",
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
-                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                  cursor: "default",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-3px)";
-                  e.currentTarget.style.boxShadow = "0 10px 25px rgba(0,0,0,0.08)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
-                }}
+                className="admin-card group p-5 cursor-default"
               >
-                <div className="flex items-center gap-3" style={{ marginBottom: "12px" }}>
+                <div className="flex items-center gap-3 mb-3">
                   <div
-                    className="flex items-center justify-center flex-shrink-0"
+                    className="w-10 h-10 rounded-[var(--radius-btn)] flex items-center justify-center flex-shrink-0"
                     style={{
-                      width: "40px",
-                      height: "40px",
-                      borderRadius: "10px",
                       background: `${card.color}18`,
                       color: card.color,
                     }}
                   >
                     {card.icon}
                   </div>
-                  <span style={{ fontSize: "14px", color: "#6B7280", fontWeight: 500 }}>
+                  <span className="text-sm text-g500 font-medium">
                     {card.label}
                   </span>
                 </div>
-                <p style={{ fontSize: "28px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1 }}>
+                <p className="text-[28px] font-bold text-bk leading-none">
                   {card.value}
                 </p>
                 {card.sub && (
-                  <p style={{ fontSize: "13px", color: card.color, fontWeight: 500, marginTop: "8px" }}>
+                  <p className="text-[13px] font-medium mt-2" style={{ color: card.color }}>
                     {card.sub}
                   </p>
                 )}
@@ -327,14 +288,11 @@ export default function AdminPage() {
         </section>
 
         {/* Section: ERP Modules */}
-        <section style={{ marginBottom: "40px" }}>
-          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+        <section className="mb-10">
+          <h2 className="text-lg font-semibold text-bk mb-5">
             ERP — Облік
           </h2>
-          <div
-            className="grid gap-6"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
-          >
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
             {[
               {
                 href: "/admin/erp/counterparties",
@@ -447,26 +405,8 @@ export default function AdminPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="group block"
-                  style={{
-                    background: "white",
-                    borderRadius: "12px",
-                    padding: "22px",
-                    border: "1px solid #EFEFEF",
-                    borderLeft: `4px solid ${item.accentColor}`,
-                    cursor: "pointer",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                    boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
-                    textDecoration: "none",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-4px)";
-                    e.currentTarget.style.boxShadow = "0 12px 30px rgba(0,0,0,0.08)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
-                  }}
+                  className="admin-nav-card group block"
+                  style={{ borderLeft: `4px solid ${item.accentColor}` }}
                 >
                   <div className="flex items-start gap-4">
                     <div
@@ -475,16 +415,15 @@ export default function AdminPage() {
                       {item.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A", marginBottom: "4px" }}>
+                      <h3 className="text-base font-semibold text-bk mb-1">
                         {item.title}
                       </h3>
-                      <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                      <p className="text-sm text-g500 leading-relaxed">
                         {item.desc}
                       </p>
                     </div>
                     <svg
-                      className="w-5 h-5 flex-shrink-0"
-                      style={{ color: "#D1D5DB", marginTop: "4px" }}
+                      className="w-5 h-5 flex-shrink-0 text-g300 mt-1"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -500,37 +439,16 @@ export default function AdminPage() {
 
         {/* Section: Management Modules */}
         <section>
-          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+          <h2 className="text-lg font-semibold text-bk mb-5">
             Управління
           </h2>
-          <div
-            className="grid gap-6"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
-          >
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
             {visibleNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="group block"
-                style={{
-                  background: "white",
-                  borderRadius: "12px",
-                  padding: "22px",
-                  border: "1px solid #EFEFEF",
-                  borderLeft: `4px solid ${accentColors[item.href] || "#FFD600"}`,
-                  cursor: "pointer",
-                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
-                  textDecoration: "none",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-4px)";
-                  e.currentTarget.style.boxShadow = "0 12px 30px rgba(0,0,0,0.08)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
-                }}
+                className="admin-nav-card group block"
+                style={{ borderLeft: `4px solid ${accentColors[item.href] || "#FFD600"}` }}
               >
                 <div className="flex items-start gap-4">
                   <div
@@ -539,37 +457,26 @@ export default function AdminPage() {
                     {item.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2" style={{ marginBottom: "4px" }}>
-                      <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-base font-semibold text-bk">
                         {item.title}
                       </h3>
                       {item.badge && (
-                        <span
-                          style={{
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            background: "#FFD600",
-                            color: "#0A0A0A",
-                            padding: "2px 8px",
-                            borderRadius: "9999px",
-                          }}
-                        >
+                        <span className="text-[11px] font-bold bg-primary text-bk px-2 py-0.5 rounded-full">
                           {item.badge}
                         </span>
                       )}
                     </div>
-                    <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                    <p className="text-sm text-g500 leading-relaxed">
                       {item.desc}
                     </p>
                   </div>
                   <svg
-                    className="w-5 h-5 flex-shrink-0 transition-colors duration-200"
-                    style={{ color: "#D1D5DB", marginTop: "4px" }}
+                    className="w-5 h-5 flex-shrink-0 text-g300 mt-1 transition-colors duration-200"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                     strokeWidth={2}
-                    onMouseEnter={() => {}}
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
@@ -581,16 +488,9 @@ export default function AdminPage() {
       </div>
 
       {/* Footer */}
-      <footer
-        style={{
-          marginTop: "60px",
-          padding: "40px 24px",
-          background: "#FAFAFA",
-          borderTop: "1px solid #EFEFEF",
-        }}
-      >
+      <footer className="mt-15 px-6 py-10 bg-g50 border-t border-g200">
         <div className="max-w-7xl mx-auto">
-          <p style={{ fontSize: "13px", color: "#6B7280" }}>
+          <p className="text-[13px] text-g500">
             Budvik — Панель управління
           </p>
         </div>

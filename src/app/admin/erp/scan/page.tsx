@@ -245,7 +245,7 @@ export default function ScanPage() {
 
             {scanning && (
               <div className="mt-8 text-center">
-                <div className="inline-block w-8 h-8 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-3" />
+                <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3" />
                 <p style={{ fontSize: "14px", color: "#6B7280" }}>AI аналізує документ...</p>
               </div>
             )}
@@ -349,7 +349,7 @@ export default function ScanPage() {
                                 <span style={{ fontSize: "12px", color: "#DC2626" }}>&#10007;</span>
                                 <input
                                   placeholder="Пошук товару..."
-                                  className="text-sm border-b border-dashed border-gray-300 outline-none"
+                                  className="text-sm border-b border-dashed border-g300 outline-none"
                                   style={{ width: "180px", padding: "2px 0" }}
                                   onChange={(e) => searchProduct(idx, e.target.value)}
                                 />
@@ -359,7 +359,7 @@ export default function ScanPage() {
                                 <div className="mt-1 border rounded-lg overflow-hidden" style={{ fontSize: "12px" }}>
                                   {searchResults[idx].map((p) => (
                                     <button key={p.id} onClick={() => selectProduct(idx, p)}
-                                      className="w-full text-left px-2 py-1.5 hover:bg-yellow-50 border-b last:border-0 flex justify-between">
+                                      className="w-full text-left px-2 py-1.5 hover:bg-primary/10 border-b last:border-0 flex justify-between">
                                       <span>{p.name}</span>
                                       <span style={{ color: "#6B7280" }}>{p.sku}</span>
                                     </button>

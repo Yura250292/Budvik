@@ -33,8 +33,37 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Brand palette */
   --color-primary: #FFD600;
+  --color-primary-hover: #FFC400;
   --color-primary-dark: #FFB800;
+
+  /* Blacks */
+  --color-bk: #0A0A0A;
+  --color-bk-soft: #121212;
+  --color-bk-muted: #1A1A1A;
+
+  /* Grays */
+  --color-g50: #FAFAFA;
+  --color-g100: #F7F7F7;
+  --color-g200: #EFEFEF;
+  --color-g300: #DADADA;
+  --color-g400: #9E9E9E;
+  --color-g500: #6B7280;
+  --color-g600: #555555;
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06);
+  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08), 0 10px 30px rgba(0,0,0,0.12);
+  --shadow-card-lg: 0 6px 20px rgba(0,0,0,0.05);
+  --shadow-card-lg-hover: 0 12px 30px rgba(0,0,0,0.08);
+
+  /* Border radius */
+  --radius-btn: 10px;
+  --radius-card: 12px;
+  --radius-badge: 6px;
+  --radius-modal: 16px;
 }
 
 body {
@@ -51,9 +80,11 @@ html {
   overflow-x: hidden;
 }
 
-/* Premium card effect */
+/* ===== Unified UI Components ===== */
+
+/* Premium card */
 .premium-card {
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   transition: all 0.2s ease;
   box-shadow: var(--shadow-card);
   border: 1px solid var(--gray-200);
@@ -62,6 +93,53 @@ html {
 .premium-card:hover {
   box-shadow: var(--shadow-card-hover);
   transform: translateY(-4px);
+}
+
+/* Admin card (softer hover) */
+.admin-card {
+  background: white;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.admin-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+}
+
+/* Admin nav card (with left accent) */
+.admin-nav-card {
+  background: white;
+  border-radius: var(--radius-card);
+  padding: 22px;
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  text-decoration: none;
+}
+.admin-nav-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+}
+
+/* Primary button */
+.btn-primary {
+  background: var(--primary);
+  color: var(--black);
+  font-weight: 600;
+  border-radius: var(--radius-btn);
+  transition: background 0.2s ease;
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+.btn-primary:active {
+  background: var(--primary-dark);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Gold logo — rich yellow with subtle pulse */

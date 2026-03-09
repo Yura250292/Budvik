@@ -64,9 +64,9 @@ export default function AdminUsersPage() {
   };
 
   const roleColors: Record<string, string> = {
-    ADMIN: "bg-black text-yellow-400",
+    ADMIN: "bg-bk text-primary",
     SALES: "bg-blue-100 text-blue-700",
-    WHOLESALE: "bg-yellow-100 text-yellow-800",
+    WHOLESALE: "bg-primary/10 text-primary-dark",
     CLIENT: "bg-green-100 text-green-700",
   };
 
@@ -86,7 +86,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Користувачі</h1>
+      <h1 className="text-3xl font-bold text-bk mb-6">Користувачі</h1>
 
       {/* Search and filters */}
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -96,7 +96,7 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук за ім'ям, email або телефоном..."
-            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
         <div className="flex gap-2">
@@ -106,8 +106,8 @@ export default function AdminUsersPage() {
               onClick={() => setFilterRole(r)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition ${
                 filterRole === r
-                  ? "bg-gray-900 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  ? "bg-bk text-white"
+                  : "bg-g100 text-g600 hover:bg-g200"
               }`}
             >
               {r === "ALL" ? "Усі" : roleLabels[r]} ({r === "ALL" ? users.length : users.filter((u) => u.role === r).length})
@@ -118,10 +118,10 @@ export default function AdminUsersPage() {
 
       {loading ? (
         <div className="animate-pulse space-y-3">
-          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-20 bg-gray-200 rounded"></div>)}
+          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-20 bg-g200 rounded"></div>)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white border rounded-lg p-12 text-center text-gray-500">
+        <div className="bg-white border rounded-lg p-12 text-center text-g400">
           Користувачів не знайдено
         </div>
       ) : (
@@ -132,10 +132,10 @@ export default function AdminUsersPage() {
                 {/* Avatar & Info */}
                 <div className="flex items-center gap-4 flex-1">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                    user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : "bg-gray-100"
+                    user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : "bg-g100"
                   }`}>
                     <span className={`font-bold text-lg ${
-                      user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : "text-gray-700"
+                      user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : "text-g600"
                     }`}>
                       {user.name.charAt(0).toUpperCase()}
                     </span>
@@ -143,28 +143,28 @@ export default function AdminUsersPage() {
                   <div>
                     <Link
                       href={`/admin/users/${user.id}`}
-                      className="font-semibold text-gray-900 hover:text-yellow-600 transition"
+                      className="font-semibold text-bk hover:text-primary transition"
                     >
                       {user.name}
                     </Link>
-                    <p className="text-sm text-gray-500">{user.email}</p>
-                    {user.phone && <p className="text-xs text-gray-400">{user.phone}</p>}
+                    <p className="text-sm text-g400">{user.email}</p>
+                    {user.phone && <p className="text-xs text-g400">{user.phone}</p>}
                   </div>
                 </div>
 
                 {/* Stats */}
                 <div className="flex items-center gap-6">
                   <div className="text-center">
-                    <p className="text-xs text-gray-400">Замовлень</p>
-                    <p className="font-bold text-gray-900">{user._count.orders}</p>
+                    <p className="text-xs text-g400">Замовлень</p>
+                    <p className="font-bold text-bk">{user._count.orders}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-gray-400">Витрачено</p>
-                    <p className="font-bold text-gray-900">{formatPrice(user.totalSpent)}</p>
+                    <p className="text-xs text-g400">Витрачено</p>
+                    <p className="font-bold text-bk">{formatPrice(user.totalSpent)}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-gray-400">Болти</p>
-                    <p className="font-bold text-yellow-600">{user.boltsBalance}</p>
+                    <p className="text-xs text-g400">Болти</p>
+                    <p className="font-bold text-primary">{user.boltsBalance}</p>
                   </div>
                   <div className="text-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${roleColors[user.role]}`}>
@@ -193,7 +193,7 @@ export default function AdminUsersPage() {
                   )}
                   <Link
                     href={`/admin/users/${user.id}`}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                    className="bg-g100 hover:bg-g200 text-g600 px-3 py-1.5 rounded-lg text-xs font-medium transition"
                   >
                     Профіль
                   </Link>

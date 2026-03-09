@@ -170,7 +170,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             {stock > 0 ? (
               <button
                 onClick={handleAddToCart}
-                className="bg-[#FFD600] text-[#0A0A0A] px-3 sm:px-4 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] transition-all duration-200 flex-shrink-0 w-full sm:w-auto"
+                className="btn-primary px-3 sm:px-4 py-2 text-xs sm:text-sm flex-shrink-0 w-full sm:w-auto"
                 style={{ minHeight: '40px' }}
               >
                 У кошик

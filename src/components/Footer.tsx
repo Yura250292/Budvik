@@ -139,7 +139,7 @@ export default function Footer() {
               </div>
               <h3 className="text-lg font-bold text-[#0A0A0A] mb-1">Заявку прийнято!</h3>
               <p className="text-sm text-[#9E9E9E]">Ми передзвонимо вам найближчим часом</p>
-              <button onClick={() => { setShowCallback(false); setCallbackSent(false); }} className="mt-4 bg-[#FFD600] text-[#0A0A0A] px-6 py-2 rounded-lg font-semibold hover:bg-[#FFC400] transition">
+              <button onClick={() => { setShowCallback(false); setCallbackSent(false); }} className="btn-primary mt-4 px-6 py-2 text-sm">
                 Добре
               </button>
             </div>
@@ -157,12 +157,12 @@ export default function Footer() {
                 placeholder="+380 (__) ___-__-__"
                 value={callbackPhone}
                 onChange={e => setCallbackPhone(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-4 py-3 text-[#0A0A0A] text-sm focus:outline-none focus:border-[#FFD600] focus:ring-1 focus:ring-[#FFD600] mb-3"
+                className="w-full border border-g200 rounded-[var(--radius-btn)] px-4 py-3 text-bk text-sm mb-3"
               />
               <button
                 onClick={() => { setCallbackSent(true); setCallbackPhone(""); }}
                 disabled={callbackPhone.length < 10}
-                className="w-full bg-[#FFD600] text-[#0A0A0A] py-3 rounded-lg font-semibold hover:bg-[#FFC400] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn-primary w-full py-3 text-sm"
               >
                 Надіслати
               </button>

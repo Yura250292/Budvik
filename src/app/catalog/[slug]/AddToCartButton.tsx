@@ -17,27 +17,27 @@ export default function AddToCartButton({ productId, name, price, slug }: {
 
   return (
     <div className="flex items-center gap-4">
-      <div className="flex items-center border border-gray-300 rounded-lg">
+      <div className="flex items-center border border-g300 rounded-lg">
         <button
           onClick={() => setQty(Math.max(1, qty - 1))}
-          className="px-3 py-2 hover:bg-gray-100 transition"
+          className="px-3 py-2 hover:bg-g100 transition"
         >
           -
         </button>
         <span className="px-4 py-2 font-medium">{qty}</span>
         <button
           onClick={() => setQty(qty + 1)}
-          className="px-3 py-2 hover:bg-gray-100 transition"
+          className="px-3 py-2 hover:bg-g100 transition"
         >
           +
         </button>
       </div>
       <button
         onClick={handleAdd}
-        className={`flex-1 py-3 rounded-lg font-semibold transition ${
+        className={`flex-1 py-3 font-semibold transition ${
           added
-            ? "bg-green-500 text-white"
-            : "bg-yellow-400 text-black font-bold hover:bg-yellow-300 shadow-lg shadow-yellow-400/20"
+            ? "bg-green-500 text-white rounded-[10px]"
+            : "btn-primary shadow-lg shadow-primary/20"
         }`}
       >
         {added ? "Додано!" : "Додати в кошик"}

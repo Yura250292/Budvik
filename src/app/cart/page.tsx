@@ -67,9 +67,9 @@ export default function CartPage() {
         <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 mx-auto text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
         </svg>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Кошик порожній</h1>
-        <p className="text-gray-500 mb-6">Додайте товари з каталогу</p>
-        <Link href="/catalog" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg font-semibold hover:bg-yellow-300 transition">
+        <h1 className="text-2xl font-bold text-bk mb-2">Кошик порожній</h1>
+        <p className="text-g400 mb-6">Додайте товари з каталогу</p>
+        <Link href="/catalog" className="btn-primary inline-block px-6 py-3 text-sm">
           Перейти до каталогу
         </Link>
       </div>
@@ -78,7 +78,7 @@ export default function CartPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Кошик</h1>
+      <h1 className="text-3xl font-bold text-bk mb-8">Кошик</h1>
 
       {error && (
         <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>
@@ -118,25 +118,25 @@ export default function CartPage() {
           ))}
         </div>
 
-        <div className="bg-white border rounded-lg p-6 h-fit sticky top-20">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Підсумок</h2>
+        <div className="bg-white border border-g200 rounded-xl p-6 h-fit sticky top-20 shadow-[var(--shadow-card)]">
+          <h2 className="text-xl font-bold text-bk mb-4">Підсумок</h2>
 
           <div className="space-y-2 text-sm mb-4">
             <div className="flex justify-between">
-              <span className="text-gray-600">Товари ({cart.length})</span>
+              <span className="text-g500">Товари ({cart.length})</span>
               <span>{formatPrice(total)}</span>
             </div>
 
             {session && !isWholesale && boltsBalance > 0 && (
-              <div className="border-t pt-2">
+              <div className="border-t border-g200 pt-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={useBolts}
                     onChange={(e) => setUseBolts(e.target.checked)}
-                    className="rounded text-gray-900 focus:ring-yellow-500"
+                    className="rounded text-bk focus:ring-primary"
                   />
-                  <span className="text-gray-700">Використати Болти</span>
+                  <span className="text-bk-muted">Використати Болти</span>
                 </label>
                 {useBolts && (
                   <div className="flex justify-between text-green-600 mt-1">
@@ -144,15 +144,15 @@ export default function CartPage() {
                     <span>-{formatPrice(boltsDiscount)}</span>
                   </div>
                 )}
-                <p className="text-xs text-gray-400 mt-1">Баланс: {boltsBalance} Болтів</p>
+                <p className="text-xs text-g400 mt-1">Баланс: {boltsBalance} Болтів</p>
               </div>
             )}
           </div>
 
-          <div className="border-t pt-4 mb-4">
+          <div className="border-t border-g200 pt-4 mb-4">
             <div className="flex justify-between text-lg font-bold">
               <span>До оплати</span>
-              <span className="text-gray-900">{formatPrice(finalTotal)}</span>
+              <span className="text-bk">{formatPrice(finalTotal)}</span>
             </div>
             {session && !isWholesale && boltsEarned > 0 && (
               <p className="text-xs text-green-600 mt-1">+ {boltsEarned} Болтів кешбек</p>
@@ -162,7 +162,7 @@ export default function CartPage() {
           <button
             onClick={handleCheckout}
             disabled={loading}
-            className="w-full bg-yellow-400 text-black font-bold py-3 rounded-lg font-semibold hover:bg-yellow-300 transition disabled:opacity-50"
+            className="btn-primary w-full py-3 text-sm disabled:opacity-50"
           >
             {loading ? "Оформлення..." : session ? "Оформити замовлення" : "Увійти для замовлення"}
           </button>

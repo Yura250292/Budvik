@@ -157,12 +157,12 @@ export default function AdminProductsPage() {
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Управління товарами</h1>
-          <p className="text-sm text-gray-500 mt-1">Всього: {total} товарів</p>
+          <h1 className="text-3xl font-bold text-bk">Управління товарами</h1>
+          <p className="text-sm text-g400 mt-1">Всього: {total} товарів</p>
         </div>
         <button
           onClick={() => { resetForm(); setShowForm(true); }}
-          className="bg-yellow-400 text-black font-semibold px-4 py-2 rounded-lg font-semibold hover:bg-yellow-300 transition"
+          className="btn-primary px-4 py-2 font-semibold transition"
         >
           + Додати товар
         </button>
@@ -175,16 +175,16 @@ export default function AdminProductsPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Пошук за назвою..."
-          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          className="flex-1 border border-g300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
         />
-        <button type="submit" className="bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition">
+        <button type="submit" className="bg-bk text-white px-4 py-2 rounded-lg hover:bg-g600 transition">
           Знайти
         </button>
         {searchQuery && (
           <button
             type="button"
             onClick={() => { setSearchQuery(""); fetchProducts(1); }}
-            className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
+            className="px-4 py-2 border rounded-lg hover:bg-g50 transition"
           >
             Скинути
           </button>
@@ -199,22 +199,22 @@ export default function AdminProductsPage() {
           </h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Назва</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Назва</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Категорія</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Категорія</label>
               <select
                 value={form.categoryId}
                 onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
                 required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Оберіть категорію</option>
                 {categories.map((cat) => (
@@ -223,36 +223,36 @@ export default function AdminProductsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ціна (грн)</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Ціна (грн)</label>
               <input
                 type="number"
                 value={form.price}
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
                 required
                 min="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Оптова ціна (грн)</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Оптова ціна (грн)</label>
               <input
                 type="number"
                 value={form.wholesalePrice}
                 onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })}
                 min="0"
                 placeholder="Залишити порожнім якщо немає"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Кількість на складі</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Кількість на складі</label>
               <input
                 type="number"
                 value={form.stock}
                 onChange={(e) => setForm({ ...form, stock: e.target.value })}
                 required
                 min="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div className="md:col-span-2 border-t pt-4 mt-2">
@@ -262,56 +262,56 @@ export default function AdminProductsPage() {
                     type="checkbox"
                     checked={form.isPromo}
                     onChange={(e) => setForm({ ...form, isPromo: e.target.checked })}
-                    className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-yellow-500"
+                    className="w-4 h-4 text-red-600 rounded border-g300 focus:ring-primary"
                   />
-                  <span className="text-sm font-medium text-gray-700">Акційний товар</span>
+                  <span className="text-sm font-medium text-g600">Акційний товар</span>
                 </label>
               </div>
               {form.isPromo && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Акційна ціна (грн)</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Акційна ціна (грн)</label>
                     <input
                       type="number"
                       value={form.promoPrice}
                       onChange={(e) => setForm({ ...form, promoPrice: e.target.value })}
                       min="0"
                       placeholder="Залишити порожнім для показу без знижки"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Мітка акції</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Мітка акції</label>
                     <input
                       type="text"
                       value={form.promoLabel}
                       onChange={(e) => setForm({ ...form, promoLabel: e.target.value })}
                       placeholder='Напр. "Розпродаж", "-30%", "Хіт"'
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
                 </div>
               )}
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Опис</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Опис</label>
               <textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 required
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div className="md:col-span-2 flex gap-3">
               <button
                 type="submit"
                 disabled={saving}
-                className="bg-yellow-400 text-black font-semibold px-6 py-2 rounded-lg font-semibold hover:bg-yellow-300 transition disabled:opacity-50"
+                className="btn-primary px-6 py-2 font-semibold transition disabled:opacity-50"
               >
                 {saving ? "Збереження..." : editingProduct ? "Зберегти зміни" : "Додати товар"}
               </button>
-              <button type="button" onClick={resetForm} className="px-6 py-2 border rounded-lg hover:bg-gray-50 transition">
+              <button type="button" onClick={resetForm} className="px-6 py-2 border rounded-lg hover:bg-g50 transition">
                 Скасувати
               </button>
             </div>
@@ -322,14 +322,14 @@ export default function AdminProductsPage() {
       {/* Products Table */}
       {loading ? (
         <div className="animate-pulse space-y-3">
-          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-16 bg-gray-200 rounded"></div>)}
+          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-16 bg-g200 rounded"></div>)}
         </div>
       ) : (
         <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-800 text-white">
+                <tr className="bg-bk text-white">
                   <th className="text-left px-4 py-3 text-sm font-semibold">Назва</th>
                   <th className="text-left px-4 py-3 text-sm font-semibold">Категорія</th>
                   <th className="text-right px-4 py-3 text-sm font-semibold">Ціна</th>
@@ -339,16 +339,16 @@ export default function AdminProductsPage() {
                   <th className="text-right px-4 py-3 text-sm font-semibold">Дії</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-g100">
                 {products.map((product) => {
                   const catColor = product.categoryId ? getCategoryColor(product.categoryId) : null;
                   return (
                     <tr
                       key={product.id}
-                      className={`transition-colors hover:bg-gray-100 ${product.stock === 0 ? "opacity-50" : ""} ${catColor ? catColor.row : ""}`}
+                      className={`transition-colors hover:bg-g100 ${product.stock === 0 ? "opacity-50" : ""} ${catColor ? catColor.row : ""}`}
                     >
                       <td className="px-4 py-3">
-                        <span className="font-medium text-gray-900 text-sm">{product.name}</span>
+                        <span className="font-medium text-bk text-sm">{product.name}</span>
                       </td>
                       <td className="px-4 py-3">
                         {product.category?.name && catColor ? (
@@ -358,25 +358,25 @@ export default function AdminProductsPage() {
                             >
                               {product.category.name}
                             </span>
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 invisible group-hover/cat:opacity-100 group-hover/cat:visible transition-all duration-150 z-50 pointer-events-none">
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2.5 py-1.5 bg-bk text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 invisible group-hover/cat:opacity-100 group-hover/cat:visible transition-all duration-150 z-50 pointer-events-none">
                               {product.category.name}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-bk"></div>
                             </div>
                           </div>
                         ) : (
-                          <span className="text-sm text-gray-400">—</span>
+                          <span className="text-sm text-g400">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="font-bold text-gray-900">{formatPrice(product.price)}</span>
+                        <span className="font-bold text-bk">{formatPrice(product.price)}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         {product.wholesalePrice ? (
-                          <span className="font-semibold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
+                          <span className="font-semibold text-primary bg-primary/5 px-2 py-0.5 rounded">
                             {formatPrice(product.wholesalePrice)}
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-g300">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -385,7 +385,7 @@ export default function AdminProductsPage() {
                           className={`px-2.5 py-1 rounded-full text-xs font-bold transition ${
                             product.isPromo
                               ? "bg-red-500 text-white hover:bg-red-600 shadow-sm"
-                              : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                              : "bg-g100 text-g400 hover:bg-g200"
                           }`}
                           title={product.isPromo ? "Зняти акцію" : "Додати в акцію"}
                         >
@@ -434,8 +434,8 @@ export default function AdminProductsPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-              <p className="text-sm text-gray-500">
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-g50">
+              <p className="text-sm text-g400">
                 Сторінка {page} з {totalPages}
               </p>
               <div className="flex gap-1">
@@ -449,14 +449,14 @@ export default function AdminProductsPage() {
 
                 {paginationRange(page, totalPages).map((p, i) =>
                   p === "..." ? (
-                    <span key={`dots-${i}`} className="px-2 py-1.5 text-gray-400 text-sm">...</span>
+                    <span key={`dots-${i}`} className="px-2 py-1.5 text-g400 text-sm">...</span>
                   ) : (
                     <button
                       key={p}
                       onClick={() => goToPage(p as number)}
                       className={`px-3 py-1.5 rounded text-sm font-medium transition ${
                         p === page
-                          ? "bg-yellow-400 text-black font-semibold"
+                          ? "bg-primary text-bk font-semibold"
                           : "border hover:bg-white"
                       }`}
                     >

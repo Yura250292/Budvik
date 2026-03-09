@@ -21,24 +21,24 @@ export default function AiMarkdown({ content, isUser }: Props) {
           // Tables
           table: ({ children }) => (
             <div className="overflow-x-auto my-2 -mx-1">
-              <table className="w-full text-xs border-collapse border border-gray-300 rounded">
+              <table className="w-full text-xs border-collapse border border-g300 rounded">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-yellow-50">{children}</thead>
+            <thead className="bg-primary/10">{children}</thead>
           ),
           th: ({ children }) => (
-            <th className="border border-gray-300 px-2 py-1.5 text-left font-semibold text-gray-700 text-xs">
+            <th className="border border-g300 px-2 py-1.5 text-left font-semibold text-g600 text-xs">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-gray-300 px-2 py-1.5 text-xs">{children}</td>
+            <td className="border border-g300 px-2 py-1.5 text-xs">{children}</td>
           ),
           tr: ({ children }) => (
-            <tr className="even:bg-gray-50">{children}</tr>
+            <tr className="even:bg-g50">{children}</tr>
           ),
           // Headers
           h1: ({ children }) => (
@@ -70,13 +70,13 @@ export default function AiMarkdown({ content, isUser }: Props) {
           ),
           // Code
           code: ({ children }) => (
-            <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+            <code className="bg-g200 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
           ),
           // Horizontal rule
-          hr: () => <hr className="my-2 border-gray-300" />,
+          hr: () => <hr className="my-2 border-g300" />,
           // Links
           a: ({ href, children }) => (
-            <a href={href} className="text-yellow-600 underline hover:text-yellow-700" target="_blank" rel="noopener noreferrer">
+            <a href={href} className="text-primary-dark underline hover:text-primary-dark" target="_blank" rel="noopener noreferrer">
               {children}
             </a>
           ),

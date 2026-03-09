@@ -6,7 +6,7 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = { PENDING: "Очікує", APPROVED: "Затверджено", PAID: "Виплачено" };
-const STATUS_COLORS: Record<string, string> = { PENDING: "bg-yellow-50 text-yellow-700", APPROVED: "bg-blue-50 text-blue-700", PAID: "bg-green-50 text-green-700" };
+const STATUS_COLORS: Record<string, string> = { PENDING: "bg-primary/10 text-primary-dark", APPROVED: "bg-blue-50 text-blue-700", PAID: "bg-green-50 text-green-700" };
 
 export default function CommissionsAdminPage() {
   const { data: session } = useSession();
@@ -127,7 +127,7 @@ export default function CommissionsAdminPage() {
                 </thead>
                 <tbody>
                   {records.map((r) => (
-                    <tr key={r.id} style={{ borderBottom: "1px solid #F3F4F6" }} className="hover:bg-gray-50">
+                    <tr key={r.id} style={{ borderBottom: "1px solid #F3F4F6" }} className="hover:bg-g50">
                       <td style={{ padding: "14px 16px" }}>
                         <Link href={`/admin/erp/sales/${r.docId}`} className="text-blue-600 hover:text-blue-800 text-sm font-semibold">
                           {r.docNumber}

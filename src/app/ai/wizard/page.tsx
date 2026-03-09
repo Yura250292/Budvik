@@ -149,28 +149,28 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
   const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : product.price;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-yellow-400 hover:shadow-lg transition-all flex flex-col">
+    <div className="bg-white border border-g200 rounded-xl overflow-hidden hover:border-primary hover:shadow-lg transition-all flex flex-col">
       <Link href={`/catalog/${product.slug}`} className="block">
-        <div className="h-48 bg-gray-50 flex items-center justify-center overflow-hidden">
+        <div className="h-48 bg-g50 flex items-center justify-center overflow-hidden">
           {product.image ? (
             <img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 hover:scale-105 transition-transform" />
           ) : (
-            <svg className="w-16 h-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-16 h-16 text-g300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           )}
         </div>
       </Link>
       <div className="p-4 flex flex-col flex-1">
-        <Link href={`/catalog/${product.slug}`} className="hover:text-yellow-600 transition">
-          <h3 className="font-bold text-sm text-gray-900 line-clamp-2 mb-2">{product.name}</h3>
+        <Link href={`/catalog/${product.slug}`} className="hover:text-primary-dark transition">
+          <h3 className="font-bold text-sm text-bk line-clamp-2 mb-2">{product.name}</h3>
         </Link>
         <div className="flex items-baseline gap-2 mb-2">
-          <span className={`text-xl font-bold ${product.isPromo && product.promoPrice ? "text-red-600" : "text-gray-900"}`}>
+          <span className={`text-xl font-bold ${product.isPromo && product.promoPrice ? "text-red-600" : "text-bk"}`}>
             {formatPrice(displayPrice)}
           </span>
           {product.isPromo && product.promoPrice && product.promoPrice < product.price && (
-            <span className="text-sm text-gray-400 line-through">{formatPrice(product.price)}</span>
+            <span className="text-sm text-g400 line-through">{formatPrice(product.price)}</span>
           )}
         </div>
         <div className="mb-3">
@@ -187,11 +187,11 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
         </div>
         {product.description && (
           <div className="mb-3">
-            <p className={`text-xs text-gray-500 leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
+            <p className={`text-xs text-g400 leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
               {product.description}
             </p>
             {product.description.length > 100 && (
-              <button onClick={() => setExpanded(!expanded)} className="text-xs text-yellow-600 hover:text-yellow-700 mt-1 font-medium">
+              <button onClick={() => setExpanded(!expanded)} className="text-xs text-primary-dark hover:text-primary-dark mt-1 font-medium">
                 {expanded ? "Згорнути" : "Детальніше..."}
               </button>
             )}
@@ -220,7 +220,7 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
           </div>
         )}
         <div className="mt-auto pt-2">
-          <Link href={`/catalog/${product.slug}`} className="block w-full text-center bg-yellow-400 hover:bg-yellow-300 text-black py-2 rounded-lg text-sm font-semibold transition">
+          <Link href={`/catalog/${product.slug}`} className="block w-full text-center bg-primary hover:bg-primary-hover text-bk py-2 rounded-lg text-sm font-semibold transition">
             Переглянути товар
           </Link>
         </div>
@@ -235,10 +235,10 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr>
-            <th className="border border-gray-200 bg-gray-50 px-4 py-3 text-left font-semibold text-gray-600 w-32">Параметр</th>
+            <th className="border border-g200 bg-g50 px-4 py-3 text-left font-semibold text-g500 w-32">Параметр</th>
             {products.map((p) => (
-              <th key={p.id} className="border border-gray-200 bg-yellow-50 px-4 py-3 text-center font-semibold text-gray-800">
-                <Link href={`/catalog/${p.slug}`} className="hover:text-yellow-600 transition">
+              <th key={p.id} className="border border-g200 bg-primary/10 px-4 py-3 text-center font-semibold text-bk">
+                <Link href={`/catalog/${p.slug}`} className="hover:text-primary-dark transition">
                   {p.name.length > 30 ? p.name.slice(0, 30) + "..." : p.name}
                 </Link>
               </th>
@@ -247,51 +247,51 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
         </thead>
         <tbody>
           <tr>
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Фото</td>
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Фото</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-center">
                 <Link href={`/catalog/${p.slug}`} className="inline-block">
                   {p.image ? (
                     <img src={p.image} alt={p.name} className="w-20 h-20 object-contain rounded mx-auto hover:scale-110 transition-transform" />
                   ) : (
-                    <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-gray-300 mx-auto">Фото</div>
+                    <div className="w-20 h-20 bg-g100 rounded flex items-center justify-center text-g300 mx-auto">Фото</div>
                   )}
                 </Link>
               </td>
             ))}
           </tr>
-          <tr className="bg-gray-50">
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Ціна</td>
+          <tr className="bg-g50">
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Ціна</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-center">
                 {p.isPromo && p.promoPrice ? (
-                  <div><span className="text-lg font-bold text-red-600">{formatPrice(p.promoPrice)}</span><br /><span className="text-xs text-gray-400 line-through">{formatPrice(p.price)}</span></div>
+                  <div><span className="text-lg font-bold text-red-600">{formatPrice(p.promoPrice)}</span><br /><span className="text-xs text-g400 line-through">{formatPrice(p.price)}</span></div>
                 ) : (
-                  <span className="text-lg font-bold text-gray-900">{formatPrice(p.price)}</span>
+                  <span className="text-lg font-bold text-bk">{formatPrice(p.price)}</span>
                 )}
               </td>
             ))}
           </tr>
           <tr>
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Категорія</td>
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Категорія</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-center text-gray-700">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-center text-g600">
                 {/^\d+$/.test(p.category.name) ? "" : p.category.name}
               </td>
             ))}
           </tr>
-          <tr className="bg-gray-50">
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Наявність</td>
+          <tr className="bg-g50">
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Наявність</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-center">
                 {p.stock > 0 ? <span className="text-green-600 font-medium">{p.stock} шт</span> : <span className="text-red-500 font-medium">Немає</span>}
               </td>
             ))}
           </tr>
           <tr>
-            <td className="border border-gray-200 px-4 py-3 font-medium text-green-700">Переваги</td>
+            <td className="border border-g200 px-4 py-3 font-medium text-green-700">Переваги</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3">
+              <td key={p.id} className="border border-g200 px-4 py-3">
                 {p.pros && p.pros.length > 0 ? (
                   <ul className="space-y-1">
                     {p.pros.map((pro, i) => (
@@ -302,15 +302,15 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
                     ))}
                   </ul>
                 ) : (
-                  <span className="text-xs text-gray-400">—</span>
+                  <span className="text-xs text-g400">—</span>
                 )}
               </td>
             ))}
           </tr>
           <tr className="bg-red-50/30">
-            <td className="border border-gray-200 px-4 py-3 font-medium text-red-600">Недоліки</td>
+            <td className="border border-g200 px-4 py-3 font-medium text-red-600">Недоліки</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3">
+              <td key={p.id} className="border border-g200 px-4 py-3">
                 {p.cons && p.cons.length > 0 ? (
                   <ul className="space-y-1">
                     {p.cons.map((con, i) => (
@@ -321,24 +321,24 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
                     ))}
                   </ul>
                 ) : (
-                  <span className="text-xs text-gray-400">—</span>
+                  <span className="text-xs text-g400">—</span>
                 )}
               </td>
             ))}
           </tr>
           <tr>
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Опис</td>
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Опис</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-xs text-gray-600 leading-relaxed">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-xs text-g500 leading-relaxed">
                 {p.description ? p.description.slice(0, 120) + (p.description.length > 120 ? "..." : "") : "—"}
               </td>
             ))}
           </tr>
-          <tr className="bg-yellow-50">
-            <td className="border border-gray-200 px-4 py-3 font-medium text-gray-600">Дія</td>
+          <tr className="bg-primary/10">
+            <td className="border border-g200 px-4 py-3 font-medium text-g500">Дія</td>
             {products.map((p) => (
-              <td key={p.id} className="border border-gray-200 px-4 py-3 text-center">
-                <Link href={`/catalog/${p.slug}`} className="inline-block bg-yellow-400 hover:bg-yellow-300 text-black px-4 py-2 rounded-lg text-sm font-semibold transition">
+              <td key={p.id} className="border border-g200 px-4 py-3 text-center">
+                <Link href={`/catalog/${p.slug}`} className="inline-block bg-primary hover:bg-primary-hover text-bk px-4 py-2 rounded-lg text-sm font-semibold transition">
                   Перейти
                 </Link>
               </td>
@@ -484,10 +484,10 @@ export default function WizardPage() {
     if (items.length === 0) return null;
 
     return (
-      <div className="mb-6 bg-gray-50 rounded-lg p-3 flex flex-wrap gap-2">
+      <div className="mb-6 bg-g50 rounded-lg p-3 flex flex-wrap gap-2">
         {items.map((item) => (
-          <span key={item.label} className="text-xs bg-white border border-gray-200 rounded-full px-3 py-1 text-gray-600">
-            <span className="font-medium text-gray-800">{item.label}:</span> {item.value}
+          <span key={item.label} className="text-xs bg-white border border-g200 rounded-full px-3 py-1 text-g500">
+            <span className="font-medium text-bk">{item.label}:</span> {item.value}
           </span>
         ))}
       </div>
@@ -499,21 +499,21 @@ export default function WizardPage() {
       <div className="flex items-center gap-4 mb-2">
         <VikingMascot size={56} variant="wink" animated />
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">AI Підбір інструментів</h1>
-          <p className="text-gray-500">Відповідайте на питання — Вікінг підбере найкращий інструмент для вас</p>
+          <h1 className="text-3xl font-bold text-bk">AI Підбір інструментів</h1>
+          <p className="text-g400">Відповідайте на питання — Вікінг підбере найкращий інструмент для вас</p>
         </div>
       </div>
 
       {/* Progress bar */}
       {step < 99 && (
         <div className="mb-6">
-          <div className="flex justify-between text-xs text-gray-400 mb-1">
+          <div className="flex justify-between text-xs text-g400 mb-1">
             <span>Крок {Math.min(step, totalSteps)} з {totalSteps}</span>
             <span>{Math.round((Math.min(step, totalSteps) / totalSteps) * 100)}%</span>
           </div>
-          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-2 bg-g200 rounded-full overflow-hidden">
             <div
-              className="h-full bg-yellow-400 rounded-full transition-all duration-300"
+              className="h-full bg-primary rounded-full transition-all duration-300"
               style={{ width: `${(Math.min(step, totalSteps) / totalSteps) * 100}%` }}
             />
           </div>
@@ -527,18 +527,18 @@ export default function WizardPage() {
       {currentContent === "category" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Що шукаєте?</h2>
-          <p className="text-sm text-gray-500 mb-4">Оберіть тип інструменту</p>
+          <p className="text-sm text-g400 mb-4">Оберіть тип інструменту</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {TOOL_CATEGORIES.map((t) => (
               <button
                 key={t.value}
                 onClick={() => handleCategorySelect(t.value)}
-                className="p-4 rounded-xl border-2 text-left transition flex items-start gap-3 border-gray-200 hover:border-yellow-400 hover:bg-yellow-50"
+                className="p-4 rounded-xl border-2 text-left transition flex items-start gap-3 border-g200 hover:border-primary hover:bg-primary/10"
               >
                 <span className="text-2xl mt-0.5">{t.icon}</span>
                 <div>
-                  <span className="font-semibold text-gray-900 block">{t.label}</span>
-                  <span className="text-xs text-gray-500">{t.tools}</span>
+                  <span className="font-semibold text-bk block">{t.label}</span>
+                  <span className="text-xs text-g400">{t.tools}</span>
                 </div>
               </button>
             ))}
@@ -550,21 +550,21 @@ export default function WizardPage() {
       {currentContent === "material" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">З яким матеріалом працюєте?</h2>
-          <p className="text-sm text-gray-500 mb-4">Це допоможе підібрати правильний тип</p>
+          <p className="text-sm text-g400 mb-4">Це допоможе підібрати правильний тип</p>
           <div className="grid grid-cols-1 gap-3">
             {(MATERIALS[toolCategory] || []).map((m) => (
               <button
                 key={m.value}
                 onClick={() => { setMaterial(m.value); setSpecificTask(""); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-left transition font-medium ${
-                  material === m.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  material === m.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 }`}
               >
                 {m.label}
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -572,21 +572,21 @@ export default function WizardPage() {
       {currentContent === "task" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Яка конкретна задача?</h2>
-          <p className="text-sm text-gray-500 mb-4">Уточніть, що саме будете робити</p>
+          <p className="text-sm text-g400 mb-4">Уточніть, що саме будете робити</p>
           <div className="grid grid-cols-1 gap-3">
             {(SPECIFIC_TASKS[`${toolCategory}:${material}`] || []).map((t) => (
               <button
                 key={t.value}
                 onClick={() => { setSpecificTask(t.value); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-left transition ${
-                  specificTask === t.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  specificTask === t.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 }`}
               >
-                <span className="font-medium text-gray-900">{t.label}</span>
+                <span className="font-medium text-bk">{t.label}</span>
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -594,22 +594,22 @@ export default function WizardPage() {
       {currentContent === "frequency" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Як часто будете використовувати?</h2>
-          <p className="text-sm text-gray-500 mb-4">Від цього залежить клас інструменту</p>
+          <p className="text-sm text-g400 mb-4">Від цього залежить клас інструменту</p>
           <div className="grid grid-cols-1 gap-3">
             {FREQUENCIES.map((f) => (
               <button
                 key={f.value}
                 onClick={() => { setFrequency(f.value); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-left transition ${
-                  frequency === f.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  frequency === f.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 }`}
               >
-                <span className="font-semibold text-gray-900">{f.label}</span>
-                <span className="block text-xs text-gray-500 mt-0.5">{f.sub}</span>
+                <span className="font-semibold text-bk">{f.label}</span>
+                <span className="block text-xs text-g400 mt-0.5">{f.sub}</span>
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -617,22 +617,22 @@ export default function WizardPage() {
       {currentContent === "power" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Мережевий чи акумуляторний?</h2>
-          <p className="text-sm text-gray-500 mb-4">Тип живлення інструменту</p>
+          <p className="text-sm text-g400 mb-4">Тип живлення інструменту</p>
           <div className="grid grid-cols-1 gap-3">
             {POWER_SOURCES.map((p) => (
               <button
                 key={p.value}
                 onClick={() => { setPowerSource(p.value); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-left transition ${
-                  powerSource === p.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  powerSource === p.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 }`}
               >
-                <span className="font-semibold text-gray-900">{p.label}</span>
-                <span className="block text-xs text-gray-500 mt-0.5">{p.sub}</span>
+                <span className="font-semibold text-bk">{p.label}</span>
+                <span className="block text-xs text-g400 mt-0.5">{p.sub}</span>
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -640,21 +640,21 @@ export default function WizardPage() {
       {currentContent === "brand" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Переваги по бренду?</h2>
-          <p className="text-sm text-gray-500 mb-4">Чи є улюблений виробник?</p>
+          <p className="text-sm text-g400 mb-4">Чи є улюблений виробник?</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {BRAND_PREFERENCES.map((b) => (
               <button
                 key={b.value}
                 onClick={() => { setBrandPref(b.value); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-center transition font-medium ${
-                  brandPref === b.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  brandPref === b.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 } ${b.value === "any" ? "col-span-2 sm:col-span-4" : ""}`}
               >
                 {b.label}
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -662,22 +662,22 @@ export default function WizardPage() {
       {currentContent === "budget" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Ваш бюджет?</h2>
-          <p className="text-sm text-gray-500 mb-4">Скільки готові витратити</p>
+          <p className="text-sm text-g400 mb-4">Скільки готові витратити</p>
           <div className="grid grid-cols-1 gap-3">
             {BUDGETS.map((b) => (
               <button
                 key={b.value}
                 onClick={() => { setBudget(b.value); goNext(); }}
                 className={`p-4 rounded-xl border-2 text-left transition flex justify-between items-center ${
-                  budget === b.value ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  budget === b.value ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 }`}
               >
-                <span className="font-semibold text-gray-900">{b.label}</span>
-                <span className="text-xs text-gray-400">{b.sub}</span>
+                <span className="font-semibold text-bk">{b.label}</span>
+                <span className="text-xs text-g400">{b.sub}</span>
               </button>
             ))}
           </div>
-          <button onClick={goBack} className="mt-4 text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+          <button onClick={goBack} className="mt-4 text-sm text-g400 hover:text-g600">← Назад</button>
         </div>
       )}
 
@@ -685,14 +685,14 @@ export default function WizardPage() {
       {currentContent === "features" && step < 99 && (
         <div>
           <h2 className="text-xl font-semibold mb-1">Додаткові вимоги?</h2>
-          <p className="text-sm text-gray-500 mb-4">Оберіть що важливо (можна кілька)</p>
+          <p className="text-sm text-g400 mb-4">Оберіть що важливо (можна кілька)</p>
           <div className="grid grid-cols-2 gap-3">
             {ADDITIONAL_FEATURES.map((f) => (
               <button
                 key={f.value}
                 onClick={() => toggleFeature(f.value)}
                 className={`p-4 rounded-xl border-2 text-left transition font-medium ${
-                  additionalFeatures.includes(f.value) ? "border-yellow-400 bg-yellow-50" : "border-gray-200 hover:border-yellow-300"
+                  additionalFeatures.includes(f.value) ? "border-primary bg-primary/10" : "border-g200 hover:border-primary-hover"
                 } ${f.value === "none" ? "col-span-2" : ""}`}
               >
                 {f.label}
@@ -700,15 +700,15 @@ export default function WizardPage() {
             ))}
           </div>
           <div className="mt-6 flex justify-between">
-            <button onClick={goBack} className="text-sm text-gray-500 hover:text-gray-700">← Назад</button>
+            <button onClick={goBack} className="text-sm text-g400 hover:text-g600">← Назад</button>
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="bg-yellow-400 text-black px-8 py-3 rounded-xl hover:bg-yellow-300 disabled:opacity-50 font-semibold transition"
+              className="bg-primary text-bk px-8 py-3 rounded-xl hover:bg-primary-hover disabled:opacity-50 font-semibold transition"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
-                  <div className="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full" />
+                  <div className="animate-spin w-4 h-4 border-2 border-bk border-t-transparent rounded-full" />
                   AI підбирає...
                 </span>
               ) : (
@@ -725,18 +725,18 @@ export default function WizardPage() {
       {/* Results */}
       {step === 99 && (
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Результати AI підбору</h2>
+          <h2 className="text-2xl font-bold text-bk mb-6">Результати AI підбору</h2>
 
           {products.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">
+                <h3 className="text-lg font-semibold text-bk">
                   Рекомендовані товари ({products.length})
                 </h3>
                 {products.length >= 2 && (
                   <button
                     onClick={() => setShowComparison(!showComparison)}
-                    className="text-sm text-yellow-700 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 rounded-lg px-4 py-2 font-medium transition"
+                    className="text-sm text-primary-dark bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded-lg px-4 py-2 font-medium transition"
                   >
                     {showComparison ? "Сховати порівняння" : "Порівняти товари"}
                   </button>
@@ -750,27 +750,27 @@ export default function WizardPage() {
               </div>
 
               {showComparison && products.length >= 2 && (
-                <div className="mt-6 bg-white border border-gray-200 rounded-xl p-4">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Порівняння товарів</h3>
+                <div className="mt-6 bg-white border border-g200 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-bk mb-4">Порівняння товарів</h3>
                   <ComparisonTable products={products} />
                 </div>
               )}
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <div className="bg-white border border-g200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary-dark rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-800">Аналіз AI</h3>
+              <h3 className="font-semibold text-bk">Аналіз AI</h3>
             </div>
             <AiMarkdown content={result} />
           </div>
 
-          <button onClick={reset} className="mt-6 bg-yellow-400 text-black px-6 py-3 rounded-xl hover:bg-yellow-300 font-semibold transition">
+          <button onClick={reset} className="mt-6 bg-primary text-bk px-6 py-3 rounded-xl hover:bg-primary-hover font-semibold transition">
             Підібрати ще раз
           </button>
         </div>

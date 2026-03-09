@@ -7,7 +7,7 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = { DRAFT: "Чернетка", CONFIRMED: "Підтверджено", CANCELLED: "Скасовано" };
-const STATUS_COLORS: Record<string, string> = { DRAFT: "bg-gray-100 text-gray-700", CONFIRMED: "bg-green-50 text-green-700", CANCELLED: "bg-red-50 text-red-600" };
+const STATUS_COLORS: Record<string, string> = { DRAFT: "bg-g100 text-g600", CONFIRMED: "bg-green-50 text-green-700", CANCELLED: "bg-red-50 text-red-600" };
 
 type ItemForm = {
   productId: string;
@@ -267,7 +267,7 @@ export default function SalesDocumentDetailPage() {
         <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Покупець</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Покупець</label>
               {isDraft ? (
                 <select value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)}
                   style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}>
@@ -279,7 +279,7 @@ export default function SalesDocumentDetailPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Торговий менеджер</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Торговий менеджер</label>
               {isDraft ? (
                 <select value={salesRepId} onChange={(e) => setSalesRepId(e.target.value)}
                   style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}>
@@ -291,7 +291,7 @@ export default function SalesDocumentDetailPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Примітки</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Примітки</label>
               {isDraft ? (
                 <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Необов'язково"
                   style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
@@ -323,14 +323,14 @@ export default function SalesDocumentDetailPage() {
         {/* Product search */}
         {isDraft && (
           <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Додати товар</label>
+            <label className="block text-sm font-medium text-g600 mb-2">Додати товар</label>
             <div className="relative">
               <input value={productSearch} onChange={(e) => searchProducts(e.target.value)} placeholder="Пошук за назвою або артикулом..."
                 style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
               {productResults.length > 0 && (
                 <div className="absolute z-10 w-full bg-white border rounded-lg mt-1 max-h-60 overflow-y-auto" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}>
                   {productResults.map((p: any) => (
-                    <button key={p.id} onClick={() => addProduct(p)} className="w-full text-left px-4 py-3 hover:bg-gray-50 flex justify-between" style={{ borderBottom: "1px solid #F3F4F6" }}>
+                    <button key={p.id} onClick={() => addProduct(p)} className="w-full text-left px-4 py-3 hover:bg-g50 flex justify-between" style={{ borderBottom: "1px solid #F3F4F6" }}>
                       <div>
                         <span style={{ fontSize: "14px", fontWeight: 500 }}>{p.name}</span>
                         {p.sku && <span style={{ fontSize: "12px", color: "#9CA3AF", marginLeft: "8px" }}>{p.sku}</span>}

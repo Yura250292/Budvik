@@ -127,7 +127,7 @@ export default function ImportPage() {
             </p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Файл (XML або CSV)</label>
+              <label className="block text-sm font-medium text-g600 mb-2">Файл (XML або CSV)</label>
               <input type="file" accept=".xml,.csv,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
                 style={{ fontSize: "14px" }} />
             </div>
@@ -215,7 +215,7 @@ export default function ImportPage() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Файл (XML)</label>
+              <label className="block text-sm font-medium text-g600 mb-2">Файл (XML)</label>
               <input type="file" accept=".xml" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
                 style={{ fontSize: "14px" }} />
             </div>

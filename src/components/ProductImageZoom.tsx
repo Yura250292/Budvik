@@ -34,7 +34,7 @@ export default function ProductImageZoom({ src, alt }: Props) {
       {/* Main image with hover lens */}
       <div
         ref={containerRef}
-        className="relative bg-gray-100 rounded-xl flex items-center justify-center aspect-square overflow-hidden cursor-zoom-in group"
+        className="relative bg-g100 rounded-xl flex items-center justify-center aspect-square overflow-hidden cursor-zoom-in group"
         onMouseEnter={() => setShowLens(true)}
         onMouseLeave={() => setShowLens(false)}
         onMouseMove={handleMouseMove}
@@ -49,7 +49,7 @@ export default function ProductImageZoom({ src, alt }: Props) {
         {/* Magnifier icon overlay */}
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none">
           <div className="w-14 h-14 bg-white/90 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
-            <svg className="w-7 h-7 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-7 h-7 text-g600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
             </svg>
           </div>
@@ -58,7 +58,7 @@ export default function ProductImageZoom({ src, alt }: Props) {
         {/* Hover highlight area */}
         {showLens && (
           <div
-            className="absolute w-36 h-36 border-2 border-yellow-400/60 bg-yellow-400/10 rounded pointer-events-none"
+            className="absolute w-36 h-36 border-2 border-primary/60 bg-primary/10 rounded pointer-events-none"
             style={{
               left: `calc(${lensPos.x}% - 72px)`,
               top: `calc(${lensPos.y}% - 72px)`,
@@ -70,7 +70,7 @@ export default function ProductImageZoom({ src, alt }: Props) {
       {/* Zoomed panel — fixed, appears next to image on desktop */}
       {showLens && (
         <div
-          className="hidden md:block border-2 border-yellow-400 rounded-xl shadow-2xl overflow-hidden bg-white z-[60] pointer-events-none"
+          className="hidden md:block border-2 border-primary rounded-xl shadow-2xl overflow-hidden bg-white z-[60] pointer-events-none"
           style={{
             ...panelStyle,
             backgroundImage: `url(${src})`,
@@ -88,10 +88,10 @@ export default function ProductImageZoom({ src, alt }: Props) {
           onClick={() => setZoomed(false)}
         >
           <button
-            className="absolute top-4 right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-gray-100 transition z-10"
+            className="absolute top-4 right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-g100 transition z-10"
             onClick={() => setZoomed(false)}
           >
-            <svg className="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-6 h-6 text-g600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

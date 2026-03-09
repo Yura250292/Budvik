@@ -23,9 +23,9 @@ export default function OrdersPage() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-64"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
+          <div className="h-8 bg-g200 rounded w-64"></div>
+          <div className="h-32 bg-g200 rounded"></div>
+          <div className="h-32 bg-g200 rounded"></div>
         </div>
       </div>
     );
@@ -33,12 +33,12 @@ export default function OrdersPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Мої замовлення</h1>
+      <h1 className="text-3xl font-bold text-bk mb-8">Мої замовлення</h1>
 
       {orders.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-gray-500 text-lg mb-4">У вас поки немає замовлень</p>
-          <Link href="/catalog" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg font-semibold">
+          <p className="text-g400 text-lg mb-4">У вас поки немає замовлень</p>
+          <Link href="/catalog" className="btn-primary inline-block">
             Перейти до каталогу
           </Link>
         </div>
@@ -53,25 +53,25 @@ export default function OrdersPage() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="font-semibold text-gray-900">
+                    <span className="font-semibold text-bk">
                       Замовлення #{order.id.slice(-8).toUpperCase()}
                     </span>
                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${ORDER_STATUS_COLORS[order.status as keyof typeof ORDER_STATUS_COLORS]}`}>
                       {ORDER_STATUS_LABELS[order.status as keyof typeof ORDER_STATUS_LABELS]}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500">{formatDate(order.createdAt)}</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-g400">{formatDate(order.createdAt)}</p>
+                  <p className="text-sm text-g400 mt-1">
                     {order.items.length} товар(ів): {order.items.map((i: any) => i.product.name).join(", ")}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xl font-bold text-gray-900">{formatPrice(order.totalAmount)}</p>
+                  <p className="text-xl font-bold text-bk">{formatPrice(order.totalAmount)}</p>
                   {order.boltsUsed > 0 && (
                     <p className="text-xs text-green-600">Використано {order.boltsUsed} Болтів</p>
                   )}
                   {order.boltsEarned > 0 && (
-                    <p className="text-xs text-yellow-600">+{order.boltsEarned} Болтів</p>
+                    <p className="text-xs text-primary">+{order.boltsEarned} Болтів</p>
                   )}
                 </div>
               </div>

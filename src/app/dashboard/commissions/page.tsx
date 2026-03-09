@@ -6,7 +6,7 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const STATUS_LABELS: Record<string, string> = { PENDING: "Очікує", APPROVED: "Затверджено", PAID: "Виплачено" };
-const STATUS_COLORS: Record<string, string> = { PENDING: "bg-yellow-50 text-yellow-700", APPROVED: "bg-blue-50 text-blue-700", PAID: "bg-green-50 text-green-700" };
+const STATUS_COLORS: Record<string, string> = { PENDING: "bg-primary/10 text-primary-dark", APPROVED: "bg-blue-50 text-blue-700", PAID: "bg-green-50 text-green-700" };
 
 export default function MyCommissionsPage() {
   const { data: session } = useSession();
@@ -69,12 +69,12 @@ export default function MyCommissionsPage() {
         {/* Date filter */}
         <div className="flex gap-3 mb-6 items-end">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Від</label>
+            <label className="block text-xs text-g400 mb-1">Від</label>
             <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
               style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">До</label>
+            <label className="block text-xs text-g400 mb-1">До</label>
             <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
               style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
           </div>

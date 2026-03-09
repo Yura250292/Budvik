@@ -20,7 +20,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
+  PENDING: "bg-primary/20 text-primary-dark",
   APPROVED: "bg-green-100 text-green-800",
   REJECTED: "bg-red-100 text-red-800",
 };
@@ -83,7 +83,7 @@ export default function WholesalePage() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <h1 className="text-2xl font-bold mb-4">Увійдіть до свого акаунту</h1>
-        <Link href="/login" className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold">
+        <Link href="/login" className="btn-primary inline-block">
           Увійти
         </Link>
       </div>
@@ -96,12 +96,12 @@ export default function WholesalePage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <Link href="/dashboard" className="text-yellow-600 hover:underline text-sm mb-4 inline-block">
+      <Link href="/dashboard" className="text-primary hover:underline text-sm mb-4 inline-block">
         &larr; Назад до кабінету
       </Link>
 
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Оптові замовлення</h1>
-      <p className="text-gray-500 mb-8">
+      <h1 className="text-3xl font-bold text-bk mb-2">Оптові замовлення</h1>
+      <p className="text-g400 mb-8">
         {isWholesale
           ? "Ви маєте статус оптового покупця з доступом до оптових цін"
           : "Подайте заявку на статус оптового покупця для доступу до спеціальних цін"}
@@ -145,8 +145,8 @@ export default function WholesalePage() {
       {/* Application form - only show if not wholesale and no pending application */}
       {!isWholesale && !hasPending && (
         <div className="bg-white border rounded-xl p-6 mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Заявка на оптового покупця</h2>
-          <p className="text-sm text-gray-500 mb-6">
+          <h2 className="text-xl font-bold text-bk mb-4">Заявка на оптового покупця</h2>
+          <p className="text-sm text-g400 mb-6">
             Заповніть форму нижче. Під однією компанією можуть бути кілька менеджерів &mdash;
             рахунок виписується на компанію, а бонус (кешбек) нараховується на конкретного менеджера.
           </p>
@@ -165,7 +165,7 @@ export default function WholesalePage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   Юридична назва компанії / ФОП *
                 </label>
                 <input
@@ -174,11 +174,11 @@ export default function WholesalePage() {
                   onChange={(e) => setForm({ ...form, legalName: e.target.value })}
                   placeholder='ТОВ "Назва" або ФОП Прізвище І.Б.'
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   ПІБ контактної особи *
                 </label>
                 <input
@@ -187,11 +187,11 @@ export default function WholesalePage() {
                   onChange={(e) => setForm({ ...form, contactName: e.target.value })}
                   placeholder="Прізвище Ім'я По-батькові"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   Телефон *
                 </label>
                 <input
@@ -200,11 +200,11 @@ export default function WholesalePage() {
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   placeholder="+380XXXXXXXXX"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   Email *
                 </label>
                 <input
@@ -213,11 +213,11 @@ export default function WholesalePage() {
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="company@example.com"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   Адреса доставки *
                 </label>
                 <input
@@ -226,18 +226,18 @@ export default function WholesalePage() {
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                   placeholder="м. Київ, вул. Хрещатик, 1"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-g600 mb-1">
                   Вид діяльності *
                 </label>
                 <select
                   value={form.businessType}
                   onChange={(e) => setForm({ ...form, businessType: e.target.value })}
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  className="w-full border border-g300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {Object.entries(BUSINESS_TYPE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -257,7 +257,7 @@ export default function WholesalePage() {
             <button
               type="submit"
               disabled={submitting}
-              className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold hover:bg-yellow-300 disabled:opacity-50 transition"
+              className="btn-primary disabled:opacity-50"
             >
               {submitting ? "Подання заявки..." : "Подати заявку"}
             </button>
@@ -267,16 +267,16 @@ export default function WholesalePage() {
 
       {/* Pending notice */}
       {hasPending && !isWholesale && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 mb-8">
+        <div className="bg-primary/10 border border-primary/30 rounded-xl p-6 mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary-dark" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-yellow-900">Заявка на розгляді</h3>
-              <p className="text-sm text-yellow-700">Ваша заявка очікує на підтвердження адміністратором або торговим менеджером</p>
+              <h3 className="font-semibold text-primary-dark">Заявка на розгляді</h3>
+              <p className="text-sm text-primary-dark">Ваша заявка очікує на підтвердження адміністратором або торговим менеджером</p>
             </div>
           </div>
         </div>
@@ -285,17 +285,17 @@ export default function WholesalePage() {
       {/* Application history */}
       {applications.length > 0 && (
         <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Історія заявок</h2>
+          <h2 className="text-xl font-bold text-bk mb-4">Історія заявок</h2>
           <div className="space-y-3">
             {applications.map((app: any) => (
               <div key={app.id} className="bg-white border rounded-lg p-5">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
-                    <h4 className="font-semibold text-gray-900">{app.legalName}</h4>
-                    <p className="text-sm text-gray-500">
+                    <h4 className="font-semibold text-bk">{app.legalName}</h4>
+                    <p className="text-sm text-g400">
                       {app.contactName} &bull; {app.phone} &bull; {BUSINESS_TYPE_LABELS[app.businessType]}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">{formatDate(app.createdAt)}</p>
+                    <p className="text-xs text-g400 mt-1">{formatDate(app.createdAt)}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[app.status]}`}>
@@ -304,7 +304,7 @@ export default function WholesalePage() {
                   </div>
                 </div>
                 {app.reviewNote && (
-                  <p className="mt-3 text-sm text-gray-600 bg-gray-50 rounded p-3">
+                  <p className="mt-3 text-sm text-g500 bg-g50 rounded p-3">
                     <span className="font-medium">Коментар:</span> {app.reviewNote}
                   </p>
                 )}

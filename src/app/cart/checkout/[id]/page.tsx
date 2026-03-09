@@ -76,15 +76,15 @@ export default function CheckoutPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900">Оплата замовлення</h1>
-              <p className="text-gray-500 mt-1">#{orderId.slice(-8).toUpperCase()}</p>
+              <h1 className="text-2xl font-bold text-bk">Оплата замовлення</h1>
+              <p className="text-g400 mt-1">#{orderId.slice(-8).toUpperCase()}</p>
             </div>
 
             {/* Order summary */}
             <div className="border rounded-lg p-4 mb-6 space-y-2">
               {order.items?.map((item: any) => (
                 <div key={item.id} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{item.product?.name} x{item.quantity}</span>
+                  <span className="text-g600">{item.product?.name} x{item.quantity}</span>
                   <span className="font-medium">{formatPrice(item.price * item.quantity)}</span>
                 </div>
               ))}
@@ -95,7 +95,7 @@ export default function CheckoutPage() {
             </div>
 
             {/* Test payment info */}
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6 text-sm text-yellow-800">
+            <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 mb-6 text-sm text-primary-dark">
               <p className="font-semibold">Тестовий режим</p>
               <p>Платіжна система не підключена. Натисніть кнопку нижче для імітації оплати.</p>
             </div>
@@ -124,9 +124,9 @@ export default function CheckoutPage() {
                 </svg>
               </div>
               <h1 className="text-2xl font-bold text-green-700 mb-2">Оплата успішна!</h1>
-              <p className="text-gray-500 mb-1">Замовлення #{orderId.slice(-8).toUpperCase()}</p>
-              <p className="text-gray-500 mb-6">
-                Сума: <span className="font-bold text-gray-900">{formatPrice(order.totalAmount)}</span>
+              <p className="text-g400 mb-1">Замовлення #{orderId.slice(-8).toUpperCase()}</p>
+              <p className="text-g400 mb-6">
+                Сума: <span className="font-bold text-bk">{formatPrice(order.totalAmount)}</span>
               </p>
 
               {order.boltsEarned > 0 && (
@@ -144,7 +144,7 @@ export default function CheckoutPage() {
                 </Link>
                 <Link
                   href="/catalog"
-                  className="border border-gray-300 py-3 rounded-lg font-medium hover:bg-gray-50 transition text-center"
+                  className="border border-g300 py-3 rounded-lg font-medium hover:bg-g50 transition text-center"
                 >
                   Продовжити покупки
                 </Link>

@@ -204,7 +204,7 @@ export default function CounterpartiesPage() {
               </h2>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Назва *</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Назва *</label>
                   <input
                     required
                     value={form.name}
@@ -214,7 +214,7 @@ export default function CounterpartiesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Код (ЄДРПОУ)</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Код (ЄДРПОУ)</label>
                     <input
                       value={form.code}
                       onChange={(e) => setForm({ ...form, code: e.target.value })}
@@ -222,7 +222,7 @@ export default function CounterpartiesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Тип</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Тип</label>
                     <select
                       value={form.type}
                       onChange={(e) => setForm({ ...form, type: e.target.value })}
@@ -236,7 +236,7 @@ export default function CounterpartiesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Телефон</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Телефон</label>
                     <input
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -244,7 +244,7 @@ export default function CounterpartiesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Email</label>
                     <input
                       type="email"
                       value={form.email}
@@ -254,7 +254,7 @@ export default function CounterpartiesPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Адреса</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Адреса</label>
                   <input
                     value={form.address}
                     onChange={(e) => setForm({ ...form, address: e.target.value })}
@@ -262,7 +262,7 @@ export default function CounterpartiesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Контактна особа</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Контактна особа</label>
                   <input
                     value={form.contactPerson}
                     onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
@@ -270,7 +270,7 @@ export default function CounterpartiesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Примітки</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Примітки</label>
                   <textarea
                     value={form.notes}
                     onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -339,7 +339,7 @@ export default function CounterpartiesPage() {
                       <tr
                         key={c.id}
                         style={{ borderBottom: "1px solid #F3F4F6", opacity: c.isActive ? 1 : 0.5 }}
-                        className="hover:bg-gray-50 transition-colors"
+                        className="hover:bg-g50 transition-colors"
                       >
                         <td style={{ padding: "14px 16px" }}>
                           <div style={{ fontWeight: 600, fontSize: "14px", color: "#0A0A0A" }}>{c.name}</div>
@@ -365,7 +365,7 @@ export default function CounterpartiesPage() {
                         <td style={{ padding: "14px 16px", textAlign: "center" }}>
                           <span
                             className={`px-2 py-1 rounded-md text-xs font-medium ${
-                              c.isActive ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+                              c.isActive ? "bg-green-50 text-green-700" : "bg-g100 text-g400"
                             }`}
                           >
                             {c.isActive ? "Активний" : "Неактивний"}

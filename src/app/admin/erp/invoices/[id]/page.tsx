@@ -7,7 +7,7 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const PAYMENT_LABELS: Record<string, string> = { UNPAID: "Не оплачено", PARTIAL: "Частково", PAID: "Оплачено" };
-const PAYMENT_COLORS: Record<string, string> = { UNPAID: "bg-red-50 text-red-700", PARTIAL: "bg-yellow-50 text-yellow-700", PAID: "bg-green-50 text-green-700" };
+const PAYMENT_COLORS: Record<string, string> = { UNPAID: "bg-red-50 text-red-700", PARTIAL: "bg-primary/10 text-primary-dark", PAID: "bg-green-50 text-green-700" };
 const METHOD_LABELS: Record<string, string> = { bank_transfer: "Безготівковий", cash: "Готівка", card: "Картка" };
 
 export default function InvoiceDetailPage() {
@@ -204,12 +204,12 @@ export default function InvoiceDetailPage() {
               <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "20px" }}>Записати оплату</h2>
               <form onSubmit={handlePayment} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Сума *</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Сума *</label>
                   <input type="number" step="0.01" required value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })}
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Спосіб оплати</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Спосіб оплати</label>
                   <select value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}>
                     <option value="bank_transfer">Безготівковий</option>
@@ -218,7 +218,7 @@ export default function InvoiceDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Примітка</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Примітка</label>
                   <input value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })}
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
                 </div>

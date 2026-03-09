@@ -51,8 +51,8 @@ export default function DashboardPage() {
   if (!session) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold mb-4">Увійдіть до свого акаунту</h1>
-        <Link href="/login" className="bg-yellow-400 text-black font-bold px-6 py-3 rounded-lg">
+        <h1 className="text-2xl font-bold text-bk mb-4">Увійдіть до свого акаунту</h1>
+        <Link href="/login" className="btn-primary inline-block px-6 py-3 text-sm">
           Увійти
         </Link>
       </div>
@@ -145,83 +145,83 @@ export default function DashboardPage() {
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-1">
+        <h1 className="text-3xl font-bold text-bk mb-1">
           Вітаємо, {session.user.name}!
         </h1>
-        <p className="text-gray-500 text-sm">
+        <p className="text-g400 text-sm">
           {role === "ADMIN" ? "Адміністратор" : role === "SALES" ? "Торговий менеджер" : role === "WHOLESALE" ? "Оптовий покупець" : "Клієнт"}
         </p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="bg-white border border-g200 rounded-xl p-5 shadow-[var(--shadow-card)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 rounded-[var(--radius-btn)] bg-g100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Замовлень</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.orders}</p>
+              <p className="text-xs text-g400">Замовлень</p>
+              <p className="text-2xl font-bold text-bk">{stats.orders}</p>
             </div>
           </div>
-          <Link href="/dashboard/orders" className="text-yellow-600 text-xs hover:underline mt-3 inline-block">
+          <Link href="/dashboard/orders" className="text-primary-dark text-xs hover:underline mt-3 inline-block">
             Переглянути всі
           </Link>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="bg-white border border-g200 rounded-xl p-5 shadow-[var(--shadow-card)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 rounded-[var(--radius-btn)] bg-g100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Витрачено</p>
-              <p className="text-2xl font-bold text-gray-900">{formatPrice(stats.totalSpent)}</p>
+              <p className="text-xs text-g400">Витрачено</p>
+              <p className="text-2xl font-bold text-bk">{formatPrice(stats.totalSpent)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-black to-gray-900 rounded-xl p-5 shadow-lg">
+        <div className="bg-gradient-to-br from-bk to-bk-muted rounded-xl p-5 shadow-lg">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-yellow-400/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 rounded-[var(--radius-btn)] bg-primary/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
             </div>
             <div>
-              <p className="text-xs text-yellow-400/80">Болти на балансі</p>
+              <p className="text-xs text-primary/80">Болти на балансі</p>
               <p className="text-2xl font-bold text-white">{stats.bolts}</p>
             </div>
           </div>
-          <Link href="/dashboard/loyalty" className="text-yellow-400/80 text-xs hover:text-yellow-400 mt-3 inline-block transition">
+          <Link href="/dashboard/loyalty" className="text-primary/80 text-xs hover:text-primary mt-3 inline-block transition">
             Деталі програми
           </Link>
         </div>
       </div>
 
       {/* Функції — gradient section */}
-      <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-2xl p-6 mb-8 shadow-sm">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">Функції кабінету</h2>
+      <div className="bg-gradient-to-br from-g50 to-white border border-g200 rounded-2xl p-6 mb-8 shadow-[var(--shadow-card)]">
+        <h2 className="text-lg font-bold text-bk mb-4">Функції кабінету</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {menuItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-3.5 py-3 hover:shadow-md hover:border-yellow-400/40 transition-all duration-200 group"
+              className="flex items-center gap-3 bg-white border border-g200 rounded-xl px-3.5 py-3 hover:shadow-md hover:border-primary/40 transition-all duration-200 group"
             >
-              <div className="w-9 h-9 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center flex-shrink-0 group-hover:bg-yellow-400 group-hover:text-black transition-colors">
+              <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-primary/10 text-primary-dark flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-bk transition-colors">
                 {item.icon}
               </div>
               <div className="min-w-0">
-                <h3 className="font-semibold text-[13px] text-gray-900 group-hover:text-yellow-600 transition-colors leading-tight">
+                <h3 className="font-semibold text-[13px] text-bk group-hover:text-primary-dark transition-colors leading-tight">
                   {item.title}
                 </h3>
-                <p className="text-[11px] text-gray-400 truncate">{item.desc}</p>
+                <p className="text-[11px] text-g400 truncate">{item.desc}</p>
               </div>
             </Link>
           ))}
@@ -229,20 +229,20 @@ export default function DashboardPage() {
       </div>
 
       {/* Рекомендації — gradient section */}
-      <div className="bg-gradient-to-br from-yellow-50/80 via-white to-yellow-50/40 border border-yellow-200/50 rounded-2xl p-6 mb-8 shadow-sm">
+      <div className="bg-gradient-to-br from-primary/5 via-white to-primary/3 border border-primary/20 rounded-2xl p-6 mb-8 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-black to-gray-800 flex items-center justify-center shadow-sm">
-              <svg className="w-4.5 h-4.5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-gradient-to-br from-bk to-bk-muted flex items-center justify-center shadow-sm">
+              <svg className="w-4.5 h-4.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Рекомендовано для вас</h2>
-              <p className="text-[11px] text-gray-400">Топ продажів, які ви ще не замовляли</p>
+              <h2 className="text-lg font-bold text-bk">Рекомендовано для вас</h2>
+              <p className="text-[11px] text-g400">Топ продажів, які ви ще не замовляли</p>
             </div>
           </div>
-          <Link href="/catalog" className="text-xs text-yellow-600 hover:text-yellow-700 font-medium hover:underline transition hidden sm:block">
+          <Link href="/catalog" className="text-xs text-primary-dark hover:text-bk font-medium hover:underline transition hidden sm:block">
             Весь каталог &rarr;
           </Link>
         </div>
@@ -259,9 +259,9 @@ export default function DashboardPage() {
               <Link
                 key={product.id}
                 href={`/catalog/${product.slug}`}
-                className="bg-white border border-gray-100 rounded-xl overflow-hidden hover:shadow-lg hover:border-yellow-400/50 hover:-translate-y-0.5 transition-all duration-200 group"
+                className="bg-white border border-g200 rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5 transition-all duration-200 group"
               >
-                <div className="h-28 bg-gray-50 flex items-center justify-center">
+                <div className="h-28 bg-g50 flex items-center justify-center">
                   {product.image ? (
                     <img
                       src={product.image}
@@ -270,24 +270,24 @@ export default function DashboardPage() {
                       loading="lazy"
                     />
                   ) : (
-                    <svg className="w-10 h-10 text-gray-300 group-hover:text-yellow-300 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-10 h-10 text-g300 group-hover:text-primary transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                     </svg>
                   )}
                 </div>
                 <div className="p-2.5">
                   {product.category && (
-                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">{product.category.name}</span>
+                    <span className="text-[10px] text-g400 uppercase tracking-wide">{product.category.name}</span>
                   )}
-                  <h4 className="font-medium text-xs text-gray-900 group-hover:text-yellow-600 transition line-clamp-2 mt-0.5 mb-1.5">
+                  <h4 className="font-medium text-xs text-bk group-hover:text-primary-dark transition line-clamp-2 mt-0.5 mb-1.5">
                     {product.name}
                   </h4>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-900">{formatPrice(product.price)}</span>
+                    <span className="text-sm font-bold text-bk">{formatPrice(product.price)}</span>
                     {product.stock > 0 ? (
                       <span className="text-[10px] text-green-600 font-medium">В наявності</span>
                     ) : (
-                      <span className="text-[10px] text-gray-400">Немає</span>
+                      <span className="text-[10px] text-g400">Немає</span>
                     )}
                   </div>
                 </div>
@@ -295,23 +295,23 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-white/60 border border-gray-200 rounded-xl p-8 text-center text-gray-400 text-sm">
+          <div className="bg-white/60 border border-g200 rounded-xl p-8 text-center text-g400 text-sm">
             Поки що немає рекомендацій. Зробіть перше замовлення!
           </div>
         )}
       </div>
 
       {/* AI Support Chat — gradient section */}
-      <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-black rounded-2xl p-6 shadow-lg">
+      <div className="bg-gradient-to-br from-bk-soft via-bk-soft to-bk rounded-2xl p-6 shadow-lg">
         <div className="flex items-center gap-2.5 mb-4">
-          <div className="w-9 h-9 rounded-lg bg-yellow-400/20 flex items-center justify-center">
-            <svg className="w-4.5 h-4.5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-primary/20 flex items-center justify-center">
+            <svg className="w-4.5 h-4.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
           </div>
           <div>
             <h2 className="text-lg font-bold text-white">AI Підтримка</h2>
-            <p className="text-[11px] text-gray-400">Запитайте про замовлення, доставку або гарантію</p>
+            <p className="text-[11px] text-g400">Запитайте про замовлення, доставку або гарантію</p>
           </div>
         </div>
         <AiSupportChat />

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const PAYMENT_LABELS: Record<string, string> = { UNPAID: "Не оплачено", PARTIAL: "Частково", PAID: "Оплачено" };
-const PAYMENT_COLORS: Record<string, string> = { UNPAID: "bg-red-50 text-red-700", PARTIAL: "bg-yellow-50 text-yellow-700", PAID: "bg-green-50 text-green-700" };
+const PAYMENT_COLORS: Record<string, string> = { UNPAID: "bg-red-50 text-red-700", PARTIAL: "bg-primary/10 text-primary-dark", PAID: "bg-green-50 text-green-700" };
 
 export default function InvoicesPage() {
   const { data: session } = useSession();
@@ -119,7 +119,7 @@ export default function InvoicesPage() {
               <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "20px" }}>Нова видаткова накладна</h2>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Контрагент *</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Контрагент *</label>
                   <select value={form.counterpartyId} onChange={(e) => setForm({ ...form, counterpartyId: e.target.value })} required
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}>
                     <option value="">Оберіть...</option>
@@ -127,7 +127,7 @@ export default function InvoicesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Документ продажу</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Документ продажу</label>
                   <select value={form.salesDocumentId} onChange={(e) => {
                     const docId = e.target.value;
                     setForm({ ...form, salesDocumentId: docId });
@@ -145,12 +145,12 @@ export default function InvoicesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Сума *</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Сума *</label>
                     <input type="number" step="0.01" required value={form.totalAmount} onChange={(e) => setForm({ ...form, totalAmount: e.target.value })}
                       style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Дата оплати</label>
+                    <label className="block text-sm font-medium text-g600 mb-1">Дата оплати</label>
                     <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                       style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
                   </div>
@@ -192,7 +192,7 @@ export default function InvoicesPage() {
                 </thead>
                 <tbody>
                   {invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-gray-50 transition-colors" style={{ borderBottom: "1px solid #F3F4F6" }}>
+                    <tr key={inv.id} className="hover:bg-g50 transition-colors" style={{ borderBottom: "1px solid #F3F4F6" }}>
                       <td style={{ padding: "14px 16px" }}>
                         <Link href={`/admin/erp/invoices/${inv.id}`} className="text-blue-600 hover:text-blue-800 font-semibold text-sm">
                           {inv.number}

@@ -12,7 +12,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
+  DRAFT: "bg-g100 text-g600",
   CONFIRMED: "bg-green-50 text-green-700",
   CANCELLED: "bg-red-50 text-red-600",
 };
@@ -109,7 +109,7 @@ export default function SalesDocumentsPage() {
                 </thead>
                 <tbody>
                   {docs.map((d) => (
-                    <tr key={d.id} className="hover:bg-gray-50 transition-colors" style={{ borderBottom: "1px solid #F3F4F6" }}>
+                    <tr key={d.id} className="hover:bg-g50 transition-colors" style={{ borderBottom: "1px solid #F3F4F6" }}>
                       <td style={{ padding: "14px 16px" }}>
                         <Link href={`/admin/erp/sales/${d.id}`} className="text-blue-600 hover:text-blue-800 font-semibold text-sm">
                           {d.number}

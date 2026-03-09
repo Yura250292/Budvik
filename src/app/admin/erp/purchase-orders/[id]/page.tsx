@@ -13,7 +13,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
+  DRAFT: "bg-g100 text-g600",
   CONFIRMED: "bg-green-50 text-green-700",
   CANCELLED: "bg-red-50 text-red-600",
 };
@@ -266,7 +266,7 @@ export default function PurchaseOrderDetailPage() {
         <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Постачальник *</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Постачальник *</label>
               {isDraft ? (
                 <select
                   value={supplierId}
@@ -283,7 +283,7 @@ export default function PurchaseOrderDetailPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Примітки</label>
+              <label className="block text-sm font-medium text-g600 mb-1">Примітки</label>
               {isDraft ? (
                 <input
                   value={notes}
@@ -301,7 +301,7 @@ export default function PurchaseOrderDetailPage() {
         {/* Add product (only for drafts) */}
         {isDraft && (
           <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Додати товар</label>
+            <label className="block text-sm font-medium text-g600 mb-2">Додати товар</label>
             <div className="relative">
               <input
                 value={productSearch}
@@ -318,7 +318,7 @@ export default function PurchaseOrderDetailPage() {
                     <button
                       key={p.id}
                       onClick={() => addProduct(p)}
-                      className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between"
+                      className="w-full text-left px-4 py-3 hover:bg-g50 flex items-center justify-between"
                       style={{ borderBottom: "1px solid #F3F4F6" }}
                     >
                       <div>
@@ -332,7 +332,7 @@ export default function PurchaseOrderDetailPage() {
               )}
               {searchingProducts && (
                 <div className="absolute right-3 top-3">
-                  <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-g300 border-t-g600 rounded-full animate-spin" />
                 </div>
               )}
             </div>

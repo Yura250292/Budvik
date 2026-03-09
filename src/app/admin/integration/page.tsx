@@ -154,7 +154,7 @@ export default function IntegrationPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/admin" className="text-gray-500 hover:text-gray-700">
+        <Link href="/admin" className="text-g400 hover:text-g600">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -163,11 +163,11 @@ export default function IntegrationPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 max-w-sm">
+      <div className="flex gap-1 mb-6 bg-g100 rounded-lg p-1 max-w-sm">
         <button
           onClick={() => setActiveTab("import")}
           className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
-            activeTab === "import" ? "bg-white shadow text-orange-600" : "text-gray-600 hover:text-gray-800"
+            activeTab === "import" ? "bg-white shadow text-primary" : "text-g500 hover:text-bk"
           }`}
         >
           Імпорт
@@ -175,7 +175,7 @@ export default function IntegrationPage() {
         <button
           onClick={() => setActiveTab("export")}
           className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
-            activeTab === "export" ? "bg-white shadow text-orange-600" : "text-gray-600 hover:text-gray-800"
+            activeTab === "export" ? "bg-white shadow text-primary" : "text-g500 hover:text-bk"
           }`}
         >
           Експорт
@@ -201,7 +201,7 @@ export default function IntegrationPage() {
 
             <form onSubmit={handleImport}>
               <div className={`border-2 border-dashed rounded-lg p-8 text-center mb-4 transition ${
-                selectedFile ? "border-orange-400 bg-orange-50" : "border-gray-300"
+                selectedFile ? "border-primary bg-primary/10" : "border-g300"
               }`}>
                 <input
                   ref={fileRef}
@@ -214,21 +214,21 @@ export default function IntegrationPage() {
                 <label htmlFor="import-file" className="cursor-pointer">
                   {selectedFile ? (
                     <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-orange-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-primary mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <p className="text-orange-700 font-medium mb-1">{selectedFile.name}</p>
-                      <p className="text-sm text-orange-500">
+                      <p className="text-primary-dark font-medium mb-1">{selectedFile.name}</p>
+                      <p className="text-sm text-primary">
                         {(selectedFile.size / 1024).toFixed(1)} KB — натисніть щоб змінити файл
                       </p>
                     </>
                   ) : (
                     <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-g400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
-                      <p className="text-gray-600 mb-1">Натисніть для вибору файлу</p>
-                      <p className="text-sm text-gray-400">.xml (CommerceML) або .csv</p>
+                      <p className="text-g500 mb-1">Натисніть для вибору файлу</p>
+                      <p className="text-sm text-g400">.xml (CommerceML) або .csv</p>
                     </>
                   )}
                 </label>
@@ -237,14 +237,14 @@ export default function IntegrationPage() {
               {importing && (
                 <div className="mb-4">
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">
+                    <span className="text-g500">
                       {uploadProgress < 100 ? "Завантаження файлу..." : "Обробка на сервері..."}
                     </span>
-                    <span className="font-medium text-orange-600">{uploadProgress}%</span>
+                    <span className="font-medium text-primary">{uploadProgress}%</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                  <div className="w-full bg-g200 rounded-full h-3 overflow-hidden">
                     <div
-                      className="bg-orange-500 h-full rounded-full transition-all duration-300 ease-out"
+                      className="bg-primary/100 h-full rounded-full transition-all duration-300 ease-out"
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>
@@ -254,7 +254,7 @@ export default function IntegrationPage() {
               <button
                 type="submit"
                 disabled={importing || !selectedFile}
-                className="bg-orange-600 text-white px-6 py-2.5 rounded-lg hover:bg-orange-500 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="bg-primary text-bk px-6 py-2.5 rounded-lg hover:bg-primary-hover transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
                 {importing ? "Імпортується..." : "Імпортувати"}
               </button>
@@ -271,20 +271,20 @@ export default function IntegrationPage() {
                 <p className="font-semibold text-green-800 mb-2">Імпорт завершено</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div className="bg-white rounded p-3 text-center">
-                    <div className="text-2xl font-bold text-gray-800">{importResult.summary.total}</div>
-                    <div className="text-gray-500">Всього</div>
+                    <div className="text-2xl font-bold text-bk">{importResult.summary.total}</div>
+                    <div className="text-g400">Всього</div>
                   </div>
                   <div className="bg-white rounded p-3 text-center">
                     <div className="text-2xl font-bold text-green-600">{importResult.summary.created}</div>
-                    <div className="text-gray-500">Створено</div>
+                    <div className="text-g400">Створено</div>
                   </div>
                   <div className="bg-white rounded p-3 text-center">
                     <div className="text-2xl font-bold text-blue-600">{importResult.summary.updated}</div>
-                    <div className="text-gray-500">Оновлено</div>
+                    <div className="text-g400">Оновлено</div>
                   </div>
                   <div className="bg-white rounded p-3 text-center">
                     <div className="text-2xl font-bold text-red-600">{importResult.summary.errors}</div>
-                    <div className="text-gray-500">Помилок</div>
+                    <div className="text-g400">Помилок</div>
                   </div>
                 </div>
                 {importResult.errorDetails && importResult.errorDetails.length > 0 && (
@@ -305,14 +305,14 @@ export default function IntegrationPage() {
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Історія імпортів</h2>
             {loadingLogs ? (
-              <p className="text-gray-500">Завантаження...</p>
+              <p className="text-g400">Завантаження...</p>
             ) : logs.length === 0 ? (
-              <p className="text-gray-500">Ще не було жодного імпорту</p>
+              <p className="text-g400">Ще не було жодного імпорту</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b text-left text-gray-500">
+                    <tr className="border-b text-left text-g400">
                       <th className="py-2 pr-4">Дата</th>
                       <th className="py-2 pr-4">Файл</th>
                       <th className="py-2 pr-4">Тип</th>
@@ -324,7 +324,7 @@ export default function IntegrationPage() {
                   </thead>
                   <tbody>
                     {logs.map((log) => (
-                      <tr key={log.id} className="border-b hover:bg-gray-50">
+                      <tr key={log.id} className="border-b hover:bg-g50">
                         <td className="py-2 pr-4 whitespace-nowrap">
                           {new Date(log.createdAt).toLocaleDateString("uk-UA")} {new Date(log.createdAt).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}
                         </td>
@@ -338,7 +338,7 @@ export default function IntegrationPage() {
                         </td>
                         <td className="py-2 pr-4">
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                            log.status === "success" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                            log.status === "success" ? "bg-green-100 text-green-700" : "bg-primary/10 text-primary-dark"
                           }`}>
                             {log.status === "success" ? "Успішно" : "Частково"}
                           </span>
@@ -357,12 +357,12 @@ export default function IntegrationPage() {
           {/* CSV template */}
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Шаблон CSV для імпорту</h2>
-            <div className="bg-gray-900 rounded-lg p-4 text-green-400 text-sm font-mono overflow-x-auto">
+            <div className="bg-bk rounded-lg p-4 text-green-400 text-sm font-mono overflow-x-auto">
               <p>Артикул;Назва;Ціна;Залишок;Категорія;Опис</p>
               <p>DR-001;Дриль Makita HP1630;3250;15;Дрилі та перфоратори;Ударний дриль 710Вт</p>
               <p>GR-001;Болгарка Bosch GWS 750;2890;8;Шліфувальні машини;Кутова шліфмашина 125мм</p>
             </div>
-            <p className="text-sm text-gray-500 mt-3">
+            <p className="text-sm text-g400 mt-3">
               Роздільник — крапка з комою (;). Кодування — UTF-8. Підтримуються назви колонок українською та англійською.
             </p>
           </div>
@@ -376,14 +376,14 @@ export default function IntegrationPage() {
 
             {/* Export type */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Що вивантажити:</label>
+              <label className="block text-sm font-medium text-g600 mb-2">Що вивантажити:</label>
               <div className="flex gap-3">
                 <button
                   onClick={() => setExportType("orders")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                     exportType === "orders"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
-                      : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      ? "border-primary bg-primary/10 text-primary-dark"
+                      : "border-g300 text-g500 hover:border-g400"
                   }`}
                 >
                   Замовлення
@@ -392,8 +392,8 @@ export default function IntegrationPage() {
                   onClick={() => setExportType("products")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                     exportType === "products"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
-                      : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      ? "border-primary bg-primary/10 text-primary-dark"
+                      : "border-g300 text-g500 hover:border-g400"
                   }`}
                 >
                   Товари
@@ -403,14 +403,14 @@ export default function IntegrationPage() {
 
             {/* Format */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Формат:</label>
+              <label className="block text-sm font-medium text-g600 mb-2">Формат:</label>
               <div className="flex gap-3">
                 <button
                   onClick={() => setExportFormat("xml")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                     exportFormat === "xml"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
-                      : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      ? "border-primary bg-primary/10 text-primary-dark"
+                      : "border-g300 text-g500 hover:border-g400"
                   }`}
                 >
                   XML (CommerceML)
@@ -419,8 +419,8 @@ export default function IntegrationPage() {
                   onClick={() => setExportFormat("csv")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
                     exportFormat === "csv"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
-                      : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      ? "border-primary bg-primary/10 text-primary-dark"
+                      : "border-g300 text-g500 hover:border-g400"
                   }`}
                 >
                   CSV
@@ -432,7 +432,7 @@ export default function IntegrationPage() {
             {exportType === "orders" && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Статус</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Статус</label>
                   <select
                     value={exportStatus}
                     onChange={(e) => setExportStatus(e.target.value)}
@@ -448,7 +448,7 @@ export default function IntegrationPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Від</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Від</label>
                   <input
                     type="date"
                     value={exportFrom}
@@ -457,7 +457,7 @@ export default function IntegrationPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">До</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">До</label>
                   <input
                     type="date"
                     value={exportTo}
@@ -471,7 +471,7 @@ export default function IntegrationPage() {
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="bg-orange-600 text-white px-6 py-2.5 rounded-lg hover:bg-orange-500 transition disabled:opacity-50 font-medium flex items-center gap-2"
+              className="bg-primary text-bk px-6 py-2.5 rounded-lg hover:bg-primary-hover transition disabled:opacity-50 font-medium flex items-center gap-2"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -483,9 +483,9 @@ export default function IntegrationPage() {
           {/* Info block */}
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Інструкція з інтеграції з 1С</h2>
-            <div className="space-y-4 text-sm text-gray-700">
+            <div className="space-y-4 text-sm text-g600">
               <div>
-                <h3 className="font-semibold text-gray-900 mb-1">Імпорт товарів з 1С → Budvik</h3>
+                <h3 className="font-semibold text-bk mb-1">Імпорт товарів з 1С → Budvik</h3>
                 <ol className="list-decimal ml-4 space-y-1">
                   <li>В 1С виконайте вигрузку товарів у форматі CommerceML (XML) або CSV</li>
                   <li>Перейдіть на вкладку &quot;Імпорт&quot; та завантажте файл</li>
@@ -493,7 +493,7 @@ export default function IntegrationPage() {
                 </ol>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 mb-1">Експорт замовлень Budvik → 1С</h3>
+                <h3 className="font-semibold text-bk mb-1">Експорт замовлень Budvik → 1С</h3>
                 <ol className="list-decimal ml-4 space-y-1">
                   <li>Оберіть &quot;Замовлення&quot; та потрібний формат (XML/CSV)</li>
                   <li>Відфільтруйте за статусом та датою при потребі</li>
@@ -501,13 +501,13 @@ export default function IntegrationPage() {
                 </ol>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 mb-1">API для автоматичного обміну</h3>
-                <div className="bg-gray-100 rounded-lg p-3 font-mono text-xs">
-                  <p className="text-gray-500 mb-1"># Імпорт товарів (POST multipart/form-data)</p>
+                <h3 className="font-semibold text-bk mb-1">API для автоматичного обміну</h3>
+                <div className="bg-g100 rounded-lg p-3 font-mono text-xs">
+                  <p className="text-g400 mb-1"># Імпорт товарів (POST multipart/form-data)</p>
                   <p>POST /api/admin/import</p>
-                  <p className="text-gray-500 mt-2 mb-1"># Експорт замовлень (GET)</p>
+                  <p className="text-g400 mt-2 mb-1"># Експорт замовлень (GET)</p>
                   <p>GET /api/admin/export?format=xml&amp;status=PAID&amp;from=2026-01-01</p>
-                  <p className="text-gray-500 mt-2 mb-1"># Експорт товарів (POST)</p>
+                  <p className="text-g400 mt-2 mb-1"># Експорт товарів (POST)</p>
                   <p>POST /api/admin/export {"{"}&quot;format&quot;:&quot;csv&quot;{"}"}</p>
                 </div>
               </div>

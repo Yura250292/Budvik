@@ -45,14 +45,14 @@ export default function AdminOrdersPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Управління замовленнями</h1>
+      <h1 className="text-3xl font-bold text-bk mb-6">Управління замовленнями</h1>
 
       {/* Filter */}
       <div className="flex flex-wrap gap-2 mb-6">
         <button
           onClick={() => setFilterStatus("ALL")}
           className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-            filterStatus === "ALL" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            filterStatus === "ALL" ? "bg-bk text-white" : "bg-g100 text-g600 hover:bg-g200"
           }`}
         >
           Усі ({orders.length})
@@ -64,7 +64,7 @@ export default function AdminOrdersPage() {
               key={status}
               onClick={() => setFilterStatus(status)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-                filterStatus === status ? "bg-gray-900 text-white" : `${ORDER_STATUS_COLORS[status]} hover:opacity-80`
+                filterStatus === status ? "bg-bk text-white" : `${ORDER_STATUS_COLORS[status]} hover:opacity-80`
               }`}
             >
               {ORDER_STATUS_LABELS[status]} ({count})
@@ -75,10 +75,10 @@ export default function AdminOrdersPage() {
 
       {loading ? (
         <div className="animate-pulse space-y-4">
-          {[1, 2, 3].map((i) => <div key={i} className="h-24 bg-gray-200 rounded"></div>)}
+          {[1, 2, 3].map((i) => <div key={i} className="h-24 bg-g200 rounded"></div>)}
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">Замовлень не знайдено</p>
+        <p className="text-g400 text-center py-8">Замовлень не знайдено</p>
       ) : (
         <div className="space-y-4">
           {filtered.map((order: any) => (
@@ -91,21 +91,21 @@ export default function AdminOrdersPage() {
                       {ORDER_STATUS_LABELS[order.status as keyof typeof ORDER_STATUS_LABELS]}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500">
-                    Клієнт: <span className="font-medium text-gray-700">{order.user?.name}</span> ({order.user?.email})
+                  <p className="text-sm text-g400">
+                    Клієнт: <span className="font-medium text-g600">{order.user?.name}</span> ({order.user?.email})
                   </p>
-                  <p className="text-sm text-gray-500">{formatDate(order.createdAt)}</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-g400">{formatDate(order.createdAt)}</p>
+                  <p className="text-sm text-g400 mt-1">
                     Товари: {order.items.map((i: any) => `${i.product.name} (x${i.quantity})`).join(", ")}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <span className="text-xl font-bold text-orange-600">{formatPrice(order.totalAmount)}</span>
+                  <span className="text-xl font-bold text-primary">{formatPrice(order.totalAmount)}</span>
                   {order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
                     <select
                       value={order.status}
                       onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
-                      className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="border border-g300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       {ALL_STATUSES.map((s) => (
                         <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>

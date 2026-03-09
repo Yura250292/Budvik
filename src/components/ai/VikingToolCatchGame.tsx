@@ -342,12 +342,12 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
     const rank = getRank(score);
     return (
       <div className="mt-8 text-center animate-fade-in">
-        <div className="max-w-md mx-auto bg-gradient-to-b from-gray-50 to-white border border-gray-200 rounded-2xl p-6 shadow-lg">
+        <div className="max-w-md mx-auto bg-gradient-to-b from-g50 to-white border border-g200 rounded-2xl p-6 shadow-lg">
           <VikingMascot size={64} variant="wink" animated className="mx-auto mb-3" />
-          <p className="text-2xl font-bold text-gray-900 mb-1">{rank.emoji} {score} очок!</p>
-          <p className="text-sm text-gray-600 mb-4">{rank.title}</p>
-          <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
-            <div className="animate-spin w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full" />
+          <p className="text-2xl font-bold text-bk mb-1">{rank.emoji} {score} очок!</p>
+          <p className="text-sm text-g500 mb-4">{rank.title}</p>
+          <div className="flex items-center justify-center gap-2 text-sm text-g400">
+            <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
             AI вже майже підібрав інструменти...
           </div>
         </div>
@@ -361,23 +361,23 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
         {/* Score bar */}
         <div className="flex items-center justify-between mb-2 px-1">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-gray-900">⚡ {score}</span>
+            <span className="text-lg font-bold text-bk">⚡ {score}</span>
             {combo >= 3 && (
-              <span className="text-xs font-bold text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded-full animate-pulse">
+              <span className="text-xs font-bold text-primary-dark bg-primary/20 px-2 py-0.5 rounded-full animate-pulse">
                 x{combo} КОМБО!
               </span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
             <VikingMascot size={24} variant={mascotVariant} />
-            <span className="text-xs text-gray-400">Ріж метал!</span>
+            <span className="text-xs text-g400">Ріж метал!</span>
           </div>
         </div>
 
         {/* Game area */}
         <div
           ref={containerRef}
-          className="relative bg-gradient-to-b from-slate-100 via-slate-50 to-amber-50 border border-gray-200 rounded-2xl overflow-hidden select-none cursor-none"
+          className="relative bg-gradient-to-b from-slate-100 via-slate-50 to-amber-50 border border-g200 rounded-2xl overflow-hidden select-none cursor-none"
           style={{ height: CONTAINER_HEIGHT, touchAction: "none" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -483,7 +483,7 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
             <div className="relative" style={{ width: GRINDER_WIDTH, height: 44 }}>
               {/* Disc */}
               <div
-                className="absolute rounded-full border-2 border-gray-600"
+                className="absolute rounded-full border-2 border-g500"
                 style={{
                   width: 40,
                   height: 40,
@@ -498,7 +498,7 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
               />
               {/* Handle */}
               <div
-                className="absolute bg-gray-700 rounded-md"
+                className="absolute bg-g600 rounded-md"
                 style={{
                   width: 24,
                   height: 12,
@@ -539,7 +539,7 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
             <div
               className={`absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-sm font-bold shadow-lg z-40 animate-bounce-in whitespace-nowrap ${
                 messageType === "combo"
-                  ? "bg-yellow-400 text-black"
+                  ? "bg-primary text-bk"
                   : messageType === "good"
                   ? "bg-green-100 text-green-800 border border-green-200"
                   : "bg-red-100 text-red-800 border border-red-200"
@@ -555,15 +555,15 @@ export default function VikingToolCatchGame({ isLoading }: VikingToolCatchGamePr
 
         {/* Instructions */}
         <div className="flex items-center justify-center gap-3 mt-2">
-          <span className="text-[11px] text-gray-400">
+          <span className="text-[11px] text-g400">
             ← → або тягни пальцем
           </span>
-          <span className="text-[11px] text-gray-300">|</span>
-          <span className="text-[11px] text-gray-400">
+          <span className="text-[11px] text-g300">|</span>
+          <span className="text-[11px] text-g400">
             <span className="text-green-500">✂️ ріж!</span> = бонус, <span className="text-red-400">⛔</span> = штраф
           </span>
         </div>
-        <p className="text-[10px] text-gray-300 text-center mt-1">
+        <p className="text-[10px] text-g300 text-center mt-1">
           AI підбирає найкращі інструменти для тебе...
         </p>
       </div>

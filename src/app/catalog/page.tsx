@@ -13,11 +13,12 @@ import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 const PAGE_SIZE = 24;
 
-export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ category?: string; search?: string; page?: string; brand?: string }> }) {
+export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ category?: string; search?: string; page?: string; brand?: string; sort?: string }> }) {
   const params = await searchParams;
   const categorySlug = params.category;
   const search = params.search;
   const brand = params.brand;
+  const sort = params.sort;
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
   const where: any = { isActive: true };
@@ -34,6 +35,16 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     delete where.name;
   }
 
+  // Build orderBy based on sort param
+  const orderByMap: Record<string, any[]> = {
+    "price-asc": [{ price: "asc" }],
+    "price-desc": [{ price: "desc" }],
+    "name-asc": [{ name: "asc" }],
+    "name-desc": [{ name: "desc" }],
+    "newest": [{ createdAt: "desc" }],
+  };
+  const orderBy = orderByMap[sort || ""] || [{ stock: "desc" }, { name: "asc" }];
+
   const session = await getServerSession(authOptions);
   const isWholesale = session?.user?.role === "WHOLESALE";
   const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
@@ -42,7 +53,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     prisma.product.findMany({
       where,
       include: { category: true },
-      orderBy: [{ stock: "desc" }, { name: "asc" }],
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
@@ -80,8 +91,26 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     if (categorySlug) params.set("category", categorySlug);
     if (search) params.set("search", search);
     if (brand) params.set("brand", brand);
+    if (sort) params.set("sort", sort);
     if (p > 1) params.set("page", String(p));
     const qs = params.toString();
+    return `/catalog${qs ? `?${qs}` : ""}`;
+  }
+
+  // Flat list of all categories for mobile pills
+  const allCategories = [
+    ...grouped.flatMap((g) => g.categories),
+    ...ungrouped,
+  ].sort((a, b) => b._count.products - a._count.products);
+
+  // Build URL helper for sort/category pills
+  function buildSortUrl(p: { category?: string; brand?: string; sort?: string }) {
+    const sp = new URLSearchParams();
+    if (p.category) sp.set("category", p.category);
+    if (search) sp.set("search", search);
+    if (p.brand) sp.set("brand", p.brand);
+    if (p.sort) sp.set("sort", p.sort);
+    const qs = sp.toString();
     return `/catalog${qs ? `?${qs}` : ""}`;
   }
 
@@ -122,8 +151,63 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       </p>
 
       {/* AI Smart Search */}
-      <div className="mb-8">
+      <div className="mb-4 sm:mb-8">
         <AiSmartSearch />
+      </div>
+
+      {/* Mobile: Category pills */}
+      <div className="md:hidden mb-3 -mx-3 px-3">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <Link
+            href={buildSortUrl({ sort })}
+            className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-semibold border transition ${
+              !categorySlug
+                ? "bg-[#0A0A0A] text-[#FFD600] border-[#0A0A0A]"
+                : "bg-white text-[#555] border-[#E0E0E0] active:bg-[#F5F5F5]"
+            }`}
+          >
+            Усі
+          </Link>
+          {allCategories.map((cat) => (
+            <Link
+              key={cat.id}
+              href={buildSortUrl({ category: cat.slug, sort })}
+              className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-semibold border transition whitespace-nowrap ${
+                categorySlug === cat.slug
+                  ? "bg-[#0A0A0A] text-[#FFD600] border-[#0A0A0A]"
+                  : "bg-white text-[#555] border-[#E0E0E0] active:bg-[#F5F5F5]"
+              }`}
+            >
+              {cat.name}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Sort pills — visible on both mobile and desktop */}
+      <div className="mb-4 -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
+          <span className="flex-shrink-0 text-xs text-[#9E9E9E] font-medium mr-1 hidden sm:inline">Сортування:</span>
+          {[
+            { value: "", label: "За замовч." },
+            { value: "price-asc", label: "Дешевші" },
+            { value: "price-desc", label: "Дорожчі" },
+            { value: "newest", label: "Новинки" },
+            { value: "name-asc", label: "А → Я" },
+          ].map((opt) => (
+            <Link
+              key={opt.value}
+              href={buildSortUrl({ category: categorySlug, brand, sort: opt.value })}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${
+                (sort || "") === opt.value
+                  ? "bg-[#FFD600] text-[#0A0A0A] border-[#FFD600] font-semibold"
+                  : "bg-white text-[#555] border-[#E0E0E0] hover:bg-[#FAFAFA] active:bg-[#F0F0F0]"
+              }`}
+            >
+              {opt.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 sm:gap-8">
@@ -135,6 +219,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
           activeCategory={categorySlug}
           activeBrand={brand}
           search={search}
+          activeSort={sort}
         />
 
         {/* Products Grid */}

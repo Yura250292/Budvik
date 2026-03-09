@@ -485,6 +485,14 @@ input:focus, select:focus, textarea:focus {
   display: none;
 }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Mobile spec table fix */
 @media (max-width: 640px) {
   .spec-key {

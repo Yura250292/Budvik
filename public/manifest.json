@@ -4,8 +4,8 @@
   "description": "Магазин електро та ручного інструменту. Програма лояльності Болти.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#f97316",
+  "background_color": "#0A0A0A",
+  "theme_color": "#FFD600",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

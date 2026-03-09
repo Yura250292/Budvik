@@ -42,10 +42,36 @@ enum BoltsType {
   SPENT
 }
 
+// ========== ERP Enums ==========
+
+enum DocumentStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+}
+
+enum CounterpartyType {
+  SUPPLIER
+  CUSTOMER
+  BOTH
+}
+
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
-  password      String
+  password      String?
   name          String
   phone         String?
   role          Role     @default(CLIENT)
@@ -59,6 +85,14 @@ model User {
 
   companyId String?
   company   WholesaleCompany? @relation(fields: [companyId], references: [id])
+
+  // ERP relations
+  purchaseOrdersCreated PurchaseOrder[]    @relation("purchaseOrderCreator")
+  salesDocumentsCreated SalesDocument[]    @relation("salesDocCreator")
+  salesRepSales         SalesDocument[]    @relation("salesRepSales")
+  invoicesCreated       Invoice[]          @relation("invoiceCreator")
+  commissionRates       CommissionRate[]   @relation("commissionRates")
+  commissionRecords     CommissionRecord[] @relation("commissionRecords")
 }
 
 model Category {
@@ -90,6 +124,11 @@ model Product {
   category   Category    @relation(fields: [categoryId], references: [id])
   orderItems OrderItem[]
   embedding  ProductEmbedding?
+
+  // ERP relations
+  supplierProducts   SupplierProduct[]
+  purchaseOrderItems PurchaseOrderItem[]
+  salesDocumentItems SalesDocumentItem[]
 }
 
 model ImportLog {
@@ -202,4 +241,170 @@ model WholesaleApplication {
 
   user    User              @relation(fields: [userId], references: [id])
   company WholesaleCompany? @relation(fields: [companyId], references: [id])
+}
+
+// ========== ERP Models ==========
+
+model DocumentSequence {
+  id     String @id // "PO", "SD", "INV"
+  prefix String // "ПН", "ПР", "ВН"
+  last   Int    @default(0)
+}
+
+model Counterparty {
+  id            String           @id @default(cuid())
+  name          String
+  code          String?          @unique
+  type          CounterpartyType @default(BOTH)
+  phone         String?
+  email         String?
+  address       String?
+  contactPerson String?
+  notes         String?
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  purchaseOrders   PurchaseOrder[]
+  salesDocuments   SalesDocument[]
+  invoices         Invoice[]
+  supplierProducts SupplierProduct[]
+}
+
+model SupplierProduct {
+  id            String   @id @default(cuid())
+  supplierId    String
+  productId     String
+  purchasePrice Float
+  lastUpdated   DateTime @default(now())
+
+  supplier Counterparty @relation(fields: [supplierId], references: [id])
+  product  Product      @relation(fields: [productId], references: [id])
+
+  @@unique([supplierId, productId])
+}
+
+model PurchaseOrder {
+  id          String         @id @default(cuid())
+  number      String         @unique
+  supplierId  String
+  status      DocumentStatus @default(DRAFT)
+  totalAmount Float          @default(0)
+  notes       String?
+  confirmedAt DateTime?
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  supplier  Counterparty      @relation(fields: [supplierId], references: [id])
+  createdBy User              @relation("purchaseOrderCreator", fields: [createdById], references: [id])
+  items     PurchaseOrderItem[]
+}
+
+model PurchaseOrderItem {
+  id              String @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  purchasePrice   Float
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+}
+
+model SalesDocument {
+  id              String         @id @default(cuid())
+  number          String         @unique
+  counterpartyId  String?
+  salesRepId      String?
+  status          DocumentStatus @default(DRAFT)
+  totalAmount     Float          @default(0)
+  discountAmount  Float          @default(0)
+  profitAmount    Float          @default(0)
+  notes           String?
+  confirmedAt     DateTime?
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  counterparty Counterparty?     @relation(fields: [counterpartyId], references: [id])
+  salesRep     User?             @relation("salesRepSales", fields: [salesRepId], references: [id])
+  createdBy    User              @relation("salesDocCreator", fields: [createdById], references: [id])
+  items        SalesDocumentItem[]
+  invoice      Invoice?
+  commissions  CommissionRecord[]
+}
+
+model SalesDocumentItem {
+  id              String @id @default(cuid())
+  salesDocumentId String
+  productId       String
+  quantity        Int
+  sellingPrice    Float
+  purchasePrice   Float
+  discountPercent Float  @default(0)
+
+  salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+}
+
+model Invoice {
+  id              String         @id @default(cuid())
+  number          String         @unique
+  salesDocumentId String?        @unique
+  counterpartyId  String
+  status          DocumentStatus @default(DRAFT)
+  paymentStatus   PaymentStatus  @default(UNPAID)
+  totalAmount     Float
+  paidAmount      Float          @default(0)
+  dueDate         DateTime?
+  notes           String?
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  salesDocument SalesDocument? @relation(fields: [salesDocumentId], references: [id])
+  counterparty  Counterparty   @relation(fields: [counterpartyId], references: [id])
+  createdBy     User           @relation("invoiceCreator", fields: [createdById], references: [id])
+  payments      Payment[]
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  amount    Float
+  method    String   @default("bank_transfer")
+  notes     String?
+  createdAt DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+}
+
+model CommissionRate {
+  id         String @id @default(cuid())
+  salesRepId String
+  brand      String
+  percentage Float
+
+  salesRep User @relation("commissionRates", fields: [salesRepId], references: [id])
+
+  @@unique([salesRepId, brand])
+}
+
+model CommissionRecord {
+  id               String           @id @default(cuid())
+  salesRepId       String
+  salesDocumentId  String
+  brand            String
+  saleAmount       Float
+  costAmount       Float
+  profitAmount     Float
+  commissionRate   Float
+  commissionAmount Float
+  status           CommissionStatus @default(PENDING)
+  paidAt           DateTime?
+  createdAt        DateTime         @default(now())
+
+  salesRep      User          @relation("commissionRecords", fields: [salesRepId], references: [id])
+  salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
 }

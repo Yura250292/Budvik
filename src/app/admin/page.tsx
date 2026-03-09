@@ -326,6 +326,164 @@ export default function AdminPage() {
           </div>
         </section>
 
+        {/* Section: ERP Modules */}
+        <section style={{ marginBottom: "40px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>
+            ERP — Облік
+          </h2>
+          <div
+            className="grid gap-6"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
+          >
+            {[
+              {
+                href: "/admin/erp/counterparties",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                ),
+                title: "Контрагенти",
+                desc: "Постачальники та покупці",
+                color: "from-teal-500 to-cyan-600",
+                accentColor: "#14B8A6",
+                roles: ["ADMIN", "SALES"],
+              },
+              {
+                href: "/admin/erp/purchase-orders",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                ),
+                title: "Прихід",
+                desc: "Прихідні накладні від постачальників",
+                color: "from-sky-500 to-blue-600",
+                accentColor: "#0EA5E9",
+                roles: ["ADMIN", "SALES"],
+              },
+              {
+                href: "/admin/erp/sales",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ),
+                title: "Продаж",
+                desc: "Документи продажу B2B/оффлайн",
+                color: "from-green-500 to-emerald-600",
+                accentColor: "#22C55E",
+                roles: ["ADMIN", "SALES"],
+              },
+              {
+                href: "/admin/erp/invoices",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                  </svg>
+                ),
+                title: "Видаткові накладні",
+                desc: "Генерація та трекінг оплат",
+                color: "from-orange-500 to-red-500",
+                accentColor: "#F97316",
+                roles: ["ADMIN"],
+              },
+              {
+                href: "/admin/erp/commissions",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  </svg>
+                ),
+                title: "Мотивація",
+                desc: "Комісії торгових менеджерів",
+                color: "from-yellow-500 to-orange-500",
+                accentColor: "#EAB308",
+                roles: ["ADMIN"],
+              },
+              {
+                href: "/admin/erp/stats",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                ),
+                title: "Статистика",
+                desc: "Аналітика та бухгалтерські звіти",
+                color: "from-indigo-500 to-violet-600",
+                accentColor: "#6366F1",
+                roles: ["ADMIN"],
+              },
+              {
+                href: "/admin/erp/import",
+                icon: (
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                ),
+                title: "Імпорт з 1С",
+                desc: "Контрагенти та документи",
+                color: "from-rose-500 to-pink-600",
+                accentColor: "#F43F5E",
+                roles: ["ADMIN"],
+              },
+            ]
+              .filter((item) => item.roles.includes(role))
+              .map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="group block"
+                  style={{
+                    background: "white",
+                    borderRadius: "12px",
+                    padding: "22px",
+                    border: "1px solid #EFEFEF",
+                    borderLeft: `4px solid ${item.accentColor}`,
+                    cursor: "pointer",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    boxShadow: "0 6px 20px rgba(0,0,0,0.05)",
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-4px)";
+                    e.currentTarget.style.boxShadow = "0 12px 30px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.05)";
+                  }}
+                >
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`w-12 h-12 bg-gradient-to-br ${item.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white`}
+                    >
+                      {item.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A", marginBottom: "4px" }}>
+                        {item.title}
+                      </h3>
+                      <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: 1.5 }}>
+                        {item.desc}
+                      </p>
+                    </div>
+                    <svg
+                      className="w-5 h-5 flex-shrink-0"
+                      style={{ color: "#D1D5DB", marginTop: "4px" }}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </Link>
+              ))}
+          </div>
+        </section>
+
         {/* Section: Management Modules */}
         <section>
           <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#0A0A0A", marginBottom: "20px" }}>

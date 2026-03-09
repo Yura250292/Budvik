@@ -241,6 +241,196 @@ function parseCSVLine(line: string, sep: string): string[] {
   return result;
 }
 
+// ---- ERP Import Parsers ----
+
+export interface ParsedCounterparty {
+  code: string;
+  name: string;
+  type?: "SUPPLIER" | "CUSTOMER" | "BOTH";
+  phone?: string;
+  email?: string;
+  address?: string;
+  contactPerson?: string;
+}
+
+export interface ParsedPurchaseDocument {
+  number: string;
+  date: string;
+  supplierCode: string;
+  items: { sku: string; quantity: number; purchasePrice: number }[];
+  notes?: string;
+}
+
+export interface ParsedSalesDocumentImport {
+  number: string;
+  date: string;
+  customerCode?: string;
+  items: { sku: string; quantity: number; sellingPrice: number; purchasePrice?: number }[];
+  notes?: string;
+}
+
+export function parseCounterpartiesXML(xml: string): ParsedCounterparty[] {
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    textNodeName: "#text",
+  });
+  const doc = parser.parse(xml);
+  const result: ParsedCounterparty[] = [];
+
+  // Try common 1C structures
+  const root = doc["КоммерческаяИнформация"] || doc["КоммерческаяІнформація"] || doc;
+  const agents =
+    root["Контрагенты"]?.["Контрагент"] ||
+    root["Контрагенти"]?.["Контрагент"] ||
+    root["Counterparties"]?.["Counterparty"] ||
+    root["counterparties"]?.["counterparty"] ||
+    [];
+
+  for (const a of ensureArray(agents)) {
+    const code = String(a["Ид"] || a["Ід"] || a["Код"] || a["Code"] || a["ЕДРПОУ"] || a["ЄДРПОУ"] || a["@_id"] || "");
+    const name = String(a["Наименование"] || a["Найменування"] || a["Name"] || a["@_name"] || "");
+    if (!code || !name) continue;
+
+    const typeStr = String(a["Тип"] || a["Type"] || "").toUpperCase();
+    let type: "SUPPLIER" | "CUSTOMER" | "BOTH" = "BOTH";
+    if (typeStr.includes("ПОСТАЧ") || typeStr.includes("SUPPLIER")) type = "SUPPLIER";
+    else if (typeStr.includes("ПОКУП") || typeStr.includes("CUSTOMER") || typeStr.includes("КЛІЄНТ")) type = "CUSTOMER";
+
+    result.push({
+      code,
+      name,
+      type,
+      phone: a["Телефон"] || a["Phone"] || undefined,
+      email: a["Email"] || a["Пошта"] || undefined,
+      address: a["Адрес"] || a["Адреса"] || a["Address"] || undefined,
+      contactPerson: a["КонтактнаОсоба"] || a["КонтактноеЛицо"] || a["ContactPerson"] || undefined,
+    });
+  }
+
+  return result;
+}
+
+export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const sep = lines[0].includes(";") ? ";" : ",";
+  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+
+  const codeIdx = headers.findIndex((h) => ["код", "code", "єдрпоу", "едрпоу", "id", "ід"].includes(h));
+  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name"].includes(h));
+  const typeIdx = headers.findIndex((h) => ["тип", "type"].includes(h));
+  const phoneIdx = headers.findIndex((h) => ["телефон", "phone"].includes(h));
+  const emailIdx = headers.findIndex((h) => ["email", "пошта", "e-mail"].includes(h));
+  const addressIdx = headers.findIndex((h) => ["адреса", "адрес", "address"].includes(h));
+  const contactIdx = headers.findIndex((h) => ["контакт", "контактна особа", "contactperson"].includes(h));
+
+  if (codeIdx === -1 || nameIdx === -1) return [];
+
+  const result: ParsedCounterparty[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i].trim(), sep);
+    const code = cols[codeIdx]?.trim();
+    const name = cols[nameIdx]?.trim();
+    if (!code || !name) continue;
+
+    let type: "SUPPLIER" | "CUSTOMER" | "BOTH" = "BOTH";
+    if (typeIdx >= 0) {
+      const t = (cols[typeIdx] || "").toUpperCase();
+      if (t.includes("ПОСТАЧ") || t.includes("SUPPLIER")) type = "SUPPLIER";
+      else if (t.includes("ПОКУП") || t.includes("CUSTOMER")) type = "CUSTOMER";
+    }
+
+    result.push({
+      code,
+      name,
+      type,
+      phone: phoneIdx >= 0 ? cols[phoneIdx]?.trim() || undefined : undefined,
+      email: emailIdx >= 0 ? cols[emailIdx]?.trim() || undefined : undefined,
+      address: addressIdx >= 0 ? cols[addressIdx]?.trim() || undefined : undefined,
+      contactPerson: contactIdx >= 0 ? cols[contactIdx]?.trim() || undefined : undefined,
+    });
+  }
+
+  return result;
+}
+
+export function parsePurchaseDocumentsXML(xml: string): ParsedPurchaseDocument[] {
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    textNodeName: "#text",
+  });
+  const doc = parser.parse(xml);
+  const result: ParsedPurchaseDocument[] = [];
+
+  const root = doc["КоммерческаяИнформация"] || doc["КоммерческаяІнформація"] || doc;
+  const documents =
+    root["Документы"]?.["Документ"] ||
+    root["Документи"]?.["Документ"] ||
+    root["Documents"]?.["Document"] ||
+    [];
+
+  for (const d of ensureArray(documents)) {
+    const number = String(d["Номер"] || d["Number"] || d["@_number"] || "");
+    const date = String(d["Дата"] || d["Date"] || d["@_date"] || "");
+    const supplierCode = String(d["КонтрагентИд"] || d["КонтрагентІд"] || d["CounterpartyCode"] || d["Контрагент"]?.["Ид"] || "");
+
+    const itemsRaw = d["Товары"]?.["Товар"] || d["Товари"]?.["Товар"] || d["Items"]?.["Item"] || [];
+    const items = ensureArray(itemsRaw).map((item: any) => ({
+      sku: String(item["Артикул"] || item["Ід"] || item["Ид"] || item["SKU"] || ""),
+      quantity: parseInt(String(item["Кількість"] || item["Количество"] || item["Quantity"] || "0"), 10),
+      purchasePrice: parseFloat(String(item["Ціна"] || item["Цена"] || item["Price"] || "0").replace(",", ".")),
+    })).filter((i) => i.sku && i.quantity > 0);
+
+    if (number && items.length > 0) {
+      result.push({ number, date, supplierCode, items, notes: d["Коментар"] || d["Комментарий"] || undefined });
+    }
+  }
+
+  return result;
+}
+
+export function parseSalesDocumentsXML(xml: string): ParsedSalesDocumentImport[] {
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    textNodeName: "#text",
+  });
+  const doc = parser.parse(xml);
+  const result: ParsedSalesDocumentImport[] = [];
+
+  const root = doc["КоммерческаяИнформация"] || doc["КоммерческаяІнформація"] || doc;
+  const documents =
+    root["Документы"]?.["Документ"] ||
+    root["Документи"]?.["Документ"] ||
+    root["Documents"]?.["Document"] ||
+    [];
+
+  for (const d of ensureArray(documents)) {
+    const number = String(d["Номер"] || d["Number"] || d["@_number"] || "");
+    const date = String(d["Дата"] || d["Date"] || d["@_date"] || "");
+    const customerCode = String(d["КонтрагентИд"] || d["КонтрагентІд"] || d["CounterpartyCode"] || d["Контрагент"]?.["Ид"] || "");
+
+    const itemsRaw = d["Товары"]?.["Товар"] || d["Товари"]?.["Товар"] || d["Items"]?.["Item"] || [];
+    const items = ensureArray(itemsRaw).map((item: any) => ({
+      sku: String(item["Артикул"] || item["Ід"] || item["Ид"] || item["SKU"] || ""),
+      quantity: parseInt(String(item["Кількість"] || item["Количество"] || item["Quantity"] || "0"), 10),
+      sellingPrice: parseFloat(String(item["Ціна"] || item["Цена"] || item["Price"] || "0").replace(",", ".")),
+      purchasePrice: item["Собівартість"] || item["Себестоимость"] || item["Cost"]
+        ? parseFloat(String(item["Собівартість"] || item["Себестоимость"] || item["Cost"]).replace(",", "."))
+        : undefined,
+    })).filter((i) => i.sku && i.quantity > 0);
+
+    if (number && items.length > 0) {
+      result.push({ number, date, customerCode: customerCode || undefined, items, notes: d["Коментар"] || d["Комментарий"] || undefined });
+    }
+  }
+
+  return result;
+}
+
 // ---- Slug generator ----
 
 const translitMap: Record<string, string> = {

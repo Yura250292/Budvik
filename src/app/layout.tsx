@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import AiChatWidget from "@/components/ai/AiChatWidget";
+import SwipeNavigator from "@/components/SwipeNavigator";
 
 export const metadata: Metadata = {
   title: "Budvik - Інструменти для професіоналів",
@@ -38,7 +39,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen flex flex-col antialiased bg-[#F7F7F7]">
         <Providers>
           <Header />
-          <main className="flex-1 pb-20 md:pb-0">{children}</main>
+          <SwipeNavigator>
+            <main className="flex-1 pb-20 md:pb-0">{children}</main>
+          </SwipeNavigator>
           <Footer />
           <BottomNav />
           <AiChatWidget />

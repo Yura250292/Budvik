@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -55,6 +55,11 @@ export default function CatalogSidebar({
   const [showAllBrands, setShowAllBrands] = useState(false);
   const [showUngrouped, setShowUngrouped] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const touchRef = useRef<{ startX: number; startY: number; locked: boolean | null } | null>(null);
 
   // Close drawer on route change
   useEffect(() => {
@@ -65,11 +70,65 @@ export default function CatalogSidebar({
   useEffect(() => {
     if (drawerOpen) {
       document.body.style.overflow = "hidden";
+      setDragX(0);
+      setIsDragging(false);
     } else {
       document.body.style.overflow = "";
     }
     return () => { document.body.style.overflow = ""; };
   }, [drawerOpen]);
+
+  // Swipe-to-close drawer
+  const onDrawerTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchRef.current = { startX: touch.clientX, startY: touch.clientY, locked: null };
+    setIsDragging(false);
+  }, []);
+
+  const onDrawerTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchRef.current) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchRef.current.startX;
+    const dy = Math.abs(touch.clientY - touchRef.current.startY);
+
+    // Determine direction lock
+    if (touchRef.current.locked === null && (Math.abs(dx) > 8 || dy > 8)) {
+      touchRef.current.locked = Math.abs(dx) > dy;
+    }
+
+    if (!touchRef.current.locked) return;
+
+    // Only allow dragging to the left (closing)
+    const clampedX = Math.min(0, dx);
+    setDragX(clampedX);
+    setIsDragging(true);
+  }, []);
+
+  const onDrawerTouchEnd = useCallback(() => {
+    if (!touchRef.current) return;
+    const wasDragging = isDragging;
+    touchRef.current = null;
+
+    if (!wasDragging) {
+      setDragX(0);
+      setIsDragging(false);
+      return;
+    }
+
+    // If dragged more than 30% of drawer width, close it
+    const drawerWidth = drawerRef.current?.offsetWidth || 320;
+    if (Math.abs(dragX) > drawerWidth * 0.3) {
+      setDragX(-drawerWidth);
+      setTimeout(() => {
+        setDrawerOpen(false);
+        setDragX(0);
+        setIsDragging(false);
+      }, 200);
+    } else {
+      setDragX(0);
+      setIsDragging(false);
+    }
+  }, [dragX, isDragging]);
 
   const toggleGroup = (index: number) => {
     setOpenGroups((prev) => {
@@ -286,10 +345,32 @@ export default function CatalogSidebar({
 
       {/* Mobile: Slide-in drawer from left */}
       <div
+        ref={overlayRef}
         className={`drawer-overlay md:hidden ${drawerOpen ? "open" : ""}`}
+        style={isDragging && drawerOpen ? {
+          opacity: Math.max(0, 1 + dragX / (drawerRef.current?.offsetWidth || 320)),
+          transition: "none",
+        } : undefined}
         onClick={() => setDrawerOpen(false)}
       />
-      <div className={`drawer-panel md:hidden ${drawerOpen ? "open" : ""}`}>
+      <div
+        ref={drawerRef}
+        className={`drawer-panel md:hidden ${drawerOpen ? "open" : ""}`}
+        style={isDragging && drawerOpen ? {
+          transform: `translateX(${dragX}px)`,
+          transition: "none",
+        } : dragX < -10 ? {
+          transform: `translateX(${dragX}px)`,
+          transition: "transform 0.2s ease-out",
+        } : undefined}
+        onTouchStart={onDrawerTouchStart}
+        onTouchMove={onDrawerTouchMove}
+        onTouchEnd={onDrawerTouchEnd}
+      >
+        {/* Drag handle indicator */}
+        <div className="flex justify-center pt-2 pb-0">
+          <div className="w-8 h-1 rounded-full bg-[#DADADA]" />
+        </div>
         <div className="sticky top-0 z-10 bg-white border-b border-[#EFEFEF] px-4 py-3 flex items-center justify-between" style={{ minHeight: '56px' }}>
           <h2 className="font-bold text-[#0A0A0A] text-base">Фільтри</h2>
           <button

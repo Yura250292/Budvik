@@ -49,71 +49,78 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <span className="text-[#0A0A0A]">{product.name}</span>
       </nav>
 
-      <div className="grid md:grid-cols-2 gap-4 sm:gap-8 relative">
-        {product.image ? (
-          <div className="relative">
+      <div className="grid md:grid-cols-2 gap-4 sm:gap-8 relative items-start">
+        {/* Left column — sticky image */}
+        <div className="md:sticky md:top-4">
+          {product.image ? (
             <ProductImageZoom src={product.image} alt={product.name} />
-          </div>
-        ) : (
-          <div className="bg-gray-100 rounded-xl flex items-center justify-center aspect-square">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
-          </div>
-        )}
+          ) : (
+            <div className="bg-gray-100 rounded-xl flex items-center justify-center aspect-square">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+            </div>
+          )}
+        </div>
 
+        {/* Right column — info */}
         <div>
           <span className="text-sm text-yellow-600 font-medium">{product.category.name}</span>
           <h1 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mt-1 mb-3 sm:mb-4 leading-snug">{product.name}</h1>
-          <ProductDescription description={product.description} />
 
-          <div className="flex items-baseline gap-2 sm:gap-3 mb-4 sm:mb-6 flex-wrap">
-            <span className={`text-2xl sm:text-4xl font-bold ${product.isPromo && product.promoPrice ? "text-[#0A0A0A]" : "text-[#0A0A0A]"}`}>
-              {formatPrice(displayPrice)}
-            </span>
-            {product.isPromo && product.promoPrice && product.promoPrice < product.price && (
-              <>
-                <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
-                <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">
-                  {product.promoLabel || `- ${Math.round((1 - product.promoPrice / product.price) * 100)}%`}
-                </span>
-              </>
-            )}
-            {isWholesale && product.wholesalePrice && product.wholesalePrice < product.price && !product.isPromo && (
-              <>
-                <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
-                <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">Оптова ціна</span>
-              </>
-            )}
-          </div>
-
-          <div className="mb-6">
-            {product.stock > 0 ? (
-              <span className="inline-flex items-center gap-1 text-green-600 text-sm font-medium">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                {isWholesale ? `В наявності (${product.stock} шт.)` : "В наявності"}
+          {/* Price + availability + cart — right after title */}
+          <div className="bg-gray-50 rounded-xl p-4 sm:p-5 mb-5 border border-gray-100">
+            <div className="flex items-baseline gap-2 sm:gap-3 mb-3 flex-wrap">
+              <span className="text-2xl sm:text-4xl font-bold text-[#0A0A0A]">
+                {formatPrice(displayPrice)}
               </span>
-            ) : (
-              <span className="text-red-500 text-sm font-medium">Немає в наявності</span>
+              {product.isPromo && product.promoPrice && product.promoPrice < product.price && (
+                <>
+                  <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
+                  <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">
+                    {product.promoLabel || `- ${Math.round((1 - product.promoPrice / product.price) * 100)}%`}
+                  </span>
+                </>
+              )}
+              {isWholesale && product.wholesalePrice && product.wholesalePrice < product.price && !product.isPromo && (
+                <>
+                  <span className="text-lg text-gray-400 line-through">{formatPrice(product.price)}</span>
+                  <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">Оптова ціна</span>
+                </>
+              )}
+            </div>
+
+            <div className="mb-3">
+              {product.stock > 0 ? (
+                <span className="inline-flex items-center gap-1 text-green-600 text-sm font-medium">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  {isWholesale ? `В наявності (${product.stock} шт.)` : "В наявності"}
+                </span>
+              ) : (
+                <span className="text-red-500 text-sm font-medium">Немає в наявності</span>
+              )}
+            </div>
+
+            {product.stock > 0 && (
+              <AddToCartButton
+                productId={product.id}
+                name={product.name}
+                price={displayPrice}
+                slug={product.slug}
+              />
             )}
+
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <p className="text-sm text-yellow-700">
+                Кешбек за цей товар: <strong>{Math.floor(displayPrice * 0.05)} Болтів</strong>
+              </p>
+            </div>
           </div>
 
-          {product.stock > 0 && (
-            <AddToCartButton
-              productId={product.id}
-              name={product.name}
-              price={displayPrice}
-              slug={product.slug}
-            />
-          )}
-
-          <div className="mt-8 bg-yellow-50 rounded-lg p-4 border border-yellow-100">
-            <p className="text-sm text-yellow-700">
-              Кешбек за цей товар: <strong>{Math.floor(displayPrice * 0.05)} Болтів</strong>
-            </p>
-          </div>
+          {/* Description below price block */}
+          <ProductDescription description={product.description} />
         </div>
       </div>
 

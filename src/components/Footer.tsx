@@ -8,9 +8,10 @@ import { usePathname } from "next/navigation";
 export default function Footer() {
   const pathname = usePathname();
   const [showCallback, setShowCallback] = useState(false);
-  if (pathname?.startsWith("/sales")) return null;
   const [callbackPhone, setCallbackPhone] = useState("");
   const [callbackSent, setCallbackSent] = useState(false);
+
+  if (pathname?.startsWith("/sales")) return null;
 
   return (
     <>

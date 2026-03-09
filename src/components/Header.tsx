@@ -12,7 +12,6 @@ import { getCompareCount } from "@/lib/compare";
 export default function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  if (pathname?.startsWith("/sales")) return null;
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
   const [compareCount, setCompareCount] = useState(0);
@@ -33,6 +32,8 @@ export default function Header() {
   }, []);
 
   const role = (session?.user as any)?.role;
+
+  if (pathname?.startsWith("/sales")) return null;
 
   const navLinkClass = "text-white/80 hover:text-[#FFD600] transition text-sm font-medium text-center";
 

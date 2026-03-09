@@ -232,6 +232,22 @@ export async function searchProductsForAI(query: string): Promise<string> {
 
   if (finalProducts.length === 0) return "\nРЕЗУЛЬТАТИ ПОШУКУ: Нічого не знайдено за запитом.\n";
 
+  // Detect if user is asking for a TOOL (not an accessory)
+  // Original keywords (before synonym expansion) determine user intent
+  const toolKeywords = new Set([
+    "болгарка", "болгарку", "болгарки", "кшм", "шліфмашина", "шліфмашину",
+    "дриль", "дрель", "шуруповерт", "перфоратор",
+    "лобзик", "електролобзик", "пила", "пилу", "циркулярка",
+    "фрезер", "рубанок", "електрорубанок",
+    "фен", "степлер", "краскопульт", "компресор", "генератор",
+    "зварка", "зварювальний", "інвертор",
+    "реноватор", "гайковерт", "міксер", "різак",
+  ]);
+  const userWantsTool = keywords.some((kw) => toolKeywords.has(kw));
+
+  // Accessory category patterns (discs, brushes, bits, etc.)
+  const accessoryCategories = /круг|диск|щітк|свердл|біт|насад|коронк|бур |патрон|зачис|відріз|шліфувал.*круг/i;
+
   // Score products by relevance: keyword matches + semantic score bonus
   const scored = finalProducts.map((p) => {
     const nameLower = p.name.toLowerCase();
@@ -239,12 +255,14 @@ export async function searchProductsForAI(query: string): Promise<string> {
     const catLower = p.category.name.toLowerCase();
     let score = 0;
 
-    // Keyword matching
+    // Keyword matching — NAME match is worth much more than description match
+    let nameMatch = false;
+    let catMatch = false;
     let matchedKeywords = 0;
     for (const kw of unique) {
       let matched = false;
-      if (nameLower.includes(kw)) { score += 3; matched = true; }
-      if (catLower.includes(kw)) { score += 2; matched = true; }
+      if (nameLower.includes(kw)) { score += 10; matched = true; nameMatch = true; }
+      if (catLower.includes(kw)) { score += 6; matched = true; catMatch = true; }
       if (descLower.includes(kw)) { score += 1; matched = true; }
       if (matched) matchedKeywords++;
     }
@@ -254,6 +272,25 @@ export async function searchProductsForAI(query: string): Promise<string> {
       score += 15;
     } else if (unique.length > 2 && matchedKeywords >= unique.length - 1) {
       score += 8;
+    }
+
+    // CRITICAL: When user asks for a TOOL, heavily boost actual tools and penalize accessories
+    if (userWantsTool) {
+      const isAccessory = accessoryCategories.test(catLower);
+      const isToolCategory = catLower.includes("болгарк") || catLower.includes("кшм") ||
+        catLower.includes("дрил") || catLower.includes("перфоратор") ||
+        catLower.includes("шуруповерт") || catLower.includes("пил") ||
+        catLower.includes("лобзик") || catLower.includes("фрезер") ||
+        catLower.includes("рубанок") || catLower.includes("шліфмашин") ||
+        catLower.includes("фен") || catLower.includes("зварюв") ||
+        catLower.includes("компресор") || catLower.includes("генератор") ||
+        catLower.includes("електроінструмент");
+
+      if (isToolCategory || (nameMatch && !isAccessory)) {
+        score += 50; // Massive boost for actual tools
+      } else if (isAccessory && !nameMatch) {
+        score -= 30; // Penalize accessories that only match in description
+      }
     }
 
     // Semantic relevance bonus (products AI considers similar to the query)
@@ -286,6 +323,9 @@ export async function searchProductsForAI(query: string): Promise<string> {
   let context = `\nРЕЗУЛЬТАТИ ПОШУКУ (знайдено ${finalProducts.length}, показано ${topProducts.length} найрелевантніших):\n`;
   context += `УВАГА: Використовуй ТІЛЬКИ товари з цього списку. Копіюй назви ТОЧНО як написано.\n`;
   context += `ВАЖЛИВО: Рекомендуй ТІЛЬКИ товари з позначкою ✅ (в наявності). Товари з ❌ (немає) — НЕ рекомендуй, якщо є альтернативи в наявності.\n`;
+  if (userWantsTool) {
+    context += `⚡ КЛІЄНТ ШУКАЄ ІНСТРУМЕНТ — рекомендуй ІНСТРУМЕНТИ (позначені 🔧), а НЕ витратні матеріали (позначені 🔩)!\n`;
+  }
 
   for (const [category, items] of Object.entries(byCategory)) {
     context += `\n📁 ${category} (${items.length} товарів):\n`;
@@ -293,7 +333,9 @@ export async function searchProductsForAI(query: string): Promise<string> {
       const stock = p.stock > 0 ? `✅ ${p.stock} шт` : "❌ Немає";
       const promo = p.isPromo && p.promoPrice ? ` | 🔥 Акція: ${p.promoPrice} грн` : "";
       const desc = stripHtml(p.description || "").slice(0, 150);
-      context += `  - [ID:${p.id.slice(-8)}] ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
+      const isAcc = accessoryCategories.test(p.category.name.toLowerCase());
+      const typeTag = userWantsTool ? (isAcc ? "🔩" : "🔧") : "";
+      context += `  - ${typeTag}[ID:${p.id.slice(-8)}] ${p.name} | ${p.price} грн${promo} | ${stock} | ${desc}\n`;
     }
   }
 

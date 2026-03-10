@@ -319,21 +319,27 @@ export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
   const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
 
   const codeIdx = headers.findIndex((h) => ["код", "code", "єдрпоу", "едрпоу", "id", "ід"].includes(h));
-  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name"].includes(h));
+  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name", "counterparty_name"].includes(h));
   const typeIdx = headers.findIndex((h) => ["тип", "type"].includes(h));
   const phoneIdx = headers.findIndex((h) => ["телефон", "phone"].includes(h));
   const emailIdx = headers.findIndex((h) => ["email", "пошта", "e-mail"].includes(h));
   const addressIdx = headers.findIndex((h) => ["адреса", "адрес", "address"].includes(h));
   const contactIdx = headers.findIndex((h) => ["контакт", "контактна особа", "contactperson"].includes(h));
 
-  if (codeIdx === -1 || nameIdx === -1) return [];
+  // Support single-column format (just name, no code)
+  if (nameIdx === -1) return [];
 
   const result: ParsedCounterparty[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i].trim(), sep);
-    const code = cols[codeIdx]?.trim();
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCSVLine(line, sep);
     const name = cols[nameIdx]?.trim();
-    if (!code || !name) continue;
+    if (!name || name.length < 3) continue;
+
+    // Auto-generate code if not present
+    const code = codeIdx >= 0 ? cols[codeIdx]?.trim() : undefined;
+    const autoCode = code || `1C-${String(i).padStart(4, "0")}`;
 
     let type: "SUPPLIER" | "CUSTOMER" | "BOTH" = "BOTH";
     if (typeIdx >= 0) {
@@ -343,7 +349,7 @@ export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
     }
 
     result.push({
-      code,
+      code: autoCode,
       name,
       type,
       phone: phoneIdx >= 0 ? cols[phoneIdx]?.trim() || undefined : undefined,

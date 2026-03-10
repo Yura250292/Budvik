@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
@@ -17,7 +17,7 @@ type ItemForm = {
   sellingPrice: number;
   purchasePrice: number;
   discountPercent: number;
-  retailPrice: number; // for reference
+  retailPrice: number;
 };
 
 export default function SalesDocumentDetailPage() {
@@ -38,8 +38,16 @@ export default function SalesDocumentDetailPage() {
 
   const [customers, setCustomers] = useState<any[]>([]);
   const [salesReps, setSalesReps] = useState<any[]>([]);
+
+  // Product search state
   const [productSearch, setProductSearch] = useState("");
   const [productResults, setProductResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const role = (session?.user as any)?.role;
 
@@ -71,6 +79,17 @@ export default function SalesDocumentDetailPage() {
     }
   }, [isNew, session, role]);
 
+  // Click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const fetchDoc = useCallback(async () => {
     if (isNew) return;
     setLoading(true);
@@ -99,23 +118,36 @@ export default function SalesDocumentDetailPage() {
 
   useEffect(() => { fetchDoc(); }, [fetchDoc]);
 
-  const searchProducts = async (query: string) => {
+  // Debounced product search using ERP endpoint
+  const searchProducts = (query: string) => {
     setProductSearch(query);
-    if (query.length < 2) { setProductResults([]); return; }
-    const res = await fetch(`/api/products?search=${encodeURIComponent(query)}&limit=10`);
-    const data = await res.json();
-    setProductResults(data.products || data || []);
+    setHighlightIndex(-1);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (query.trim().length < 1) {
+      setProductResults([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/erp/products?search=${encodeURIComponent(query.trim())}&limit=20`);
+        const data = await res.json();
+        setProductResults(Array.isArray(data) ? data : []);
+        setShowDropdown(true);
+      } catch {
+        setProductResults([]);
+      }
+      setSearchLoading(false);
+    }, 250);
   };
 
-  const addProduct = async (product: any) => {
-    // Fetch purchase price
-    let purchasePrice = 0;
-    try {
-      const res = await fetch(`/api/erp/counterparties`); // We'll use a simpler approach
-      purchasePrice = 0; // Will be filled from supplier products
-    } catch {}
-
-    if (items.some((i) => i.productId === product.id)) {
+  const addProduct = (product: any) => {
+    const alreadyAdded = items.find((i) => i.productId === product.id);
+    if (alreadyAdded) {
       setItems(items.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i)));
     } else {
       setItems([
@@ -126,7 +158,7 @@ export default function SalesDocumentDetailPage() {
           sku: product.sku || "",
           quantity: 1,
           sellingPrice: product.price,
-          purchasePrice: 0, // Will be set by user or auto-filled
+          purchasePrice: product.purchasePrice || 0,
           discountPercent: 0,
           retailPrice: product.price,
         },
@@ -134,13 +166,32 @@ export default function SalesDocumentDetailPage() {
     }
     setProductSearch("");
     setProductResults([]);
+    setShowDropdown(false);
+    inputRef.current?.focus();
+  };
+
+  // Keyboard navigation in search dropdown
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (!showDropdown || productResults.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((prev) => (prev < productResults.length - 1 ? prev + 1 : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((prev) => (prev > 0 ? prev - 1 : productResults.length - 1));
+    } else if (e.key === "Enter" && highlightIndex >= 0) {
+      e.preventDefault();
+      addProduct(productResults[highlightIndex]);
+    } else if (e.key === "Escape") {
+      setShowDropdown(false);
+    }
   };
 
   const updateItem = (index: number, field: string, value: number) => {
     setItems(items.map((item, i) => {
       if (i !== index) return item;
       const updated = { ...item, [field]: value };
-      // Auto-calculate discount percent when selling price changes
       if (field === "sellingPrice" && item.retailPrice > 0) {
         updated.discountPercent = Math.round(((item.retailPrice - value) / item.retailPrice) * 100 * 100) / 100;
       }
@@ -217,6 +268,7 @@ export default function SalesDocumentDetailPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9E9E9E" }}>Завантаження...</div>;
 
   const isDraft = isNew || doc?.status === "DRAFT";
+  const addedProductIds = new Set(items.map((i) => i.productId));
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
@@ -324,23 +376,102 @@ export default function SalesDocumentDetailPage() {
         {isDraft && (
           <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
             <label className="block text-sm font-medium text-g600 mb-2">Додати товар</label>
-            <div className="relative">
-              <input value={productSearch} onChange={(e) => searchProducts(e.target.value)} placeholder="Пошук за назвою або артикулом..."
-                style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
-              {productResults.length > 0 && (
-                <div className="absolute z-10 w-full bg-white border rounded-lg mt-1 max-h-60 overflow-y-auto" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}>
-                  {productResults.map((p: any) => (
-                    <button key={p.id} onClick={() => addProduct(p)} className="w-full text-left px-4 py-3 hover:bg-g50 flex justify-between" style={{ borderBottom: "1px solid #F3F4F6" }}>
-                      <div>
-                        <span style={{ fontSize: "14px", fontWeight: 500 }}>{p.name}</span>
-                        {p.sku && <span style={{ fontSize: "12px", color: "#9CA3AF", marginLeft: "8px" }}>{p.sku}</span>}
-                      </div>
-                      <div className="text-right">
-                        <span style={{ fontSize: "13px", color: "#6B7280" }}>{formatPrice(p.price)}</span>
-                        <span style={{ fontSize: "11px", color: "#9CA3AF", marginLeft: "8px" }}>({p.stock} шт)</span>
-                      </div>
-                    </button>
-                  ))}
+            <div className="relative" ref={searchRef}>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  ref={inputRef}
+                  value={productSearch}
+                  onChange={(e) => searchProducts(e.target.value)}
+                  onFocus={() => { if (productResults.length > 0) setShowDropdown(true); }}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Назва, артикул або категорія..."
+                  style={{ width: "100%", padding: "10px 14px 10px 38px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                />
+                {searchLoading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div style={{ width: 16, height: 16, border: "2px solid #E5E7EB", borderTopColor: "#FFD600", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                  </div>
+                )}
+              </div>
+
+              {showDropdown && productResults.length > 0 && (
+                <div className="absolute z-20 w-full bg-white border rounded-xl mt-1 max-h-[400px] overflow-y-auto" style={{ boxShadow: "0 12px 36px rgba(0,0,0,0.14)", border: "1px solid #E5E7EB" }}>
+                  {productResults.map((p: any, idx: number) => {
+                    const isAdded = addedProductIds.has(p.id);
+                    const isHighlighted = idx === highlightIndex;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => addProduct(p)}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 transition-colors"
+                        style={{
+                          borderBottom: idx < productResults.length - 1 ? "1px solid #F3F4F6" : "none",
+                          background: isHighlighted ? "#FFF9DB" : isAdded ? "#F9FAFB" : "white",
+                        }}
+                        onMouseEnter={() => setHighlightIndex(idx)}
+                      >
+                        {/* Product image */}
+                        {p.image ? (
+                          <img src={p.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" style={{ border: "1px solid #F3F4F6" }} />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center" style={{ background: "#F3F4F6" }}>
+                            <svg className="w-5 h-5 text-[#D1D5DB]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                            </svg>
+                          </div>
+                        )}
+
+                        {/* Product info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span style={{ fontSize: "14px", fontWeight: 500, color: "#0A0A0A" }} className="truncate">{p.name}</span>
+                            {isAdded && (
+                              <span style={{ fontSize: "10px", fontWeight: 600, color: "#16A34A", background: "#DCFCE7", padding: "1px 6px", borderRadius: "4px", flexShrink: 0 }}>
+                                В документі
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {p.sku && (
+                              <span style={{ fontSize: "12px", color: "#6B7280", fontFamily: "monospace" }}>{p.sku}</span>
+                            )}
+                            {p.category && (
+                              <span style={{ fontSize: "11px", color: "#9CA3AF", background: "#F3F4F6", padding: "1px 6px", borderRadius: "4px" }}>
+                                {p.category}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Price and stock info */}
+                        <div className="text-right flex-shrink-0">
+                          <div style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{formatPrice(p.price)}</div>
+                          <div className="flex items-center gap-2 justify-end mt-0.5">
+                            {p.purchasePrice > 0 && (
+                              <span style={{ fontSize: "11px", color: "#6B7280" }}>вхід: {formatPrice(p.purchasePrice)}</span>
+                            )}
+                            <span style={{
+                              fontSize: "11px",
+                              fontWeight: 500,
+                              color: p.stock > 0 ? "#16A34A" : "#DC2626",
+                            }}>
+                              {p.stock > 0 ? `${p.stock} шт` : "Немає"}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {showDropdown && !searchLoading && productSearch.trim().length >= 1 && productResults.length === 0 && (
+                <div className="absolute z-20 w-full bg-white border rounded-xl mt-1 px-4 py-6 text-center" style={{ boxShadow: "0 12px 36px rgba(0,0,0,0.14)", border: "1px solid #E5E7EB" }}>
+                  <p style={{ fontSize: "14px", color: "#9CA3AF" }}>Товарів не знайдено</p>
+                  <p style={{ fontSize: "12px", color: "#D1D5DB", marginTop: "4px" }}>Спробуйте інший запит або артикул</p>
                 </div>
               )}
             </div>
@@ -468,6 +599,12 @@ export default function SalesDocumentDetailPage() {
           </div>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

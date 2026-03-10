@@ -4,12 +4,12 @@ import { useSession } from "next-auth/react";
 import { useState } from "react";
 import Link from "next/link";
 
-type Step = "counterparties" | "documents" | "done";
+type Step = "products" | "counterparties" | "documents" | "done";
 type ImportResult = { created?: number; updated?: number; imported?: number; skipped?: number; errors?: string[]; total?: number; count?: number; items?: any[] };
 
 export default function ImportPage() {
   const { data: session } = useSession();
-  const [step, setStep] = useState<Step>("counterparties");
+  const [step, setStep] = useState<Step>("products");
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState<"purchase" | "sales">("purchase");
   const [loading, setLoading] = useState(false);
@@ -29,6 +29,62 @@ export default function ImportPage() {
     setResult(null);
   };
 
+  // --- Products CSV handlers ---
+  const handleProductsPreview = async () => {
+    if (!file) return;
+    setLoading(true);
+    setPreview(null);
+    setResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("mode", "preview");
+
+      const res = await fetch("/api/erp/import/products", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setPreview(data);
+      } else {
+        alert(data.error || "Помилка");
+      }
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    }
+    setLoading(false);
+  };
+
+  const handleProductsImport = async () => {
+    if (!file) return;
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/erp/import/products", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setResult(data);
+        setAllResults((prev) => [...prev, { step: "Товари (CSV)", result: data }]);
+      } else {
+        alert(data.error || "Помилка");
+      }
+    } catch (e: any) {
+      alert(`Помилка: ${e.message}`);
+    }
+    setLoading(false);
+  };
+
+  // --- Counterparties / Documents handlers ---
   const handlePreview = async () => {
     if (!file) return;
     setLoading(true);
@@ -73,7 +129,9 @@ export default function ImportPage() {
   };
 
   const goNext = () => {
-    if (step === "counterparties") {
+    if (step === "products") {
+      setStep("counterparties");
+    } else if (step === "counterparties") {
       setStep("documents");
     } else {
       setStep("done");
@@ -82,9 +140,10 @@ export default function ImportPage() {
   };
 
   const STEPS = [
-    { key: "counterparties", label: "1. Контрагенти" },
-    { key: "documents", label: "2. Документи" },
-    { key: "done", label: "3. Готово" },
+    { key: "products", label: "1. Товари" },
+    { key: "counterparties", label: "2. Контрагенти" },
+    { key: "documents", label: "3. Документи" },
+    { key: "done", label: "4. Готово" },
   ];
 
   return (
@@ -118,6 +177,115 @@ export default function ImportPage() {
           ))}
         </div>
 
+        {/* Step: Products CSV Import */}
+        {step === "products" && (
+          <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "8px" }}>Імпорт товарів (CSV)</h2>
+            <p style={{ fontSize: "14px", color: "#6B7280", marginBottom: "20px" }}>
+              Завантажте CSV файл з товарами. Колонка <strong>product_name</strong> (або назва, товар) — обов&#39;язкова.
+              Додатково: sku, price, stock, category.
+            </p>
+
+            <div style={{ padding: "12px 16px", background: "#EFF6FF", borderRadius: "8px", border: "1px solid #BFDBFE", marginBottom: "20px" }}>
+              <p style={{ fontSize: "13px", color: "#1E40AF" }}>
+                <strong>Підказка:</strong> Щоб отримати CSV з файлу 1С (.dt), запустіть на комп&#39;ютері:<br/>
+                <code style={{ background: "#DBEAFE", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>
+                  python3 scripts/convert-1c-dt.py &quot;файл.dt&quot; output/
+                </code><br/>
+                Результат: <code style={{ background: "#DBEAFE", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>output/products.csv</code> — завантажте цей файл сюди.
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (CSV або TXT)</label>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
+                style={{ fontSize: "14px" }}
+              />
+              {file && (
+                <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+                  {file.name} ({(file.size / 1024).toFixed(0)} КБ)
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3 mb-6">
+              <button
+                onClick={handleProductsPreview}
+                disabled={!file || loading}
+                style={{
+                  background: "white", border: "1px solid #E5E7EB", padding: "10px 20px",
+                  borderRadius: "8px", fontWeight: 600, fontSize: "14px",
+                  opacity: !file || loading ? 0.5 : 1, cursor: !file || loading ? "not-allowed" : "pointer",
+                }}
+              >
+                {loading && !preview ? "Обробляю..." : "Попередній перегляд"}
+              </button>
+              {preview && !result && (
+                <button
+                  onClick={handleProductsImport}
+                  disabled={loading}
+                  style={{
+                    background: "#FFD600", padding: "10px 20px", borderRadius: "8px",
+                    fontWeight: 600, fontSize: "14px", opacity: loading ? 0.5 : 1,
+                    cursor: loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {loading ? "Імпортую..." : `Імпортувати (${preview.count} товарів)`}
+                </button>
+              )}
+            </div>
+
+            {/* Products Preview */}
+            {preview && !result && (
+              <div style={{ marginBottom: "16px" }}>
+                <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
+                  Знайдено: {preview.count} товарів
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid #EFEFEF" }}>
+                        <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", width: "40px" }}>#</th>
+                        <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280" }}>Назва</th>
+                        <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280" }}>SKU</th>
+                        <th style={{ padding: "6px 8px", textAlign: "right", color: "#6B7280" }}>Ціна</th>
+                        <th style={{ padding: "6px 8px", textAlign: "right", color: "#6B7280" }}>Залишок</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.items?.map((item: any, i: number) => (
+                        <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                          <td style={{ padding: "6px 8px", color: "#9CA3AF" }}>{i + 1}</td>
+                          <td style={{ padding: "6px 8px" }}>{item.name}</td>
+                          <td style={{ padding: "6px 8px", color: "#6B7280", fontSize: "12px" }}>{item.sku}</td>
+                          <td style={{ padding: "6px 8px", textAlign: "right" }}>{item.price || 0}</td>
+                          <td style={{ padding: "6px 8px", textAlign: "right" }}>{item.stock || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(preview.count || 0) > 50 && (
+                    <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "8px" }}>Показано перші 50 з {preview.count}...</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Products Result */}
+            {result && <ResultCard result={result} label="товарів" />}
+
+            <div className="flex justify-end mt-4">
+              <button onClick={goNext}
+                style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
+                {result ? "Далі: Контрагенти" : "Пропустити"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Step: Counterparties */}
         {step === "counterparties" && (
           <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
@@ -127,7 +295,7 @@ export default function ImportPage() {
             </p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-g600 mb-2">Файл (XML або CSV)</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (XML або CSV)</label>
               <input type="file" accept=".xml,.csv,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
                 style={{ fontSize: "14px" }} />
             </div>
@@ -160,12 +328,12 @@ export default function ImportPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.items?.map((item, i) => (
+                      {preview.items?.map((item: any, i: number) => (
                         <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
                           <td style={{ padding: "6px 8px" }}>{item.code}</td>
                           <td style={{ padding: "6px 8px" }}>{item.name}</td>
                           <td style={{ padding: "6px 8px" }}>{item.type}</td>
-                          <td style={{ padding: "6px 8px" }}>{item.phone || "—"}</td>
+                          <td style={{ padding: "6px 8px" }}>{item.phone || "\u2014"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -178,7 +346,11 @@ export default function ImportPage() {
             {/* Result */}
             {result && <ResultCard result={result} label="контрагентів" />}
 
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-between mt-4">
+              <button onClick={() => { setStep("products"); resetForm(); }}
+                style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
+                Назад
+              </button>
               <button onClick={goNext}
                 style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
                 {result ? "Далі: Документи" : "Пропустити"}
@@ -215,7 +387,7 @@ export default function ImportPage() {
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-g600 mb-2">Файл (XML)</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (XML)</label>
               <input type="file" accept=".xml" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
                 style={{ fontSize: "14px" }} />
             </div>
@@ -248,11 +420,11 @@ export default function ImportPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.items?.map((item, i) => (
+                      {preview.items?.map((item: any, i: number) => (
                         <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
                           <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.number}</td>
                           <td style={{ padding: "6px 8px" }}>{item.date}</td>
-                          <td style={{ padding: "6px 8px" }}>{item.supplierCode || item.customerCode || "—"}</td>
+                          <td style={{ padding: "6px 8px" }}>{item.supplierCode || item.customerCode || "\u2014"}</td>
                           <td style={{ padding: "6px 8px", textAlign: "right" }}>{item.items?.length || 0}</td>
                         </tr>
                       ))}
@@ -305,7 +477,7 @@ export default function ImportPage() {
             )}
 
             <div className="flex gap-3 justify-center mt-8">
-              <button onClick={() => { setStep("counterparties"); setAllResults([]); resetForm(); }}
+              <button onClick={() => { setStep("products"); setAllResults([]); resetForm(); }}
                 style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
                 Новий імпорт
               </button>

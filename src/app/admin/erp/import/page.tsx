@@ -1,11 +1,14 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 
 type Step = "products" | "counterparties" | "documents" | "done";
 type ImportResult = { created?: number; updated?: number; imported?: number; skipped?: number; errors?: string[]; total?: number; count?: number; items?: any[] };
+type Progress = { current: number; total: number; created: number; skipped: number; updated: number; errors: string[] };
+
+const BATCH_SIZE = 100;
 
 export default function ImportPage() {
   const { data: session } = useSession();
@@ -16,6 +19,8 @@ export default function ImportPage() {
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [allResults, setAllResults] = useState<{ step: string; result: ImportResult }[]>([]);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const cancelRef = useRef(false);
 
   const role = (session?.user as any)?.role;
 
@@ -27,6 +32,8 @@ export default function ImportPage() {
     setFile(null);
     setPreview(null);
     setResult(null);
+    setProgress(null);
+    cancelRef.current = false;
   };
 
   // --- Products CSV handlers ---
@@ -35,6 +42,7 @@ export default function ImportPage() {
     setLoading(true);
     setPreview(null);
     setResult(null);
+    setProgress(null);
 
     try {
       const formData = new FormData();
@@ -59,44 +67,89 @@ export default function ImportPage() {
   };
 
   const handleProductsImport = async () => {
-    if (!file) return;
+    if (!file || !preview) return;
     setLoading(true);
+    cancelRef.current = false;
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
+    // Parse CSV on client to get all items
+    const text = await file.text();
+    const lines = text.trim().split("\n");
+    const sep = lines[0].includes(";") ? ";" : ",";
+    const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+    const nameIdx = headers.findIndex((h) => ["product_name", "name", "назва", "найменування", "наименование", "товар"].includes(h));
+    const skuIdx = headers.findIndex((h) => ["sku", "артикул", "код", "id"].includes(h));
+    const priceIdx = headers.findIndex((h) => ["price", "ціна", "цена"].includes(h));
+    const stockIdx = headers.findIndex((h) => ["stock", "залишок", "остаток", "кількість"].includes(h));
+    const catIdx = headers.findIndex((h) => ["category", "категорія", "категория"].includes(h));
 
-      const res = await fetch("/api/erp/import/products", {
-        method: "POST",
-        body: formData,
+    const allItems: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i].trim(), sep);
+      const name = cols[nameIdx]?.trim().replace(/^"(.*)"$/, "$1");
+      if (!name || name.length < 3) continue;
+      allItems.push({
+        name,
+        sku: skuIdx >= 0 ? cols[skuIdx]?.trim().replace(/^"(.*)"$/, "$1") : undefined,
+        price: priceIdx >= 0 ? parseFloat(cols[priceIdx]?.replace(",", ".").replace(/\s/g, "")) : undefined,
+        stock: stockIdx >= 0 ? parseInt(cols[stockIdx]?.trim(), 10) : undefined,
+        category: catIdx >= 0 ? cols[catIdx]?.trim().replace(/^"(.*)"$/, "$1") : undefined,
       });
-      const data = await res.json();
-
-      if (res.ok) {
-        setResult(data);
-        setAllResults((prev) => [...prev, { step: "Товари (CSV)", result: data }]);
-      } else {
-        alert(data.error || "Помилка");
-      }
-    } catch (e: any) {
-      alert(`Помилка: ${e.message}`);
     }
+
+    const total = allItems.length;
+    const prog: Progress = { current: 0, total, created: 0, skipped: 0, updated: 0, errors: [] };
+    setProgress({ ...prog });
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      if (cancelRef.current) break;
+
+      const batch = allItems.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await fetch("/api/erp/import/products/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: batch }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          prog.created += data.created || 0;
+          prog.skipped += data.skipped || 0;
+          if (data.errors) prog.errors.push(...data.errors);
+        } else {
+          prog.errors.push(data.error || `Помилка batch ${i}`);
+        }
+      } catch (e: any) {
+        prog.errors.push(`Batch ${i}: ${e.message}`);
+      }
+      prog.current = Math.min(i + BATCH_SIZE, total);
+      setProgress({ ...prog });
+    }
+
+    const finalResult: ImportResult = {
+      created: prog.created,
+      skipped: prog.skipped,
+      errors: prog.errors.slice(0, 30),
+      total: prog.total,
+    };
+    setResult(finalResult);
+    setProgress(null);
+    setAllResults((prev) => [...prev, { step: "Товари (CSV)", result: finalResult }]);
     setLoading(false);
   };
 
-  // --- Counterparties / Documents handlers ---
-  const handlePreview = async () => {
+  // --- Counterparties handler with batching ---
+  const handleCounterpartiesPreview = async () => {
     if (!file) return;
     setLoading(true);
     setPreview(null);
+    setResult(null);
+    setProgress(null);
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("mode", "preview");
-    if (step === "documents") formData.append("type", docType);
 
-    const url = step === "counterparties" ? "/api/erp/import/counterparties" : "/api/erp/import/documents";
-    const res = await fetch(url, { method: "POST", body: formData });
+    const res = await fetch("/api/erp/import/counterparties", { method: "POST", body: formData });
     const data = await res.json();
 
     if (res.ok) {
@@ -107,21 +160,99 @@ export default function ImportPage() {
     setLoading(false);
   };
 
-  const handleImport = async () => {
+  const handleCounterpartiesImport = async () => {
+    if (!file || !preview) return;
+    setLoading(true);
+    cancelRef.current = false;
+
+    // Get all parsed items via preview (returns all)
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("mode", "preview");
+    const previewRes = await fetch("/api/erp/import/counterparties", { method: "POST", body: formData });
+    const previewData = await previewRes.json();
+
+    if (!previewRes.ok) {
+      alert(previewData.error || "Помилка");
+      setLoading(false);
+      return;
+    }
+
+    const allItems = previewData.items || [];
+    const total = allItems.length;
+    const prog: Progress = { current: 0, total, created: 0, skipped: 0, updated: 0, errors: [] };
+    setProgress({ ...prog });
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      if (cancelRef.current) break;
+
+      const batch = allItems.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await fetch("/api/erp/import/counterparties/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: batch }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          prog.created += data.created || 0;
+          prog.updated += data.updated || 0;
+          if (data.errors) prog.errors.push(...data.errors);
+        } else {
+          prog.errors.push(data.error || `Помилка batch ${i}`);
+        }
+      } catch (e: any) {
+        prog.errors.push(`Batch ${i}: ${e.message}`);
+      }
+      prog.current = Math.min(i + BATCH_SIZE, total);
+      setProgress({ ...prog });
+    }
+
+    const finalResult: ImportResult = {
+      created: prog.created,
+      updated: prog.updated,
+      errors: prog.errors.slice(0, 30),
+      total: prog.total,
+    };
+    setResult(finalResult);
+    setProgress(null);
+    setAllResults((prev) => [...prev, { step: "Контрагенти", result: finalResult }]);
+    setLoading(false);
+  };
+
+  // --- Documents handlers (no batching needed - typically small) ---
+  const handleDocPreview = async () => {
+    if (!file) return;
+    setLoading(true);
+    setPreview(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("mode", "preview");
+    formData.append("type", docType);
+
+    const res = await fetch("/api/erp/import/documents", { method: "POST", body: formData });
+    const data = await res.json();
+
+    if (res.ok) setPreview(data);
+    else alert(data.error || "Помилка");
+    setLoading(false);
+  };
+
+  const handleDocImport = async () => {
     if (!file) return;
     setLoading(true);
 
     const formData = new FormData();
     formData.append("file", file);
-    if (step === "documents") formData.append("type", docType);
+    formData.append("type", docType);
 
-    const url = step === "counterparties" ? "/api/erp/import/counterparties" : "/api/erp/import/documents";
-    const res = await fetch(url, { method: "POST", body: formData });
+    const res = await fetch("/api/erp/import/documents", { method: "POST", body: formData });
     const data = await res.json();
 
     if (res.ok) {
       setResult(data);
-      setAllResults((prev) => [...prev, { step: step === "counterparties" ? "Контрагенти" : docType === "purchase" ? "Закупівлі" : "Продажі", result: data }]);
+      setAllResults((prev) => [...prev, { step: docType === "purchase" ? "Закупівлі" : "Продажі", result: data }]);
     } else {
       alert(data.error || "Помилка");
     }
@@ -129,13 +260,9 @@ export default function ImportPage() {
   };
 
   const goNext = () => {
-    if (step === "products") {
-      setStep("counterparties");
-    } else if (step === "counterparties") {
-      setStep("documents");
-    } else {
-      setStep("done");
-    }
+    if (step === "products") setStep("counterparties");
+    else if (step === "counterparties") setStep("documents");
+    else setStep("done");
     resetForm();
   };
 
@@ -145,6 +272,8 @@ export default function ImportPage() {
     { key: "documents", label: "3. Документи" },
     { key: "done", label: "4. Готово" },
   ];
+
+  const progressPercent = progress ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
@@ -191,8 +320,7 @@ export default function ImportPage() {
                 <strong>Підказка:</strong> Щоб отримати CSV з файлу 1С (.dt), запустіть на комп&#39;ютері:<br/>
                 <code style={{ background: "#DBEAFE", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>
                   python3 scripts/convert-1c-dt.py &quot;файл.dt&quot; output/
-                </code><br/>
-                Результат: <code style={{ background: "#DBEAFE", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>output/products.csv</code> — завантажте цей файл сюди.
+                </code>
               </p>
             </div>
 
@@ -201,7 +329,7 @@ export default function ImportPage() {
               <input
                 type="file"
                 accept=".csv,.txt"
-                onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
+                onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); setProgress(null); }}
                 style={{ fontSize: "14px" }}
               />
               {file && (
@@ -221,9 +349,9 @@ export default function ImportPage() {
                   opacity: !file || loading ? 0.5 : 1, cursor: !file || loading ? "not-allowed" : "pointer",
                 }}
               >
-                {loading && !preview ? "Обробляю..." : "Попередній перегляд"}
+                {loading && !preview && !progress ? "Обробляю..." : "Попередній перегляд"}
               </button>
-              {preview && !result && (
+              {preview && !result && !progress && (
                 <button
                   onClick={handleProductsImport}
                   disabled={loading}
@@ -233,13 +361,16 @@ export default function ImportPage() {
                     cursor: loading ? "not-allowed" : "pointer",
                   }}
                 >
-                  {loading ? "Імпортую..." : `Імпортувати (${preview.count} товарів)`}
+                  Імпортувати ({preview.count} товарів)
                 </button>
               )}
             </div>
 
+            {/* Progress Bar */}
+            {progress && <ProgressBar progress={progress} onCancel={() => { cancelRef.current = true; }} />}
+
             {/* Products Preview */}
-            {preview && !result && (
+            {preview && !result && !progress && (
               <div style={{ marginBottom: "16px" }}>
                 <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
                   Знайдено: {preview.count} товарів
@@ -278,8 +409,8 @@ export default function ImportPage() {
             {result && <ResultCard result={result} label="товарів" />}
 
             <div className="flex justify-end mt-4">
-              <button onClick={goNext}
-                style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
+              <button onClick={goNext} disabled={!!progress}
+                style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: progress ? 0.5 : 1 }}>
                 {result ? "Далі: Контрагенти" : "Пропустити"}
               </button>
             </div>
@@ -296,25 +427,28 @@ export default function ImportPage() {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-600 mb-2">Файл (XML або CSV)</label>
-              <input type="file" accept=".xml,.csv,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
+              <input type="file" accept=".xml,.csv,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); setProgress(null); }}
                 style={{ fontSize: "14px" }} />
             </div>
 
             <div className="flex gap-3 mb-6">
-              <button onClick={handlePreview} disabled={!file || loading}
+              <button onClick={handleCounterpartiesPreview} disabled={!file || loading}
                 style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: !file || loading ? 0.5 : 1 }}>
-                {loading ? "..." : "Попередній перегляд"}
+                {loading && !preview && !progress ? "..." : "Попередній перегляд"}
               </button>
-              {preview && (
-                <button onClick={handleImport} disabled={loading}
+              {preview && !result && !progress && (
+                <button onClick={handleCounterpartiesImport} disabled={loading}
                   style={{ background: "#FFD600", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: loading ? 0.5 : 1 }}>
-                  {loading ? "Імпортую..." : `Імпортувати (${preview.count})`}
+                  Імпортувати ({preview.count})
                 </button>
               )}
             </div>
 
+            {/* Progress Bar */}
+            {progress && <ProgressBar progress={progress} onCancel={() => { cancelRef.current = true; }} />}
+
             {/* Preview */}
-            {preview && !result && (
+            {preview && !result && !progress && (
               <div style={{ marginBottom: "16px" }}>
                 <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>Знайдено: {preview.count} контрагентів</p>
                 <div className="overflow-x-auto">
@@ -347,12 +481,12 @@ export default function ImportPage() {
             {result && <ResultCard result={result} label="контрагентів" />}
 
             <div className="flex justify-between mt-4">
-              <button onClick={() => { setStep("products"); resetForm(); }}
-                style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
+              <button onClick={() => { setStep("products"); resetForm(); }} disabled={!!progress}
+                style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: progress ? 0.5 : 1 }}>
                 Назад
               </button>
-              <button onClick={goNext}
-                style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
+              <button onClick={goNext} disabled={!!progress}
+                style={{ background: "#FFD600", padding: "10px 24px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: progress ? 0.5 : 1 }}>
                 {result ? "Далі: Документи" : "Пропустити"}
               </button>
             </div>
@@ -364,7 +498,7 @@ export default function ImportPage() {
           <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
             <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "8px" }}>Імпорт документів</h2>
             <p style={{ fontSize: "14px", color: "#6B7280", marginBottom: "20px" }}>
-              Завантажте XML з документами з 1С. Імпортовані як підтверджені (без зміни залишків). Дублікати за номером пропускаються.
+              Завантажте XML з документами з 1С. Дублікати за номером пропускаються.
             </p>
 
             <div className="flex gap-3 mb-4">
@@ -393,19 +527,18 @@ export default function ImportPage() {
             </div>
 
             <div className="flex gap-3 mb-6">
-              <button onClick={handlePreview} disabled={!file || loading}
+              <button onClick={handleDocPreview} disabled={!file || loading}
                 style={{ background: "white", border: "1px solid #E5E7EB", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: !file || loading ? 0.5 : 1 }}>
                 {loading ? "..." : "Попередній перегляд"}
               </button>
               {preview && (
-                <button onClick={handleImport} disabled={loading}
+                <button onClick={handleDocImport} disabled={loading}
                   style={{ background: "#FFD600", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: loading ? 0.5 : 1 }}>
                   {loading ? "Імпортую..." : `Імпортувати (${preview.count})`}
                 </button>
               )}
             </div>
 
-            {/* Preview */}
             {preview && !result && (
               <div style={{ marginBottom: "16px" }}>
                 <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>Знайдено: {preview.count} документів</p>
@@ -430,12 +563,10 @@ export default function ImportPage() {
                       ))}
                     </tbody>
                   </table>
-                  {(preview.count || 0) > 20 && <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "8px" }}>Показано перші 20...</p>}
                 </div>
               </div>
             )}
 
-            {/* Result */}
             {result && <ResultCard result={result} label="документів" />}
 
             <div className="flex justify-between mt-4">
@@ -492,6 +623,48 @@ export default function ImportPage() {
   );
 }
 
+// --- Progress Bar Component ---
+function ProgressBar({ progress, onCancel }: { progress: Progress; onCancel: () => void }) {
+  const percent = Math.round((progress.current / progress.total) * 100);
+
+  return (
+    <div style={{ padding: "20px", background: "#F9FAFB", borderRadius: "12px", border: "1px solid #E5E7EB", marginBottom: "16px" }}>
+      <div className="flex justify-between items-center mb-3">
+        <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
+          Імпорт: {progress.current} / {progress.total}
+        </p>
+        <p style={{ fontSize: "24px", fontWeight: 700, color: "#FFD600" }}>{percent}%</p>
+      </div>
+
+      {/* Bar */}
+      <div style={{ height: "12px", background: "#E5E7EB", borderRadius: "6px", overflow: "hidden", marginBottom: "12px" }}>
+        <div
+          style={{
+            height: "100%",
+            width: `${percent}%`,
+            background: "linear-gradient(90deg, #FFD600, #FFA000)",
+            borderRadius: "6px",
+            transition: "width 0.3s ease",
+          }}
+        />
+      </div>
+
+      {/* Stats */}
+      <div className="flex gap-6 mb-3">
+        <p style={{ fontSize: "13px", color: "#16A34A" }}>Створено: <strong>{progress.created}</strong></p>
+        {progress.updated > 0 && <p style={{ fontSize: "13px", color: "#2563EB" }}>Оновлено: <strong>{progress.updated}</strong></p>}
+        {progress.skipped > 0 && <p style={{ fontSize: "13px", color: "#9CA3AF" }}>Пропущено: <strong>{progress.skipped}</strong></p>}
+        {progress.errors.length > 0 && <p style={{ fontSize: "13px", color: "#DC2626" }}>Помилок: <strong>{progress.errors.length}</strong></p>}
+      </div>
+
+      <button onClick={onCancel}
+        style={{ background: "white", border: "1px solid #E5E7EB", padding: "6px 16px", borderRadius: "6px", fontSize: "13px", fontWeight: 500, color: "#6B7280", cursor: "pointer" }}>
+        Скасувати
+      </button>
+    </div>
+  );
+}
+
 function ResultCard({ result, label }: { result: ImportResult; label: string }) {
   return (
     <div style={{ padding: "16px", background: "#F0FDF4", borderRadius: "8px", border: "1px solid #BBF7D0" }}>
@@ -520,4 +693,30 @@ function ResultCard({ result, label }: { result: ImportResult; label: string }) 
       )}
     </div>
   );
+}
+
+// --- CSV Parser (client-side) ---
+function parseCSVLine(line: string, sep: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === sep && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
 }

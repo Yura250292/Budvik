@@ -114,7 +114,7 @@ export default function SalesOrderDetailPage() {
         </div>
       </header>
 
-      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: isDraft ? "140px" : "24px" }}>
+      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: isDraft ? "200px" : "100px" }}>
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="bg-white rounded-xl p-3 text-center" style={{ border: "1px solid #EFEFEF" }}>
@@ -227,9 +227,10 @@ export default function SalesOrderDetailPage() {
         )}
       </div>
 
-      {/* Bottom action bar for DRAFT */}
+      {/* Bottom action bar for DRAFT — above SalesBottomNav (64px) */}
       {isDraft && (
-        <div className="fixed bottom-0 left-0 right-0" style={{
+        <div className="fixed left-0 right-0 z-50" style={{
+          bottom: "64px",
           background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
           borderTop: "1px solid rgba(255,255,255,0.08)",
           padding: "14px 16px",

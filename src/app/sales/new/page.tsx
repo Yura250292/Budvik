@@ -174,7 +174,7 @@ function NewOrderContent() {
         </div>
       </header>
 
-      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "120px" }}>
+      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: cart.length > 0 ? "200px" : "100px" }}>
         {/* Client selector */}
         <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
           <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px", fontWeight: 500 }}>Клієнт</p>
@@ -297,16 +297,17 @@ function NewOrderContent() {
         )}
       </div>
 
-      {/* Bottom bar */}
+      {/* Bottom bar — above SalesBottomNav (64px + safe area) */}
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0" style={{
+        <div className="fixed left-0 right-0 z-50" style={{
+          bottom: "64px",
           background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
           borderTop: "1px solid rgba(255,255,255,0.08)",
-          padding: "14px 16px",
+          padding: "12px 16px",
           boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
         }}>
           <div className="max-w-lg mx-auto">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <div>
                 <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>{totalItems} товарів</span>
                 {totalCost > 0 && (
@@ -315,7 +316,7 @@ function NewOrderContent() {
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: "24px", fontWeight: 700, color: "#FFD600" }}>{formatPrice(totalAmount)}</span>
+              <span style={{ fontSize: "22px", fontWeight: 700, color: "#FFD600" }}>{formatPrice(totalAmount)}</span>
             </div>
             <button onClick={handleSubmit} disabled={saving || cart.length === 0}
               className="w-full"

@@ -326,20 +326,7 @@ export default function ImportPage() {
               </p>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (CSV або TXT)</label>
-              <input
-                type="file"
-                accept=".csv,.txt"
-                onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); setProgress(null); }}
-                style={{ fontSize: "14px" }}
-              />
-              {file && (
-                <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
-                  {file.name} ({(file.size / 1024).toFixed(0)} КБ)
-                </p>
-              )}
-            </div>
+            <FileInput accept=".csv,.txt" file={file} onChange={(f) => { setFile(f); setPreview(null); setResult(null); setProgress(null); }} />
 
             <div className="flex gap-3 mb-6">
               <button
@@ -427,11 +414,7 @@ export default function ImportPage() {
               Завантажте XML (вигрузка з 1С) або CSV файл з контрагентами. Існуючі контрагенти будуть оновлені за кодом.
             </p>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (XML або CSV)</label>
-              <input type="file" accept=".xml,.csv,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); setProgress(null); }}
-                style={{ fontSize: "14px" }} />
-            </div>
+            <FileInput accept=".xml,.csv,.txt" file={file} onChange={(f) => { setFile(f); setPreview(null); setResult(null); setProgress(null); }} />
 
             <div className="flex gap-3 mb-6">
               <button onClick={handleCounterpartiesPreview} disabled={!file || loading}
@@ -500,7 +483,7 @@ export default function ImportPage() {
           <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
             <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "8px" }}>Імпорт документів</h2>
             <p style={{ fontSize: "14px", color: "#6B7280", marginBottom: "20px" }}>
-              Завантажте XML з документами з 1С. Дублікати за номером пропускаються.
+              Завантажте CSV або XML файл з документами з 1С. Дублікати за номером пропускаються.
             </p>
 
             <div className="flex gap-3 mb-4">
@@ -522,11 +505,7 @@ export default function ImportPage() {
               </button>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-600 mb-2">Файл (XML)</label>
-              <input type="file" accept=".xml" onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); setResult(null); }}
-                style={{ fontSize: "14px" }} />
-            </div>
+            <FileInput accept=".csv,.txt,.xml" file={file} onChange={(f) => { setFile(f); setPreview(null); setResult(null); }} />
 
             <div className="flex gap-3 mb-6">
               <button onClick={handleDocPreview} disabled={!file || loading}
@@ -621,6 +600,64 @@ export default function ImportPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- File Input Component ---
+function FileInput({ accept, file, onChange }: { accept: string; file: File | null; onChange: (f: File | null) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="mb-4">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        onChange={(e) => onChange(e.target.files?.[0] || null)}
+        style={{ display: "none" }}
+      />
+      {!file ? (
+        <button
+          onClick={() => inputRef.current?.click()}
+          style={{
+            width: "100%", padding: "24px", borderRadius: "12px",
+            border: "2px dashed #D1D5DB", background: "#FAFAFA",
+            cursor: "pointer", display: "flex", flexDirection: "column",
+            alignItems: "center", gap: "8px",
+          }}
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+          </svg>
+          <span style={{ fontSize: "15px", fontWeight: 600, color: "#374151" }}>Натисніть, щоб обрати файл</span>
+          <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Формати: {accept.replace(/\./g, "").replace(/,/g, ", ").toUpperCase()}</span>
+        </button>
+      ) : (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", borderRadius: "10px", border: "1px solid #D1D5DB", background: "#F9FAFB",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{file.name}</p>
+              <p style={{ fontSize: "12px", color: "#6B7280" }}>{(file.size / 1024).toFixed(0)} КБ</p>
+            </div>
+          </div>
+          <button
+            onClick={() => { onChange(null); if (inputRef.current) inputRef.current.value = ""; }}
+            style={{
+              padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: 500,
+              background: "white", border: "1px solid #E5E7EB", color: "#6B7280", cursor: "pointer",
+            }}
+          >
+            Змінити
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parsePurchaseDocumentsXML, parseSalesDocumentsXML } from "@/lib/import-1c";
+import { parsePurchaseDocumentsXML, parseSalesDocumentsXML, parsePurchaseDocumentsCSV, parseSalesDocumentsCSV } from "@/lib/import-1c";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -22,20 +22,22 @@ export async function POST(req: NextRequest) {
   }
 
   const text = await file.text();
+  const fileName = file.name.toLowerCase();
+  const isCSV = fileName.endsWith(".csv") || fileName.endsWith(".txt");
 
   const mode = formData.get("mode") as string;
 
   if (docType === "purchase") {
-    return handlePurchaseImport(text, mode, session.user.id);
+    return handlePurchaseImport(text, mode, session.user.id, isCSV);
   } else {
-    return handleSalesImport(text, mode, session.user.id);
+    return handleSalesImport(text, mode, session.user.id, isCSV);
   }
 }
 
-async function handlePurchaseImport(xml: string, mode: string | null, userId: string) {
+async function handlePurchaseImport(text: string, mode: string | null, userId: string, isCSV: boolean = false) {
   let parsed;
   try {
-    parsed = parsePurchaseDocumentsXML(xml);
+    parsed = isCSV ? parsePurchaseDocumentsCSV(text) : parsePurchaseDocumentsXML(text);
   } catch {
     return NextResponse.json({ error: "Помилка парсингу файлу" }, { status: 400 });
   }
@@ -58,13 +60,18 @@ async function handlePurchaseImport(xml: string, mode: string | null, userId: st
       const existing = await prisma.purchaseOrder.findFirst({ where: { number: doc.number } });
       if (existing) { skipped++; continue; }
 
-      // Find supplier by code
-      const supplier = doc.supplierCode
+      // Find supplier by code or by name (CSV uses name in supplierCode field)
+      let supplier = doc.supplierCode
         ? await prisma.counterparty.findUnique({ where: { code: doc.supplierCode } })
         : null;
+      if (!supplier && doc.supplierCode) {
+        supplier = await prisma.counterparty.findFirst({
+          where: { name: { contains: doc.supplierCode, mode: "insensitive" } },
+        });
+      }
 
       if (!supplier) {
-        errors.push(`${doc.number}: постачальник ${doc.supplierCode} не знайдений`);
+        errors.push(`${doc.number}: постачальник "${doc.supplierCode}" не знайдений`);
         continue;
       }
 
@@ -74,9 +81,13 @@ async function handlePurchaseImport(xml: string, mode: string | null, userId: st
       let hasError = false;
 
       for (const item of doc.items) {
-        const product = await prisma.product.findFirst({ where: { sku: item.sku } });
+        let product = await prisma.product.findFirst({ where: { sku: item.sku } });
         if (!product) {
-          errors.push(`${doc.number}: товар ${item.sku} не знайдений`);
+          // Fallback: search by name if SKU not found
+          product = await prisma.product.findFirst({ where: { name: item.sku } });
+        }
+        if (!product) {
+          errors.push(`${doc.number}: товар "${item.sku}" не знайдений`);
           hasError = true;
           break;
         }
@@ -123,10 +134,10 @@ async function handlePurchaseImport(xml: string, mode: string | null, userId: st
   return NextResponse.json({ imported, skipped, errors: errors.slice(0, 30), total: parsed.length });
 }
 
-async function handleSalesImport(xml: string, mode: string | null, userId: string) {
+async function handleSalesImport(text: string, mode: string | null, userId: string, isCSV: boolean = false) {
   let parsed;
   try {
-    parsed = parseSalesDocumentsXML(xml);
+    parsed = isCSV ? parseSalesDocumentsCSV(text) : parseSalesDocumentsXML(text);
   } catch {
     return NextResponse.json({ error: "Помилка парсингу файлу" }, { status: 400 });
   }
@@ -148,9 +159,14 @@ async function handleSalesImport(xml: string, mode: string | null, userId: strin
       const existing = await prisma.salesDocument.findFirst({ where: { number: doc.number } });
       if (existing) { skipped++; continue; }
 
-      const customer = doc.customerCode
+      let customer = doc.customerCode
         ? await prisma.counterparty.findUnique({ where: { code: doc.customerCode } })
         : null;
+      if (!customer && doc.customerCode) {
+        customer = await prisma.counterparty.findFirst({
+          where: { name: { contains: doc.customerCode, mode: "insensitive" } },
+        });
+      }
 
       const items = [];
       let totalAmount = 0;
@@ -158,9 +174,12 @@ async function handleSalesImport(xml: string, mode: string | null, userId: strin
       let hasError = false;
 
       for (const item of doc.items) {
-        const product = await prisma.product.findFirst({ where: { sku: item.sku } });
+        let product = await prisma.product.findFirst({ where: { sku: item.sku } });
         if (!product) {
-          errors.push(`${doc.number}: товар ${item.sku} не знайдений`);
+          product = await prisma.product.findFirst({ where: { name: item.sku } });
+        }
+        if (!product) {
+          errors.push(`${doc.number}: товар "${item.sku}" не знайдений`);
           hasError = true;
           break;
         }

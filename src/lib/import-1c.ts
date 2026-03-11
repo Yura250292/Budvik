@@ -437,6 +437,120 @@ export function parseSalesDocumentsXML(xml: string): ParsedSalesDocumentImport[]
   return result;
 }
 
+// ---- CSV Document Parsers ----
+
+export function parsePurchaseDocumentsCSV(csv: string): ParsedPurchaseDocument[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const sep = lines[0].includes(";") ? ";" : ",";
+  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+
+  const numIdx = headers.findIndex((h) => ["doc_number", "номер", "number", "№"].includes(h));
+  const dateIdx = headers.findIndex((h) => ["date", "дата"].includes(h));
+  const counterpartyIdx = headers.findIndex((h) => ["counterparty", "контрагент", "постачальник", "supplier"].includes(h));
+  const productIdx = headers.findIndex((h) => ["product_name", "товар", "назва", "name"].includes(h));
+  const skuIdx = headers.findIndex((h) => ["sku", "артикул", "код"].includes(h));
+  const qtyIdx = headers.findIndex((h) => ["quantity", "кількість", "количество", "к-сть"].includes(h));
+  const amountIdx = headers.findIndex((h) => ["amount", "сума", "сумма", "price", "ціна"].includes(h));
+
+  if (numIdx === -1) return [];
+
+  // Group rows by doc_number into documents
+  const docMap = new Map<string, ParsedPurchaseDocument>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const cols = parseCSVLine(line, sep);
+    const docNumber = cols[numIdx]?.trim().replace(/^"(.*)"$/, "$1");
+    if (!docNumber) continue;
+
+    if (!docMap.has(docNumber)) {
+      const date = dateIdx >= 0 ? cols[dateIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+      const counterparty = counterpartyIdx >= 0 ? cols[counterpartyIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+      docMap.set(docNumber, {
+        number: docNumber,
+        date: parseDate1C(date),
+        supplierCode: counterparty,
+        items: [],
+      });
+    }
+
+    const doc = docMap.get(docNumber)!;
+    const sku = skuIdx >= 0 ? cols[skuIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+    const qty = qtyIdx >= 0 ? parseInt(cols[qtyIdx]?.replace(/\s/g, ""), 10) : 0;
+    const amount = amountIdx >= 0 ? parseFloat(cols[amountIdx]?.replace(",", ".").replace(/\s/g, "")) : 0;
+    const purchasePrice = qty > 0 ? amount / qty : amount;
+
+    if (sku && qty > 0) {
+      doc.items.push({ sku, quantity: qty, purchasePrice: Math.round(purchasePrice * 100) / 100 });
+    }
+  }
+
+  return Array.from(docMap.values()).filter((d) => d.items.length > 0);
+}
+
+export function parseSalesDocumentsCSV(csv: string): ParsedSalesDocumentImport[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const sep = lines[0].includes(";") ? ";" : ",";
+  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+
+  const numIdx = headers.findIndex((h) => ["doc_number", "номер", "number", "№"].includes(h));
+  const dateIdx = headers.findIndex((h) => ["date", "дата"].includes(h));
+  const counterpartyIdx = headers.findIndex((h) => ["counterparty", "контрагент", "покупець", "customer", "клієнт"].includes(h));
+  const skuIdx = headers.findIndex((h) => ["sku", "артикул", "код"].includes(h));
+  const qtyIdx = headers.findIndex((h) => ["quantity", "кількість", "количество", "к-сть"].includes(h));
+  const amountIdx = headers.findIndex((h) => ["amount", "сума", "сумма", "price", "ціна"].includes(h));
+
+  if (numIdx === -1) return [];
+
+  const docMap = new Map<string, ParsedSalesDocumentImport>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const cols = parseCSVLine(line, sep);
+    const docNumber = cols[numIdx]?.trim().replace(/^"(.*)"$/, "$1");
+    if (!docNumber) continue;
+
+    if (!docMap.has(docNumber)) {
+      const date = dateIdx >= 0 ? cols[dateIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+      const counterparty = counterpartyIdx >= 0 ? cols[counterpartyIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+      docMap.set(docNumber, {
+        number: docNumber,
+        date: parseDate1C(date),
+        customerCode: counterparty || undefined,
+        items: [],
+      });
+    }
+
+    const doc = docMap.get(docNumber)!;
+    const sku = skuIdx >= 0 ? cols[skuIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+    const qty = qtyIdx >= 0 ? parseInt(cols[qtyIdx]?.replace(/\s/g, ""), 10) : 0;
+    const amount = amountIdx >= 0 ? parseFloat(cols[amountIdx]?.replace(",", ".").replace(/\s/g, "")) : 0;
+    const sellingPrice = qty > 0 ? amount / qty : amount;
+
+    if (sku && qty > 0) {
+      doc.items.push({ sku, quantity: qty, sellingPrice: Math.round(sellingPrice * 100) / 100 });
+    }
+  }
+
+  return Array.from(docMap.values()).filter((d) => d.items.length > 0);
+}
+
+// Parse 1C date format "02.03.2026 13:57:57" → "2026-03-02"
+function parseDate1C(dateStr: string): string {
+  if (!dateStr) return "";
+  const match = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+  return dateStr;
+}
+
 // ---- Slug generator ----
 
 const translitMap: Record<string, string> = {

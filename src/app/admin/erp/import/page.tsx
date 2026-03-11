@@ -20,6 +20,7 @@ export default function ImportPage() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [allResults, setAllResults] = useState<{ step: string; result: ImportResult }[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [updateExisting, setUpdateExisting] = useState(false);
   const cancelRef = useRef(false);
 
   const role = (session?.user as any)?.role;
@@ -110,12 +111,13 @@ export default function ImportPage() {
         const res = await fetch("/api/erp/import/products/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: batch }),
+          body: JSON.stringify({ items: batch, updateExisting }),
         });
         const data = await res.json();
         if (res.ok) {
           prog.created += data.created || 0;
           prog.skipped += data.skipped || 0;
+          prog.updated += data.updated || 0;
           if (data.errors) prog.errors.push(...data.errors);
         } else {
           prog.errors.push(data.error || `Помилка batch ${i}`);
@@ -130,6 +132,7 @@ export default function ImportPage() {
     const finalResult: ImportResult = {
       created: prog.created,
       skipped: prog.skipped,
+      updated: prog.updated,
       errors: prog.errors.slice(0, 30),
       total: prog.total,
     };
@@ -327,6 +330,30 @@ export default function ImportPage() {
             </div>
 
             <FileInput accept=".csv,.txt" file={file} onChange={(f) => { setFile(f); setPreview(null); setResult(null); setProgress(null); }} />
+
+            {/* Update existing toggle */}
+            <label
+              style={{
+                display: "flex", alignItems: "center", gap: "10px",
+                padding: "12px 16px", marginBottom: "16px", borderRadius: "10px",
+                background: updateExisting ? "#FFF7ED" : "#F9FAFB",
+                border: `1px solid ${updateExisting ? "#FDE68A" : "#E5E7EB"}`,
+                cursor: "pointer", userSelect: "none",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={updateExisting}
+                onChange={(e) => setUpdateExisting(e.target.checked)}
+                style={{ width: "18px", height: "18px", accentColor: "#F59E0B" }}
+              />
+              <div>
+                <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Оновити існуючі товари</p>
+                <p style={{ fontSize: "12px", color: "#6B7280" }}>
+                  Якщо товар вже є в базі — оновити ціну, собівартість та залишок замість пропуску
+                </p>
+              </div>
+            </label>
 
             <div className="flex gap-3 mb-6">
               <button

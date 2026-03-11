@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const items: { name: string; sku?: string; price?: number; cost_price?: number; stock?: number; category?: string }[] = body.items;
+  const updateExisting: boolean = body.updateExisting === true;
 
   if (!items || items.length === 0) {
     return NextResponse.json({ error: "Немає товарів" }, { status: 400 });
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
 
   let created = 0;
   let skipped = 0;
+  let updated = 0;
   const errors: string[] = [];
 
   for (const product of items) {
@@ -43,7 +45,29 @@ export async function POST(req: NextRequest) {
         where: { name: product.name },
       });
       if (existing) {
-        skipped++;
+        if (updateExisting) {
+          const finalPrice = product.price && !isNaN(product.price) ? product.price : undefined;
+          const costPrice = product.cost_price && !isNaN(product.cost_price) ? product.cost_price : undefined;
+          const stockVal = product.stock && !isNaN(product.stock) ? product.stock : undefined;
+
+          const updateData: any = {};
+          if (finalPrice !== undefined) updateData.price = finalPrice;
+          if (costPrice !== undefined) updateData.wholesalePrice = costPrice;
+          if (stockVal !== undefined) updateData.stock = stockVal;
+          if (product.sku) updateData.sku = product.sku;
+
+          if (Object.keys(updateData).length > 0) {
+            await prisma.product.update({
+              where: { id: existing.id },
+              data: updateData,
+            });
+            updated++;
+          } else {
+            skipped++;
+          }
+        } else {
+          skipped++;
+        }
         continue;
       }
 
@@ -88,5 +112,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ created, skipped, errors: errors.slice(0, 10), total: items.length });
+  return NextResponse.json({ created, skipped, updated, errors: errors.slice(0, 10), total: items.length });
 }

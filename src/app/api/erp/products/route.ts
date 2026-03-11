@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     image: p.image,
     category: p.category?.name || null,
     categoryId: p.category?.id || null,
-    purchasePrice: p.supplierProducts[0]?.purchasePrice || 0,
+    purchasePrice: p.supplierProducts[0]?.purchasePrice || p.wholesalePrice || 0,
   }));
 
   return NextResponse.json(result);

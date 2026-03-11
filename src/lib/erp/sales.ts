@@ -124,11 +124,19 @@ export async function cancelSalesDocument(id: string) {
   });
 }
 
-/** Get latest purchase price for a product (from any supplier) */
+/** Get latest purchase price for a product (from SupplierProduct or Product.wholesalePrice) */
 export async function getLatestPurchasePrice(productId: string): Promise<number> {
+  // First try SupplierProduct (most accurate, from purchase orders)
   const sp = await prisma.supplierProduct.findFirst({
     where: { productId },
     orderBy: { lastUpdated: "desc" },
   });
-  return sp?.purchasePrice || 0;
+  if (sp?.purchasePrice) return sp.purchasePrice;
+
+  // Fallback to product's wholesalePrice (imported from 1C as cost_price)
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { wholesalePrice: true },
+  });
+  return product?.wholesalePrice || 0;
 }

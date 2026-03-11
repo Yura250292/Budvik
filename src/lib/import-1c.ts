@@ -502,9 +502,12 @@ export function parseSalesDocumentsCSV(csv: string): ParsedSalesDocumentImport[]
   const numIdx = headers.findIndex((h) => ["doc_number", "номер", "number", "№"].includes(h));
   const dateIdx = headers.findIndex((h) => ["date", "дата"].includes(h));
   const counterpartyIdx = headers.findIndex((h) => ["counterparty", "контрагент", "покупець", "customer", "клієнт"].includes(h));
+  const productNameIdx = headers.findIndex((h) => ["product_name", "товар", "назва", "name"].includes(h));
   const skuIdx = headers.findIndex((h) => ["sku", "артикул", "код"].includes(h));
   const qtyIdx = headers.findIndex((h) => ["quantity", "кількість", "количество", "к-сть"].includes(h));
-  const amountIdx = headers.findIndex((h) => ["amount", "сума", "сумма", "price", "ціна"].includes(h));
+  const amountIdx = headers.findIndex((h) => ["amount", "сума", "сумма"].includes(h));
+  // selling_price = per-unit price (no need to divide by qty)
+  const sellingPriceIdx = headers.findIndex((h) => ["selling_price", "ціна_продажу", "price", "ціна"].includes(h));
 
   if (numIdx === -1) return [];
 
@@ -531,12 +534,23 @@ export function parseSalesDocumentsCSV(csv: string): ParsedSalesDocumentImport[]
 
     const doc = docMap.get(docNumber)!;
     const sku = skuIdx >= 0 ? cols[skuIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
+    const productName = productNameIdx >= 0 ? cols[productNameIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
     const qty = qtyIdx >= 0 ? parseInt(cols[qtyIdx]?.replace(/\s/g, ""), 10) : 0;
-    const amount = amountIdx >= 0 ? parseFloat(cols[amountIdx]?.replace(",", ".").replace(/\s/g, "")) : 0;
-    const sellingPrice = qty > 0 ? amount / qty : amount;
 
-    if (sku && qty > 0) {
-      doc.items.push({ sku, quantity: qty, sellingPrice: Math.round(sellingPrice * 100) / 100 });
+    let sellingPrice = 0;
+    if (sellingPriceIdx >= 0) {
+      // Per-unit price — use directly
+      sellingPrice = parseFloat(cols[sellingPriceIdx]?.replace(",", ".").replace(/\s/g, "")) || 0;
+    } else if (amountIdx >= 0) {
+      // Total amount — divide by qty
+      const amount = parseFloat(cols[amountIdx]?.replace(",", ".").replace(/\s/g, "")) || 0;
+      sellingPrice = qty > 0 ? amount / qty : amount;
+    }
+
+    // Use SKU if available, otherwise fall back to product name for matching
+    const itemKey = sku || productName;
+    if (itemKey && qty > 0) {
+      doc.items.push({ sku: itemKey, quantity: qty, sellingPrice: Math.round(sellingPrice * 100) / 100 });
     }
   }
 

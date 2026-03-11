@@ -319,7 +319,7 @@ export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
   const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
 
   const codeIdx = headers.findIndex((h) => ["код", "code", "єдрпоу", "едрпоу", "id", "ід"].includes(h));
-  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name", "counterparty_name"].includes(h));
+  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name", "counterparty_name", "full_name"].includes(h));
   const typeIdx = headers.findIndex((h) => ["тип", "type"].includes(h));
   const phoneIdx = headers.findIndex((h) => ["телефон", "phone"].includes(h));
   const emailIdx = headers.findIndex((h) => ["email", "пошта", "e-mail"].includes(h));

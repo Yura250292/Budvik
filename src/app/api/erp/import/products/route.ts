@@ -54,11 +54,12 @@ export async function POST(req: NextRequest) {
   // Optional columns
   const skuIdx = headers.findIndex((h) => ["sku", "артикул", "код", "id"].includes(h));
   const priceIdx = headers.findIndex((h) => ["price", "ціна", "цена"].includes(h));
+  const costIdx = headers.findIndex((h) => ["cost_price", "собівартість", "себестоимость", "wholesale_price"].includes(h));
   const stockIdx = headers.findIndex((h) => ["stock", "залишок", "остаток", "кількість"].includes(h));
   const catIdx = headers.findIndex((h) => ["category", "категорія", "категория"].includes(h));
 
   // Parse product names
-  const products: { name: string; sku?: string; price?: number; stock?: number; category?: string }[] = [];
+  const products: { name: string; sku?: string; price?: number; cost_price?: number; stock?: number; category?: string }[] = [];
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
       name,
       sku: skuIdx >= 0 ? cols[skuIdx]?.trim().replace(/^"(.*)"$/, "$1") : undefined,
       price: priceIdx >= 0 ? parseFloat(cols[priceIdx]?.replace(",", ".").replace(/\s/g, "")) : undefined,
+      cost_price: costIdx >= 0 ? parseFloat(cols[costIdx]?.replace(",", ".").replace(/\s/g, "")) : undefined,
       stock: stockIdx >= 0 ? parseInt(cols[stockIdx]?.trim(), 10) : undefined,
       category: catIdx >= 0 ? cols[catIdx]?.trim().replace(/^"(.*)"$/, "$1") : undefined,
     });
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest) {
         name: p.name,
         sku: p.sku || generateSKU(p.name),
         price: p.price || 0,
+        cost_price: p.cost_price || 0,
         stock: p.stock || 0,
       })),
     });

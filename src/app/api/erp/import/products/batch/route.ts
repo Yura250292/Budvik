@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const items: { name: string; sku?: string; price?: number; stock?: number; category?: string }[] = body.items;
+  const items: { name: string; sku?: string; price?: number; cost_price?: number; stock?: number; category?: string }[] = body.items;
 
   if (!items || items.length === 0) {
     return NextResponse.json({ error: "Немає товарів" }, { status: 400 });
@@ -66,13 +66,17 @@ export async function POST(req: NextRequest) {
         if (cat) categoryId = cat.id;
       }
 
+      const finalPrice = product.price && !isNaN(product.price) ? product.price : 0;
+      const costPrice = product.cost_price && !isNaN(product.cost_price) ? product.cost_price : undefined;
+
       await prisma.product.create({
         data: {
           name: product.name,
           slug,
           sku: skuExists ? `${sku}-${Date.now().toString(36)}` : sku,
           description: "",
-          price: product.price && !isNaN(product.price) ? product.price : 0,
+          price: finalPrice,
+          wholesalePrice: costPrice,
           stock: product.stock && !isNaN(product.stock) ? product.stock : 0,
           categoryId,
           isActive: true,

@@ -12,6 +12,7 @@ interface CartItem {
   sku: string;
   stock: number;
   basePrice: number;
+  purchasePrice: number;
   sellingPrice: number;
   quantity: number;
 }
@@ -56,14 +57,14 @@ function NewOrderContent() {
       });
   }, [session]);
 
-  // Search products
+  // Search products (use ERP endpoint for purchase price)
   const searchProducts = useCallback(async (query: string) => {
     if (query.length < 2) { setProductResults([]); return; }
     setSearchLoading(true);
     try {
-      const res = await fetch(`/api/products?search=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/erp/products?search=${encodeURIComponent(query)}&limit=20`);
       const data = await res.json();
-      setProductResults((data.products || data || []).slice(0, 20));
+      setProductResults(Array.isArray(data) ? data : []);
     } catch { /* ignore */ }
     setSearchLoading(false);
   }, []);
@@ -84,6 +85,7 @@ function NewOrderContent() {
         sku: product.sku || "",
         stock: product.stock || 0,
         basePrice: product.price,
+        purchasePrice: product.purchasePrice || product.wholesalePrice || 0,
         sellingPrice: product.price,
         quantity: 1,
       }]);
@@ -101,6 +103,8 @@ function NewOrderContent() {
   };
 
   const totalAmount = cart.reduce((sum, item) => sum + item.quantity * item.sellingPrice, 0);
+  const totalCost = cart.reduce((sum, item) => sum + item.quantity * item.purchasePrice, 0);
+  const totalProfit = totalAmount - totalCost;
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleSubmit = async () => {
@@ -124,7 +128,7 @@ function NewOrderContent() {
 
       const data = await res.json();
       if (res.ok) {
-        router.push(`/sales/orders`);
+        router.push(`/sales/orders/${data.id}`);
       } else {
         alert(data.error || "Помилка створення");
       }
@@ -211,7 +215,12 @@ function NewOrderContent() {
                       <span>Залишок: {p.stock || 0}</span>
                     </div>
                   </div>
-                  <span style={{ fontWeight: 600, marginLeft: "8px", whiteSpace: "nowrap" }}>{formatPrice(p.price)}</span>
+                  <div className="text-right flex-shrink-0" style={{ marginLeft: "8px" }}>
+                    <p style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{formatPrice(p.price)}</p>
+                    {(p.purchasePrice > 0 || p.wholesalePrice > 0) && (
+                      <p style={{ fontSize: "11px", color: "#6B7280", whiteSpace: "nowrap" }}>вхід: {formatPrice(p.purchasePrice || p.wholesalePrice)}</p>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -226,10 +235,20 @@ function NewOrderContent() {
             </div>
             {cart.map((item, idx) => (
               <div key={item.productId} style={{ padding: "12px 16px", borderBottom: "1px solid #F9FAFB" }}>
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between mb-1">
                   <div className="flex-1 min-w-0">
                     <p style={{ fontSize: "14px", fontWeight: 500 }} className="truncate">{item.name}</p>
-                    <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{item.sku} | Залишок: {item.stock}</p>
+                    <div className="flex items-center gap-2" style={{ fontSize: "12px", color: "#9CA3AF" }}>
+                      <span>{item.sku}</span>
+                      <span>|</span>
+                      <span>Залишок: {item.stock}</span>
+                      {item.purchasePrice > 0 && (
+                        <>
+                          <span>|</span>
+                          <span style={{ color: "#6B7280" }}>Вхід: {formatPrice(item.purchasePrice)}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <button onClick={() => removeFromCart(idx)} style={{ color: "#DC2626", fontSize: "18px", padding: "0 4px" }}>&times;</button>
                 </div>
@@ -248,9 +267,15 @@ function NewOrderContent() {
                     className="w-24 text-right" style={{ padding: "4px 8px", border: "1px solid #E5E7EB", borderRadius: "8px", fontSize: "15px" }} />
                   <div className="text-right flex-1">
                     <p style={{ fontSize: "15px", fontWeight: 700 }}>{formatPrice(item.quantity * item.sellingPrice)}</p>
-                    {item.sellingPrice < item.basePrice && (
-                      <p style={{ fontSize: "11px", color: "#F59E0B" }}>-{Math.round((1 - item.sellingPrice / item.basePrice) * 100)}%</p>
-                    )}
+                    {item.purchasePrice > 0 && (() => {
+                      const margin = item.sellingPrice - item.purchasePrice;
+                      const marginPct = item.purchasePrice > 0 ? Math.round((margin / item.purchasePrice) * 100) : 0;
+                      return (
+                        <p style={{ fontSize: "11px", fontWeight: 600, color: margin > 0 ? "#16A34A" : margin < 0 ? "#DC2626" : "#9CA3AF" }}>
+                          {margin > 0 ? "+" : ""}{formatPrice(margin)} ({marginPct}%)
+                        </p>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -282,7 +307,14 @@ function NewOrderContent() {
         }}>
           <div className="max-w-lg mx-auto">
             <div className="flex items-center justify-between mb-3">
-              <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>{totalItems} товарів</span>
+              <div>
+                <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>{totalItems} товарів</span>
+                {totalCost > 0 && (
+                  <span style={{ fontSize: "13px", color: totalProfit > 0 ? "#4ADE80" : "#F87171", marginLeft: "12px" }}>
+                    Маржа: {formatPrice(totalProfit)} ({totalCost > 0 ? Math.round((totalProfit / totalCost) * 100) : 0}%)
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: "24px", fontWeight: 700, color: "#FFD600" }}>{formatPrice(totalAmount)}</span>
             </div>
             <button onClick={handleSubmit} disabled={saving || cart.length === 0}

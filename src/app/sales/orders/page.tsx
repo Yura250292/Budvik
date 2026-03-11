@@ -110,7 +110,7 @@ export default function OrdersPage() {
         ) : (
           <div className="space-y-2">
             {orders.map((o) => (
-              <Link key={o.id} href={`/admin/erp/sales/${o.id}`}
+              <Link key={o.id} href={`/sales/orders/${o.id}`}
                 className="block bg-white rounded-2xl p-4"
                 style={{
                   borderLeft: `3px solid ${STATUS_BORDER[o.status] || "#E5E7EB"}`,

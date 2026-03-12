@@ -80,15 +80,71 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const isWholesale = session?.user?.role === "WHOLESALE";
   const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
 
-  const [rawProducts, total, categories, activeCategory, brandProducts] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      include: { category: true },
-      orderBy,
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.product.count({ where }),
+  // For default sort: fetch products with images first, then fill remaining slots
+  const isDefaultSort = !sort;
+  const skip = (page - 1) * PAGE_SIZE;
+
+  let rawProducts: any[];
+  let total: number;
+
+  if (isDefaultSort) {
+    // Two-pass fetch: products with images first, then without
+    const whereHasImage = { ...where, AND: [...(where.AND || []), { image: { not: null } }, { NOT: { image: "" } }] };
+    const whereNoImage = { ...where, AND: [...(where.AND || []), { OR: [{ image: null }, { image: "" }] }] };
+
+    const [totalAll, totalWithImage] = await Promise.all([
+      prisma.product.count({ where }),
+      prisma.product.count({ where: whereHasImage }),
+    ]);
+    total = totalAll;
+
+    if (skip < totalWithImage) {
+      // This page starts within "with image" products
+      const withImageProducts = await prisma.product.findMany({
+        where: whereHasImage,
+        include: { category: true },
+        orderBy,
+        skip,
+        take: PAGE_SIZE,
+      });
+      if (withImageProducts.length < PAGE_SIZE) {
+        // Fill remaining slots with no-image products
+        const remaining = PAGE_SIZE - withImageProducts.length;
+        const noImageProducts = await prisma.product.findMany({
+          where: whereNoImage,
+          include: { category: true },
+          orderBy,
+          take: remaining,
+        });
+        rawProducts = [...withImageProducts, ...noImageProducts];
+      } else {
+        rawProducts = withImageProducts;
+      }
+    } else {
+      // This page is entirely in "no image" territory
+      const noImageSkip = skip - totalWithImage;
+      rawProducts = await prisma.product.findMany({
+        where: whereNoImage,
+        include: { category: true },
+        orderBy,
+        skip: noImageSkip,
+        take: PAGE_SIZE,
+      });
+    }
+  } else {
+    [rawProducts, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: { category: true },
+        orderBy,
+        skip,
+        take: PAGE_SIZE,
+      }),
+      prisma.product.count({ where }),
+    ]);
+  }
+
+  const [categories, activeCategory, brandProducts] = await Promise.all([
     prisma.category.findMany({
       where: { products: { some: { isActive: true } } },
       include: { _count: { select: { products: { where: { isActive: true } } } } },
@@ -108,34 +164,20 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     }),
   ]);
 
-  // Daily rotation: on default sort, shuffle non-priority products so visitors see different items
-  // Products with images are shown before products without images (within same tier)
+  // Daily rotation: on default sort + page 1, shuffle non-priority products
   let products = rawProducts;
   if (useRotation && page === 1) {
-    const pinned = rawProducts.filter((p) => p.priority > 0);
-    const regular = rawProducts.filter((p) => p.priority === 0);
+    const pinned = rawProducts.filter((p: any) => p.priority > 0);
+    const regular = rawProducts.filter((p: any) => p.priority === 0);
     // Deterministic shuffle based on day — same order all day, different next day
     const shuffled = regular
-      .map((p) => ({ p, sort: hashCode(p.id + daySeed) }))
-      .sort((a, b) => a.sort - b.sort)
-      .map(({ p }) => p);
-    // In-stock + with image first, then in-stock without image, then out of stock
-    const inStockWithImage = shuffled.filter((p) => p.stock > 0 && p.image);
-    const inStockNoImage = shuffled.filter((p) => p.stock > 0 && !p.image);
-    const outOfStock = shuffled.filter((p) => p.stock <= 0);
-    products = [...pinned, ...inStockWithImage, ...inStockNoImage, ...outOfStock];
-  } else if (!sort) {
-    // For pages 2+: still prefer products with images within same priority/stock tier
-    products = [...rawProducts].sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      const aInStock = a.stock > 0 ? 1 : 0;
-      const bInStock = b.stock > 0 ? 1 : 0;
-      if (aInStock !== bInStock) return bInStock - aInStock;
-      const aHasImage = a.image ? 1 : 0;
-      const bHasImage = b.image ? 1 : 0;
-      if (aHasImage !== bHasImage) return bHasImage - aHasImage;
-      return a.name.localeCompare(b.name);
-    });
+      .map((p: any) => ({ p, sort: hashCode(p.id + daySeed) }))
+      .sort((a: any, b: any) => a.sort - b.sort)
+      .map(({ p }: any) => p);
+    // In-stock first within shuffled (images already prioritized by DB query)
+    const inStock = shuffled.filter((p: any) => p.stock > 0);
+    const outOfStock = shuffled.filter((p: any) => p.stock <= 0);
+    products = [...pinned, ...inStock, ...outOfStock];
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);

@@ -29,7 +29,9 @@ interface ProductCardProps {
 
 export default function ProductCard({ id, name, slug, description, price, wholesalePrice, isPromo, promoPrice, promoLabel, stock, image, category, viewMode = "grid" }: ProductCardProps) {
   const { data: session } = useSession();
-  const isWholesale = (session?.user as any)?.role === "WHOLESALE";
+  const role = (session?.user as any)?.role;
+  const isWholesale = role === "WHOLESALE";
+  const showBothPrices = role === "ADMIN" || role === "SALES";
   const basePrice = isWholesale && wholesalePrice ? wholesalePrice : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
@@ -105,7 +107,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               <p className="text-[10px] sm:text-xs text-[#777] line-clamp-1 mt-0.5">{plainDesc}</p>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <div className="flex items-baseline gap-1">
+              <div className="flex items-baseline gap-1 flex-wrap">
                 {stock > 0 || displayPrice > 0 ? (
                   <>
                     <span className={`text-sm sm:text-base font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
@@ -113,6 +115,9 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     </span>
                     {hasDiscount && (
                       <span className="text-[9px] sm:text-xs text-[#9E9E9E] line-through">{formatPrice(price)}</span>
+                    )}
+                    {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
+                      <span className="text-[9px] sm:text-[10px] text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                     )}
                   </>
                 ) : (
@@ -201,6 +206,9 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     )}
                     {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                       <span className="block text-[10px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                    )}
+                    {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
+                      <span className="block text-[10px] sm:text-xs text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                     )}
                   </>
                 ) : (
@@ -325,6 +333,9 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                   )}
                   {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                     <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
+                  )}
+                  {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
+                    <span className="block text-[8px] sm:text-[10px] text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                   )}
                 </>
               ) : (

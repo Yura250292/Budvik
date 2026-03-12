@@ -30,7 +30,7 @@ interface ProductCardProps {
 export default function ProductCard({ id, name, slug, description, price, wholesalePrice, isPromo, promoPrice, promoLabel, stock, image, category, viewMode = "grid" }: ProductCardProps) {
   const { data: session } = useSession();
   const isWholesale = (session?.user as any)?.role === "WHOLESALE";
-  const basePrice = wholesalePrice ?? price;
+  const basePrice = isWholesale && wholesalePrice ? wholesalePrice : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
 
@@ -199,7 +199,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     {hasDiscount && (
                       <span className="text-[10px] sm:text-xs text-[#9E9E9E] line-through ml-1">{formatPrice(price)}</span>
                     )}
-                    {wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                    {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                       <span className="block text-[10px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
                     )}
                   </>
@@ -323,7 +323,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                   {hasDiscount && (
                     <span className="text-[8px] sm:text-[10px] text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
                   )}
-                  {wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                  {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                     <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
                   )}
                 </>

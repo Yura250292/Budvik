@@ -3,10 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
-import AiRecommendations from "@/components/ai/AiRecommendations";
-import PromoCarousel from "@/components/PromoCarousel";
 import BrandCard from "@/components/BrandCard";
-import VikingMascotIcon from "@/components/ai/VikingMascot";
 import HeroCta from "@/components/HeroCta";
 import { BRANDS } from "@/lib/brands";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, DEFAULT_SEASONAL_KEYWORDS } from "@/lib/seasonal";
@@ -25,7 +22,7 @@ export default async function HomePage() {
 
   const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгова пил", "болгарк", "шліфмашин", "генератор", "дриль", "дрель", "перфоратор"];
 
-  const [featuredProducts, promoProducts, allProducts, topOrderedItems] = await Promise.all([
+  const [featuredProducts, allProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
@@ -37,12 +34,6 @@ export default async function HomePage() {
       include: { category: true },
       take: 8,
       orderBy: { price: "asc" },
-    }),
-    prisma.product.findMany({
-      where: { ...excludeFilter, isPromo: true, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
-      include: { category: true },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
     }),
     prisma.product.findMany({
       where: { isActive: true },
@@ -209,26 +200,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Promo Products */}
-      {promoProducts.length > 0 && (
-        <section className="py-12 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-11 h-11 bg-[#FFD600]/15 rounded-xl flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#FFB800]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-[#0A0A0A]">Акційні товари</h2>
-                <p className="text-sm text-[#9E9E9E]">Спеціальні пропозиції та знижки</p>
-              </div>
-            </div>
-            <PromoCarousel products={promoProducts} />
-          </div>
-        </section>
-      )}
-
       {/* Featured Products */}
       <section className="py-12">
         <div className="max-w-7xl mx-auto px-4">
@@ -246,34 +217,6 @@ export default async function HomePage() {
               Дивитись весь каталог
             </Link>
           </div>
-        </div>
-      </section>
-
-      {/* AI Wizard Banner — compact */}
-      <section className="py-8 bg-white">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="bg-gradient-to-br from-[#0A0A0A] via-[#121212] to-[#1A1A1A] rounded-xl p-5 md:p-6 text-white flex items-center gap-5">
-            <div className="w-14 h-14 bg-white/5 rounded-xl flex items-center justify-center flex-shrink-0 border border-[#FFD600]/20">
-              <VikingMascotIcon size={48} variant="wink" animated />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg md:text-xl font-bold">AI Підбір інструментів</h2>
-              <p className="text-sm text-[#9E9E9E] mt-0.5 hidden sm:block">Не знаєте, що обрати? AI підбере ідеальний варіант</p>
-            </div>
-            <Link
-              href="/ai/wizard"
-              className="bg-[#FFD600] text-[#0A0A0A] px-5 py-2.5 rounded-[10px] text-sm font-bold hover:bg-[#FFC400] transition duration-200 flex-shrink-0 whitespace-nowrap"
-            >
-              Підібрати
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* AI Recommendations */}
-      <section className="py-12">
-        <div className="max-w-7xl mx-auto px-4">
-          <AiRecommendations type="personal" title="Рекомендовано для вас" />
         </div>
       </section>
 

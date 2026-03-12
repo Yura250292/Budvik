@@ -1,5 +1,44 @@
 import { prisma } from "@/lib/prisma";
 
+// Known multi-word brands
+const MULTI_WORD_BRANDS = ["SOMA FIX", "INTER TOOL", "STEEL POWER"];
+
+// Generic words that are NOT brands (product type starters)
+const GENERIC_STARTERS = new Set([
+  "дріт", "круг", "диск", "набір", "ключ", "болт", "гайка", "шайба",
+  "труба", "кабель", "провід", "шланг", "фільтр", "насос", "муфта",
+  "перехідник", "адаптер", "затискач", "хомут", "скоба", "цвях",
+]);
+
+function extractBrand(productName: string): string {
+  const trimmed = productName.trim();
+
+  // Check multi-word brands first
+  for (const mb of MULTI_WORD_BRANDS) {
+    if (trimmed.toUpperCase().startsWith(mb)) return mb;
+  }
+
+  const words = trimmed.split(/\s+/);
+  if (words.length === 0) return "ІНШЕ";
+
+  const first = words[0];
+
+  // Skip generic Ukrainian product words
+  if (GENERIC_STARTERS.has(first.toLowerCase())) return "ІНШЕ";
+
+  // Brand if: all uppercase (APRO, GEFEST, RECTOR, LIGER, UNIFIX, СИЛА, SIGMA)
+  if (first.length >= 2 && first === first.toUpperCase() && /^[A-ZА-ЯІЇЄҐ]/.test(first)) {
+    return first;
+  }
+
+  // Brand if: CamelCase or capitalized Latin (Grösser, Makita, Bosch)
+  if (/^[A-ZА-ЯІЇЄҐ][a-zа-яіїєґö]/.test(first) && first.length >= 3) {
+    return first;
+  }
+
+  return "ІНШЕ";
+}
+
 export async function getSalesStats(from?: string, to?: string) {
   const dateFilter: Record<string, unknown> = {};
   if (from || to) {
@@ -60,19 +99,9 @@ export async function getSalesStats(from?: string, to?: string) {
       const itemSales = item.sellingPrice * item.quantity;
       const itemProfit = (item.sellingPrice - item.purchasePrice) * item.quantity;
 
-      // Extract brand from product name (simple approach)
+      // Extract brand from product name — brand is always the first word(s)
       const productName = item.product.name;
-      const words = productName.replace(/\([^)]*\)/g, "").trim().split(/\s+/);
-      let brand = "ІНШЕ";
-      for (let i = words.length - 1; i >= 0; i--) {
-        if (words[i].length >= 2 && words[i] === words[i].toUpperCase() && /^[A-ZА-ЯІЇЄҐ]/.test(words[i])) {
-          brand = words[i];
-          break;
-        }
-      }
-      if (brand === "ІНШЕ" && words.length > 0 && /^[A-Z][a-z]/.test(words[0]) && words[0].length >= 3) {
-        brand = words[0];
-      }
+      const brand = extractBrand(productName);
 
       const bStats = brandStats.get(brand) || { sales: 0, profit: 0, quantity: 0 };
       bStats.sales += itemSales;

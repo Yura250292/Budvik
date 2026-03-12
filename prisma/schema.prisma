@@ -132,6 +132,24 @@ model Product {
   salesDocumentItems SalesDocumentItem[]
 }
 
+model SeasonalPromo {
+  id          String   @id @default(cuid())
+  title       String               // "Весняний розпродаж", "Зимові знижки"
+  description String?
+  season      String               // spring, summer, autumn, winter, custom
+  icon        String?              // emoji
+  color       String   @default("#FFD600") // accent color
+  keywords    String[]             // product name keywords to auto-match
+  categoryIds String[]             // category IDs to include
+  productIds  String[]             // manually pinned product IDs
+  isActive    Boolean  @default(true)
+  startDate   DateTime?            // for custom date ranges
+  endDate     DateTime?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model ImportLog {
   id        String   @id @default(cuid())
   type      String

@@ -9,8 +9,14 @@ import BrandCard from "@/components/BrandCard";
 import VikingMascotIcon from "@/components/ai/VikingMascot";
 import HeroCta from "@/components/HeroCta";
 import { BRANDS } from "@/lib/brands";
+import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, DEFAULT_SEASONAL_KEYWORDS } from "@/lib/seasonal";
 
 export default async function HomePage() {
+  const season = getCurrentSeason();
+  const seasonLabel = getSeasonLabel(season);
+  const seasonIcon = getSeasonIcon(season);
+  const seasonColor = getSeasonColor(season);
+
   const excludeFilter = {
     isActive: true as const,
     NOT: { name: { contains: "верстат" } },
@@ -51,6 +57,63 @@ export default async function HomePage() {
       take: 8,
     }),
   ]);
+
+  // Fetch seasonal products
+  const seasonalPromos = await prisma.seasonalPromo.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { season },
+        { season: "custom", startDate: { lte: new Date() }, endDate: { gte: new Date() } },
+      ],
+    },
+    orderBy: { sortOrder: "asc" },
+  });
+
+  let seasonalProducts: any[] = [];
+  const seasonalKeywords = seasonalPromos.length > 0
+    ? seasonalPromos.flatMap((p) => p.keywords)
+    : DEFAULT_SEASONAL_KEYWORDS[season];
+  const seasonalProductIds = seasonalPromos.flatMap((p) => p.productIds);
+  const seasonalCategoryIds = seasonalPromos.flatMap((p) => p.categoryIds);
+
+  const seasonalConditions: any[] = [];
+  if (seasonalKeywords.length > 0) {
+    seasonalConditions.push(...seasonalKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })));
+  }
+  if (seasonalCategoryIds.length > 0) {
+    seasonalConditions.push({ categoryId: { in: seasonalCategoryIds } });
+  }
+  if (seasonalProductIds.length > 0) {
+    seasonalConditions.push({ id: { in: seasonalProductIds } });
+  }
+
+  if (seasonalConditions.length > 0) {
+    seasonalProducts = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        stock: { gt: 0 },
+        price: { gte: 200 },
+        AND: [{ image: { not: null } }, { NOT: { image: "" } }],
+        OR: seasonalConditions,
+      },
+      include: { category: true },
+      orderBy: [{ priority: "desc" }, { stock: "desc" }],
+      take: 8,
+    });
+  }
+
+  const seasonalTitle = seasonalPromos.length > 0
+    ? seasonalPromos[0].title
+    : `${seasonIcon} Сезонні товари — ${seasonLabel}`;
+
+  const seasonalDesc = seasonalPromos.length > 0 && seasonalPromos[0].description
+    ? seasonalPromos[0].description
+    : `Актуальні інструменти для ${seasonLabel.toLowerCase()}ових робіт`;
+
+  const activeSeasonColor = seasonalPromos.length > 0 && seasonalPromos[0].color
+    ? seasonalPromos[0].color
+    : seasonColor;
 
   // Fetch best seller product details
   const bestSellerIds = topOrderedItems.map((i) => i.productId);
@@ -99,6 +162,28 @@ export default async function HomePage() {
           <HeroCta />
         </div>
       </section>
+
+      {/* Seasonal Products */}
+      {seasonalProducts.length > 0 && (
+        <section className="py-10 sm:py-12" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center gap-3 mb-6 sm:mb-8">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: `${activeSeasonColor}20` }}>
+                {seasonalPromos[0]?.icon || seasonIcon}
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-[#0A0A0A]">{seasonalTitle}</h2>
+                <p className="text-sm text-[#9E9E9E]">{seasonalDesc}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
+              {seasonalProducts.map((product: any) => (
+                <ProductCard key={product.id} {...product} category={product.category} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Best Sellers */}
       {sortedBestSellers.length > 0 && (

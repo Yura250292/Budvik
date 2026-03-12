@@ -25,6 +25,7 @@ export default async function HomePage() {
         ...excludeFilter,
         stock: { gt: 0 },
         price: { gte: 500 },
+        AND: [{ image: { not: null } }, { NOT: { image: "" } }],
         OR: popularKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
       },
       include: { category: true },
@@ -32,7 +33,7 @@ export default async function HomePage() {
       orderBy: { price: "asc" },
     }),
     prisma.product.findMany({
-      where: { ...excludeFilter, isPromo: true },
+      where: { ...excludeFilter, isPromo: true, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
       include: { category: true },
       orderBy: { updatedAt: "desc" },
       take: 20,
@@ -55,7 +56,7 @@ export default async function HomePage() {
   const bestSellerIds = topOrderedItems.map((i) => i.productId);
   const bestSellers = bestSellerIds.length > 0
     ? await prisma.product.findMany({
-        where: { id: { in: bestSellerIds }, isActive: true },
+        where: { id: { in: bestSellerIds }, isActive: true, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
         include: { category: true },
       })
     : [];

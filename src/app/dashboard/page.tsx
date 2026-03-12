@@ -6,21 +6,9 @@ import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import AiSupportChat from "@/components/ai/AiSupportChat";
 
-interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  price: number;
-  image?: string | null;
-  stock: number;
-  category?: { name: string };
-}
-
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState({ orders: 0, totalSpent: 0, bolts: 0 });
-  const [recommended, setRecommended] = useState<Product[]>([]);
-  const [loadingRec, setLoadingRec] = useState(true);
 
   useEffect(() => {
     if (!session) return;
@@ -41,11 +29,6 @@ export default function DashboardPage() {
         setStats((prev) => ({ ...prev, bolts: data.balance }));
       });
 
-    fetch("/api/ai/recommend?type=personal")
-      .then((r) => r.json())
-      .then((data) => setRecommended(data.products || []))
-      .catch(() => setRecommended([]))
-      .finally(() => setLoadingRec(false));
   }, [session]);
 
   if (!session) {
@@ -99,16 +82,6 @@ export default function DashboardPage() {
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-        </svg>
-      ),
-    },
-    {
-      href: "/ai/wizard",
-      title: "AI Підбір",
-      desc: "Розумний помічник",
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
         </svg>
       ),
     },
@@ -250,79 +223,6 @@ export default function DashboardPage() {
             </Link>
           ))}
         </div>
-      </div>
-
-      {/* Рекомендації — gradient section */}
-      <div className="bg-gradient-to-br from-primary/5 via-white to-primary/3 border border-primary/20 rounded-2xl p-6 mb-8 shadow-[var(--shadow-card)]">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-gradient-to-br from-bk to-bk-muted flex items-center justify-center shadow-sm">
-              <svg className="w-4.5 h-4.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-bk">Рекомендовано для вас</h2>
-              <p className="text-[11px] text-g400">Топ продажів, які ви ще не замовляли</p>
-            </div>
-          </div>
-          <Link href="/catalog" className="text-xs text-primary-dark hover:text-bk font-medium hover:underline transition hidden sm:block">
-            Весь каталог &rarr;
-          </Link>
-        </div>
-
-        {loadingRec ? (
-          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="bg-white/80 rounded-xl h-52 animate-pulse" />
-            ))}
-          </div>
-        ) : recommended.length > 0 ? (
-          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-            {recommended.slice(0, 8).map((product) => (
-              <Link
-                key={product.id}
-                href={`/catalog/${product.slug}`}
-                className="bg-white border border-g200 rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5 transition-all duration-200 group"
-              >
-                <div className="h-28 bg-g50 flex items-center justify-center">
-                  {product.image ? (
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="h-full w-full object-contain p-2"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <svg className="w-10 h-10 text-g300 group-hover:text-primary transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                    </svg>
-                  )}
-                </div>
-                <div className="p-2.5">
-                  {product.category && (
-                    <span className="text-[10px] text-g400 uppercase tracking-wide">{product.category.name}</span>
-                  )}
-                  <h4 className="font-medium text-xs text-bk group-hover:text-primary-dark transition line-clamp-2 mt-0.5 mb-1.5">
-                    {product.name}
-                  </h4>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-bk">{formatPrice(product.price)}</span>
-                    {product.stock > 0 ? (
-                      <span className="text-[10px] text-green-600 font-medium">В наявності</span>
-                    ) : (
-                      <span className="text-[10px] text-g400">Немає</span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-white/60 border border-g200 rounded-xl p-8 text-center text-g400 text-sm">
-            Поки що немає рекомендацій. Зробіть перше замовлення!
-          </div>
-        )}
       </div>
 
       {/* AI Support Chat — gradient section */}

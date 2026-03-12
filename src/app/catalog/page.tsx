@@ -109,6 +109,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   ]);
 
   // Daily rotation: on default sort, shuffle non-priority products so visitors see different items
+  // Products with images are shown before products without images (within same tier)
   let products = rawProducts;
   if (useRotation && page === 1) {
     const pinned = rawProducts.filter((p) => p.priority > 0);
@@ -118,10 +119,23 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       .map((p) => ({ p, sort: hashCode(p.id + daySeed) }))
       .sort((a, b) => a.sort - b.sort)
       .map(({ p }) => p);
-    // In-stock first within shuffled
-    const inStock = shuffled.filter((p) => p.stock > 0);
+    // In-stock + with image first, then in-stock without image, then out of stock
+    const inStockWithImage = shuffled.filter((p) => p.stock > 0 && p.image);
+    const inStockNoImage = shuffled.filter((p) => p.stock > 0 && !p.image);
     const outOfStock = shuffled.filter((p) => p.stock <= 0);
-    products = [...pinned, ...inStock, ...outOfStock];
+    products = [...pinned, ...inStockWithImage, ...inStockNoImage, ...outOfStock];
+  } else if (!sort) {
+    // For pages 2+: still prefer products with images within same priority/stock tier
+    products = [...rawProducts].sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      const aInStock = a.stock > 0 ? 1 : 0;
+      const bInStock = b.stock > 0 ? 1 : 0;
+      if (aInStock !== bInStock) return bInStock - aInStock;
+      const aHasImage = a.image ? 1 : 0;
+      const bHasImage = b.image ? 1 : 0;
+      if (aHasImage !== bHasImage) return bHasImage - aHasImage;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);

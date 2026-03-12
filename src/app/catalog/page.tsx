@@ -62,12 +62,13 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   }
 
   // Build orderBy based on sort param
+  // All sort modes put in-stock first, then sort within each group
   const orderByMap: Record<string, any[]> = {
-    "price-asc": [{ price: "asc" }],
-    "price-desc": [{ price: "desc" }],
-    "name-asc": [{ name: "asc" }],
-    "name-desc": [{ name: "desc" }],
-    "newest": [{ createdAt: "desc" }],
+    "price-asc": [{ stock: "desc" }, { price: "asc" }],
+    "price-desc": [{ stock: "desc" }, { price: "desc" }],
+    "name-asc": [{ stock: "desc" }, { name: "asc" }],
+    "name-desc": [{ stock: "desc" }, { name: "desc" }],
+    "newest": [{ stock: "desc" }, { createdAt: "desc" }],
   };
   // Default: priority (high first) → in stock first → name
   const orderBy = orderByMap[sort || ""] || [{ priority: "desc" }, { stock: "desc" }, { name: "asc" }];

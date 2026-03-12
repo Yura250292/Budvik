@@ -106,11 +106,17 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             </div>
             <div className="flex items-center justify-between mt-1">
               <div className="flex items-baseline gap-1">
-                <span className={`text-sm sm:text-base font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
-                  {formatPrice(displayPrice)}
-                </span>
-                {hasDiscount && (
-                  <span className="text-[9px] sm:text-xs text-[#9E9E9E] line-through">{formatPrice(price)}</span>
+                {stock > 0 || displayPrice > 0 ? (
+                  <>
+                    <span className={`text-sm sm:text-base font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
+                      {formatPrice(displayPrice)}
+                    </span>
+                    {hasDiscount && (
+                      <span className="text-[9px] sm:text-xs text-[#9E9E9E] line-through">{formatPrice(price)}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs text-[#BDBDBD]">Ціна не вказана</span>
                 )}
               </div>
               <div className="flex items-center gap-1">
@@ -185,14 +191,20 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <p className="text-xs sm:text-sm text-[#555] mb-3 line-clamp-2">{plainDesc}</p>
             <div className="flex items-center justify-between">
               <div>
-                <span className={`text-lg sm:text-2xl font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
-                  {formatPrice(displayPrice)}
-                </span>
-                {hasDiscount && (
-                  <span className="text-xs text-[#9E9E9E] line-through ml-1.5">{formatPrice(price)}</span>
-                )}
-                {wholesalePrice != null && wholesalePrice < price && !isPromo && (
-                  <span className="block text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                {stock > 0 || displayPrice > 0 ? (
+                  <>
+                    <span className={`text-lg sm:text-2xl font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
+                      {formatPrice(displayPrice)}
+                    </span>
+                    {hasDiscount && (
+                      <span className="text-xs text-[#9E9E9E] line-through ml-1.5">{formatPrice(price)}</span>
+                    )}
+                    {wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                      <span className="block text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-[#BDBDBD]">Ціна не вказана</span>
                 )}
               </div>
               {stock > 0 ? (
@@ -301,16 +313,22 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           {/* Price + button */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
             <div className="min-w-0">
-              <span className={`text-[13px] sm:text-xl font-bold ${
-                stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"
-              }`}>
-                {formatPrice(displayPrice)}
-              </span>
-              {hasDiscount && (
-                <span className="text-[8px] sm:text-xs text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
-              )}
-              {wholesalePrice != null && wholesalePrice < price && !isPromo && (
-                <span className="block text-[8px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+              {stock > 0 || displayPrice > 0 ? (
+                <>
+                  <span className={`text-[13px] sm:text-xl font-bold ${
+                    stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"
+                  }`}>
+                    {formatPrice(displayPrice)}
+                  </span>
+                  {hasDiscount && (
+                    <span className="text-[8px] sm:text-xs text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
+                  )}
+                  {wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                    <span className="block text-[8px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[11px] sm:text-sm text-[#BDBDBD]">Ціна не вказана</span>
               )}
             </div>
             {stock > 0 ? (

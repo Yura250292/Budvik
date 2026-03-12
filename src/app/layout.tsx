@@ -6,7 +6,6 @@ import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import AiChatWidget from "@/components/ai/AiChatWidgetLoader";
-import SwipeNavigator from "@/components/SwipeNavigator";
 import PageTransition from "@/components/PageTransition";
 import TestBanner from "@/components/TestBanner";
 
@@ -50,11 +49,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Header />
           <TestBanner />
-          <SwipeNavigator>
-            <PageTransition>
-              <main className="flex-1 pb-20 md:pb-0">{children}</main>
-            </PageTransition>
-          </SwipeNavigator>
+          <PageTransition>
+            <main className="flex-1 pb-20 md:pb-0">{children}</main>
+          </PageTransition>
           <Footer />
           <BottomNav />
           <AiChatWidget />

@@ -193,14 +193,14 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               <div>
                 {stock > 0 || displayPrice > 0 ? (
                   <>
-                    <span className={`text-lg sm:text-2xl font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
+                    <span className={`text-base sm:text-xl font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
                       {formatPrice(displayPrice)}
                     </span>
                     {hasDiscount && (
-                      <span className="text-xs text-[#9E9E9E] line-through ml-1.5">{formatPrice(price)}</span>
+                      <span className="text-[10px] sm:text-xs text-[#9E9E9E] line-through ml-1">{formatPrice(price)}</span>
                     )}
                     {wholesalePrice != null && wholesalePrice < price && !isPromo && (
-                      <span className="block text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                      <span className="block text-[10px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
                     )}
                   </>
                 ) : (
@@ -208,7 +208,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                 )}
               </div>
               {stock > 0 ? (
-                <button onClick={handleAddToCart} className="btn-primary px-4 py-2 text-sm">
+                <button onClick={handleAddToCart} className="btn-primary px-3 py-1.5 text-xs flex-shrink-0">
                   У кошик
                 </button>
               ) : (
@@ -315,27 +315,26 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <div className="min-w-0">
               {stock > 0 || displayPrice > 0 ? (
                 <>
-                  <span className={`text-[13px] sm:text-xl font-bold ${
+                  <span className={`text-[12px] sm:text-lg font-bold ${
                     stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"
                   }`}>
                     {formatPrice(displayPrice)}
                   </span>
                   {hasDiscount && (
-                    <span className="text-[8px] sm:text-xs text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
+                    <span className="text-[8px] sm:text-[10px] text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
                   )}
                   {wholesalePrice != null && wholesalePrice < price && !isPromo && (
-                    <span className="block text-[8px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
+                    <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
                   )}
                 </>
               ) : (
-                <span className="text-[11px] sm:text-sm text-[#BDBDBD]">Ціна не вказана</span>
+                <span className="text-[10px] sm:text-sm text-[#BDBDBD]">Ціна не вказана</span>
               )}
             </div>
             {stock > 0 ? (
               <button
                 onClick={handleAddToCart}
-                className="btn-primary px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm flex-shrink-0 w-full sm:w-auto"
-                style={{ minHeight: '32px' }}
+                className="btn-primary px-2 sm:px-3 py-1 sm:py-1.5 text-[9px] sm:text-xs flex-shrink-0 w-full sm:w-auto"
               >
                 У кошик
               </button>

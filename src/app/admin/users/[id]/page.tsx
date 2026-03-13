@@ -122,14 +122,16 @@ export default function UserProfilePage() {
             <span className={`px-4 py-2 rounded-full text-sm font-medium ${roleColors[user.role]}`}>
               {roleLabels[user.role]}
             </span>
+            {user.role !== "ADMIN" && user.role !== "MANAGER" && (
+              <button
+                onClick={() => changeRole("MANAGER")}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-500 transition"
+              >
+                Зробити менеджером
+              </button>
+            )}
             {user.role === "CLIENT" && (
               <>
-                <button
-                  onClick={() => changeRole("MANAGER")}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-500 transition"
-                >
-                  Зробити менеджером
-                </button>
                 <button
                   onClick={() => changeRole("SALES")}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition"

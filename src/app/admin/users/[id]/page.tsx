@@ -30,7 +30,7 @@ export default function UserProfilePage() {
   }, [role, params.id]);
 
   const changeRole = async (newRole: string) => {
-    const label = newRole === "SALES" ? "торговим менеджером" : "клієнтом";
+    const label = newRole === "MANAGER" ? "менеджером" : newRole === "SALES" ? "торговим менеджером" : newRole === "WHOLESALE" ? "оптовиком" : "клієнтом";
     if (!confirm(`Призначити ${user.name} ${label}?`)) return;
 
     const res = await fetch(`/api/admin/users/${user.id}`, {
@@ -85,8 +85,8 @@ export default function UserProfilePage() {
     );
   }
 
-  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", SALES: "Торговий менеджер", WHOLESALE: "Оптовик", CLIENT: "Клієнт" };
-  const roleColors: Record<string, string> = { ADMIN: "bg-bk text-primary", SALES: "bg-blue-100 text-blue-700", WHOLESALE: "bg-primary/10 text-primary-dark", CLIENT: "bg-green-100 text-green-700" };
+  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", MANAGER: "Менеджер", SALES: "Торговий менеджер", WHOLESALE: "Оптовик", CLIENT: "Клієнт" };
+  const roleColors: Record<string, string> = { ADMIN: "bg-bk text-primary", MANAGER: "bg-purple-100 text-purple-700", SALES: "bg-blue-100 text-blue-700", WHOLESALE: "bg-primary/10 text-primary-dark", CLIENT: "bg-green-100 text-green-700" };
 
   const activeOrders = user.orders.filter((o: any) => !["DELIVERED", "CANCELLED"].includes(o.status));
   const completedOrders = user.orders.filter((o: any) => ["DELIVERED", "CANCELLED"].includes(o.status));
@@ -103,10 +103,10 @@ export default function UserProfilePage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-              user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : user.role === "WHOLESALE" ? "bg-primary/10" : "bg-g100"
+              user.role === "ADMIN" ? "bg-red-100" : user.role === "MANAGER" ? "bg-purple-100" : user.role === "SALES" ? "bg-blue-100" : user.role === "WHOLESALE" ? "bg-primary/10" : "bg-g100"
             }`}>
               <span className={`font-bold text-2xl ${
-                user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : user.role === "WHOLESALE" ? "text-primary-dark" : "text-g600"
+                user.role === "ADMIN" ? "text-red-700" : user.role === "MANAGER" ? "text-purple-700" : user.role === "SALES" ? "text-blue-700" : user.role === "WHOLESALE" ? "text-primary-dark" : "text-g600"
               }`}>
                 {user.name.charAt(0).toUpperCase()}
               </span>
@@ -125,6 +125,12 @@ export default function UserProfilePage() {
             {user.role === "CLIENT" && (
               <>
                 <button
+                  onClick={() => changeRole("MANAGER")}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-500 transition"
+                >
+                  Зробити менеджером
+                </button>
+                <button
                   onClick={() => changeRole("SALES")}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition"
                 >
@@ -137,6 +143,14 @@ export default function UserProfilePage() {
                   Зробити оптовиком
                 </button>
               </>
+            )}
+            {user.role === "MANAGER" && (
+              <button
+                onClick={() => changeRole("CLIENT")}
+                className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 transition"
+              >
+                Зняти роль менеджера
+              </button>
             )}
             {user.role === "WHOLESALE" && (
               <button

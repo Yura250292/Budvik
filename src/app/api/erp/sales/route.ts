@@ -7,7 +7,7 @@ import { getLatestPurchasePrice } from "@/lib/erp/sales";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "SALES"].includes(session.user.role)) {
+  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "SALES"].includes(session.user.role)) {
+  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

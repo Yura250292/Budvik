@@ -58,6 +58,7 @@ export default function AdminUsersPage() {
 
   const roleLabels: Record<string, string> = {
     ADMIN: "Адмін",
+    MANAGER: "Менеджер",
     SALES: "Торговий",
     WHOLESALE: "Оптовик",
     CLIENT: "Клієнт",
@@ -65,6 +66,7 @@ export default function AdminUsersPage() {
 
   const roleColors: Record<string, string> = {
     ADMIN: "bg-bk text-primary",
+    MANAGER: "bg-purple-100 text-purple-700",
     SALES: "bg-blue-100 text-blue-700",
     WHOLESALE: "bg-primary/10 text-primary-dark",
     CLIENT: "bg-green-100 text-green-700",
@@ -100,7 +102,7 @@ export default function AdminUsersPage() {
           />
         </div>
         <div className="flex gap-2">
-          {["ALL", "CLIENT", "WHOLESALE", "SALES", "ADMIN"].map((r) => (
+          {["ALL", "CLIENT", "WHOLESALE", "MANAGER", "SALES", "ADMIN"].map((r) => (
             <button
               key={r}
               onClick={() => setFilterRole(r)}

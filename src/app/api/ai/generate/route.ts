@@ -8,7 +8,7 @@ import { getSystemPrompt } from "@/lib/ai/context";
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || !["ADMIN", "SALES"].includes((session.user as any).role)) {
+    if (!session || !["ADMIN", "MANAGER", "SALES"].includes((session.user as any).role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

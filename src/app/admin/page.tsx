@@ -10,10 +10,10 @@ export default function AdminPage() {
   const role = (session?.user as any)?.role;
 
   useEffect(() => {
-    if (role !== "ADMIN" && role !== "SALES") return;
+    if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") return;
 
     Promise.all([
-      role === "ADMIN" ? fetch("/api/admin/users").then((r) => r.json()) : Promise.resolve([]),
+      role === "ADMIN" || role === "MANAGER" ? fetch("/api/admin/users").then((r) => r.json()) : Promise.resolve([]),
       fetch("/api/orders").then((r) => r.json()),
       fetch("/api/products").then((r) => r.json()),
       fetch("/api/admin/wholesale").then((r) => r.json()).catch(() => []),
@@ -33,7 +33,7 @@ export default function AdminPage() {
     });
   }, [role]);
 
-  if (role !== "ADMIN" && role !== "SALES") {
+  if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="w-14 h-14 bg-[#FFEAEA] rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -58,7 +58,7 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
       ),
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       label: "Товари",
@@ -70,7 +70,7 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       ),
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       label: "Клієнти",
@@ -94,7 +94,7 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       label: "Торгові",
@@ -106,7 +106,7 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       ),
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
   ];
 
@@ -122,7 +122,7 @@ export default function AdminPage() {
       ),
       title: "Контрагенти",
       desc: "Постачальники та покупці",
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       href: "/admin/erp/purchase-orders",
@@ -133,7 +133,7 @@ export default function AdminPage() {
       ),
       title: "Прихід",
       desc: "Прихідні накладні",
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       href: "/admin/erp/sales",
@@ -144,7 +144,7 @@ export default function AdminPage() {
       ),
       title: "Продаж",
       desc: "Документи B2B/оффлайн",
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       href: "/admin/erp/invoices",
@@ -155,7 +155,7 @@ export default function AdminPage() {
       ),
       title: "Видаткові накладні",
       desc: "Генерація та оплати",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/commissions",
@@ -166,7 +166,7 @@ export default function AdminPage() {
       ),
       title: "Мотивація",
       desc: "Комісії менеджерів",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/stats",
@@ -177,7 +177,7 @@ export default function AdminPage() {
       ),
       title: "Статистика",
       desc: "Аналітика та звіти",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/scan",
@@ -189,7 +189,7 @@ export default function AdminPage() {
       ),
       title: "AI Сканер",
       desc: "Фото \u2192 документ",
-      roles: ["ADMIN", "SALES"],
+      roles: ["ADMIN", "MANAGER", "SALES"],
     },
     {
       href: "/admin/erp/price-check",
@@ -235,6 +235,17 @@ export default function AdminPage() {
       desc: "Контрагенти та документи",
       roles: ["ADMIN"],
     },
+    {
+      href: "/admin/erp/templates",
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+      ),
+      title: "Шаблони документів",
+      desc: "Звіти, рахунки, зарплата",
+      roles: ["ADMIN", "MANAGER"],
+    },
   ];
 
   const visibleModules = erpModules.filter((item) => item.roles.includes(role));
@@ -256,7 +267,7 @@ export default function AdminPage() {
                 Панель управління
               </h1>
               <p className="text-xs text-g400">
-                {role === "ADMIN" ? "Адміністратор" : "Торговий менеджер"} — {session?.user?.name}
+                {role === "ADMIN" ? "Адміністратор" : role === "MANAGER" ? "Менеджер" : "Торговий менеджер"} — {session?.user?.name}
               </p>
             </div>
           </div>

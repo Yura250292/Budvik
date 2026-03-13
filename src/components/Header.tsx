@@ -78,7 +78,7 @@ export default function Header() {
                     Торговий
                   </Link>
                 )}
-                {role === "ADMIN" && (
+                {(role === "ADMIN" || role === "MANAGER") && (
                   <Link href="/admin" className={navLinkClass}>Панель</Link>
                 )}
                 <Link href="/dashboard" className={navLinkClass}>Кабінет</Link>

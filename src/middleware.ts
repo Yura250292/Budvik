@@ -6,18 +6,24 @@ export default withAuth(
     const token = req.nextauth.token;
     const pathname = req.nextUrl.pathname;
 
-    // Admin routes - only ADMIN and SALES
+    // Admin routes - only ADMIN, MANAGER and SALES
     if (pathname.startsWith("/admin")) {
-      if (token?.role !== "ADMIN" && token?.role !== "SALES") {
+      if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "SALES") {
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
-      // Products, Users, Sales management - only ADMIN
+      // Users, Integration - only ADMIN
       if (
-        (pathname.startsWith("/admin/products") ||
-         pathname.startsWith("/admin/users") ||
-         pathname.startsWith("/admin/sales") ||
+        (pathname.startsWith("/admin/users") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN"
+      ) {
+        return NextResponse.redirect(new URL("/admin", req.url));
+      }
+      // Products, Sales management - ADMIN and MANAGER
+      if (
+        (pathname.startsWith("/admin/products") ||
+         pathname.startsWith("/admin/sales")) &&
+        token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {
         return NextResponse.redirect(new URL("/admin", req.url));
       }

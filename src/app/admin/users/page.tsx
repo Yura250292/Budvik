@@ -24,34 +24,18 @@ export default function AdminUsersPage() {
       });
   }, [role]);
 
-  const promoteToSales = async (userId: string) => {
-    if (!confirm("Призначити цього користувача торговим менеджером?")) return;
+  const changeRole = async (userId: string, newRole: string, label: string) => {
+    if (!confirm(label)) return;
 
     const res = await fetch(`/api/admin/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "SALES" }),
+      body: JSON.stringify({ role: newRole }),
     });
 
     if (res.ok) {
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, role: "SALES" } : u))
-      );
-    }
-  };
-
-  const demoteToClient = async (userId: string) => {
-    if (!confirm("Зняти роль торгового менеджера?")) return;
-
-    const res = await fetch(`/api/admin/users/${userId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "CLIENT" }),
-    });
-
-    if (res.ok) {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, role: "CLIENT" } : u))
+        prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
       );
     }
   };
@@ -134,10 +118,10 @@ export default function AdminUsersPage() {
                 {/* Avatar & Info */}
                 <div className="flex items-center gap-4 flex-1">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                    user.role === "ADMIN" ? "bg-red-100" : user.role === "SALES" ? "bg-blue-100" : "bg-g100"
+                    user.role === "ADMIN" ? "bg-red-100" : user.role === "MANAGER" ? "bg-purple-100" : user.role === "SALES" ? "bg-blue-100" : "bg-g100"
                   }`}>
                     <span className={`font-bold text-lg ${
-                      user.role === "ADMIN" ? "text-red-700" : user.role === "SALES" ? "text-blue-700" : "text-g600"
+                      user.role === "ADMIN" ? "text-red-700" : user.role === "MANAGER" ? "text-purple-700" : user.role === "SALES" ? "text-blue-700" : "text-g600"
                     }`}>
                       {user.name.charAt(0).toUpperCase()}
                     </span>
@@ -177,17 +161,25 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-2">
-                  {user.role === "CLIENT" && (
+                  {user.role !== "ADMIN" && user.role !== "MANAGER" && (
                     <button
-                      onClick={() => promoteToSales(user.id)}
-                      className="text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                      onClick={() => changeRole(user.id, "MANAGER", `Призначити ${user.name} менеджером?`)}
+                      className="text-purple-600 hover:text-purple-800 border border-purple-200 hover:border-purple-300 px-3 py-1.5 rounded-lg text-xs font-medium transition"
                     >
-                      Зробити торговим
+                      Менеджер
                     </button>
                   )}
-                  {user.role === "SALES" && (
+                  {user.role === "CLIENT" && (
                     <button
-                      onClick={() => demoteToClient(user.id)}
+                      onClick={() => changeRole(user.id, "SALES", `Призначити ${user.name} торговим менеджером?`)}
+                      className="text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                    >
+                      Торговий
+                    </button>
+                  )}
+                  {(user.role === "SALES" || user.role === "MANAGER") && (
+                    <button
+                      onClick={() => changeRole(user.id, "CLIENT", `Зняти роль у ${user.name}?`)}
                       className="text-red-600 hover:text-red-800 border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg text-xs font-medium transition"
                     >
                       Зняти роль

@@ -11,18 +11,12 @@ export default withAuth(
       if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "SALES") {
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
-      // Users, Integration - only ADMIN
-      if (
-        (pathname.startsWith("/admin/users") ||
-         pathname.startsWith("/admin/integration")) &&
-        token?.role !== "ADMIN"
-      ) {
-        return NextResponse.redirect(new URL("/admin", req.url));
-      }
-      // Products, Sales management - ADMIN and MANAGER
+      // All admin subpages - ADMIN and MANAGER only (except orders, ERP which SALES can access)
       if (
         (pathname.startsWith("/admin/products") ||
-         pathname.startsWith("/admin/sales")) &&
+         pathname.startsWith("/admin/users") ||
+         pathname.startsWith("/admin/sales") ||
+         pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {
         return NextResponse.redirect(new URL("/admin", req.url));

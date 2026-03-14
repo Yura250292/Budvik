@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
+  if (!["ADMIN", "MANAGER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -145,7 +145,7 @@ function exportCSV(orders: any[]) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
+  if (!["ADMIN", "MANAGER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

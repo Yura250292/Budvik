@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -54,7 +54,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

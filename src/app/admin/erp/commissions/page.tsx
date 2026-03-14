@@ -48,7 +48,7 @@ export default function CommissionsAdminPage() {
   };
 
   useEffect(() => {
-    if (role === "ADMIN") fetchData();
+    if (role === "ADMIN" || role === "MANAGER") fetchData();
   }, [role]);
 
   const handleAction = async (id: string, action: "approve" | "pay") => {
@@ -56,7 +56,7 @@ export default function CommissionsAdminPage() {
     fetchData();
   };
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
   }
 

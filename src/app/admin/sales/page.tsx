@@ -13,7 +13,7 @@ export default function AdminSalesPage() {
   const role = (session?.user as any)?.role;
 
   useEffect(() => {
-    if (role !== "ADMIN") return;
+    if (role !== "ADMIN" && role !== "MANAGER") return;
     fetch("/api/admin/users")
       .then((r) => r.json())
       .then((data) => {
@@ -36,7 +36,7 @@ export default function AdminSalesPage() {
     }
   };
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center text-red-600 font-bold">Доступ заборонено</div>;
   }
 

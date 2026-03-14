@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
 /** POST — create/update seasonal promo (admin only) */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
 /** DELETE — remove seasonal promo */
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

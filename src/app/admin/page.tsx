@@ -82,7 +82,7 @@ export default function AdminPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
         </svg>
       ),
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       label: "Оптовики",
@@ -200,7 +200,7 @@ export default function AdminPage() {
       ),
       title: "Моніторинг цін",
       desc: "AI аналіз цін конкурентів",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/seasonal",
@@ -211,7 +211,7 @@ export default function AdminPage() {
       ),
       title: "Сезонні товари",
       desc: "Рекомендації по порі року",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/images",
@@ -222,7 +222,7 @@ export default function AdminPage() {
       ),
       title: "Зображення",
       desc: "Парсинг та AI-пошук фото",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/import",
@@ -233,7 +233,7 @@ export default function AdminPage() {
       ),
       title: "Імпорт з 1С",
       desc: "Контрагенти та документи",
-      roles: ["ADMIN"],
+      roles: ["ADMIN", "MANAGER"],
     },
     {
       href: "/admin/erp/templates",

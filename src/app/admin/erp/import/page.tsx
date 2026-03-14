@@ -25,7 +25,7 @@ export default function ImportPage() {
 
   const role = (session?.user as any)?.role;
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
   }
 

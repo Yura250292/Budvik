@@ -47,7 +47,7 @@ export default function PriceCheckPage() {
       .catch(() => {});
   }, []);
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-lg font-bold">Доступ заборонено</p>

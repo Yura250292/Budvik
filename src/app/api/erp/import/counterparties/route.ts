@@ -6,7 +6,7 @@ import { parseCounterpartiesXML, parseCounterpartiesCSV } from "@/lib/import-1c"
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

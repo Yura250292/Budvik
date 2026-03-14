@@ -25,7 +25,7 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    if (role === "ADMIN") fetchData();
+    if (role === "ADMIN" || role === "MANAGER") fetchData();
   }, [role]);
 
   const exportCSV = () => {
@@ -66,7 +66,7 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
   }
 

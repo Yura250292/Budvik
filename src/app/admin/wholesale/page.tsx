@@ -51,7 +51,7 @@ export default function AdminWholesalePage() {
   const role = (session?.user as any)?.role;
 
   useEffect(() => {
-    if (role !== "ADMIN" && role !== "SALES") return;
+    if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") return;
     fetch("/api/admin/wholesale")
       .then((r) => r.json())
       .then((data) => {
@@ -133,7 +133,7 @@ export default function AdminWholesalePage() {
 
   const pendingCount = applications.filter((a) => a.status === "PENDING").length;
 
-  if (role !== "ADMIN" && role !== "SALES") {
+  if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center text-red-600 font-bold">Доступ заборонено</div>;
   }
 

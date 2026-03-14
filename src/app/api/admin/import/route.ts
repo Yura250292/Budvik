@@ -8,7 +8,7 @@ import type { ParsedProduct } from "@/lib/import-1c";
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
+  if (!["ADMIN", "MANAGER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const session = await getServerSession(authOptions);
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
+  if (!["ADMIN", "MANAGER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

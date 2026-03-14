@@ -17,7 +17,7 @@ export default function CommissionRatesPage() {
   const role = (session?.user as any)?.role;
 
   useEffect(() => {
-    if (role !== "ADMIN") return;
+    if (role !== "ADMIN" && role !== "MANAGER") return;
     Promise.all([
       fetch("/api/erp/commissions/rates").then((r) => r.json()),
       fetch("/api/admin/users").then((r) => r.json()),
@@ -58,7 +58,7 @@ export default function CommissionRatesPage() {
     setSaving(null);
   };
 
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
   }
 

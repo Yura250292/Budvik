@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
 
@@ -80,13 +81,14 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
               className="group flex-shrink-0 w-[200px] sm:w-[280px] bg-white border border-[#EFEFEF] rounded-xl overflow-hidden hover:-translate-y-1 transition-all duration-200"
               style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' }}
             >
-              <div className="relative h-36 sm:h-48 bg-[#FAFAFA] flex items-center justify-center">
+              <div className="relative h-36 sm:h-48 bg-[#FAFAFA] flex items-center justify-center overflow-hidden">
                 {product.image ? (
-                  <img
+                  <Image
                     src={product.image}
                     alt={product.name}
-                    className="h-full w-full object-contain p-3"
-                    loading="lazy"
+                    fill
+                    className="object-contain p-3"
+                    sizes="(max-width: 640px) 200px, 280px"
                   />
                 ) : (
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-[#DADADA]" fill="none" viewBox="0 0 24 24" stroke="currentColor">

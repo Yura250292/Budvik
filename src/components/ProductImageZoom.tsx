@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
 
 interface Props {
   src: string;
@@ -40,10 +41,13 @@ export default function ProductImageZoom({ src, alt }: Props) {
         onMouseMove={handleMouseMove}
         onClick={() => setZoomed(true)}
       >
-        <img
+        <Image
           src={src}
           alt={alt}
-          className="h-full w-full object-contain p-4"
+          fill
+          priority
+          className="object-contain p-4"
+          sizes="(max-width: 768px) 100vw, 50vw"
         />
 
         {/* Magnifier icon overlay */}

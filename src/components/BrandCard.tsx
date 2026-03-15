@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
 import type { BrandInfo } from "@/lib/brands";
 
@@ -15,12 +16,13 @@ export default function BrandCard({ brand, count }: { brand: BrandInfo; count: n
     >
       <div className="h-28 flex items-center justify-center p-4 bg-white">
         {brand.logo && !imgError ? (
-          <img
+          <Image
             src={brand.logo}
             alt={brand.name}
+            width={120}
+            height={64}
             className="max-h-16 max-w-[120px] object-contain group-hover:scale-105 transition-transform duration-200"
             onError={() => setImgError(true)}
-            loading="lazy"
           />
         ) : (
           <span className="text-2xl font-black tracking-tight text-[#1A1A1A] group-hover:text-[#FFB800] transition-colors duration-200">

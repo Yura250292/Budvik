@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import AiMarkdown from "@/components/ai/AiMarkdown";
 import VikingMascot from "@/components/ai/VikingMascot";
 import VikingToolCatchGame from "@/components/ai/VikingToolCatchGame";
@@ -151,9 +152,9 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
   return (
     <div className="bg-white border border-g200 rounded-xl overflow-hidden hover:border-primary hover:shadow-lg transition-all flex flex-col">
       <Link href={`/catalog/${product.slug}`} className="block">
-        <div className="h-48 bg-g50 flex items-center justify-center overflow-hidden">
+        <div className="relative h-48 bg-g50 flex items-center justify-center overflow-hidden">
           {product.image ? (
-            <img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 hover:scale-105 transition-transform" />
+            <Image src={product.image} alt={product.name} fill className="object-contain p-3 hover:scale-105 transition-transform" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
           ) : (
             <svg className="w-16 h-16 text-g300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -252,7 +253,7 @@ function ComparisonTable({ products }: { products: WizardProduct[] }) {
               <td key={p.id} className="border border-g200 px-4 py-3 text-center">
                 <Link href={`/catalog/${p.slug}`} className="inline-block">
                   {p.image ? (
-                    <img src={p.image} alt={p.name} className="w-20 h-20 object-contain rounded mx-auto hover:scale-110 transition-transform" />
+                    <Image src={p.image} alt={p.name} width={80} height={80} className="object-contain rounded mx-auto hover:scale-110 transition-transform" />
                   ) : (
                     <div className="w-20 h-20 bg-g100 rounded flex items-center justify-center text-g300 mx-auto">Фото</div>
                   )}

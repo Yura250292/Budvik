@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import AiMarkdown from "./AiMarkdown";
 import VikingMascot from "./VikingMascot";
 import { formatPrice } from "@/lib/utils";
@@ -52,9 +53,9 @@ function ProductCard({ product }: { product: AIProduct }) {
       href={`/catalog/${product.slug}`}
       className="flex gap-3 bg-white border border-g200 rounded-lg p-2.5 hover:border-primary hover:shadow-sm transition group"
     >
-      <div className="w-14 h-14 bg-g100 rounded flex-shrink-0 overflow-hidden">
+      <div className="relative w-14 h-14 bg-g100 rounded flex-shrink-0 overflow-hidden">
         {product.image ? (
-          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+          <Image src={product.image} alt={product.name} fill className="object-cover" sizes="56px" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <svg className="w-6 h-6 text-g300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -146,7 +147,7 @@ function ComparisonTable({ products }: { products: AIProduct[] }) {
             {products.map((p) => (
               <td key={p.id} className="border border-g200 px-2 py-1">
                 {p.image ? (
-                  <img src={p.image} alt={p.name} className="w-12 h-12 object-cover rounded" />
+                  <Image src={p.image} alt={p.name} width={48} height={48} className="object-cover rounded" />
                 ) : (
                   <div className="w-12 h-12 bg-g100 rounded flex items-center justify-center text-g300 text-[8px]">Фото</div>
                 )}

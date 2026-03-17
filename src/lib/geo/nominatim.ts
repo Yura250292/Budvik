@@ -66,6 +66,45 @@ export async function geocodeAddress(
   return result;
 }
 
+export async function reverseGeocode(
+  lat: number,
+  lng: number
+): Promise<{ lat: number; lng: number; displayName: string; shortName: string } | null> {
+  await waitForRateLimit();
+
+  const params = new URLSearchParams({
+    lat: lat.toString(),
+    lon: lng.toString(),
+    format: "json",
+    "accept-language": "uk",
+    zoom: "18",
+  });
+
+  const res = await fetch(`${NOMINATIM_URL}/reverse?${params}`, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (!data || data.error) return null;
+
+  // Build short name from address parts
+  const addr = data.address || {};
+  const parts = [
+    addr.city || addr.town || addr.village || "",
+    addr.road || "",
+    addr.house_number || "",
+  ].filter(Boolean);
+
+  return {
+    lat,
+    lng,
+    displayName: data.display_name || "",
+    shortName: parts.join(", ") || data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+  };
+}
+
 export async function geocodeAddresses(
   addresses: string[]
 ): Promise<Array<{ address: string; lat: number; lng: number; displayName: string } | null>> {

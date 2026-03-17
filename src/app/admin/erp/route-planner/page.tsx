@@ -34,6 +34,9 @@ export default function RoutePlannerPage() {
   const role = (session?.user as any)?.role;
 
   const [startAddress, setStartAddress] = useState("Вінниця, склад");
+  const [startGeo, setStartGeo] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickingStart, setPickingStart] = useState(false);
+  const [reverseGeocoding, setReverseGeocoding] = useState(false);
   const [newAddress, setNewAddress] = useState("");
   const [addresses, setAddresses] = useState<AddressEntry[]>([]);
   const [optimizing, setOptimizing] = useState(false);
@@ -53,6 +56,41 @@ export default function RoutePlannerPage() {
       return null;
     }
   }, []);
+
+  // Geocode start address and show on map
+  const geocodeStart = useCallback(async (address: string) => {
+    const geo = await geocodeAddress(address);
+    if (geo) {
+      setStartGeo({ lat: geo.lat, lng: geo.lng });
+      setMapStops((prev) => {
+        const withoutStart = prev.filter((s) => s.type !== "start");
+        return [{ lat: geo.lat, lng: geo.lng, label: "Старт (склад)", address: geo.displayName, type: "start" as const, sequence: 0 }, ...withoutStart];
+      });
+    }
+  }, [geocodeAddress]);
+
+  // Handle map click — set start point via reverse geocode
+  const handleMapClick = useCallback(async (lat: number, lng: number) => {
+    if (!pickingStart) return;
+    setPickingStart(false);
+    setReverseGeocoding(true);
+
+    try {
+      const res = await fetch(`/api/geo/geocode?lat=${lat}&lng=${lng}`);
+      if (res.ok) {
+        const data = await res.json();
+        setStartAddress(data.shortName || data.displayName);
+        setStartGeo({ lat, lng });
+        setMapStops((prev) => {
+          const withoutStart = prev.filter((s) => s.type !== "start");
+          return [{ lat, lng, label: "Старт (склад)", address: data.displayName, type: "start" as const, sequence: 0 }, ...withoutStart];
+        });
+        setResult(null);
+        setRouteGeometry(null);
+      }
+    } catch { /* ignore */ }
+    setReverseGeocoding(false);
+  }, [pickingStart]);
 
   const addAddress = useCallback(async () => {
     const addr = newAddress.trim();
@@ -222,21 +260,59 @@ export default function RoutePlannerPage() {
           {/* Left panel: address input */}
           <div className="space-y-4">
             {/* Start address */}
-            <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+            <div className="bg-white rounded-xl p-5" style={{ border: pickingStart ? "2px solid #FFD600" : "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
               <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "6px" }}>
                 Початкова точка (склад)
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{ background: "#0A0A0A", color: "#FFD600", fontSize: "14px", fontWeight: 800 }}>
                   ⚑
                 </div>
                 <input
                   value={startAddress}
-                  onChange={(e) => { setStartAddress(e.target.value); setResult(null); setRouteGeometry(null); }}
+                  onChange={(e) => { setStartAddress(e.target.value); setStartGeo(null); setResult(null); setRouteGeometry(null); }}
                   placeholder="Вінниця, склад"
                   style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
                 />
+                <button
+                  onClick={() => geocodeStart(startAddress)}
+                  disabled={!startAddress.trim()}
+                  title="Знайти на карті"
+                  style={{
+                    padding: "8px 12px", borderRadius: "8px", fontWeight: 600, fontSize: "13px",
+                    background: startGeo ? "#F0FDF4" : "#EFF6FF", color: startGeo ? "#16A34A" : "#2563EB",
+                    border: `1px solid ${startGeo ? "#BBF7D0" : "#BFDBFE"}`, whiteSpace: "nowrap",
+                  }}
+                >
+                  {startGeo ? "✓" : "Знайти"}
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={() => setPickingStart(!pickingStart)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    padding: "7px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                    background: pickingStart ? "#FFD600" : "#F9FAFB",
+                    color: pickingStart ? "#0A0A0A" : "#6B7280",
+                    border: pickingStart ? "2px solid #0A0A0A" : "1px solid #E5E7EB",
+                  }}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {pickingStart ? "Натисніть на карту..." : "Вказати на карті"}
+                </button>
+                {reverseGeocoding && (
+                  <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Визначаю адресу...</span>
+                )}
+                {startGeo && !reverseGeocoding && (
+                  <span style={{ fontSize: "11px", color: "#16A34A" }}>
+                    {startGeo.lat.toFixed(4)}, {startGeo.lng.toFixed(4)}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -392,10 +468,20 @@ export default function RoutePlannerPage() {
 
           {/* Right panel: map */}
           <div className="lg:sticky lg:top-[80px] lg:self-start">
+            {pickingStart && (
+              <div style={{
+                padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: "13px", fontWeight: 600,
+                background: "#FFD600", color: "#0A0A0A", textAlign: "center",
+              }}>
+                Натисніть на карту щоб вказати початкову точку
+              </div>
+            )}
             <DynamicDeliveryMap
               stops={mapStops}
               routeGeometry={routeGeometry}
               height="calc(100vh - 120px)"
+              onMapClick={handleMapClick}
+              pickingMode={pickingStart}
             />
           </div>
         </div>

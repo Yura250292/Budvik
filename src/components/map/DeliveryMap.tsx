@@ -17,6 +17,8 @@ interface DeliveryMapProps {
   stops: GeoPoint[];
   routeGeometry?: GeoJSON.LineString | null;
   height?: string;
+  onMapClick?: (lat: number, lng: number) => void;
+  pickingMode?: boolean; // show crosshair cursor when picking location
 }
 
 function createNumberedIcon(num: number, isStart: boolean): L.DivIcon {
@@ -41,9 +43,11 @@ function createNumberedIcon(num: number, isStart: boolean): L.DivIcon {
   });
 }
 
-export default function DeliveryMap({ stops, routeGeometry, height = "500px" }: DeliveryMapProps) {
+export default function DeliveryMap({ stops, routeGeometry, height = "500px", onMapClick, pickingMode }: DeliveryMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const onMapClickRef = useRef(onMapClick);
+  onMapClickRef.current = onMapClick;
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -59,6 +63,13 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px" }: 
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
+
+      // Map click handler
+      mapInstanceRef.current.on("click", (e: L.LeafletMouseEvent) => {
+        if (onMapClickRef.current) {
+          onMapClickRef.current(e.latlng.lat, e.latlng.lng);
+        }
+      });
     }
 
     const map = mapInstanceRef.current;
@@ -120,6 +131,14 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px" }: 
     };
   }, []);
 
+  // Update cursor when picking mode changes
+  useEffect(() => {
+    const container = mapInstanceRef.current?.getContainer();
+    if (container) {
+      container.style.cursor = pickingMode ? "crosshair" : "";
+    }
+  }, [pickingMode]);
+
   return (
     <div
       ref={mapRef}
@@ -128,7 +147,7 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px" }: 
         width: "100%",
         borderRadius: "12px",
         overflow: "hidden",
-        border: "1px solid #E5E7EB",
+        border: pickingMode ? "2px solid #FFD600" : "1px solid #E5E7EB",
       }}
     />
   );

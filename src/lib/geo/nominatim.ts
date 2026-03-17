@@ -16,36 +16,48 @@ async function waitForRateLimit() {
   lastRequestTime = Date.now();
 }
 
-function normalizeAddress(address: string): string {
+/** Expand Ukrainian abbreviations for better Nominatim matching */
+function expandAbbreviations(address: string): string {
   return address
     .replace(/\bвул\.\s*/gi, "вулиця ")
     .replace(/\bпров\.\s*/gi, "провулок ")
     .replace(/\bпросп\.\s*/gi, "проспект ")
-    .replace(/\bм\.\s*/gi, "")
     .replace(/\bбульв\.\s*/gi, "бульвар ")
     .replace(/\bпл\.\s*/gi, "площа ")
+    .replace(/\bр-н\b/gi, "район")
+    .replace(/\bобл\.\s*/gi, "область ")
+    .replace(/\bс\.\s*/gi, "село ")
+    .replace(/\bсмт\.\s*/gi, "")
+    .replace(/\bм\.\s+/gi, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-export async function geocodeAddress(
-  address: string
+/** Strip abbreviations entirely for a looser search */
+function stripAbbreviations(address: string): string {
+  return address
+    .replace(/\b(вул\.|вулиця|пров\.|провулок|просп\.|проспект|бульв\.|бульвар|пл\.|площа|р-н|район|обл\.|область|с\.|село|смт\.?|м\.)\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Try a single Nominatim search query */
+async function nominatimSearch(
+  query: string,
+  options?: { structured?: boolean; country?: string }
 ): Promise<{ lat: number; lng: number; displayName: string } | null> {
-  const normalized = normalizeAddress(address);
-  const cacheKey = normalized.toLowerCase();
-
-  if (cache.has(cacheKey)) {
-    return cache.get(cacheKey)!;
-  }
-
   await waitForRateLimit();
 
   const params = new URLSearchParams({
-    q: normalized,
+    q: query,
     format: "json",
-    limit: "1",
-    countrycodes: "ua",
+    limit: "3",
     "accept-language": "uk",
   });
+
+  if (options?.country) {
+    params.set("countrycodes", options.country);
+  }
 
   const res = await fetch(`${NOMINATIM_URL}/search?${params}`, {
     headers: { "User-Agent": USER_AGENT },
@@ -56,13 +68,63 @@ export async function geocodeAddress(
   const data = await res.json();
   if (!data.length) return null;
 
-  const result = {
+  return {
     lat: parseFloat(data[0].lat),
     lng: parseFloat(data[0].lon),
     displayName: data[0].display_name as string,
   };
+}
 
-  cache.set(cacheKey, result);
+/**
+ * Geocode an address using multiple fallback strategies:
+ * 1. Original text with Ukraine filter
+ * 2. Expanded abbreviations with Ukraine filter
+ * 3. Stripped abbreviations with Ukraine filter
+ * 4. Add "Україна" suffix for context
+ * 5. Without country filter (global search)
+ */
+export async function geocodeAddress(
+  address: string
+): Promise<{ lat: number; lng: number; displayName: string } | null> {
+  const trimmed = address.trim();
+  if (!trimmed) return null;
+
+  const cacheKey = trimmed.toLowerCase();
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey)!;
+  }
+
+  const expanded = expandAbbreviations(trimmed);
+  const stripped = stripAbbreviations(trimmed);
+
+  // Strategy 1: original text, Ukraine
+  let result = await nominatimSearch(trimmed, { country: "ua" });
+
+  // Strategy 2: expanded abbreviations, Ukraine
+  if (!result && expanded !== trimmed) {
+    result = await nominatimSearch(expanded, { country: "ua" });
+  }
+
+  // Strategy 3: stripped abbreviations, Ukraine
+  if (!result && stripped !== trimmed && stripped !== expanded) {
+    result = await nominatimSearch(stripped, { country: "ua" });
+  }
+
+  // Strategy 4: append "Україна" for better context
+  if (!result) {
+    const withCountry = `${stripped}, Україна`;
+    result = await nominatimSearch(withCountry);
+  }
+
+  // Strategy 5: global search as last resort
+  if (!result) {
+    result = await nominatimSearch(trimmed);
+  }
+
+  if (result) {
+    cache.set(cacheKey, result);
+  }
+
   return result;
 }
 

@@ -112,7 +112,7 @@ export default function RoutePlannerPage() {
               ...a,
               geocoding: false,
               geocoded: geo || undefined,
-              error: geo ? undefined : "Адресу не знайдено",
+              error: geo ? undefined : "Не знайдено. Спробуйте: Місто, вулиця, номер",
             }
           : a
       )
@@ -326,7 +326,7 @@ export default function RoutePlannerPage() {
                   value={newAddress}
                   onChange={(e) => setNewAddress(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Напр: Хмельницький, вул. Соборна 25"
+                  placeholder="Місто, вулиця, номер (напр: Вінниця, Соборна 25)"
                   style={{ flex: 1, padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
                 />
                 <button

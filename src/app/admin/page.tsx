@@ -349,7 +349,7 @@ export default function AdminPage() {
               <Link
                 key={card.label}
                 href={card.href}
-                className="bg-white rounded-[var(--radius-card)] border border-g200 p-3.5 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 transition-all group"
+                className="bg-white rounded-[var(--radius-card)] border border-g200 p-3.5 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 active:scale-[0.97] transition-[box-shadow,border-color,transform] duration-150 cursor-pointer group"
               >
                 <div className="flex items-center gap-2 mb-2.5">
                   <div className="w-7 h-7 rounded-lg bg-bk flex items-center justify-center flex-shrink-0 text-primary">
@@ -382,7 +382,7 @@ export default function AdminPage() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center gap-3 bg-white rounded-[var(--radius-card)] border border-g200 px-3.5 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 transition-all group"
+                className="flex items-center gap-3 bg-white rounded-[var(--radius-card)] border border-g200 px-3.5 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:border-g300 active:scale-[0.97] active:bg-gray-50 transition-[box-shadow,border-color,transform,background-color] duration-150 cursor-pointer group"
               >
                 <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-bk flex items-center justify-center flex-shrink-0 text-primary [&>svg]:w-[18px] [&>svg]:h-[18px]">
                   {item.icon}

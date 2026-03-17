@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Remove 300ms tap delay on mobile for all interactive elements */
+a, button, [role="button"], input, select, textarea, label {
+  touch-action: manipulation;
+}
+
 :root {
   --background: #F7F7F7;
   --foreground: #0A0A0A;

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveSpecs } from "@/lib/simulation/specs";
 import { getMaterialById } from "@/lib/simulation/materials";
 import { simulate, compareSimulations } from "@/lib/simulation/engine";
-import { getConsumablesByMode, type ConsumableMode } from "@/lib/simulation/consumables";
+import { productToConsumable, type ConsumableMode } from "@/lib/simulation/consumables";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -22,14 +22,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Матеріал не знайдено" }, { status: 404 });
   }
 
-  const allConsumables = getConsumablesByMode(consumableMode as ConsumableMode);
-  const selected = consumableIds
-    .map((id: string) => allConsumables.find(c => c.id === id))
-    .filter(Boolean);
+  // Fetch consumable products from DB
+  const consumableProducts = await prisma.product.findMany({
+    where: { id: { in: consumableIds } },
+    include: { category: true },
+  });
 
-  if (selected.length === 0) {
+  if (consumableProducts.length === 0) {
     return NextResponse.json({ error: "Витратні матеріали не знайдено" }, { status: 404 });
   }
+
+  // Convert products to consumables using parser
+  const selected = consumableProducts.map(p =>
+    productToConsumable(
+      { id: p.id, name: p.name, price: p.price, image: p.image, category: p.category ? { slug: p.category.slug, name: p.category.name } : null },
+      consumableMode as ConsumableMode
+    )
+  );
 
   // Determine simulation type from consumable mode
   const simTypeMap: Record<string, string> = {
@@ -56,7 +65,6 @@ export async function POST(req: Request) {
   }
 
   if (!toolSpecs) {
-    // Default tool specs based on consumable mode
     const defaults: Record<string, { powerWatts: number; rpm: number; toolType: string }> = {
       drill_bits: { powerWatts: 850, rpm: 2800, toolType: "drill" },
       cutting_discs: { powerWatts: 1000, rpm: 11000, toolType: "grinder" },
@@ -73,7 +81,7 @@ export async function POST(req: Request) {
     } as any;
   }
 
-  const results = selected.map((consumable: any) => {
+  const results = selected.map((consumable) => {
     const result = simulate({
       tool: toolSpecs,
       material,

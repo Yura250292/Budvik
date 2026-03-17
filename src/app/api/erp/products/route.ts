@@ -21,6 +21,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 
+  // Check if sales rep has category restrictions
+  let allowedCategoryIds: string[] | null = null;
+  if (session.user.role === "SALES") {
+    const catAccess = await prisma.salesRepCategoryAccess.findMany({
+      where: { salesRepId: session.user.id },
+      select: { categoryId: true },
+    });
+    if (catAccess.length > 0) {
+      allowedCategoryIds = catAccess.map((c) => c.categoryId);
+    }
+  }
+
   // Split search into terms for multi-word matching
   const terms = search.split(/\s+/).filter((t) => t.length > 0);
 
@@ -38,6 +50,7 @@ export async function GET(req: NextRequest) {
     where: {
       isActive: true,
       AND: conditions,
+      ...(allowedCategoryIds ? { categoryId: { in: allowedCategoryIds } } : {}),
     },
     include: {
       category: { select: { id: true, name: true } },

@@ -123,6 +123,11 @@ model User {
   // Delivery relations
   driverRoutes  DeliveryRoute[] @relation("driverRoutes")
   createdRoutes DeliveryRoute[] @relation("routeCreator")
+
+  // Sales rep profile
+  salesRepRegions    SalesRepRegion[]
+  salesRepClients    SalesRepClient[]
+  salesRepCategories SalesRepCategoryAccess[]
 }
 
 model Category {
@@ -131,6 +136,7 @@ model Category {
   slug     String    @unique
   image    String?
   products Product[]
+  salesRepAccess SalesRepCategoryAccess[]
 }
 
 model Product {
@@ -168,6 +174,7 @@ model Product {
   purchaseOrderItems PurchaseOrderItem[]
   salesDocumentItems SalesDocumentItem[]
   reservations       StockReservation[]
+  locationStocks     LocationStock[]
 }
 
 model SeasonalPromo {
@@ -327,6 +334,7 @@ model Counterparty {
   invoices         Invoice[]
   supplierProducts SupplierProduct[]
   deliveryStops    DeliveryStop[]
+  assignedSalesReps SalesRepClient[]
 }
 
 model SupplierProduct {
@@ -527,4 +535,63 @@ model DeliveryStop {
   deliveryRoute DeliveryRoute @relation(fields: [deliveryRouteId], references: [id], onDelete: Cascade)
   salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
   counterparty  Counterparty? @relation(fields: [counterpartyId], references: [id])
+}
+
+// ========== Sales Rep Profile ==========
+
+model SalesRepRegion {
+  id         String @id @default(cuid())
+  salesRepId String
+  region     String // "Львів", "Радехів", "Вінницька область"
+
+  salesRep User @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  @@unique([salesRepId, region])
+}
+
+model SalesRepClient {
+  id             String @id @default(cuid())
+  salesRepId     String
+  counterpartyId String
+
+  salesRep     User         @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@unique([salesRepId, counterpartyId])
+}
+
+model SalesRepCategoryAccess {
+  id         String @id @default(cuid())
+  salesRepId String
+  categoryId String
+
+  salesRep User     @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([salesRepId, categoryId])
+}
+
+// ========== Stock Locations (Warehouses) ==========
+
+model StockLocation {
+  id        String   @id @default(cuid())
+  name      String   // "Основний склад", "Магазин"
+  address   String?
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  stocks LocationStock[]
+}
+
+model LocationStock {
+  id              String @id @default(cuid())
+  stockLocationId String
+  productId       String
+  quantity        Int    @default(0)
+
+  stockLocation StockLocation @relation(fields: [stockLocationId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([stockLocationId, productId])
 }

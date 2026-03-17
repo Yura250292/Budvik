@@ -47,7 +47,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await req.json();
-  const { name, code, type, phone, email, address, contactPerson, notes, isActive } = body;
+  const { name, code, type, phone, email, address, deliveryAddress, deliveryLat, deliveryLng, contactPerson, notes, isActive } = body;
 
   if (code) {
     const existing = await prisma.counterparty.findUnique({ where: { code } });
@@ -65,6 +65,9 @@ export async function PATCH(
       ...(phone !== undefined && { phone: phone || null }),
       ...(email !== undefined && { email: email || null }),
       ...(address !== undefined && { address: address || null }),
+      ...(deliveryAddress !== undefined && { deliveryAddress: deliveryAddress || null }),
+      ...(deliveryLat !== undefined && { deliveryLat: deliveryLat || null }),
+      ...(deliveryLng !== undefined && { deliveryLng: deliveryLng || null }),
       ...(contactPerson !== undefined && { contactPerson: contactPerson || null }),
       ...(notes !== undefined && { notes: notes || null }),
       ...(isActive !== undefined && { isActive }),

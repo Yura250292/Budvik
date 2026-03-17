@@ -323,9 +323,12 @@ model Counterparty {
   type          CounterpartyType @default(BOTH)
   phone         String?
   email         String?
-  address       String?
-  contactPerson String?
-  notes         String?
+  address         String?
+  deliveryAddress String?  // Адреса доставки (НП відділення, адресна доставка)
+  deliveryLat     Float?   // Геокодовані координати для планувальника
+  deliveryLng     Float?
+  contactPerson   String?
+  notes           String?
   isActive      Boolean          @default(true)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt

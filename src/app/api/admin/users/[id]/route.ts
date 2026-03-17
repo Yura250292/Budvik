@@ -22,6 +22,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       boltsBalance: true,
       createdAt: true,
       updatedAt: true,
+      counterpartyId: true,
+      linkedCounterparty: { select: { id: true, name: true, phone: true } },
       orders: {
         include: {
           items: { include: { product: true } },
@@ -59,9 +61,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const { id } = await params;
-  const { role } = await req.json();
+  const body = await req.json();
+  const { role, counterpartyId } = body;
 
-  if (!["CLIENT", "MANAGER", "SALES", "WHOLESALE"].includes(role)) {
+  // Handle counterparty link update
+  if ("counterpartyId" in body) {
+    const user = await prisma.user.update({
+      where: { id },
+      data: { counterpartyId: counterpartyId ?? null },
+      select: {
+        id: true,
+        counterpartyId: true,
+        linkedCounterparty: { select: { id: true, name: true, phone: true } },
+      },
+    });
+    return NextResponse.json(user);
+  }
+
+  if (!role || !["CLIENT", "MANAGER", "SALES", "WHOLESALE"].includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 

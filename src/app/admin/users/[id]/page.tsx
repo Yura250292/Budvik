@@ -16,6 +16,9 @@ export default function UserProfilePage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"info" | "orders" | "active" | "bolts">("info");
+  const [counterparties, setCounterparties] = useState<any[]>([]);
+  const [counterpartySearch, setCounterpartySearch] = useState("");
+  const [linkingCounterparty, setLinkingCounterparty] = useState(false);
 
   const role = (session?.user as any)?.role;
 
@@ -28,6 +31,27 @@ export default function UserProfilePage() {
         setLoading(false);
       });
   }, [role, params.id]);
+
+  useEffect(() => {
+    if (!user || user.role !== "WHOLESALE") return;
+    fetch("/api/erp/counterparties")
+      .then((r) => r.json())
+      .then((data) => setCounterparties(Array.isArray(data) ? data : []));
+  }, [user]);
+
+  const linkCounterparty = async (counterpartyId: string | null) => {
+    setLinkingCounterparty(true);
+    const res = await fetch(`/api/admin/users/${user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ counterpartyId }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setUser((prev: any) => ({ ...prev, counterpartyId: updated.counterpartyId, linkedCounterparty: updated.linkedCounterparty }));
+    }
+    setLinkingCounterparty(false);
+  };
 
   const changeRole = async (newRole: string) => {
     const label = newRole === "MANAGER" ? "менеджером" : newRole === "SALES" ? "торговим менеджером" : newRole === "WHOLESALE" ? "оптовиком" : "клієнтом";
@@ -173,6 +197,65 @@ export default function UserProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Wholesale: Link to Counterparty */}
+      {user.role === "WHOLESALE" && (
+        <div className="bg-white border rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold text-bk mb-1">Прив&apos;язка до контрагента</h2>
+          <p className="text-sm text-g400 mb-4">
+            Прив&apos;яжіть оптового клієнта до контрагента (Counterparty) в ERP — це визначає, який торговий отримуватиме сповіщення від цього клієнта.
+          </p>
+          {user.linkedCounterparty ? (
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex-1 min-w-0 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5">
+                <p className="font-semibold text-green-900 text-sm">{user.linkedCounterparty.name}</p>
+                {user.linkedCounterparty.phone && (
+                  <p className="text-xs text-green-700">{user.linkedCounterparty.phone}</p>
+                )}
+              </div>
+              <button
+                onClick={() => linkCounterparty(null)}
+                disabled={linkingCounterparty}
+                className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 transition disabled:opacity-50"
+              >
+                Відв&apos;язати
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Пошук контрагента..."
+                value={counterpartySearch}
+                onChange={(e) => setCounterpartySearch(e.target.value)}
+                className="w-full border border-g300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {counterpartySearch.length >= 2 && (
+                <div className="border border-g200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {counterparties
+                    .filter((c) => c.name.toLowerCase().includes(counterpartySearch.toLowerCase()))
+                    .slice(0, 10)
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => { linkCounterparty(c.id); setCounterpartySearch(""); }}
+                        disabled={linkingCounterparty}
+                        className="w-full text-left px-4 py-2.5 hover:bg-g50 border-b border-g100 last:border-0 text-sm disabled:opacity-50"
+                      >
+                        <span className="font-medium text-bk">{c.name}</span>
+                        {c.phone && <span className="text-g400 ml-2">{c.phone}</span>}
+                      </button>
+                    ))}
+                  {counterparties.filter((c) => c.name.toLowerCase().includes(counterpartySearch.toLowerCase())).length === 0 && (
+                    <p className="px-4 py-3 text-sm text-g400">Контрагентів не знайдено</p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-g400">Введіть мінімум 2 символи для пошуку</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">

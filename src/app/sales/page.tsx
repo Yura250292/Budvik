@@ -246,9 +246,19 @@ export default function SalesDashboard() {
                 <p style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>{item.title}</p>
                 <p style={{ fontSize: "13px", color: "#6B7280" }}>{item.desc}</p>
               </div>
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              {item.badge != null && item.badge > 0 ? (
+                <span style={{
+                  background: "#EF4444", color: "white", borderRadius: "9999px",
+                  fontSize: "12px", fontWeight: 700, minWidth: "22px", height: "22px",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px",
+                }}>
+                  {item.badge}
+                </span>
+              ) : (
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              )}
             </Link>
           ))}
         </div>

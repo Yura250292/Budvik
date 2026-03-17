@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { formatDate } from "@/lib/utils";
@@ -26,7 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
   REJECTED: "bg-red-100 text-red-800",
 };
 
-export default function WholesalePage() {
+function WholesalePageInner() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const orderedNumber = searchParams.get("ordered");
@@ -338,5 +338,13 @@ export default function WholesalePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function WholesalePage() {
+  return (
+    <Suspense>
+      <WholesalePageInner />
+    </Suspense>
   );
 }

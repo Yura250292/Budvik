@@ -200,11 +200,11 @@ function OrdersContent() {
                                 <div className="flex-1 min-w-0">
                                   <p style={{ fontSize: "13px", fontWeight: 500, color: "#0A0A0A" }}>{item.product?.name || "—"}</p>
                                   <p style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                                    {item.quantity} {item.unit || "шт"} × {formatPrice(item.unitPrice)}
+                                    {item.quantity} шт × {formatPrice(item.sellingPrice)}
                                   </p>
                                 </div>
                                 <p style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A", flexShrink: 0 }}>
-                                  {formatPrice(item.totalPrice)}
+                                  {formatPrice(item.quantity * item.sellingPrice)}
                                 </p>
                               </div>
                             ))}

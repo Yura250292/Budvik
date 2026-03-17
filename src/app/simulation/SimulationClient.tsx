@@ -13,6 +13,7 @@ import ConsumablePicker from "./components/ConsumablePicker";
 import type { SimulationResult } from "@/lib/simulation/engine";
 import type { SimulationType } from "@/lib/simulation/specs";
 import { CONSUMABLE_MODES, type ConsumableMode, type Consumable } from "@/lib/simulation/consumables";
+import { MATERIALS } from "@/lib/simulation/materials";
 
 interface ProductItem {
   id: string;
@@ -72,6 +73,8 @@ export default function SimulationClient() {
   const [params, setParams] = useState<Record<string, number>>({});
   const [results, setResults] = useState<SimulationResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Pre-select product from URL
   useEffect(() => {
@@ -129,6 +132,26 @@ export default function SimulationClient() {
     }
   }, [step, mode, simType, selectedProducts, materialId, consumableMode, selectedConsumables]);
 
+  const fetchAiAnalysis = async (simResults: SimulationResult[], simTypeVal: string) => {
+    setAiLoading(true);
+    setAiAnalysis(null);
+    try {
+      const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
+      const res = await fetch("/api/simulate/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          results: simResults,
+          materialName,
+          simType: simTypeVal,
+          toolNames: simResults.map(r => r.consumableName || r.toolName),
+        }),
+      });
+      const data = await res.json();
+      if (data.analysis) setAiAnalysis(data.analysis);
+    } catch { /* */ } finally { setAiLoading(false); }
+  };
+
   const handleSimulateTools = async () => {
     if (!simType || !materialId || selectedProducts.length === 0) return;
     setLoading(true);
@@ -140,7 +163,11 @@ export default function SimulationClient() {
           body: JSON.stringify({ productId: selectedProducts[0].id, materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.result) { setResults([data.result]); setStep(resultStep); }
+        if (data.result) {
+          setResults([data.result]);
+          setStep(resultStep);
+          fetchAiAnalysis([data.result], simType);
+        }
       } else {
         const res = await fetch("/api/simulate/compare", {
           method: "POST",
@@ -148,7 +175,11 @@ export default function SimulationClient() {
           body: JSON.stringify({ productIds: selectedProducts.map(p => p.id), materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.results) { setResults(data.results); setStep(resultStep); }
+        if (data.results) {
+          setResults(data.results);
+          setStep(resultStep);
+          fetchAiAnalysis(data.results, simType);
+        }
       }
     } catch { /* */ } finally { setLoading(false); }
   };
@@ -156,6 +187,7 @@ export default function SimulationClient() {
   const handleSimulateConsumables = async () => {
     if (!materialId || !consumableMode || selectedConsumables.length < 2) return;
     setLoading(true);
+    const effectiveSimType = CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType || "cutting";
     try {
       const res = await fetch("/api/simulate/consumables", {
         method: "POST",
@@ -169,7 +201,11 @@ export default function SimulationClient() {
         }),
       });
       const data = await res.json();
-      if (data.results) { setResults(data.results); setStep(resultStep); }
+      if (data.results) {
+        setResults(data.results);
+        setStep(resultStep);
+        fetchAiAnalysis(data.results, effectiveSimType);
+      }
     } catch { /* */ } finally { setLoading(false); }
   };
 
@@ -203,6 +239,8 @@ export default function SimulationClient() {
     setMaterialId(null);
     setParams({});
     setResults([]);
+    setAiAnalysis(null);
+    setAiLoading(false);
   };
 
   const isResults = step === resultStep && results.length > 0;
@@ -388,6 +426,32 @@ export default function SimulationClient() {
               </div>
             </>
           )}
+
+          {/* AI Analysis */}
+          <div className="mt-6 bg-gradient-to-br from-[#0A0A0A] to-[#1A1A1A] rounded-2xl p-5 text-white">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-5 h-5 text-[#FFD600]" viewBox="0 0 24 24" fill="none">
+                <path d="M4 14C4 8.5 8 4 12 4C16 4 20 8.5 20 14V16H4V14Z" fill="#FFD600" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M4 12H20" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M4 12L1 6" stroke="#FFD600" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M20 12L23 6" stroke="#FFD600" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <h3 className="text-base font-bold text-[#FFD600]">AI Аналіз</h3>
+              <span className="text-[10px] text-white/40 ml-auto">Gemini</span>
+            </div>
+            {aiLoading ? (
+              <div className="flex items-center gap-2 text-sm text-white/60">
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31.4 31.4" />
+                </svg>
+                Аналізую результати...
+              </div>
+            ) : aiAnalysis ? (
+              <p className="text-sm text-white/85 leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
+            ) : (
+              <p className="text-sm text-white/40">Не вдалося отримати AI аналіз</p>
+            )}
+          </div>
 
           <div className="mt-6 text-center">
             <button onClick={handleReset} className="bg-[#FFD600] text-[#0A0A0A] px-8 py-3 rounded-xl font-semibold hover:bg-[#FFC400] transition">

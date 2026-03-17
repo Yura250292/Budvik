@@ -158,22 +158,36 @@ function simulateDrilling(tool: ToolSpecs, material: Material, depthMm: number, 
   const rpmFactor = tool.rpm / 2800; // normalize to typical drill RPM
   const diamFactor = holeDiameterMm / 10;
 
+  // Impact energy bonus for hammer drills (perforators)
+  const impactJ = tool.impactEnergyJ ?? 0;
+  const impactBonus = tool.toolType === "hammer_drill" && impactJ > 0
+    ? impactJ / 2.0 // normalize: 2J = 1.0 bonus, 3J = 1.5, 1.5J = 0.75
+    : 0;
+
+  // Brushless efficiency bonus
+  const brushlessBonus = tool.isBrushless ? 1.12 : 1.0;
+
   // Torque approximation (Nm)
   const torque = (tool.powerWatts * 9.549) / tool.rpm;
-  // Feed rate (mm/min)
-  const feedRate = (torque * rpmFactor * 15) / (resistance * diamFactor * diamFactor + 0.5);
+  // Feed rate (mm/min) — impact energy significantly helps in hard materials
+  const impactFeedBoost = material.hardness >= 5 ? (1 + impactBonus * 0.6) : (1 + impactBonus * 0.2);
+  const feedRate = (torque * rpmFactor * 15 * impactFeedBoost * brushlessBonus) / (resistance * diamFactor * diamFactor + 0.5);
   const timeSec = Math.max(0.5, (depthMm / feedRate) * 60);
 
   const optimalPower = resistance * 900 * diamFactor;
-  const powerRatio = tool.powerWatts / optimalPower;
+  const effectivePower = tool.powerWatts * (1 + impactBonus * 0.3);
+  const powerRatio = effectivePower / optimalPower;
   const isOverpowered = powerRatio > 2.5;
   const isUnderpowered = powerRatio < 0.4;
-  const efficiencyScore = clamp(100 - Math.abs(powerRatio - 1) * 35 - resistance * 12, 10, 100);
+  const efficiencyScore = clamp(
+    100 - Math.abs(powerRatio - 1) * 35 - resistance * 12 + (impactBonus * 8) + (tool.isBrushless ? 5 : 0),
+    10, 100
+  );
 
-  const wearFactor = resistance * diamFactor * 0.3 * (tool.rpm / 3000);
+  const wearFactor = resistance * diamFactor * 0.3 * (tool.rpm / 3000) / (1 + impactBonus * 0.2);
   const wearRate: "low" | "medium" | "high" = wearFactor < 0.4 ? "low" : wearFactor < 0.9 ? "medium" : "high";
 
-  const heatFactor = resistance * powerFactor * diamFactor * 0.3;
+  const heatFactor = resistance * powerFactor * diamFactor * 0.3 / brushlessBonus;
   const heatLevel = heatFactor < 0.3 ? "low" : heatFactor < 0.7 ? "medium" : heatFactor < 1.2 ? "high" : "critical";
 
   // Need hammer drill for concrete/brick
@@ -186,11 +200,13 @@ function simulateDrilling(tool: ToolSpecs, material: Material, depthMm: number, 
   if (heatLevel === "critical") warnings.push("Критичний нагрів — робіть паузи для охолодження");
   if (holeDiameterMm > 20 && tool.powerWatts < 800) warnings.push("Для великих отворів потрібен потужніший інструмент");
   if (depthMm > 100) warnings.push("Глибоке свердління — видаляйте стружку періодично");
+  if (tool.isBrushless) warnings.push("Безщітковий двигун — вища ефективність та ресурс");
+  if (impactJ >= 3) warnings.push(`Висока енергія удару (${impactJ} Дж) — відмінно для бетону`);
 
   const metrics: SimulationMetrics = {
     speed: clamp(Math.round(feedRate * 1.5), 5, 100),
-    precision: clamp(Math.round(85 - diamFactor * 5 - (needsHammer ? 20 : 0)), 10, 100),
-    durability: clamp(Math.round(90 - wearFactor * 30), 10, 100),
+    precision: clamp(Math.round(85 - diamFactor * 5 - (needsHammer ? 20 : 0) + (tool.isBrushless ? 3 : 0)), 10, 100),
+    durability: clamp(Math.round(90 - wearFactor * 30 + (tool.isBrushless ? 8 : 0)), 10, 100),
     safety: clamp(Math.round(85 - heatFactor * 15 - (needsHammer ? 10 : 0)), 10, 100),
     efficiency: Math.round(efficiencyScore),
   };

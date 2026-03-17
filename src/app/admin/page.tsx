@@ -337,15 +337,29 @@ export default function AdminPage() {
               </p>
             </div>
           </div>
-          <Link
-            href="/"
-            className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-bk bg-primary hover:bg-primary-hover rounded-[var(--radius-btn)] transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            <span className="hidden sm:inline">На сайт</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            {(role === "ADMIN" || role === "MANAGER") && (
+              <Link
+                href="/manager"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-white rounded-[var(--radius-btn)] transition-colors"
+                style={{ background: "linear-gradient(135deg, #374151, #1F2937)" }}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span className="hidden sm:inline">Менеджер</span>
+              </Link>
+            )}
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-bk bg-primary hover:bg-primary-hover rounded-[var(--radius-btn)] transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span className="hidden sm:inline">На сайт</span>
+            </Link>
+          </div>
         </div>
       </header>
 

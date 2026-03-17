@@ -85,6 +85,7 @@ export default function RoutePlannerPage() {
     type: "fuel", consumption: 10, pricePerUnit: 56,
   });
   const [manualDistance, setManualDistance] = useState<number | null>(null);
+  const [fuelBuffer, setFuelBuffer] = useState(0); // % надбавка до палива (корки, холодний двигун тощо)
 
   // Map
   const [mapStops, setMapStops] = useState<GeoPoint[]>([]);
@@ -817,7 +818,9 @@ export default function RoutePlannerPage() {
             {/* Vehicle & fuel settings */}
             {(() => {
               const distKm = manualDistance ?? result?.totalDistanceKm ?? 0;
-              const fuelUsed = (distKm * vehicle.consumption) / 100;
+              const bufferMultiplier = 1 + fuelBuffer / 100;
+              const fuelBase = (distKm * vehicle.consumption) / 100;
+              const fuelUsed = fuelBase * bufferMultiplier;
               const totalCost = fuelUsed * vehicle.pricePerUnit;
               return (
               <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
@@ -848,7 +851,7 @@ export default function RoutePlannerPage() {
                     Електро
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
                     <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
                       Витрата ({vehicle.type === "fuel" ? "л" : "кВт·год"}/100км)
@@ -871,6 +874,8 @@ export default function RoutePlannerPage() {
                       style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
                     />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
                     <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
                       Відстань (км)
@@ -886,11 +891,29 @@ export default function RoutePlannerPage() {
                       style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
                     />
                   </div>
+                  <div>
+                    <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
+                      Запас на корки / холод
+                    </label>
+                    <div className="flex gap-1">
+                      {[0, 5, 10, 15, 20].map((pct) => (
+                        <button key={pct} onClick={() => setFuelBuffer(pct)}
+                          style={{
+                            flex: 1, padding: "7px 0", borderRadius: "6px", fontSize: "12px", fontWeight: 700,
+                            background: fuelBuffer === pct ? "#0A0A0A" : "#F3F4F6",
+                            color: fuelBuffer === pct ? "#FFD600" : "#6B7280",
+                            border: "none",
+                          }}>
+                          {pct === 0 ? "0" : `+${pct}%`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Live calculation */}
                 {distKm > 0 && vehicle.consumption > 0 && (
-                  <div className="grid grid-cols-3 gap-2" style={{ marginTop: "8px" }}>
+                  <div className="grid grid-cols-3 gap-2" style={{ marginTop: "4px" }}>
                     <div style={{ padding: "10px 8px", borderRadius: "8px", background: "#F5F3FF", textAlign: "center" }}>
                       <p style={{ fontSize: "18px", fontWeight: 800, color: "#6366F1" }}>{distKm}</p>
                       <p style={{ fontSize: "10px", color: "#6B7280" }}>км</p>
@@ -899,7 +922,10 @@ export default function RoutePlannerPage() {
                       <p style={{ fontSize: "18px", fontWeight: 800, color: vehicle.type === "fuel" ? "#EA580C" : "#059669" }}>
                         {fuelUsed.toFixed(1)}
                       </p>
-                      <p style={{ fontSize: "10px", color: "#6B7280" }}>{vehicle.type === "fuel" ? "літрів" : "кВт·год"}</p>
+                      <p style={{ fontSize: "10px", color: "#6B7280" }}>
+                        {vehicle.type === "fuel" ? "літрів" : "кВт·год"}
+                        {fuelBuffer > 0 && <span style={{ color: "#F59E0B" }}> (+{fuelBuffer}%)</span>}
+                      </p>
                     </div>
                     <div style={{ padding: "10px 8px", borderRadius: "8px", background: "#FEF9C3", textAlign: "center" }}>
                       <p style={{ fontSize: "18px", fontWeight: 800, color: "#A16207" }}>{totalCost.toFixed(0)}</p>

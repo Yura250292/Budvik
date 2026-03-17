@@ -84,6 +84,7 @@ export default function RoutePlannerPage() {
   const [vehicle, setVehicle] = useState<VehicleSettings>({
     type: "fuel", consumption: 10, pricePerUnit: 56,
   });
+  const [manualDistance, setManualDistance] = useState<number | null>(null);
 
   // Map
   const [mapStops, setMapStops] = useState<GeoPoint[]>([]);
@@ -310,6 +311,7 @@ export default function RoutePlannerPage() {
 
       setResult(data);
       setRouteGeometry(data.geometry);
+      setManualDistance(null); // use optimized distance
 
       const newStops: GeoPoint[] = data.optimizedAddresses.map((a: OptimizeResult["optimizedAddresses"][0]) => ({
         lat: a.lat, lng: a.lng,
@@ -813,59 +815,101 @@ export default function RoutePlannerPage() {
             )}
 
             {/* Vehicle & fuel settings */}
-            <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
-              <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "8px" }}>
-                Транспорт та витрати
-              </label>
-              <div className="flex gap-2 mb-3">
-                <button
-                  onClick={() => setVehicle((v) => ({ ...v, type: "fuel", consumption: 10, pricePerUnit: 56 }))}
-                  style={{
-                    flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                    background: vehicle.type === "fuel" ? "#0A0A0A" : "#F9FAFB",
-                    color: vehicle.type === "fuel" ? "#FFD600" : "#6B7280",
-                    border: vehicle.type === "fuel" ? "none" : "1px solid #E5E7EB",
-                  }}
-                >
-                  Паливо
-                </button>
-                <button
-                  onClick={() => setVehicle((v) => ({ ...v, type: "electric", consumption: 18, pricePerUnit: 7 }))}
-                  style={{
-                    flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                    background: vehicle.type === "electric" ? "#0A0A0A" : "#F9FAFB",
-                    color: vehicle.type === "electric" ? "#34D399" : "#6B7280",
-                    border: vehicle.type === "electric" ? "none" : "1px solid #E5E7EB",
-                  }}
-                >
-                  Електро
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
-                    Витрата ({vehicle.type === "fuel" ? "л" : "кВт·год"}/100км)
-                  </label>
-                  <input
-                    type="number"
-                    value={vehicle.consumption}
-                    onChange={(e) => setVehicle((v) => ({ ...v, consumption: Math.max(0, parseFloat(e.target.value) || 0) }))}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
-                  />
+            {(() => {
+              const distKm = manualDistance ?? result?.totalDistanceKm ?? 0;
+              const fuelUsed = (distKm * vehicle.consumption) / 100;
+              const totalCost = fuelUsed * vehicle.pricePerUnit;
+              return (
+              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+                <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "8px" }}>
+                  Транспорт та витрати
+                </label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setVehicle((v) => ({ ...v, type: "fuel", consumption: 10, pricePerUnit: 56 }))}
+                    style={{
+                      flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                      background: vehicle.type === "fuel" ? "#0A0A0A" : "#F9FAFB",
+                      color: vehicle.type === "fuel" ? "#FFD600" : "#6B7280",
+                      border: vehicle.type === "fuel" ? "none" : "1px solid #E5E7EB",
+                    }}
+                  >
+                    Паливо
+                  </button>
+                  <button
+                    onClick={() => setVehicle((v) => ({ ...v, type: "electric", consumption: 18, pricePerUnit: 7 }))}
+                    style={{
+                      flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                      background: vehicle.type === "electric" ? "#0A0A0A" : "#F9FAFB",
+                      color: vehicle.type === "electric" ? "#34D399" : "#6B7280",
+                      border: vehicle.type === "electric" ? "none" : "1px solid #E5E7EB",
+                    }}
+                  >
+                    Електро
+                  </button>
                 </div>
-                <div>
-                  <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
-                    Ціна ({vehicle.type === "fuel" ? "грн/л" : "грн/кВт·год"})
-                  </label>
-                  <input
-                    type="number"
-                    value={vehicle.pricePerUnit}
-                    onChange={(e) => setVehicle((v) => ({ ...v, pricePerUnit: Math.max(0, parseFloat(e.target.value) || 0) }))}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
-                  />
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
+                      Витрата ({vehicle.type === "fuel" ? "л" : "кВт·год"}/100км)
+                    </label>
+                    <input
+                      type="number"
+                      value={vehicle.consumption}
+                      onChange={(e) => setVehicle((v) => ({ ...v, consumption: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
+                      Ціна ({vehicle.type === "fuel" ? "грн/л" : "грн/кВт·год"})
+                    </label>
+                    <input
+                      type="number"
+                      value={vehicle.pricePerUnit}
+                      onChange={(e) => setVehicle((v) => ({ ...v, pricePerUnit: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "11px", color: "#9CA3AF", display: "block", marginBottom: "4px" }}>
+                      Відстань (км)
+                    </label>
+                    <input
+                      type="number"
+                      value={manualDistance ?? result?.totalDistanceKm ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setManualDistance(v === "" ? null : Math.max(0, parseFloat(v) || 0));
+                      }}
+                      placeholder={result?.totalDistanceKm?.toString() || "0"}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                    />
+                  </div>
                 </div>
+
+                {/* Live calculation */}
+                {distKm > 0 && vehicle.consumption > 0 && (
+                  <div className="grid grid-cols-3 gap-2" style={{ marginTop: "8px" }}>
+                    <div style={{ padding: "10px 8px", borderRadius: "8px", background: "#F5F3FF", textAlign: "center" }}>
+                      <p style={{ fontSize: "18px", fontWeight: 800, color: "#6366F1" }}>{distKm}</p>
+                      <p style={{ fontSize: "10px", color: "#6B7280" }}>км</p>
+                    </div>
+                    <div style={{ padding: "10px 8px", borderRadius: "8px", background: vehicle.type === "fuel" ? "#FFF7ED" : "#ECFDF5", textAlign: "center" }}>
+                      <p style={{ fontSize: "18px", fontWeight: 800, color: vehicle.type === "fuel" ? "#EA580C" : "#059669" }}>
+                        {fuelUsed.toFixed(1)}
+                      </p>
+                      <p style={{ fontSize: "10px", color: "#6B7280" }}>{vehicle.type === "fuel" ? "літрів" : "кВт·год"}</p>
+                    </div>
+                    <div style={{ padding: "10px 8px", borderRadius: "8px", background: "#FEF9C3", textAlign: "center" }}>
+                      <p style={{ fontSize: "18px", fontWeight: 800, color: "#A16207" }}>{totalCost.toFixed(0)}</p>
+                      <p style={{ fontSize: "10px", color: "#6B7280" }}>грн</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+              );
+            })()}
 
             {/* Optimize button */}
             {addresses.length >= 1 && (
@@ -890,11 +934,8 @@ export default function RoutePlannerPage() {
               </div>
             )}
 
-            {/* Result summary */}
-            {result && (() => {
-              const fuelUsed = (result.totalDistanceKm * vehicle.consumption) / 100;
-              const totalCost = fuelUsed * vehicle.pricePerUnit;
-              return (
+            {/* Result summary — optimized route details */}
+            {result && (
               <div className="bg-white rounded-xl p-5" style={{ border: "2px solid #8B5CF6", boxShadow: "0 4px 12px rgba(139,92,246,0.1)" }}>
                 <h3 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px", color: "#0A0A0A" }}>
                   Оптимальний маршрут
@@ -911,24 +952,6 @@ export default function RoutePlannerPage() {
                         : `${Math.floor(result.totalDurationMin / 60)} год ${result.totalDurationMin % 60} хв`}
                     </p>
                     <p style={{ fontSize: "12px", color: "#6B7280" }}>в дорозі</p>
-                  </div>
-                </div>
-
-                {/* Fuel / electricity cost */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div style={{ padding: "12px", borderRadius: "8px", background: vehicle.type === "fuel" ? "#FFF7ED" : "#ECFDF5", textAlign: "center" }}>
-                    <p style={{ fontSize: "20px", fontWeight: 800, color: vehicle.type === "fuel" ? "#EA580C" : "#059669" }}>
-                      {fuelUsed.toFixed(1)} {vehicle.type === "fuel" ? "л" : "кВт·год"}
-                    </p>
-                    <p style={{ fontSize: "12px", color: "#6B7280" }}>
-                      {vehicle.type === "fuel" ? "палива" : "електроенергії"}
-                    </p>
-                  </div>
-                  <div style={{ padding: "12px", borderRadius: "8px", background: "#FEF9C3", textAlign: "center" }}>
-                    <p style={{ fontSize: "20px", fontWeight: 800, color: "#A16207" }}>
-                      {totalCost.toFixed(0)} грн
-                    </p>
-                    <p style={{ fontSize: "12px", color: "#6B7280" }}>бюджет маршруту</p>
                   </div>
                 </div>
 
@@ -954,8 +977,7 @@ export default function RoutePlannerPage() {
                   ))}
                 </div>
               </div>
-              );
-            })()}
+            )}
           </div>
 
           {/* Right panel: map */}

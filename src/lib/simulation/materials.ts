@@ -104,3 +104,36 @@ export const MATERIALS: Material[] = [
 export function getMaterialById(id: string): Material | undefined {
   return MATERIALS.find((m) => m.id === id);
 }
+
+/**
+ * Context-aware material filtering.
+ * Returns material IDs relevant for a given tool/consumable context.
+ */
+export type MaterialContext =
+  | "chainsaw"        // бензопили/ланцюги → тільки дерево
+  | "cutting_discs"   // відрізні диски (болгарка) → метал, камінь, плитка (не дерево)
+  | "grinding_discs"  // шліфувальні диски → метал, дерево, камінь
+  | "drill_bits"      // свердла/бури → все
+  | "cutting"         // різання (загальне) → все
+  | "grinding"        // шліфування → все
+  | "drilling"        // свердління → все
+  | "circular_saw"    // циркулярні пили → дерево, алюміній
+  | "jigsaw";         // лобзик → дерево, алюміній, пластик
+
+const MATERIAL_FILTER: Record<MaterialContext, string[]> = {
+  chainsaw:       ["wood_soft", "wood_hard"],
+  circular_saw:   ["wood_soft", "wood_hard", "aluminum"],
+  jigsaw:         ["wood_soft", "wood_hard", "aluminum"],
+  cutting_discs:  ["mild_steel", "stainless", "aluminum", "concrete", "brick", "tile"],
+  grinding_discs: ["mild_steel", "stainless", "aluminum", "wood_hard", "wood_soft", "concrete", "tile"],
+  drill_bits:     ["mild_steel", "stainless", "concrete", "wood_soft", "wood_hard", "aluminum", "brick", "tile"],
+  cutting:        ["mild_steel", "stainless", "aluminum", "concrete", "wood_soft", "wood_hard", "brick", "tile"],
+  grinding:       ["mild_steel", "stainless", "aluminum", "wood_soft", "wood_hard", "concrete", "tile"],
+  drilling:       ["mild_steel", "stainless", "concrete", "wood_soft", "wood_hard", "aluminum", "brick", "tile"],
+};
+
+export function getCompatibleMaterials(context: MaterialContext): Material[] {
+  const ids = MATERIAL_FILTER[context];
+  if (!ids) return MATERIALS;
+  return MATERIALS.filter(m => ids.includes(m.id));
+}

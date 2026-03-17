@@ -1,18 +1,21 @@
 "use client";
 
-import { MATERIALS } from "@/lib/simulation/materials";
+import { MATERIALS, getCompatibleMaterials, type MaterialContext } from "@/lib/simulation/materials";
 
 interface Props {
   selected: string | null;
   onSelect: (id: string) => void;
+  context?: MaterialContext;
 }
 
-export default function MaterialSelector({ selected, onSelect }: Props) {
+export default function MaterialSelector({ selected, onSelect, context }: Props) {
+  const materials = context ? getCompatibleMaterials(context) : MATERIALS;
+
   return (
     <div>
       <p className="text-sm text-[#9E9E9E] mb-4">Оберіть матеріал для симуляції</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {MATERIALS.map((m) => (
+        {materials.map((m) => (
           <button
             key={m.id}
             onClick={() => onSelect(m.id)}

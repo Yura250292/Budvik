@@ -13,7 +13,7 @@ import ConsumablePicker from "./components/ConsumablePicker";
 import type { SimulationResult } from "@/lib/simulation/engine";
 import type { SimulationType } from "@/lib/simulation/specs";
 import { CONSUMABLE_MODES, type ConsumableMode, type Consumable } from "@/lib/simulation/consumables";
-import { MATERIALS } from "@/lib/simulation/materials";
+import { MATERIALS, getCompatibleMaterials, type MaterialContext } from "@/lib/simulation/materials";
 
 interface ProductItem {
   id: string;
@@ -243,6 +243,49 @@ export default function SimulationClient() {
     setAiLoading(false);
   };
 
+  // Determine material context for filtering
+  const getMaterialContext = (): MaterialContext | undefined => {
+    if (mode === "consumables" && consumableMode) {
+      return consumableMode as MaterialContext;
+    }
+    if (mode === "tools" && simType) {
+      // Check if all selected tools are chainsaws
+      if (selectedProducts.length > 0) {
+        const allChainsaws = selectedProducts.every(p => {
+          const lower = p.name.toLowerCase();
+          return /бензопил|ланцюгов\w+\s+пил|електропил/.test(lower);
+        });
+        if (allChainsaws) return "chainsaw";
+
+        const allCircularSaws = selectedProducts.every(p => {
+          const lower = p.name.toLowerCase();
+          return /циркулярн|дисков\w+\s+пил/.test(lower);
+        });
+        if (allCircularSaws) return "circular_saw";
+
+        const allJigsaws = selectedProducts.every(p => {
+          const lower = p.name.toLowerCase();
+          return /лобзик/.test(lower);
+        });
+        if (allJigsaws) return "jigsaw";
+      }
+      return simType as MaterialContext;
+    }
+    return undefined;
+  };
+
+  const materialContext = getMaterialContext();
+
+  // Clear material selection if it's no longer compatible with context
+  useEffect(() => {
+    if (materialId && materialContext) {
+      const compatible = getCompatibleMaterials(materialContext);
+      if (!compatible.some(m => m.id === materialId)) {
+        setMaterialId(null);
+      }
+    }
+  }, [materialContext, materialId]);
+
   const isResults = step === resultStep && results.length > 0;
   const currentSimType = mode === "tools"
     ? simType
@@ -331,7 +374,7 @@ export default function SimulationClient() {
         <ProductPicker simType={simType} selected={selectedProducts} onSelect={setSelectedProducts} />
       )}
       {mode === "tools" && step === 3 && (
-        <MaterialSelector selected={materialId} onSelect={setMaterialId} />
+        <MaterialSelector selected={materialId} onSelect={setMaterialId} context={materialContext} />
       )}
       {mode === "tools" && step === 4 && simType && (
         <SimulationParams simType={simType} params={params} onChange={setParams} />
@@ -379,7 +422,7 @@ export default function SimulationClient() {
         </div>
       )}
       {mode === "consumables" && step === 4 && (
-        <MaterialSelector selected={materialId} onSelect={setMaterialId} />
+        <MaterialSelector selected={materialId} onSelect={setMaterialId} context={materialContext} />
       )}
       {mode === "consumables" && step === 5 && consumableMode && (
         <SimulationParams

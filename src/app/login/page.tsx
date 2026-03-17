@@ -13,9 +13,16 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Redirect logged-in users to dashboard
+  // Redirect logged-in users based on role
   useEffect(() => {
-    if (session) router.replace("/dashboard");
+    if (!session) return;
+    const role = (session.user as any)?.role;
+    if (role === "MANAGER") router.replace("/manager");
+    else if (role === "ADMIN") router.replace("/admin");
+    else if (role === "SALES") router.replace("/sales");
+    else if (role === "WAREHOUSE") router.replace("/warehouse");
+    else if (role === "DRIVER") router.replace("/driver");
+    else router.replace("/dashboard");
   }, [session, router]);
 
   const handleGoogle = () => {
@@ -37,7 +44,16 @@ export default function LoginPage() {
       setError("Невірний email або пароль");
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      // Fetch session to get role for redirect
+      const sessionRes = await fetch("/api/auth/session");
+      const sessionData = await sessionRes.json();
+      const role = sessionData?.user?.role;
+      if (role === "MANAGER") router.push("/manager");
+      else if (role === "ADMIN") router.push("/admin");
+      else if (role === "SALES") router.push("/sales");
+      else if (role === "WAREHOUSE") router.push("/warehouse");
+      else if (role === "DRIVER") router.push("/driver");
+      else router.push("/dashboard");
       router.refresh();
     }
   };

@@ -5,10 +5,18 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
-const STATUS_LABELS: Record<string, string> = { DRAFT: "Чернетка", CONFIRMED: "Підтверджений", CANCELLED: "Скасований" };
-const STATUS_BG: Record<string, string> = { DRAFT: "#FFF7ED", CONFIRMED: "#F0FDF4", CANCELLED: "#FEF2F2" };
-const STATUS_COLOR: Record<string, string> = { DRAFT: "#D97706", CONFIRMED: "#16A34A", CANCELLED: "#DC2626" };
-const STATUS_BORDER: Record<string, string> = { DRAFT: "#FDE68A", CONFIRMED: "#BBF7D0", CANCELLED: "#FECACA" };
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: "Створено", CONFIRMED: "Підтверджено", PACKING: "На упакуванні",
+  IN_TRANSIT: "В дорозі", DELIVERED: "Доставлено", CANCELLED: "Скасовано",
+};
+const STATUS_BG: Record<string, string> = {
+  DRAFT: "#FFF7ED", CONFIRMED: "#EFF6FF", PACKING: "#FDF4FF",
+  IN_TRANSIT: "#FFFBEB", DELIVERED: "#F0FDF4", CANCELLED: "#FEF2F2",
+};
+const STATUS_COLOR: Record<string, string> = {
+  DRAFT: "#D97706", CONFIRMED: "#2563EB", PACKING: "#9333EA",
+  IN_TRANSIT: "#D97706", DELIVERED: "#16A34A", CANCELLED: "#DC2626",
+};
 
 export default function OrdersPage() {
   const { data: session } = useSession();
@@ -64,8 +72,11 @@ export default function OrdersPage() {
         <div className="flex gap-2 mb-4 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
           {[
             { key: "", label: "Всі" },
-            { key: "DRAFT", label: "Чернетки" },
+            { key: "DRAFT", label: "Створені" },
             { key: "CONFIRMED", label: "Підтверджені" },
+            { key: "PACKING", label: "Пакування" },
+            { key: "IN_TRANSIT", label: "В дорозі" },
+            { key: "DELIVERED", label: "Доставлені" },
             { key: "CANCELLED", label: "Скасовані" },
           ].map((f) => (
             <button key={f.key} onClick={() => setFilter(f.key)}
@@ -113,7 +124,6 @@ export default function OrdersPage() {
               <Link key={o.id} href={`/sales/orders/${o.id}`}
                 className="block bg-white rounded-2xl p-4"
                 style={{
-                  borderLeft: `3px solid ${STATUS_BORDER[o.status] || "#E5E7EB"}`,
                   border: `1px solid #EFEFEF`,
                   borderLeftWidth: "3px",
                   borderLeftColor: STATUS_COLOR[o.status] || "#E5E7EB",

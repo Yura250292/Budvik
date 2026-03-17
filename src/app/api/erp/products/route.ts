@@ -89,19 +89,33 @@ export async function GET(req: NextRequest) {
   // Sort by score descending, then by name
   scored.sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name));
 
-  const result = scored.slice(0, limit).map(({ product: p }) => ({
-    id: p.id,
-    name: p.name,
-    sku: p.sku,
-    slug: p.slug,
-    price: p.price,
-    wholesalePrice: p.wholesalePrice,
-    stock: p.stock,
-    image: p.image,
-    category: p.category?.name || null,
-    categoryId: p.category?.id || null,
-    purchasePrice: p.supplierProducts[0]?.purchasePrice || p.wholesalePrice || 0,
-  }));
+  // Get reservations for all matched products
+  const productIds = scored.slice(0, limit).map(({ product: p }) => p.id);
+  const reservations = await prisma.stockReservation.groupBy({
+    by: ["productId"],
+    where: { productId: { in: productIds } },
+    _sum: { quantity: true },
+  });
+  const reservedMap = new Map(reservations.map((r) => [r.productId, r._sum.quantity || 0]));
+
+  const result = scored.slice(0, limit).map(({ product: p }) => {
+    const reserved = reservedMap.get(p.id) || 0;
+    return {
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
+      slug: p.slug,
+      price: p.price,
+      wholesalePrice: p.wholesalePrice,
+      stock: p.stock,
+      reserved,
+      available: p.stock - reserved,
+      image: p.image,
+      category: p.category?.name || null,
+      categoryId: p.category?.id || null,
+      purchasePrice: p.supplierProducts[0]?.purchasePrice || p.wholesalePrice || 0,
+    };
+  });
 
   return NextResponse.json(result);
 }

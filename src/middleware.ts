@@ -11,7 +11,6 @@ export default withAuth(
       if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "SALES") {
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
-      // All admin subpages - ADMIN and MANAGER only (except orders, ERP which SALES can access)
       if (
         (pathname.startsWith("/admin/products") ||
          pathname.startsWith("/admin/users") ||
@@ -23,16 +22,32 @@ export default withAuth(
       }
     }
 
+    // Warehouse routes
+    if (pathname.startsWith("/warehouse")) {
+      if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "WAREHOUSE") {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
+
+    // Driver routes
+    if (pathname.startsWith("/driver")) {
+      if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "DRIVER") {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
+
     return NextResponse.next();
   },
   {
     callbacks: {
       authorized: ({ token, req }) => {
         const pathname = req.nextUrl.pathname;
-        // Protected routes
         if (
           pathname.startsWith("/dashboard") ||
-          pathname.startsWith("/admin")
+          pathname.startsWith("/admin") ||
+          pathname.startsWith("/warehouse") ||
+          pathname.startsWith("/driver") ||
+          pathname.startsWith("/sales")
         ) {
           return !!token;
         }
@@ -43,5 +58,5 @@ export default withAuth(
 );
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*"],
+  matcher: ["/dashboard/:path*", "/admin/:path*", "/warehouse/:path*", "/driver/:path*", "/sales/:path*"],
 };

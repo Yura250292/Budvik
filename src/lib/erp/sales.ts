@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { extractBrand } from "@/lib/wholesale-pricing";
 
+/**
+ * Status flow:
+ * DRAFT → CONFIRMED (manager approves) → PACKING (warehouse) → IN_TRANSIT (driver) → DELIVERED
+ * Any status → CANCELLED (releases reservations if not yet dispatched, restores stock if dispatched)
+ */
+
+/** Manager confirms an order — stock stays reserved, commissions created */
 export async function confirmSalesDocument(id: string) {
   const doc = await prisma.salesDocument.findUnique({
     where: { id },
@@ -15,17 +22,11 @@ export async function confirmSalesDocument(id: string) {
     let totalAmount = 0;
     let totalCost = 0;
 
-    // Decrement stock for each item
+    // Verify reservations are still valid
     for (const item of doc.items) {
       if (item.product.stock < item.quantity) {
         throw new Error(`Недостатньо товару "${item.product.name}" (залишок: ${item.product.stock})`);
       }
-
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: { decrement: item.quantity } },
-      });
-
       totalAmount += item.sellingPrice * item.quantity;
       totalCost += item.purchasePrice * item.quantity;
     }
@@ -48,17 +49,9 @@ export async function confirmSalesDocument(id: string) {
 
     for (const [brand, amounts] of brandGroups) {
       const profit = amounts.saleAmount - amounts.costAmount;
-
-      // Look up commission rate for this sales rep + brand
       const rate = await tx.commissionRate.findUnique({
-        where: {
-          salesRepId_brand: {
-            salesRepId: doc.salesRepId!,
-            brand,
-          },
-        },
+        where: { salesRepId_brand: { salesRepId: doc.salesRepId!, brand } },
       });
-
       const commissionRate = rate?.percentage || 0;
       const commissionAmount = profit > 0 ? (profit * commissionRate) / 100 : 0;
 
@@ -76,7 +69,6 @@ export async function confirmSalesDocument(id: string) {
       });
     }
 
-    // Update document
     await tx.salesDocument.update({
       where: { id },
       data: {
@@ -90,32 +82,93 @@ export async function confirmSalesDocument(id: string) {
   });
 }
 
+/** Warehouse marks order as being packed */
+export async function startPackingSalesDocument(id: string) {
+  const doc = await prisma.salesDocument.findUnique({ where: { id } });
+  if (!doc) throw new Error("Документ не знайдено");
+  if (doc.status !== "CONFIRMED") throw new Error("Можна пакувати тільки підтверджений документ");
+
+  await prisma.salesDocument.update({
+    where: { id },
+    data: { status: "PACKING" },
+  });
+}
+
+/** Mark order as in transit — actually deducts stock and releases reservations */
+export async function dispatchSalesDocument(id: string) {
+  const doc = await prisma.salesDocument.findUnique({
+    where: { id },
+    include: { items: true, reservations: true },
+  });
+
+  if (!doc) throw new Error("Документ не знайдено");
+  if (doc.status !== "PACKING") throw new Error("Можна відправити тільки запакований документ");
+
+  await prisma.$transaction(async (tx) => {
+    // Deduct actual stock
+    for (const item of doc.items) {
+      await tx.product.update({
+        where: { id: item.productId },
+        data: { stock: { decrement: item.quantity } },
+      });
+    }
+
+    // Remove reservations (stock is now physically deducted)
+    await tx.stockReservation.deleteMany({ where: { salesDocumentId: id } });
+
+    await tx.salesDocument.update({
+      where: { id },
+      data: { status: "IN_TRANSIT" },
+    });
+  });
+}
+
+/** Mark order as delivered */
+export async function deliverSalesDocument(id: string) {
+  const doc = await prisma.salesDocument.findUnique({ where: { id } });
+  if (!doc) throw new Error("Документ не знайдено");
+  if (doc.status !== "IN_TRANSIT") throw new Error("Можна доставити тільки відправлений документ");
+
+  await prisma.salesDocument.update({
+    where: { id },
+    data: { status: "DELIVERED" },
+  });
+}
+
+/** Cancel document — releases reservations or restores stock depending on status */
 export async function cancelSalesDocument(id: string) {
   const doc = await prisma.salesDocument.findUnique({
     where: { id },
-    include: { items: true, commissions: true },
+    include: { items: true, reservations: true, commissions: true },
   });
 
   if (!doc) throw new Error("Документ не знайдено");
   if (doc.status === "CANCELLED") throw new Error("Документ вже скасовано");
+  if (doc.status === "DELIVERED") throw new Error("Неможливо скасувати доставлений документ");
 
-  const wasConfirmed = doc.status === "CONFIRMED";
+  const wasDispatched = doc.status === "IN_TRANSIT";
 
   await prisma.$transaction(async (tx) => {
-    if (wasConfirmed) {
-      // Restore stock
+    if (wasDispatched) {
+      // Restore stock (was already deducted)
       for (const item of doc.items) {
         await tx.product.update({
           where: { id: item.productId },
           data: { stock: { increment: item.quantity } },
         });
       }
-
-      // Delete commission records
-      await tx.commissionRecord.deleteMany({
-        where: { salesDocumentId: id },
-      });
+    } else {
+      // Release reservations (stock wasn't deducted yet)
+      await tx.stockReservation.deleteMany({ where: { salesDocumentId: id } });
     }
+
+    // Delete commission records if any
+    if (doc.commissions.length > 0) {
+      await tx.commissionRecord.deleteMany({ where: { salesDocumentId: id } });
+    }
+
+    // Remove from delivery route if assigned
+    await tx.deliveryStop.deleteMany({ where: { salesDocumentId: id } });
 
     await tx.salesDocument.update({
       where: { id },
@@ -126,14 +179,12 @@ export async function cancelSalesDocument(id: string) {
 
 /** Get latest purchase price for a product (from SupplierProduct or Product.wholesalePrice) */
 export async function getLatestPurchasePrice(productId: string): Promise<number> {
-  // First try SupplierProduct (most accurate, from purchase orders)
   const sp = await prisma.supplierProduct.findFirst({
     where: { productId },
     orderBy: { lastUpdated: "desc" },
   });
   if (sp?.purchasePrice) return sp.purchasePrice;
 
-  // Fallback to product's wholesalePrice (imported from 1C as cost_price)
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: { wholesalePrice: true },

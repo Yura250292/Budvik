@@ -4,6 +4,7 @@ const SEQUENCES = {
   PO: { prefix: "ПН" },   // Прихідна накладна
   SD: { prefix: "ПР" },   // Продаж
   INV: { prefix: "ВН" },  // Видаткова накладна
+  DR: { prefix: "МР" },   // Маршрут
 } as const;
 
 type SequenceType = keyof typeof SEQUENCES;

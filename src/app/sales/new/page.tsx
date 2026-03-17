@@ -11,6 +11,7 @@ interface CartItem {
   name: string;
   sku: string;
   stock: number;
+  image: string | null;
   basePrice: number;
   purchasePrice: number;
   sellingPrice: number;
@@ -84,6 +85,7 @@ function NewOrderContent() {
         name: product.name,
         sku: product.sku || "",
         stock: product.stock || 0,
+        image: product.image || null,
         basePrice: product.price,
         purchasePrice: product.purchasePrice || product.wholesalePrice || 0,
         sellingPrice: product.price,
@@ -206,13 +208,27 @@ function NewOrderContent() {
             <div className="mt-2 max-h-60 overflow-auto" style={{ border: "1px solid #E5E7EB", borderRadius: "8px" }}>
               {productResults.map((p) => (
                 <button key={p.id} onClick={() => addToCart(p)}
-                  className="w-full text-left flex items-center justify-between p-3 hover:bg-yellow-50"
+                  className="w-full text-left flex items-center gap-3 p-3 hover:bg-yellow-50"
                   style={{ borderBottom: "1px solid #F3F4F6", fontSize: "14px" }}>
+                  <div className="w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden" style={{ background: "#F3F4F6", border: "1px solid #EFEFEF" }}>
+                    {p.image ? (
+                      <img src={p.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p style={{ fontWeight: 500 }} className="truncate">{p.name}</p>
                     <div className="flex gap-3" style={{ fontSize: "12px", color: "#9CA3AF" }}>
                       {p.sku && <span>{p.sku}</span>}
-                      <span>Залишок: {p.stock || 0}</span>
+                      <span style={{ color: (p.available ?? p.stock) > 0 ? "#9CA3AF" : "#DC2626" }}>
+                        Доступно: {p.available ?? p.stock}
+                        {p.reserved > 0 && <span style={{ color: "#F59E0B" }}> (резерв: {p.reserved})</span>}
+                      </span>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0" style={{ marginLeft: "8px" }}>
@@ -235,7 +251,18 @@ function NewOrderContent() {
             </div>
             {cart.map((item, idx) => (
               <div key={item.productId} style={{ padding: "12px 16px", borderBottom: "1px solid #F9FAFB" }}>
-                <div className="flex items-start justify-between mb-1">
+                <div className="flex items-start gap-3 mb-1">
+                  <div className="w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden" style={{ background: "#F3F4F6", border: "1px solid #EFEFEF" }}>
+                    {item.image ? (
+                      <img src={item.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p style={{ fontSize: "14px", fontWeight: 500 }} className="truncate">{item.name}</p>
                     <div className="flex items-center gap-2" style={{ fontSize: "12px", color: "#9CA3AF" }}>

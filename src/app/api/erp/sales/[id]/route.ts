@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
+  if (!session || !["ADMIN", "MANAGER", "SALES", "WAREHOUSE", "DRIVER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -21,10 +21,13 @@ export async function GET(
       createdBy: { select: { id: true, name: true } },
       items: {
         include: {
-          product: { select: { id: true, name: true, sku: true, price: true, stock: true } },
+          product: { select: { id: true, name: true, sku: true, price: true, stock: true, image: true } },
         },
       },
       commissions: true,
+      deliveryStop: {
+        include: { deliveryRoute: { select: { id: true, number: true, date: true, driver: { select: { name: true } } } } },
+      },
     },
   });
 

@@ -22,6 +22,13 @@ export default withAuth(
       }
     }
 
+    // Manager portal
+    if (pathname.startsWith("/manager")) {
+      if (token?.role !== "ADMIN" && token?.role !== "MANAGER") {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+    }
+
     // Warehouse routes
     if (pathname.startsWith("/warehouse")) {
       if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "WAREHOUSE") {
@@ -47,7 +54,8 @@ export default withAuth(
           pathname.startsWith("/admin") ||
           pathname.startsWith("/warehouse") ||
           pathname.startsWith("/driver") ||
-          pathname.startsWith("/sales")
+          pathname.startsWith("/sales") ||
+          pathname.startsWith("/manager")
         ) {
           return !!token;
         }
@@ -58,5 +66,5 @@ export default withAuth(
 );
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*", "/warehouse/:path*", "/driver/:path*", "/sales/:path*"],
+  matcher: ["/dashboard/:path*", "/admin/:path*", "/warehouse/:path*", "/driver/:path*", "/sales/:path*", "/manager/:path*"],
 };

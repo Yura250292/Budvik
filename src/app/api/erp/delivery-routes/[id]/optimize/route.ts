@@ -57,14 +57,15 @@ ${stopsInfo.map((s) => `${s.index}. ${s.client} — ${s.address} (замовле
 
 Поверни відповідь СТРОГО у форматі JSON (без markdown, без коментарів):
 {
-  "optimizedOrder": [${stopsInfo.map((s) => `"${s.id}"`).join(", ")}],
+  "optimizedOrder": [${stopsInfo.map((s) => s.index).join(", ")}],
   "estimatedDistanceKm": число,
   "estimatedTimeMinutes": число,
   "reasoning": "коротке пояснення логіки маршруту",
-  "stopDistances": [{"stopId": "...", "distanceFromPrevKm": число}]
+  "stopDistances": [{"index": число, "distanceFromPrevKm": число}]
 }
 
-Впорядкуй зупинки у оптимальному порядку, враховуючи географію. Оціни загальну відстань.`;
+ВАЖЛИВО: optimizedOrder — масив НОМЕРІВ зупинок (${stopsInfo.map((s) => s.index).join(", ")}) в оптимальному порядку.
+Впорядкуй зупинки для мінімальної відстані, враховуючи географію. Оціни загальну відстань.`;
 
   try {
     const response = await chatWithGemini(
@@ -80,14 +81,20 @@ ${stopsInfo.map((s) => `${s.index}. ${s.client} — ${s.address} (замовле
 
     const result = JSON.parse(jsonMatch[0]);
 
-    // Apply optimized order if valid
+    // Apply optimized order — map indices back to real stop IDs
     if (result.optimizedOrder && Array.isArray(result.optimizedOrder)) {
+      // Build index-to-stop mapping (1-based index → stop)
+      const indexToStop = new Map(stopsInfo.map((s) => [s.index, s]));
+
       await prisma.$transaction(async (tx) => {
         for (let i = 0; i < result.optimizedOrder.length; i++) {
-          const stopId = result.optimizedOrder[i];
-          const distance = result.stopDistances?.find((sd: any) => sd.stopId === stopId);
+          const idx = Number(result.optimizedOrder[i]);
+          const stop = indexToStop.get(idx);
+          if (!stop) continue; // skip invalid indices from AI
+
+          const distance = result.stopDistances?.find((sd: any) => Number(sd.index) === idx);
           await tx.deliveryStop.update({
-            where: { id: stopId },
+            where: { id: stop.id },
             data: {
               sequence: i + 1,
               distanceKm: distance?.distanceFromPrevKm || null,

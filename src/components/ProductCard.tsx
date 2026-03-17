@@ -240,7 +240,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
         style={{ boxShadow: stock > 0 ? '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' : 'none' }}
       >
         {/* Image */}
-        <div className={`h-28 sm:h-48 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`}>
+        <div className={`h-36 sm:h-48 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`}>
           {image ? (
             <Image
               src={image}
@@ -301,7 +301,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           )}
         </div>
 
-        <div className="p-2 sm:p-4">
+        <div className="p-2.5 sm:p-4">
           {/* Category badge */}
           {category && !/^\d+$/.test(category.name) && (
             <span className="inline-block text-[8px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1 sm:px-2 py-0.5 rounded mb-1 sm:mb-2 font-medium truncate max-w-full">
@@ -309,7 +309,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             </span>
           )}
 
-          <h3 className={`text-[11px] sm:text-[15px] font-semibold mb-0.5 sm:mb-1.5 line-clamp-2 transition duration-200 leading-tight sm:leading-snug ${
+          <h3 className={`text-xs sm:text-[15px] font-semibold mb-0.5 sm:mb-1.5 line-clamp-2 transition duration-200 leading-tight sm:leading-snug ${
             stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"
           }`}>
             {name}
@@ -323,13 +323,13 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <div className="min-w-0">
               {stock > 0 || displayPrice > 0 ? (
                 <>
-                  <span className={`text-[12px] sm:text-lg font-bold ${
+                  <span className={`text-sm sm:text-lg font-bold ${
                     stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"
                   }`}>
                     {formatPrice(displayPrice)}
                   </span>
                   {hasDiscount && (
-                    <span className="text-[8px] sm:text-[10px] text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
+                    <span className="text-[9px] sm:text-[10px] text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
                   )}
                   {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                     <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
@@ -345,7 +345,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             {stock > 0 ? (
               <button
                 onClick={handleAddToCart}
-                className="btn-primary px-2 sm:px-3 py-1 sm:py-1.5 text-[9px] sm:text-xs flex-shrink-0 w-full sm:w-auto"
+                className="btn-primary px-2 sm:px-3 py-1.5 text-[10px] sm:text-xs flex-shrink-0 w-full sm:w-auto"
               >
                 У кошик
               </button>

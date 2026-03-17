@@ -10,6 +10,7 @@ import SimulationCanvas from "./components/SimulationCanvas";
 import RacingCanvas from "./components/RacingCanvas";
 import RadarChart from "./components/RadarChart";
 import ConsumablePicker from "./components/ConsumablePicker";
+import InteractiveSimCanvas from "./components/InteractiveSimCanvas";
 import type { SimulationResult } from "@/lib/simulation/engine";
 import type { SimulationType } from "@/lib/simulation/specs";
 import { CONSUMABLE_MODES, type ConsumableMode, type Consumable } from "@/lib/simulation/consumables";
@@ -314,7 +315,7 @@ export default function SimulationClient() {
       </div>
 
       {/* Steps indicator */}
-      {step > 0 && !isResults && (
+      {step > 0 && !isResults && !loading && (
         <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
           {getStepLabels().map((label, i) => (
             <div key={label} className="flex items-center gap-2 shrink-0">
@@ -436,8 +437,15 @@ export default function SimulationClient() {
         />
       )}
 
+      {/* ===== LOADING — Interactive 3D simulation ===== */}
+      {loading && (
+        <div className="space-y-4">
+          <InteractiveSimCanvas type={currentSimType as "cutting" | "grinding" | "drilling"} />
+        </div>
+      )}
+
       {/* ===== RESULTS (both modes) ===== */}
-      {isResults && (
+      {isResults && !loading && (
         <div>
           {/* Racing animation for comparisons */}
           {results.length > 1 && (
@@ -542,7 +550,7 @@ export default function SimulationClient() {
       )}
 
       {/* Navigation buttons */}
-      {!isResults && (
+      {!isResults && !loading && (
         <div className="flex items-center justify-between mt-8">
           <button
             onClick={handleBack}

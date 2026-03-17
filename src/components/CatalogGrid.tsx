@@ -37,7 +37,7 @@ export default function CatalogGrid({ products }: { products: Product[] }) {
 
   const gridClass =
     view === "grid"
-      ? "grid grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-6"
+      ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6"
       : view === "gallery"
         ? "grid grid-cols-1 gap-3 md:gap-4"
         : "flex flex-col gap-2 md:gap-3";

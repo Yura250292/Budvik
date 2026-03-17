@@ -139,7 +139,7 @@ export default async function HomePage() {
   return (
     <div>
       {/* Hero */}
-      <section className="relative text-white py-10 sm:py-14 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
+      <section className="relative text-white py-7 sm:py-12 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
         {/* Yellow accent line under header */}
         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
         <div className="max-w-7xl mx-auto px-4 text-center">
@@ -156,18 +156,18 @@ export default async function HomePage() {
 
       {/* Seasonal Products */}
       {seasonalProducts.length > 0 && (
-        <section className="py-10 sm:py-12" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>
+        <section className="py-8 sm:py-10" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-6 sm:mb-8">
+            <div className="flex items-center gap-3 mb-4 sm:mb-7">
               <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: `${activeSeasonColor}20` }}>
                 {seasonalPromos[0]?.icon || seasonIcon}
               </div>
               <div>
-                <h2 className="text-xl sm:text-2xl font-bold text-[#0A0A0A]">{seasonalTitle}</h2>
+                <h2 className="text-lg sm:text-2xl font-bold text-[#0A0A0A]">{seasonalTitle}</h2>
                 <p className="text-sm text-[#9E9E9E]">{seasonalDesc}</p>
               </div>
             </div>
-            <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
               {seasonalProducts.map((product: any) => (
                 <ProductCard key={product.id} {...product} category={product.category} />
               ))}
@@ -178,20 +178,20 @@ export default async function HomePage() {
 
       {/* Best Sellers */}
       {sortedBestSellers.length > 0 && (
-        <section className="py-12 bg-white">
+        <section className="py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-8">
+            <div className="flex items-center gap-3 mb-4 sm:mb-7">
               <div className="w-11 h-11 bg-[#0A0A0A] rounded-xl flex items-center justify-center">
                 <svg className="h-5 w-5 text-[#FFD600]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-[#0A0A0A]">Хіти продажу</h2>
-                <p className="text-sm text-[#9E9E9E]">Найпопулярніші товари серед наших покупців</p>
+                <h2 className="text-lg sm:text-2xl font-bold text-[#0A0A0A]">Хіти продажу</h2>
+                <p className="text-xs sm:text-sm text-[#9E9E9E]">Найпопулярніші товари серед наших покупців</p>
               </div>
             </div>
-            <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
               {sortedBestSellers.map((product) => (
                 <ProductCard key={product.id} {...product} category={product.category} />
               ))}
@@ -201,10 +201,10 @@ export default async function HomePage() {
       )}
 
       {/* Featured Products */}
-      <section className="py-12">
+      <section className="py-8 sm:py-10">
         <div className="max-w-7xl mx-auto px-4">
-          <h2 className="text-3xl font-bold text-[#0A0A0A] mb-8 text-center">Популярні товари</h2>
-          <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-6">
+          <h2 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-4 sm:mb-8 text-center">Популярні товари</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
             {featuredProducts.map((product) => (
               <ProductCard key={product.id} {...product} category={product.category} />
             ))}
@@ -222,10 +222,10 @@ export default async function HomePage() {
 
       {/* Brands */}
       {activeBrands.length > 0 && (
-        <section className="py-12 bg-white">
+        <section className="py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
-            <h2 className="text-3xl font-bold text-[#0A0A0A] mb-2 text-center">Бренди</h2>
-            <p className="text-[#9E9E9E] text-center mb-8">Iнструменти вiд провiдних виробникiв</p>
+            <h2 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-1 sm:mb-2 text-center">Бренди</h2>
+            <p className="text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Iнструменти вiд провiдних виробникiв</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
               {activeBrands.map((brand) => (
                 <BrandCard

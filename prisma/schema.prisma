@@ -112,6 +112,10 @@ model User {
   companyId String?
   company   WholesaleCompany? @relation(fields: [companyId], references: [id])
 
+  // Link wholesale user to their Counterparty record
+  counterpartyId     String?
+  linkedCounterparty Counterparty? @relation("UserLinkedCounterparty", fields: [counterpartyId], references: [id])
+
   // ERP relations
   purchaseOrdersCreated PurchaseOrder[]    @relation("purchaseOrderCreator")
   salesDocumentsCreated SalesDocument[]    @relation("salesDocCreator")
@@ -129,6 +133,8 @@ model User {
   salesRepRegions    SalesRepRegion[]
   salesRepClients    SalesRepClient[]
   salesRepCategories SalesRepCategoryAccess[]
+
+  notifications Notification[]
 }
 
 model Category {
@@ -194,6 +200,29 @@ model SeasonalPromo {
   sortOrder   Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+enum PromotionType {
+  QUANTITY_PRICE   // Ступінчасті ціни за кількістю
+  AMOUNT_DISCOUNT  // Знижка від суми замовлення (%)
+  CASHBACK_BOLTS   // Кешбек болтами (%)
+  PRODUCT_DISCOUNT // Знижка на конкретні товари (%)
+}
+
+model Promotion {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  type        PromotionType
+  conditions  Json          // масив тирів, залежить від типу
+  productIds  String[]
+  categoryIds String[]
+  isActive    Boolean       @default(true)
+  startDate   DateTime?
+  endDate     DateTime?
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
 model ImportLog {
@@ -340,6 +369,7 @@ model Counterparty {
   deliveryStops    DeliveryStop[]
   assignedSalesReps SalesRepClient[]
   folderItems       ClientFolderItem[]
+  linkedUsers       User[]             @relation("UserLinkedCounterparty")
 }
 
 model SupplierProduct {
@@ -659,4 +689,19 @@ model SavedRouteStop {
   sequence     Int    @default(0)
 
   savedRoute SavedRoute @relation(fields: [savedRouteId], references: [id], onDelete: Cascade)
+}
+
+// ========== Notifications ==========
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // "WHOLESALE_ORDER_REQUEST"
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  relatedId String?  // salesDocumentId
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

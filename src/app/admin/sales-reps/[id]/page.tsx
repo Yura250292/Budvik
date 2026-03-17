@@ -31,6 +31,11 @@ export default function SalesRepDetailPage() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [catSaving, setCatSaving] = useState(false);
 
+  // Folders (for bulk assignment)
+  const [folders, setFolders] = useState<any[]>([]);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [folderAssigning, setFolderAssigning] = useState<string | null>(null);
+
   const [actionLoading, setActionLoading] = useState(false);
   const role = (session?.user as any)?.role;
 
@@ -53,13 +58,16 @@ export default function SalesRepDetailPage() {
   }, [userId]);
 
   const loadClients = useCallback(async () => {
-    const [assignedRes, allRes] = await Promise.all([
+    const [assignedRes, allRes, foldersRes] = await Promise.all([
       fetch(`/api/admin/sales-reps/${userId}/clients`),
       fetch("/api/erp/counterparties"),
+      fetch("/api/admin/client-folders"),
     ]);
     setAssignedClients(await assignedRes.json());
     const all = await allRes.json();
     setAllClients(Array.isArray(all) ? all.filter((c: any) => c.type === "CUSTOMER" || c.type === "BOTH") : []);
+    const foldersData = await foldersRes.json();
+    setFolders(Array.isArray(foldersData) ? foldersData : []);
   }, [userId]);
 
   const loadCategories = useCallback(async () => {
@@ -118,6 +126,20 @@ export default function SalesRepDetailPage() {
       body: JSON.stringify({ assignmentId }),
     });
     loadClients();
+  };
+
+  const assignFolder = async (folderId: string) => {
+    setFolderAssigning(folderId);
+    const res = await fetch(`/api/admin/sales-reps/${userId}/clients/bulk`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folderId }),
+    });
+    const result = await res.json();
+    setFolderAssigning(null);
+    setShowFolderPicker(false);
+    await loadClients();
+    if (result.added > 0) alert(`Додано ${result.added} клієнтів` + (result.skipped > 0 ? ` (${result.skipped} вже були)` : ""));
+    else alert("Всі клієнти з цієї папки вже призначені");
   };
 
   const toggleCategory = (catId: string) => {
@@ -241,10 +263,18 @@ export default function SalesRepDetailPage() {
                 <h2 style={{ fontSize: "16px", fontWeight: 700 }}>Призначені клієнти</h2>
                 <p style={{ fontSize: "13px", color: "#9CA3AF" }}>Клієнти закріплені за цим торговим</p>
               </div>
-              <button onClick={() => setShowClientPicker(true)}
-                style={{ padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", background: "#FFD600", border: "none" }}>
-                + Додати клієнта
-              </button>
+              <div className="flex gap-2">
+                {folders.length > 0 && (
+                  <button onClick={() => setShowFolderPicker(true)}
+                    style={{ padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", background: "#EFF6FF", color: "#2563EB", border: "1px solid #BFDBFE" }}>
+                    Додати папку
+                  </button>
+                )}
+                <button onClick={() => setShowClientPicker(true)}
+                  style={{ padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", background: "#FFD600", border: "none" }}>
+                  + Додати клієнта
+                </button>
+              </div>
             </div>
 
             {assignedClients.length === 0 ? (
@@ -291,6 +321,57 @@ export default function SalesRepDetailPage() {
                           {c.address && <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{c.address}</p>}
                         </button>
                       ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Folder picker modal */}
+            {showFolderPicker && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}
+                onClick={() => setShowFolderPicker(false)}>
+                <div className="bg-white rounded-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #EFEFEF" }}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 style={{ fontSize: "16px", fontWeight: 700 }}>Додати папку клієнтів</h3>
+                        <p style={{ fontSize: "13px", color: "#6B7280" }}>Всі клієнти з папки будуть призначені торговому</p>
+                      </div>
+                      <button onClick={() => setShowFolderPicker(false)} style={{ fontSize: "20px", color: "#9CA3AF", border: "none", background: "none" }}>&times;</button>
+                    </div>
+                  </div>
+                  <div style={{ padding: "12px 16px", maxHeight: "60vh", overflowY: "auto" }}>
+                    {folders.length === 0 ? (
+                      <p style={{ textAlign: "center", color: "#9CA3AF", padding: "20px", fontSize: "14px" }}>
+                        Немає папок. <a href="/admin/client-folders" style={{ color: "#2563EB" }}>Створити</a>
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {folders.map((f: any) => (
+                          <div key={f.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-gray-50"
+                            style={{ border: "1px solid #F3F4F6" }}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "#FEF3C7" }}>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#D97706" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p style={{ fontSize: "15px", fontWeight: 600 }}>{f.name}</p>
+                                <p style={{ fontSize: "12px", color: "#6B7280" }}>{f._count?.items || 0} клієнтів</p>
+                              </div>
+                            </div>
+                            <button onClick={() => assignFolder(f.id)}
+                              disabled={folderAssigning === f.id}
+                              style={{ padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "13px",
+                                background: "#16A34A", color: "white", border: "none",
+                                opacity: folderAssigning === f.id ? 0.5 : 1 }}>
+                              {folderAssigning === f.id ? "..." : "Призначити"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>

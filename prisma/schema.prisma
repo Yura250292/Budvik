@@ -335,6 +335,7 @@ model Counterparty {
   supplierProducts SupplierProduct[]
   deliveryStops    DeliveryStop[]
   assignedSalesReps SalesRepClient[]
+  folderItems       ClientFolderItem[]
 }
 
 model SupplierProduct {
@@ -569,6 +570,29 @@ model SalesRepCategoryAccess {
   category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([salesRepId, categoryId])
+}
+
+// ========== Client Folders (Route Templates) ==========
+
+model ClientFolder {
+  id          String   @id @default(cuid())
+  name        String   // "Радехів", "Львів центр"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ClientFolderItem[]
+}
+
+model ClientFolderItem {
+  id             String @id @default(cuid())
+  folderId       String
+  counterpartyId String
+
+  folder       ClientFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, counterpartyId])
 }
 
 // ========== Stock Locations (Warehouses) ==========

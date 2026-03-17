@@ -81,7 +81,7 @@ export default function ComparisonView({ results }: Props) {
             {results.map((r, i) => (
               <th key={i} className="text-center pb-3 px-2">
                 <div className="bg-white border border-[#EFEFEF] rounded-xl p-3">
-                  <h4 className="text-xs font-bold text-[#0A0A0A] line-clamp-2">{r.toolName || `Інструмент ${i + 1}`}</h4>
+                  <h4 className="text-xs font-bold text-[#0A0A0A] line-clamp-2">{r.consumableName || r.toolName || `Інструмент ${i + 1}`}</h4>
                 </div>
               </th>
             ))}

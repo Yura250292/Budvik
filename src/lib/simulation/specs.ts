@@ -78,6 +78,8 @@ function inferToolTypeFromName(name: string): ToolType | null {
   if (/дриль|дрель|свердл/.test(lower)) return "drill";
   if (/шуруповерт/.test(lower)) return "drill";
   if (/болгарк|кутов\w+\s+шліф|ушм|angle\s*grinder|кшм/.test(lower)) return "grinder";
+  // "Шліфмашина кутова" or "кутова шліфмашина" — both word orders = angle grinder
+  if (/шліфмашин/.test(lower) && /кутов/.test(lower)) return "grinder";
   if (/шліфмашин|шліфувальн/.test(lower)) return "sander";
   if (/циркулярн|дисков\w+\s+пил|circular/.test(lower)) return "circular_saw";
   if (/бензопил|ланцюгов\w+\s+пил|електропил/.test(lower)) return "circular_saw";

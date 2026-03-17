@@ -77,7 +77,7 @@ body {
 }
 
 html {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* ===== Unified UI Components ===== */

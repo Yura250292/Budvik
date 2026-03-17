@@ -72,7 +72,7 @@ export default function BottomNav() {
           <span className="text-[10px] font-medium">Симуляція</span>
         </Link>
 
-        {/* Orders / Admin / Sales */}
+        {/* 5th slot: role-specific or profile */}
         {session && role === "SALES" ? (
           <Link href="/sales" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 ${isActive("/sales") ? activeClass : inactiveClass}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -89,21 +89,13 @@ export default function BottomNav() {
             <span className="text-[10px] font-medium">Панель</span>
           </Link>
         ) : (
-          <Link href={session ? "/dashboard/orders" : "/login"} className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 ${isActive("/dashboard/orders") ? activeClass : inactiveClass}`}>
+          <Link href={session ? "/dashboard" : "/login"} className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 ${isActive("/dashboard") || (!session && isActive("/login")) ? activeClass : inactiveClass}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
-            <span className="text-[10px] font-medium">Замовлення</span>
+            <span className="text-[10px] font-medium">{session ? "Кабінет" : "Увійти"}</span>
           </Link>
         )}
-
-        {/* Profile */}
-        <Link href={session ? "/dashboard" : "/login"} className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 ${isActive("/dashboard") && !isActive("/dashboard/orders") ? activeClass : (!session && isActive("/login")) ? activeClass : inactiveClass}`}>
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span className="text-[10px] font-medium">{session ? "Кабінет" : "Увійти"}</span>
-        </Link>
       </div>
     </nav>
   );

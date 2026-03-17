@@ -4,6 +4,7 @@ import { resolveSpecs } from "@/lib/simulation/specs";
 import { getMaterialById } from "@/lib/simulation/materials";
 import { simulate, compareSimulations } from "@/lib/simulation/engine";
 import { productToConsumable, type ConsumableMode } from "@/lib/simulation/consumables";
+import { aiEnrichConsumables, blendFactors } from "@/lib/simulation/ai-enrichment";
 
 export async function POST(req: Request) {
   const body = await req.json();
@@ -39,6 +40,33 @@ export async function POST(req: Request) {
       consumableMode as ConsumableMode
     )
   );
+
+  // AI enrichment — get real-world quality factors from Gemini + Google Search
+  let aiFactors = new Map<string, any>();
+  try {
+    aiFactors = await aiEnrichConsumables(
+      consumableProducts.map(p => ({ name: p.name, price: p.price })),
+      consumableMode
+    );
+  } catch (err) {
+    console.error("AI enrichment skipped:", err);
+  }
+
+  // Blend AI factors with heuristic factors
+  const aiReasonings: Record<string, string> = {};
+  for (const consumable of selected) {
+    const ai = aiFactors.get(consumable.nameUk);
+    if (ai) {
+      const blended = blendFactors(consumable, ai);
+      consumable.speedFactor = blended.speedFactor;
+      consumable.durabilityFactor = blended.durabilityFactor;
+      consumable.precisionFactor = blended.precisionFactor;
+      consumable.heatFactor = blended.heatFactor;
+      if (blended.aiReasoning) {
+        aiReasonings[consumable.id] = blended.aiReasoning;
+      }
+    }
+  }
 
   // Determine simulation type from consumable mode
   const simTypeMap: Record<string, string> = {
@@ -106,5 +134,6 @@ export async function POST(req: Request) {
     material: { id: material.id, nameUk: material.nameUk },
     toolName,
     simType,
+    aiReasonings: Object.keys(aiReasonings).length > 0 ? aiReasonings : undefined,
   });
 }

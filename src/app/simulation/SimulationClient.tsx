@@ -75,6 +75,7 @@ export default function SimulationClient() {
   const [loading, setLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiReasonings, setAiReasonings] = useState<Record<string, string>>({});
 
   // Pre-select product from URL
   useEffect(() => {
@@ -203,6 +204,7 @@ export default function SimulationClient() {
       const data = await res.json();
       if (data.results) {
         setResults(data.results);
+        if (data.aiReasonings) setAiReasonings(data.aiReasonings);
         setStep(resultStep);
         fetchAiAnalysis(data.results, effectiveSimType);
       }
@@ -241,6 +243,7 @@ export default function SimulationClient() {
     setResults([]);
     setAiAnalysis(null);
     setAiLoading(false);
+    setAiReasonings({});
   };
 
   // Determine material context for filtering
@@ -461,6 +464,26 @@ export default function SimulationClient() {
           ) : (
             <>
               <ComparisonView results={results} />
+
+              {/* AI Reasoning per product */}
+              {Object.keys(aiReasonings).length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {results.map((r) => {
+                    const reason = aiReasonings[r.consumableId || ""];
+                    if (!reason) return null;
+                    return (
+                      <div key={r.consumableId} className="flex items-start gap-2 bg-[#FFFDE7] rounded-xl px-4 py-3 border border-[#FFD600]/20">
+                        <span className="text-[#FFD600] text-sm mt-0.5">AI</span>
+                        <div>
+                          <p className="text-xs font-semibold text-[#0A0A0A] mb-0.5">{r.consumableName || r.toolName}</p>
+                          <p className="text-xs text-[#555] leading-relaxed">{reason}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="mt-6">
                 <h3 className="text-lg font-bold text-[#0A0A0A] mb-3">Діаграма метрик</h3>
                 <div className="bg-white rounded-2xl border border-[#EFEFEF] p-4" style={{ height: 320 }}>
@@ -533,7 +556,7 @@ export default function SimulationClient() {
             disabled={!canProceed() || loading}
             className="bg-[#FFD600] text-[#0A0A0A] px-8 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#FFC400] transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {loading ? "Обчислення..." : isLastInputStep() ? "Симулювати" : "Далі"}
+            {loading ? "AI аналізує..." : isLastInputStep() ? "Симулювати з AI" : "Далі"}
           </button>
         </div>
       )}

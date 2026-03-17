@@ -123,6 +123,7 @@ model User {
   // Delivery relations
   driverRoutes  DeliveryRoute[] @relation("driverRoutes")
   createdRoutes DeliveryRoute[] @relation("routeCreator")
+  savedRoutes   SavedRoute[]    @relation("savedRoutes")
 
   // Sales rep profile
   salesRepRegions    SalesRepRegion[]
@@ -601,6 +602,8 @@ model StockLocation {
   id        String   @id @default(cuid())
   name      String   // "Основний склад", "Магазин"
   address   String?
+  lat       Float?
+  lng       Float?
   isDefault Boolean  @default(false)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -618,4 +621,39 @@ model LocationStock {
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([stockLocationId, productId])
+}
+
+// ========== Saved Routes (Route Planner) ==========
+
+model SavedRoute {
+  id               String   @id @default(cuid())
+  name             String
+  startAddress     String
+  startLat         Float
+  startLng         Float
+  vehicleType      String   @default("fuel") // "fuel" | "electric"
+  consumption      Float    @default(10)
+  pricePerUnit     Float    @default(56)
+  totalDistanceKm  Float?
+  totalDurationMin Float?
+  totalFuelCost    Float?
+  routeGeometry    Json?    // GeoJSON LineString
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  createdBy User             @relation("savedRoutes", fields: [createdById], references: [id])
+  stops     SavedRouteStop[]
+}
+
+model SavedRouteStop {
+  id           String @id @default(cuid())
+  savedRouteId String
+  address      String
+  displayName  String?
+  lat          Float
+  lng          Float
+  sequence     Int    @default(0)
+
+  savedRoute SavedRoute @relation(fields: [savedRouteId], references: [id], onDelete: Cascade)
 }

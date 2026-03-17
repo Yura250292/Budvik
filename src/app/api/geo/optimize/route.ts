@@ -5,9 +5,11 @@ import { getOptimalTrip, getRoute } from "@/lib/geo/osrm";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { startAddress, addresses } = body as {
+    const { startAddress, addresses, startCoords, addressCoords } = body as {
       startAddress: string;
       addresses: string[];
+      startCoords?: { lat: number; lng: number } | null;
+      addressCoords?: Array<{ lat: number; lng: number } | null>;
     };
 
     if (!startAddress || !addresses || addresses.length < 1) {
@@ -17,8 +19,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Geocode all addresses (start + stops)
+    // Geocode all addresses (start + stops), using pre-geocoded coords when available
     const allAddresses = [startAddress, ...addresses];
+    const preCoords = [startCoords || null, ...(addressCoords || addresses.map(() => null))];
     const geocoded: Array<{
       address: string;
       lat: number;
@@ -26,9 +29,16 @@ export async function POST(req: NextRequest) {
       displayName: string;
     } | null> = [];
 
-    for (const addr of allAddresses) {
-      const result = await geocodeAddress(addr);
-      geocoded.push(result ? { address: addr, ...result } : null);
+    for (let i = 0; i < allAddresses.length; i++) {
+      const addr = allAddresses[i];
+      const pre = preCoords[i];
+      if (pre) {
+        // Use pre-geocoded coordinates
+        geocoded.push({ address: addr, lat: pre.lat, lng: pre.lng, displayName: addr });
+      } else {
+        const result = await geocodeAddress(addr);
+        geocoded.push(result ? { address: addr, ...result } : null);
+      }
     }
 
     // Check for failed geocoding

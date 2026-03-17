@@ -75,13 +75,48 @@ async function nominatimSearch(
   };
 }
 
+/** Extract possible city/region from address for context */
+function extractCity(address: string): string | null {
+  // Common pattern: "City, street, number" — take first comma-separated part
+  const parts = address.split(",").map((p) => p.trim());
+  if (parts.length >= 2) return parts[0];
+  return null;
+}
+
+/** Generate search variants by reordering parts */
+function generateVariants(address: string): string[] {
+  const variants: string[] = [];
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    // Reverse order: "Поршна, 8" → "8 Поршна"
+    variants.push(parts.reverse().join(" "));
+    // "Street Number, City" style — try "City Street Number"
+    variants.push(parts.join(", "));
+  }
+
+  // If it looks like "Street, Number" (short), try with common cities
+  if (parts.length <= 2 && address.length < 30) {
+    const commonCities = ["Вінниця", "Київ", "Хмельницький"];
+    const stripped = stripAbbreviations(address);
+    for (const city of commonCities) {
+      if (!address.toLowerCase().includes(city.toLowerCase())) {
+        variants.push(`${city}, ${stripped}`);
+      }
+    }
+  }
+
+  return variants;
+}
+
 /**
  * Geocode an address using multiple fallback strategies:
  * 1. Original text with Ukraine filter
  * 2. Expanded abbreviations with Ukraine filter
  * 3. Stripped abbreviations with Ukraine filter
  * 4. Add "Україна" suffix for context
- * 5. Without country filter (global search)
+ * 5. Reordered parts / city appended
+ * 6. Without country filter (global search)
  */
 export async function geocodeAddress(
   address: string
@@ -116,7 +151,16 @@ export async function geocodeAddress(
     result = await nominatimSearch(withCountry);
   }
 
-  // Strategy 5: global search as last resort
+  // Strategy 5: reordered variants and city-appended searches
+  if (!result) {
+    const variants = generateVariants(trimmed);
+    for (const variant of variants) {
+      result = await nominatimSearch(variant, { country: "ua" });
+      if (result) break;
+    }
+  }
+
+  // Strategy 6: global search as last resort
   if (!result) {
     result = await nominatimSearch(trimmed);
   }

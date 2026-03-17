@@ -10,16 +10,20 @@ export default function SalesDashboard() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const role = (session?.user as any)?.role;
   const userName = (session?.user as any)?.name || "Торговий";
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   useEffect(() => {
     if (!session) return;
     Promise.all([
       fetch("/api/erp/sales").then((r) => r.json()),
       fetch("/api/erp/commissions/my").then((r) => r.json()),
-    ]).then(([sales, commissions]) => {
+      fetch("/api/notifications").then((r) => r.json()),
+    ]).then(([sales, commissions, notifs]) => {
       const docs = Array.isArray(sales) ? sales : [];
       const today = new Date().toDateString();
       const todaySales = docs.filter((d: any) => new Date(d.createdAt).toDateString() === today);
@@ -34,9 +38,15 @@ export default function SalesDashboard() {
         drafts: docs.filter((d: any) => d.status === "DRAFT").length,
         commission: commissions.summary || {},
       });
+      setNotifications(Array.isArray(notifs) ? notifs : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [session]);
+
+  const markAllRead = async () => {
+    await fetch("/api/notifications/read-all", { method: "PATCH" });
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+  };
 
   if (role !== "ADMIN" && role !== "SALES") {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
@@ -64,15 +74,83 @@ export default function SalesDashboard() {
         }} />
 
         <div className="max-w-lg mx-auto relative">
-          <div className="flex items-center gap-3 mb-4">
-            <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
-            <div>
-              <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
-                Торговий портал
-              </p>
-              <h1 style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>{userName}</h1>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
+              <div>
+                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+                  Торговий портал
+                </p>
+                <h1 style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>{userName}</h1>
+              </div>
             </div>
+            {/* Notification bell */}
+            <button
+              onClick={() => { setShowNotifications((v) => !v); if (unreadCount > 0) markAllRead(); }}
+              style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", padding: "10px", color: "white" }}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+              {unreadCount > 0 && (
+                <span style={{
+                  position: "absolute", top: "-4px", right: "-4px",
+                  background: "#EF4444", color: "white", borderRadius: "9999px",
+                  fontSize: "11px", fontWeight: 700, minWidth: "18px", height: "18px",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
+                }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
           </div>
+
+          {/* Notifications dropdown */}
+          {showNotifications && (
+            <div style={{
+              position: "absolute", top: "60px", right: 0, zIndex: 50,
+              background: "white", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+              width: "320px", maxHeight: "400px", overflowY: "auto",
+            }}>
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 700, fontSize: "14px", color: "#0A0A0A" }}>Сповіщення</span>
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} style={{ fontSize: "12px", color: "#6B7280" }}>Прочитати всі</button>
+                )}
+              </div>
+              {notifications.length === 0 ? (
+                <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: "13px" }}>
+                  Немає сповіщень
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div key={n.id} style={{
+                    padding: "12px 16px", borderBottom: "1px solid #F7F7F7",
+                    background: n.isRead ? "white" : "#FFF9E6",
+                  }}>
+                    {n.relatedId ? (
+                      <Link href={`/admin/erp/sales/${n.relatedId}`} onClick={() => setShowNotifications(false)}>
+                        <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
+                        <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
+                        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
+                          {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </Link>
+                    ) : (
+                      <>
+                        <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
+                        <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
+                        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
+                          {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
 
           {!loading && stats && (
             <div className="flex gap-3 mt-2">
@@ -150,10 +228,11 @@ export default function SalesDashboard() {
         </p>
         <div className="space-y-2">
           {[
-            { href: "/sales/new", icon: "M12 4v16m8-8H4", title: "Нове замовлення", desc: "Створити документ продажу", gradient: "linear-gradient(135deg, #22C55E, #16A34A)" },
-            { href: "/sales/clients", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", title: "Клієнти", desc: "Контрагенти та дебіторка", gradient: "linear-gradient(135deg, #3B82F6, #2563EB)" },
-            { href: "/sales/orders", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", title: "Мої документи", desc: "Історія продажів", gradient: "linear-gradient(135deg, #8B5CF6, #7C3AED)" },
-            { href: "/dashboard/commissions", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z", title: "Мої комісії", desc: "Заробіток та виплати", gradient: "linear-gradient(135deg, #F59E0B, #D97706)" },
+            { href: "/sales/new", icon: "M12 4v16m8-8H4", title: "Нове замовлення", desc: "Створити документ продажу", gradient: "linear-gradient(135deg, #22C55E, #16A34A)", badge: null },
+            { href: "/sales/orders?status=DRAFT", icon: "M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4", title: "Запити від клієнтів", desc: "Чернетки від оптовиків", gradient: "linear-gradient(135deg, #F59E0B, #D97706)", badge: stats?.drafts ?? 0 },
+            { href: "/sales/clients", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", title: "Клієнти", desc: "Контрагенти та дебіторка", gradient: "linear-gradient(135deg, #3B82F6, #2563EB)", badge: null },
+            { href: "/sales/orders", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", title: "Мої документи", desc: "Історія продажів", gradient: "linear-gradient(135deg, #8B5CF6, #7C3AED)", badge: null },
+            { href: "/dashboard/commissions", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z", title: "Мої комісії", desc: "Заробіток та виплати", gradient: "linear-gradient(135deg, #F59E0B, #D97706)", badge: null },
           ].map((item) => (
             <Link key={item.href} href={item.href}
               className="flex items-center gap-4 bg-white rounded-2xl p-4"

@@ -40,6 +40,29 @@ export default function CartPage() {
     setLoading(true);
     setError("");
 
+    // Wholesale clients submit an order request to their sales rep
+    if (isWholesale) {
+      const res = await fetch("/api/wholesale/order-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, sellingPrice: i.price })),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Помилка при відправці замовлення");
+        setLoading(false);
+        return;
+      }
+
+      const doc = await res.json();
+      clearCart();
+      router.push(`/dashboard/wholesale?ordered=${doc.number}`);
+      return;
+    }
+
     const res = await fetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -164,8 +187,19 @@ export default function CartPage() {
             disabled={loading}
             className="btn-primary w-full py-3 text-sm disabled:opacity-50"
           >
-            {loading ? "Оформлення..." : session ? "Оформити замовлення" : "Увійти для замовлення"}
+            {loading
+              ? "Відправка..."
+              : !session
+              ? "Увійти для замовлення"
+              : isWholesale
+              ? "Надіслати запит торговому"
+              : "Оформити замовлення"}
           </button>
+          {isWholesale && (
+            <p className="text-xs text-g400 text-center mt-2">
+              Запит надійде вашому торговому менеджеру
+            </p>
+          )}
         </div>
       </div>
     </div>

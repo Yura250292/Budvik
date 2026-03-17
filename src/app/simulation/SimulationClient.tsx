@@ -314,20 +314,36 @@ export default function SimulationClient() {
         </div>
       </div>
 
-      {/* Steps indicator */}
+      {/* Steps indicator + top nav */}
       {step > 0 && !isResults && !loading && (
-        <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-          {getStepLabels().map((label, i) => (
-            <div key={label} className="flex items-center gap-2 shrink-0">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-[background-color,color] duration-150 ${
-                i + 1 === step ? "bg-[#FFD600] text-[#0A0A0A]" : i + 1 < step ? "bg-[#0A0A0A] text-white" : "bg-[#EFEFEF] text-[#9E9E9E]"
-              }`}>
-                {i + 1 < step ? "✓" : i + 1}
+        <div className="flex items-center justify-between gap-3 mb-6">
+          {/* Step pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 min-w-0">
+            {getStepLabels().map((label, i) => (
+              <div key={label} className="flex items-center gap-2 shrink-0">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-[background-color,color] duration-150 ${
+                  i + 1 === step ? "bg-[#FFD600] text-[#0A0A0A]" : i + 1 < step ? "bg-[#0A0A0A] text-white" : "bg-[#EFEFEF] text-[#9E9E9E]"
+                }`}>
+                  {i + 1 < step ? "✓" : i + 1}
+                </div>
+                <span className={`text-sm hidden sm:inline ${i + 1 === step ? "text-[#0A0A0A] font-semibold" : "text-[#9E9E9E]"}`}>{label}</span>
+                {i < getStepLabels().length - 1 && <div className="w-6 h-px bg-[#EFEFEF] hidden sm:block" />}
               </div>
-              <span className={`text-sm ${i + 1 === step ? "text-[#0A0A0A] font-semibold" : "text-[#9E9E9E]"}`}>{label}</span>
-              {i < getStepLabels().length - 1 && <div className="w-8 h-px bg-[#EFEFEF]" />}
-            </div>
-          ))}
+            ))}
+          </div>
+          {/* Top "Next" button */}
+          <button
+            onClick={handleNext}
+            disabled={!canProceed() || loading}
+            className="shrink-0 bg-[#FFD600] text-[#0A0A0A] px-5 py-2 rounded-xl text-sm font-semibold hover:bg-[#FFC400] transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+          >
+            {isLastInputStep() ? "Симулювати" : "Далі"}
+            {!isLastInputStep() && (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            )}
+          </button>
         </div>
       )}
 

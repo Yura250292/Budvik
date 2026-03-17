@@ -80,9 +80,11 @@ const BRAND_QUALITY: Record<string, BrandQuality> = {
   "greatflex":  { speedMod: 0.92, durabilityMod: 0.80, precisionMod: 0.90, heatMod: 1.10, tier: "economy" },
   "luga":       { speedMod: 0.90, durabilityMod: 0.78, precisionMod: 0.88, heatMod: 1.12, tier: "economy" },
 
-  // Additional brands
-  "gradient":   { speedMod: 1.02, durabilityMod: 1.05, precisionMod: 1.0, heatMod: 0.98, tier: "pro" },
-  "liger":      { speedMod: 0.95, durabilityMod: 0.88, precisionMod: 0.95, heatMod: 1.05, tier: "standard" },
+  // Additional brands — Ukrainian market
+  "ataman":     { speedMod: 1.10, durabilityMod: 1.15, precisionMod: 1.10, heatMod: 0.90, tier: "pro" },
+  "gradient":   { speedMod: 0.98, durabilityMod: 0.92, precisionMod: 0.95, heatMod: 1.03, tier: "standard" },
+  "liger":      { speedMod: 0.93, durabilityMod: 0.82, precisionMod: 0.90, heatMod: 1.08, tier: "economy" },
+  "revolt":     { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.03, heatMod: 0.95, tier: "pro" },
   "іскра":      { speedMod: 0.95, durabilityMod: 0.90, precisionMod: 0.93, heatMod: 1.05, tier: "standard" },
   "зенит":      { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.97, heatMod: 1.02, tier: "standard" },
   "verto":      { speedMod: 1.0, durabilityMod: 1.02, precisionMod: 1.0, heatMod: 0.99, tier: "standard" },
@@ -415,6 +417,29 @@ function parseCuttingDisc(product: ProductInput, target: string, materialCompat:
     const diamFactor = diameter / 125;
     speedFactor *= 0.95;
     durabilityFactor *= Math.min(diamFactor * 0.9, 1.5);
+  }
+
+  // Abrasive grade detection (14А = normal electrocorundum, 25А = white, higher = better)
+  const gradeMatch = name.match(/\b(\d{1,2})\s*[АA]\b/);
+  if (gradeMatch) {
+    const grade = parseInt(gradeMatch[1]);
+    if (grade >= 25) {
+      // White electrocorundum (25A) — sharper, cooler cutting, less durable
+      speedFactor *= 1.08;
+      precisionFactor *= 1.10;
+      heatFactor *= 0.92;
+      durabilityFactor *= 0.95;
+    } else if (grade >= 14) {
+      // Normal electrocorundum (14A) — good balance
+      speedFactor *= 1.03;
+      durabilityFactor *= 1.05;
+    }
+  }
+
+  // Type code: 41 = flat, 42 = depressed center
+  if (/\b42\b/.test(name)) {
+    precisionFactor *= 0.95; // depressed center slightly less precise
+    durabilityFactor *= 1.05; // but more durable
   }
 
   return {

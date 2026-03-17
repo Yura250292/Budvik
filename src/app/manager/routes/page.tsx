@@ -119,10 +119,22 @@ export default function ManagerRoutesPage() {
               <p style={{ fontSize: "13px", color: "#6B7280" }}>
                 {confirmedOrders.length > 0
                   ? `${confirmedOrders.length} замовлень чекають маршруту`
-                  : "Маршрути доставки"}
+                  : "Маршрути та планувальник"}
               </p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/erp/route-planner"
+              style={{
+                padding: "9px 14px", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
+                background: "linear-gradient(135deg, #8B5CF6, #6366F1)", color: "white",
+                textDecoration: "none", display: "flex", alignItems: "center", gap: "5px",
+              }}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              </svg>
+              <span className="hidden sm:inline">Новий маршрут</span>
+            </Link>
           <button onClick={() => setShowCreate(!showCreate)}
             style={{
               background: showCreate ? "#F3F4F6" : "#FFD600",
@@ -132,6 +144,7 @@ export default function ManagerRoutesPage() {
             }}>
             {showCreate ? "Скасувати" : "+ Новий"}
           </button>
+          </div>
         </div>
       </header>
 
@@ -328,9 +341,9 @@ function RouteCard({ route: r }: { route: any }) {
   return (
     <div className="bg-white rounded-2xl overflow-hidden"
       style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-      <button onClick={() => setExpanded(!expanded)} className="w-full text-left" style={{ padding: "16px" }}>
+      <div style={{ padding: "16px" }}>
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
+          <button onClick={() => setExpanded(!expanded)} className="flex-1 min-w-0 text-left">
             <div className="flex items-center gap-2 mb-1">
               <span style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>{r.number}</span>
               <span style={{
@@ -347,25 +360,31 @@ function RouteCard({ route: r }: { route: any }) {
               <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "2px" }}>
                 {r.vehicleInfo}
                 {r.fuelConsumption ? ` · ${r.fuelConsumption} л/100км` : ""}
-                {r.totalDistanceKm ? ` · ${r.totalDistanceKm} км` : ""}
+                {r.totalDistanceKm ? ` · ${Math.round(r.totalDistanceKm)} км` : ""}
               </p>
             )}
-          </div>
-          <div className="text-right flex-shrink-0">
+          </button>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
             {r.totalFuelCost && (
-              <p style={{ fontSize: "13px", fontWeight: 600, color: "#D97706" }}>
-                Паливо: {formatPrice(r.totalFuelCost)}
+              <p style={{ fontSize: "12px", fontWeight: 600, color: "#D97706" }}>
+                {formatPrice(r.totalFuelCost)}
               </p>
             )}
-            <svg
-              className="w-4 h-4 ml-auto mt-1"
-              fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" strokeWidth={2}
-              style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <Link href={`/admin/erp/route-planner?deliveryRouteId=${r.id}`}
+              style={{
+                display: "flex", alignItems: "center", gap: "4px",
+                padding: "6px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600,
+                background: "linear-gradient(135deg, #8B5CF6, #6366F1)", color: "white",
+                textDecoration: "none",
+              }}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              </svg>
+              На карті
+            </Link>
           </div>
         </div>
-      </button>
+      </div>
 
       {expanded && r.stops?.length > 0 && (
         <div style={{ borderTop: "1px solid #F3F4F6" }}>

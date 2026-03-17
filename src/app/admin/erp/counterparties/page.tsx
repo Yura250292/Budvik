@@ -12,6 +12,7 @@ type Counterparty = {
   phone: string | null;
   email: string | null;
   address: string | null;
+  deliveryAddress: string | null;
   contactPerson: string | null;
   notes: string | null;
   isActive: boolean;
@@ -46,6 +47,7 @@ export default function CounterpartiesPage() {
     phone: "",
     email: "",
     address: "",
+    deliveryAddress: "",
     contactPerson: "",
     notes: "",
   });
@@ -68,7 +70,7 @@ export default function CounterpartiesPage() {
   }, [role, fetchData]);
 
   const resetForm = () => {
-    setForm({ name: "", code: "", type: "BOTH", phone: "", email: "", address: "", contactPerson: "", notes: "" });
+    setForm({ name: "", code: "", type: "BOTH", phone: "", email: "", address: "", deliveryAddress: "", contactPerson: "", notes: "" });
     setEditingId(null);
     setShowForm(false);
   };
@@ -81,6 +83,7 @@ export default function CounterpartiesPage() {
       phone: c.phone || "",
       email: c.email || "",
       address: c.address || "",
+      deliveryAddress: c.deliveryAddress || "",
       contactPerson: c.contactPerson || "",
       notes: c.notes || "",
     });
@@ -254,12 +257,27 @@ export default function CounterpartiesPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-g600 mb-1">Адреса</label>
+                  <label className="block text-sm font-medium text-g600 mb-1">Юридична / фактична адреса</label>
                   <input
                     value={form.address}
                     onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    placeholder="вул. Незалежності 1, Вінниця"
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-g600 mb-1">
+                    Адреса доставки (НП відділення / адресна доставка)
+                  </label>
+                  <input
+                    value={form.deliveryAddress}
+                    onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })}
+                    placeholder="Нова Пошта, відд. №5, Вінниця / або: вул. Соборна 10"
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                  />
+                  <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
+                    Використовується для дорожніх листів та планувальника маршрутів
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-g600 mb-1">Контактна особа</label>

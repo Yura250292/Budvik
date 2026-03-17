@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import DynamicDeliveryMap from "@/components/map/DynamicMap";
 import type { GeoPoint } from "@/components/map/DeliveryMap";
@@ -64,8 +65,10 @@ interface SavedRouteData {
   stops: Array<{ address: string; displayName: string | null; lat: number; lng: number; sequence: number }>;
 }
 
-export default function RoutePlannerPage() {
+function RoutePlannerContent() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const deliveryRouteId = searchParams.get("deliveryRouteId");
   const role = (session?.user as any)?.role;
 
   const [startAddress, setStartAddress] = useState("Вінниця, склад");
@@ -105,6 +108,10 @@ export default function RoutePlannerPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
 
+  // Delivery route sync
+  const [linkedDeliveryRoute, setLinkedDeliveryRoute] = useState<any>(null);
+  const [savingToDelivery, setSavingToDelivery] = useState(false);
+
   const isPicking = pickingStart || !!pickingStopId || pickingNewStop;
 
   // Load warehouses & saved routes on mount
@@ -112,6 +119,71 @@ export default function RoutePlannerPage() {
     fetch("/api/geo/warehouses").then((r) => r.ok ? r.json() : []).then(setWarehouses).catch(() => {});
     fetch("/api/geo/saved-routes").then((r) => r.ok ? r.json() : []).then(setSavedRoutes).catch(() => {});
   }, []);
+
+  // Load delivery route stops if deliveryRouteId param given
+  useEffect(() => {
+    if (!deliveryRouteId || !session) return;
+    fetch(`/api/erp/delivery-routes/${deliveryRouteId}`)
+      .then((r) => r.json())
+      .then(async (route) => {
+        setLinkedDeliveryRoute(route);
+        if (!route.stops?.length) return;
+
+        // Geocode each stop's deliveryAddress / address
+        const newAddresses: AddressEntry[] = [];
+        for (const stop of route.stops) {
+          const addr = stop.counterparty?.deliveryAddress || stop.counterparty?.address || stop.address || "";
+          if (!addr) continue;
+          const entry: AddressEntry = { id: crypto.randomUUID(), address: addr };
+          // Try saved coords first
+          if (stop.counterparty?.deliveryLat && stop.counterparty?.deliveryLng) {
+            entry.geocoded = {
+              lat: stop.counterparty.deliveryLat,
+              lng: stop.counterparty.deliveryLng,
+              displayName: stop.counterparty.name || addr,
+            };
+          } else {
+            entry.geocoding = true;
+          }
+          newAddresses.push(entry);
+        }
+        setAddresses(newAddresses);
+
+        // Geocode missing ones
+        const updated = [...newAddresses];
+        for (let i = 0; i < updated.length; i++) {
+          if (!updated[i].geocoded && updated[i].address) {
+            updated[i] = { ...updated[i], geocoding: true };
+            setAddresses([...updated]);
+            try {
+              const res = await fetch(`/api/geo/geocode?q=${encodeURIComponent(updated[i].address)}`);
+              if (res.ok) {
+                const geo = await res.json();
+                updated[i] = { ...updated[i], geocoded: geo, geocoding: false };
+              } else {
+                updated[i] = { ...updated[i], geocoding: false, error: "Не знайдено" };
+              }
+            } catch {
+              updated[i] = { ...updated[i], geocoding: false, error: "Помилка" };
+            }
+            setAddresses([...updated]);
+          }
+        }
+
+        // Rebuild map stops
+        const mapPts: GeoPoint[] = updated
+          .filter((a) => a.geocoded)
+          .map((a, idx) => ({
+            lat: a.geocoded!.lat, lng: a.geocoded!.lng,
+            label: `${idx + 1}. ${a.address}`,
+            address: a.geocoded!.displayName,
+            type: "stop" as const,
+            sequence: idx + 1,
+          }));
+        setMapStops(mapPts);
+      })
+      .catch(() => {});
+  }, [deliveryRouteId, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const geocodeAddress = useCallback(async (address: string): Promise<{ lat: number; lng: number; displayName: string } | null> => {
     try {
@@ -393,6 +465,49 @@ export default function RoutePlannerPage() {
     setSavingRoute(false);
   }, [routeName, startAddress, startGeo, addresses, vehicle, result, routeGeometry, activeRouteId]);
 
+  // Save optimized order back to the linked DeliveryRoute
+  const handleSaveToDeliveryRoute = useCallback(async () => {
+    if (!linkedDeliveryRoute || !result) return;
+    setSavingToDelivery(true);
+    try {
+      // Map optimized addresses back to stop IDs by address matching
+      const optimized = result.optimizedAddresses.filter((a) => a.type === "stop");
+      const stops = linkedDeliveryRoute.stops as any[];
+
+      const stopSequences = optimized.map((opt, idx) => {
+        // find stop whose counterparty address matches
+        const stop = stops.find((s: any) => {
+          const addr = s.counterparty?.deliveryAddress || s.counterparty?.address || s.address || "";
+          return addr.trim().toLowerCase() === opt.address.trim().toLowerCase();
+        }) || stops[idx]; // fallback by index
+        return {
+          stopId: stop?.id,
+          sequence: idx + 1,
+          distanceKm: result.legs[idx]?.distanceKm,
+        };
+      }).filter((s) => s.stopId);
+
+      const res = await fetch(`/api/erp/delivery-routes/${linkedDeliveryRoute.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stopSequences,
+          totalDistanceKm: result.totalDistanceKm,
+          totalFuelCost: result.totalDistanceKm * vehicle.consumption / 100 * vehicle.pricePerUnit,
+        }),
+      });
+      if (res.ok) {
+        alert(`Маршрут ${linkedDeliveryRoute.number} оновлено!\nПорядок зупинок та відстань збережено.`);
+      } else {
+        const d = await res.json();
+        alert(d.error || "Помилка збереження");
+      }
+    } catch {
+      alert("Мережева помилка");
+    }
+    setSavingToDelivery(false);
+  }, [linkedDeliveryRoute, result, vehicle]);
+
   // Load saved route
   const loadRoute = useCallback((route: SavedRouteData) => {
     setActiveRouteId(route.id);
@@ -468,17 +583,40 @@ export default function RoutePlannerPage() {
       <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/admin/erp/delivery-routes" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#FFD600" }}>
+            <Link href={linkedDeliveryRoute ? "/manager/routes" : "/admin/erp/delivery-routes"}
+              className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#FFD600" }}>
               <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
             </Link>
             <div>
               <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A" }}>Планувальник маршрутів</h1>
-              <p style={{ fontSize: "14px", color: "#6B7280" }}>Введіть адреси — AI оптимізує маршрут</p>
+              <p style={{ fontSize: "14px", color: "#6B7280" }}>
+                {linkedDeliveryRoute
+                  ? `Маршрут ${linkedDeliveryRoute.number} · ${linkedDeliveryRoute.driver?.name || "без водія"} · ${linkedDeliveryRoute._count?.stops || 0} зупинок`
+                  : "Введіть адреси — AI оптимізує маршрут"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Save to delivery route button */}
+            {linkedDeliveryRoute && result && (
+              <button
+                onClick={handleSaveToDeliveryRoute}
+                disabled={savingToDelivery}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: 700,
+                  background: "linear-gradient(135deg, #16A34A, #15803D)", color: "white", border: "none",
+                  opacity: savingToDelivery ? 0.6 : 1,
+                }}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {savingToDelivery ? "Збереження..." : `Зберегти в ${linkedDeliveryRoute.number}`}
+              </button>
+            )}
             {/* Saved routes button */}
             <button
               onClick={() => setShowSavedRoutes(!showSavedRoutes)}
@@ -1029,5 +1167,13 @@ export default function RoutePlannerPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RoutePlannerPage() {
+  return (
+    <Suspense>
+      <RoutePlannerContent />
+    </Suspense>
   );
 }

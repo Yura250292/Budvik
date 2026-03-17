@@ -77,7 +77,11 @@ export async function POST(req: NextRequest) {
       for (let i = 0; i < salesDocumentIds.length; i++) {
         const doc = await tx.salesDocument.findUnique({
           where: { id: salesDocumentIds[i] },
-          include: { counterparty: { select: { id: true, address: true } } },
+          include: {
+            counterparty: {
+              select: { id: true, address: true, deliveryAddress: true, deliveryLat: true, deliveryLng: true },
+            },
+          },
         });
         if (!doc) continue;
 
@@ -87,7 +91,8 @@ export async function POST(req: NextRequest) {
             salesDocumentId: doc.id,
             counterpartyId: doc.counterpartyId || null,
             sequence: i + 1,
-            address: doc.counterparty?.address || null,
+            // prefer deliveryAddress (НП / delivery point) over billing address
+            address: doc.counterparty?.deliveryAddress || doc.counterparty?.address || null,
           },
         });
 

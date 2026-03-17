@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, code, type, phone, email, address, contactPerson, notes } = body;
+  const { name, code, type, phone, email, address, deliveryAddress, deliveryLat, deliveryLng, contactPerson, notes } = body;
 
   if (!name) {
     return NextResponse.json({ error: "Назва обов'язкова" }, { status: 400 });
@@ -70,6 +70,9 @@ export async function POST(req: NextRequest) {
       phone: phone || null,
       email: email || null,
       address: address || null,
+      deliveryAddress: deliveryAddress || null,
+      deliveryLat: deliveryLat || null,
+      deliveryLng: deliveryLng || null,
       contactPerson: contactPerson || null,
       notes: notes || null,
     },

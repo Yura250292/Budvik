@@ -21,7 +21,11 @@ export async function POST(
 
   const doc = await prisma.salesDocument.findUnique({
     where: { id: salesDocumentId },
-    include: { counterparty: { select: { address: true } } },
+    include: {
+      counterparty: {
+        select: { address: true, deliveryAddress: true },
+      },
+    },
   });
   if (!doc) return NextResponse.json({ error: "Замовлення не знайдено" }, { status: 404 });
 
@@ -34,7 +38,7 @@ export async function POST(
         salesDocumentId: doc.id,
         counterpartyId: doc.counterpartyId || null,
         sequence: stopCount + 1,
-        address: doc.counterparty?.address || null,
+        address: doc.counterparty?.deliveryAddress || doc.counterparty?.address || null,
       },
     }),
     prisma.salesDocument.update({

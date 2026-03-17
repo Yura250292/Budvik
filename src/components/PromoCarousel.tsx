@@ -78,7 +78,7 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
             <Link
               key={product.id}
               href={`/catalog/${product.slug}`}
-              className="group flex-shrink-0 w-[200px] sm:w-[280px] bg-white border border-[#EFEFEF] rounded-xl overflow-hidden hover:-translate-y-1 transition-all duration-200"
+              className="group flex-shrink-0 w-[200px] sm:w-[280px] bg-white border border-[#EFEFEF] rounded-xl overflow-hidden hover:-translate-y-1 active:scale-[0.98] transition-[box-shadow,border-color,transform] duration-150"
               style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' }}
             >
               <div className="relative h-36 sm:h-48 bg-[#FAFAFA] flex items-center justify-center overflow-hidden">
@@ -127,7 +127,7 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
                   {product.stock > 0 && (
                     <button
                       onClick={(e) => handleAddToCart(e, product)}
-                      className="bg-[#FFD600] text-[#0A0A0A] px-3 sm:px-4 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] transition-all duration-200 w-full sm:w-auto"
+                      className="bg-[#FFD600] text-[#0A0A0A] px-3 sm:px-4 py-2 rounded-[10px] text-xs sm:text-sm font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] active:scale-[0.97] transition-[background-color,transform] duration-150 w-full sm:w-auto"
                       style={{ minHeight: '40px' }}
                     >
                       У кошик

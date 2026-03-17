@@ -58,7 +58,7 @@ export default function AiAccessories({ productId }: { productId: string }) {
           <Link
             key={acc.id}
             href={`/catalog/${acc.slug}`}
-            className="bg-white border border-g200 rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5 transition-all duration-200 group"
+            className="bg-white border border-g200 rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5 active:scale-[0.98] transition-[box-shadow,border-color,transform] duration-150 group"
           >
             <div className="relative h-32 bg-g50 flex items-center justify-center">
               {acc.image ? (

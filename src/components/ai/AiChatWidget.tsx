@@ -301,7 +301,7 @@ export default function AiChatWidget() {
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-24 md:bottom-6 right-4 z-50 bg-bk hover:bg-bk-soft text-primary w-14 h-14 rounded-full shadow-lg border border-primary/30 flex items-center justify-center transition-all overflow-hidden"
+        className="fixed bottom-24 md:bottom-6 right-4 z-50 bg-bk hover:bg-bk-soft text-primary w-14 h-14 rounded-full shadow-lg border border-primary/30 flex items-center justify-center active:scale-[0.93] transition-[background-color,transform] duration-150 overflow-hidden"
         aria-label="AI Консультант"
       >
         {isOpen ? (

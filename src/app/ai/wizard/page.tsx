@@ -150,7 +150,7 @@ function ProductComparisonCard({ product }: { product: WizardProduct }) {
   const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : product.price;
 
   return (
-    <div className="bg-white border border-g200 rounded-xl overflow-hidden hover:border-primary hover:shadow-lg transition-all flex flex-col">
+    <div className="bg-white border border-g200 rounded-xl overflow-hidden hover:border-primary hover:shadow-lg transition-[box-shadow,border-color] duration-150 flex flex-col">
       <Link href={`/catalog/${product.slug}`} className="block">
         <div className="relative h-48 bg-g50 flex items-center justify-center overflow-hidden">
           {product.image ? (

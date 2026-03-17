@@ -209,7 +209,7 @@ export default function DashboardPage() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 bg-white border border-g200 rounded-xl px-3.5 py-3 hover:shadow-md hover:border-primary/40 transition-all duration-200 group"
+              className="flex items-center gap-3 bg-white border border-g200 rounded-xl px-3.5 py-3 hover:shadow-md hover:border-primary/40 active:scale-[0.97] transition-[box-shadow,border-color,transform] duration-150 group"
             >
               <div className="w-9 h-9 rounded-[var(--radius-btn)] bg-primary/10 text-primary-dark flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-bk transition-colors">
                 {item.icon}

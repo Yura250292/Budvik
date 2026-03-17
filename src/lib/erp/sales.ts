@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { extractBrand } from "@/lib/wholesale-pricing";
+import { SLUG_TO_GROUP } from "@/lib/categoryGroups";
 
 /**
  * Status flow:
@@ -11,7 +11,7 @@ import { extractBrand } from "@/lib/wholesale-pricing";
 export async function confirmSalesDocument(id: string) {
   const doc = await prisma.salesDocument.findUnique({
     where: { id },
-    include: { items: { include: { product: true } } },
+    include: { items: { include: { product: { include: { category: true } } } } },
   });
 
   if (!doc) throw new Error("Документ не знайдено");
@@ -37,20 +37,20 @@ export async function confirmSalesDocument(id: string) {
       0
     );
 
-    // Create commission records grouped by brand
-    const brandGroups = new Map<string, { saleAmount: number; costAmount: number }>();
+    // Create commission records grouped by category group
+    const categoryGroups = new Map<string, { saleAmount: number; costAmount: number }>();
     for (const item of doc.items) {
-      const brand = extractBrand(item.product.name) || "ІНШЕ";
-      const existing = brandGroups.get(brand) || { saleAmount: 0, costAmount: 0 };
+      const groupKey = SLUG_TO_GROUP.get(item.product.category?.slug || "") || "other";
+      const existing = categoryGroups.get(groupKey) || { saleAmount: 0, costAmount: 0 };
       existing.saleAmount += item.sellingPrice * item.quantity;
       existing.costAmount += item.purchasePrice * item.quantity;
-      brandGroups.set(brand, existing);
+      categoryGroups.set(groupKey, existing);
     }
 
-    for (const [brand, amounts] of brandGroups) {
+    for (const [groupKey, amounts] of categoryGroups) {
       const profit = amounts.saleAmount - amounts.costAmount;
       const rate = await tx.commissionRate.findUnique({
-        where: { salesRepId_brand: { salesRepId: doc.salesRepId!, brand } },
+        where: { salesRepId_brand: { salesRepId: doc.salesRepId!, brand: groupKey } },
       });
       const commissionRate = rate?.percentage || 0;
       const commissionAmount = profit > 0 ? (profit * commissionRate) / 100 : 0;
@@ -59,7 +59,7 @@ export async function confirmSalesDocument(id: string) {
         data: {
           salesRepId: doc.salesRepId!,
           salesDocumentId: id,
-          brand,
+          brand: groupKey,
           saleAmount: amounts.saleAmount,
           costAmount: amounts.costAmount,
           profitAmount: profit,

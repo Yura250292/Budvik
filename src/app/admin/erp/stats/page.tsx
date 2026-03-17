@@ -79,16 +79,18 @@ export default function StatsPage() {
             Застосувати
           </button>
           {/* Tabs */}
-          <div className="flex gap-1 ml-auto" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
-            <button onClick={() => setTab("sales")}
-              style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, background: tab === "sales" ? "white" : "transparent", boxShadow: tab === "sales" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
-              Продажі
-            </button>
-            <button onClick={() => setTab("purchases")}
-              style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, background: tab === "purchases" ? "white" : "transparent", boxShadow: tab === "purchases" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
-              Закупівлі
-            </button>
-          </div>
+          {role === "ADMIN" && (
+            <div className="flex gap-1 ml-auto" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
+              <button onClick={() => setTab("sales")}
+                style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, background: tab === "sales" ? "white" : "transparent", boxShadow: tab === "sales" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+                Продажі
+              </button>
+              <button onClick={() => setTab("purchases")}
+                style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, background: tab === "purchases" ? "white" : "transparent", boxShadow: tab === "purchases" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
+                Закупівлі
+              </button>
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -96,23 +98,27 @@ export default function StatsPage() {
         ) : tab === "sales" ? (
           <>
             {/* Sales summary */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className={`grid grid-cols-2 ${role === "ADMIN" ? "md:grid-cols-4" : "md:grid-cols-2"} gap-4 mb-6`}>
               <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
                 <p style={{ fontSize: "13px", color: "#6B7280" }}>Виручка</p>
                 <p style={{ fontSize: "24px", fontWeight: 700 }}>{formatPrice(sales?.totals?.totalSales || 0)}</p>
               </div>
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Прибуток</p>
-                <p style={{ fontSize: "24px", fontWeight: 700, color: "#16A34A" }}>{formatPrice(sales?.totals?.totalProfit || 0)}</p>
-              </div>
+              {role === "ADMIN" && (
+                <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
+                  <p style={{ fontSize: "13px", color: "#6B7280" }}>Прибуток</p>
+                  <p style={{ fontSize: "24px", fontWeight: 700, color: "#16A34A" }}>{formatPrice(sales?.totals?.totalProfit || 0)}</p>
+                </div>
+              )}
               <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
                 <p style={{ fontSize: "13px", color: "#6B7280" }}>Документів</p>
                 <p style={{ fontSize: "24px", fontWeight: 700 }}>{sales?.totals?.totalDocs || 0}</p>
               </div>
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Середня маржа</p>
-                <p style={{ fontSize: "24px", fontWeight: 700 }}>{sales?.totals?.avgMargin || 0}%</p>
-              </div>
+              {role === "ADMIN" && (
+                <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
+                  <p style={{ fontSize: "13px", color: "#6B7280" }}>Середня маржа</p>
+                  <p style={{ fontSize: "24px", fontWeight: 700 }}>{sales?.totals?.avgMargin || 0}%</p>
+                </div>
+              )}
             </div>
 
             {/* Monthly bar chart */}
@@ -124,7 +130,7 @@ export default function StatsPage() {
                     const height = (m.sales / maxMonthlySales) * 100;
                     return (
                       <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
-                        <span style={{ fontSize: "11px", color: "#16A34A", fontWeight: 600 }}>{formatPrice(m.profit)}</span>
+                        {role === "ADMIN" && <span style={{ fontSize: "11px", color: "#16A34A", fontWeight: 600 }}>{formatPrice(m.profit)}</span>}
                         <div className="w-full flex flex-col items-center">
                           <div
                             style={{ width: "100%", maxWidth: "60px", height: `${height}%`, minHeight: "4px", background: "linear-gradient(to top, #FFD600, #FFC400)", borderRadius: "4px 4px 0 0" }}
@@ -153,7 +159,7 @@ export default function StatsPage() {
                         <div key={b.brand}>
                           <div className="flex justify-between items-center mb-1">
                             <span style={{ fontSize: "14px", fontWeight: 600 }}>{b.brand}</span>
-                            <span style={{ fontSize: "13px", color: "#6B7280" }}>{formatPrice(b.sales)} ({b.margin}%)</span>
+                            <span style={{ fontSize: "13px", color: "#6B7280" }}>{formatPrice(b.sales)}{role === "ADMIN" && ` (${b.margin}%)`}</span>
                           </div>
                           <div style={{ height: "6px", background: "#F3F4F6", borderRadius: "3px" }}>
                             <div style={{ height: "6px", width: `${width}%`, background: "#FFD600", borderRadius: "3px" }} />
@@ -200,7 +206,7 @@ export default function StatsPage() {
                         <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Товар</th>
                         <th style={{ padding: "8px 0", textAlign: "center", fontSize: "13px", color: "#6B7280" }}>Продано</th>
                         <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Виручка</th>
-                        <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Прибуток</th>
+                        {role === "ADMIN" && <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Прибуток</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -209,7 +215,7 @@ export default function StatsPage() {
                           <td style={{ padding: "8px 0", fontSize: "14px", maxWidth: "300px" }} className="truncate">{p.name}</td>
                           <td style={{ padding: "8px 0", textAlign: "center", fontSize: "14px" }}>{p.quantity}</td>
                           <td style={{ padding: "8px 0", textAlign: "right", fontSize: "14px" }}>{formatPrice(p.sales)}</td>
-                          <td style={{ padding: "8px 0", textAlign: "right", fontSize: "14px", fontWeight: 600, color: "#16A34A" }}>{formatPrice(p.profit)}</td>
+                          {role === "ADMIN" && <td style={{ padding: "8px 0", textAlign: "right", fontSize: "14px", fontWeight: 600, color: "#16A34A" }}>{formatPrice(p.profit)}</td>}
                         </tr>
                       ))}
                     </tbody>

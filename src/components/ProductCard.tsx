@@ -78,7 +78,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   if (viewMode === "list") {
     return (
       <Link href={`/catalog/${slug}`} className="group block">
-        <div className={`flex rounded-xl overflow-hidden border transition-all duration-200 ${
+        <div className={`flex rounded-xl overflow-hidden border transition-[box-shadow,border-color] duration-150 ${
           stock > 0
             ? "border-[#EFEFEF] bg-white hover:shadow-md"
             : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
@@ -150,7 +150,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   if (viewMode === "gallery") {
     return (
       <Link href={`/catalog/${slug}`} className="group block">
-        <div className={`rounded-xl overflow-hidden border transition-all duration-200 ${
+        <div className={`rounded-xl overflow-hidden border transition-[box-shadow,border-color,transform] duration-150 ${
           stock > 0
             ? "border-[#EFEFEF] bg-white hover:shadow-lg hover:-translate-y-0.5"
             : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
@@ -172,12 +172,12 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             {/* Action buttons */}
             {stock > 0 && (
               <div className="absolute top-2 right-2 flex flex-col gap-1.5">
-                <button onClick={handleWishlist} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${inWishlist ? "bg-red-500 text-white shadow-md" : "bg-white/90 text-[#9E9E9E] hover:text-red-500 shadow-sm"}`}>
+                <button onClick={handleWishlist} className={`w-8 h-8 rounded-full flex items-center justify-center transition-[background-color,color,box-shadow] duration-150 ${inWishlist ? "bg-red-500 text-white shadow-md" : "bg-white/90 text-[#9E9E9E] hover:text-red-500 shadow-sm"}`}>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill={inWishlist ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                   </svg>
                 </button>
-                <button onClick={handleCompare} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all relative ${inCompare ? "bg-[#FFD600] text-[#0A0A0A] shadow-md" : "bg-white/90 text-[#9E9E9E] hover:text-[#FFD600] shadow-sm"}`}>
+                <button onClick={handleCompare} className={`w-8 h-8 rounded-full flex items-center justify-center transition-[background-color,color,box-shadow] duration-150 relative ${inCompare ? "bg-[#FFD600] text-[#0A0A0A] shadow-md" : "bg-white/90 text-[#9E9E9E] hover:text-[#FFD600] shadow-sm"}`}>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
                   </svg>
@@ -232,7 +232,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   // ── GRID VIEW (default) ──
   return (
     <Link href={`/catalog/${slug}`} className="group block">
-      <div className={`rounded-xl overflow-hidden transition-all duration-200 ease-out border ${
+      <div className={`rounded-xl overflow-hidden transition-[box-shadow,border-color,transform] duration-150 ease-out border ${
         stock > 0
           ? "border-[#EFEFEF] bg-white hover:shadow-[0_10px_30px_rgba(0,0,0,0.12)] hover:-translate-y-1"
           : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
@@ -268,7 +268,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <div className="absolute top-1 right-1 sm:top-2 sm:right-2 flex flex-col gap-1">
               <button
                 onClick={handleWishlist}
-                className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
+                className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-[background-color,color,box-shadow] duration-150 ${
                   inWishlist
                     ? "bg-red-500 text-white shadow-md"
                     : "bg-white/90 text-[#9E9E9E] hover:text-red-500 shadow-sm hover:shadow-md"
@@ -281,7 +281,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               </button>
               <button
                 onClick={handleCompare}
-                className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all duration-200 relative ${
+                className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-[background-color,color,box-shadow] duration-150 relative ${
                   inCompare
                     ? "bg-[#FFD600] text-[#0A0A0A] shadow-md"
                     : "bg-white/90 text-[#9E9E9E] hover:text-[#FFD600] shadow-sm hover:shadow-md"

@@ -11,7 +11,7 @@ export default function BrandCard({ brand, count }: { brand: BrandInfo; count: n
   return (
     <Link
       href={`/catalog?brand=${brand.slug}`}
-      className="group relative overflow-hidden rounded-xl border border-[#EFEFEF] hover:border-[#FFD600] transition-all duration-200 bg-white"
+      className="group relative overflow-hidden rounded-xl border border-[#EFEFEF] hover:border-[#FFD600] active:scale-[0.98] transition-[box-shadow,border-color,transform] duration-150 bg-white"
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.06)' }}
     >
       <div className="h-28 flex items-center justify-center p-4 bg-white">

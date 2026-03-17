@@ -94,7 +94,7 @@ export default function AdminOrdersPage() {
         <div className="flex gap-1.5 overflow-x-auto pb-3 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
           <button
             onClick={() => setFilterStatus("ALL")}
-            className={`flex-shrink-0 px-3.5 py-2 rounded-[var(--radius-btn)] text-[13px] font-medium transition-all ${
+            className={`flex-shrink-0 px-3.5 py-2 rounded-[var(--radius-btn)] text-[13px] font-medium cursor-pointer active:scale-[0.97] transition-[box-shadow,border-color,background-color] duration-150 ${
               filterStatus === "ALL"
                 ? "bg-bk text-white shadow-sm"
                 : "bg-white text-g500 border border-g200 hover:border-g300"
@@ -111,7 +111,7 @@ export default function AdminOrdersPage() {
               <button
                 key={status}
                 onClick={() => setFilterStatus(status)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-[var(--radius-btn)] text-[13px] font-medium transition-all ${
+                className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-[var(--radius-btn)] text-[13px] font-medium cursor-pointer active:scale-[0.97] transition-[box-shadow,border-color,background-color] duration-150 ${
                   filterStatus === status
                     ? "bg-bk text-white shadow-sm"
                     : "bg-white text-g500 border border-g200 hover:border-g300"

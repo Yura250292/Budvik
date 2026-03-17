@@ -100,7 +100,7 @@ export default function ProductPicker({ simType, selected, onSelect }: Props) {
               key={product.id}
               onClick={() => toggleProduct(product)}
               disabled={!isSelected(product.id) && selected.length >= 4}
-              className={`p-3 rounded-xl border-2 text-left transition-all ${
+              className={`p-3 rounded-xl border-2 text-left cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
                 isSelected(product.id)
                   ? "border-[#FFD600] bg-[#FFFDE7] shadow-sm"
                   : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/40 disabled:opacity-40 disabled:cursor-not-allowed"

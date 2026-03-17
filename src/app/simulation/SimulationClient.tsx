@@ -315,7 +315,7 @@ export default function SimulationClient() {
         <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
           {getStepLabels().map((label, i) => (
             <div key={label} className="flex items-center gap-2 shrink-0">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-[background-color,color] duration-150 ${
                 i + 1 === step ? "bg-[#FFD600] text-[#0A0A0A]" : i + 1 < step ? "bg-[#0A0A0A] text-white" : "bg-[#EFEFEF] text-[#9E9E9E]"
               }`}>
                 {i + 1 < step ? "✓" : i + 1}
@@ -332,7 +332,7 @@ export default function SimulationClient() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button
             onClick={() => setMode("tools")}
-            className={`p-6 rounded-2xl border-2 text-left transition-all ${
+            className={`p-6 rounded-2xl border-2 text-left cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
               mode === "tools" ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
             }`}
           >
@@ -342,7 +342,7 @@ export default function SimulationClient() {
           </button>
           <button
             onClick={() => setMode("consumables")}
-            className={`p-6 rounded-2xl border-2 text-left transition-all ${
+            className={`p-6 rounded-2xl border-2 text-left cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
               mode === "consumables" ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
             }`}
           >
@@ -360,7 +360,7 @@ export default function SimulationClient() {
             <button
               key={t.id}
               onClick={() => setSimType(t.id)}
-              className={`p-6 rounded-2xl border-2 transition-all text-center ${
+              className={`p-6 rounded-2xl border-2 text-center cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
                 simType === t.id ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
               }`}
             >
@@ -387,7 +387,7 @@ export default function SimulationClient() {
             <button
               key={cm.id}
               onClick={() => setConsumableMode(cm.id)}
-              className={`p-6 rounded-2xl border-2 text-left transition-all ${
+              className={`p-6 rounded-2xl border-2 text-left cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
                 consumableMode === cm.id ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
               }`}
             >

@@ -19,7 +19,7 @@ export default function MaterialSelector({ selected, onSelect, context }: Props)
           <button
             key={m.id}
             onClick={() => onSelect(m.id)}
-            className={`p-4 rounded-2xl border-2 text-left transition-all ${
+            className={`p-4 rounded-2xl border-2 text-left cursor-pointer active:scale-[0.98] transition-[box-shadow,border-color,background-color,transform] duration-150 ${
               selected === m.id
                 ? "border-[#FFD600] bg-[#FFFDE7] shadow-sm"
                 : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/40"

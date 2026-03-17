@@ -27,6 +27,99 @@ export const CONSUMABLE_MODES: { id: ConsumableMode; label: string; icon: string
   { id: "chainsaw", label: "Бензопили та ланцюги", icon: "🪚", simType: "cutting" },
 ];
 
+// ============ BRAND QUALITY TIERS ============
+
+interface BrandQuality {
+  speedMod: number;       // multiplier on speed
+  durabilityMod: number;  // multiplier on durability
+  precisionMod: number;   // multiplier on precision
+  heatMod: number;        // multiplier on heat (lower = better)
+  tier: "premium" | "pro" | "standard" | "economy";
+}
+
+// Known brand tiers — based on market reputation
+const BRAND_QUALITY: Record<string, BrandQuality> = {
+  // Premium — найвища якість
+  "bosch":      { speedMod: 1.15, durabilityMod: 1.25, precisionMod: 1.20, heatMod: 0.85, tier: "premium" },
+  "makita":     { speedMod: 1.15, durabilityMod: 1.20, precisionMod: 1.15, heatMod: 0.85, tier: "premium" },
+  "dewalt":     { speedMod: 1.18, durabilityMod: 1.20, precisionMod: 1.12, heatMod: 0.88, tier: "premium" },
+  "hilti":      { speedMod: 1.20, durabilityMod: 1.30, precisionMod: 1.25, heatMod: 0.80, tier: "premium" },
+  "metabo":     { speedMod: 1.12, durabilityMod: 1.22, precisionMod: 1.18, heatMod: 0.85, tier: "premium" },
+  "milwaukee":  { speedMod: 1.15, durabilityMod: 1.22, precisionMod: 1.15, heatMod: 0.85, tier: "premium" },
+  "festool":    { speedMod: 1.10, durabilityMod: 1.25, precisionMod: 1.30, heatMod: 0.82, tier: "premium" },
+  "husqvarna":  { speedMod: 1.18, durabilityMod: 1.25, precisionMod: 1.15, heatMod: 0.85, tier: "premium" },
+  "stihl":      { speedMod: 1.20, durabilityMod: 1.28, precisionMod: 1.15, heatMod: 0.82, tier: "premium" },
+  "klingspor":  { speedMod: 1.15, durabilityMod: 1.25, precisionMod: 1.20, heatMod: 0.85, tier: "premium" },
+  "norton":     { speedMod: 1.12, durabilityMod: 1.22, precisionMod: 1.18, heatMod: 0.88, tier: "premium" },
+  "tyrolit":    { speedMod: 1.12, durabilityMod: 1.20, precisionMod: 1.18, heatMod: 0.88, tier: "premium" },
+  "distar":     { speedMod: 1.15, durabilityMod: 1.22, precisionMod: 1.20, heatMod: 0.85, tier: "premium" },
+  "3m":         { speedMod: 1.10, durabilityMod: 1.20, precisionMod: 1.25, heatMod: 0.88, tier: "premium" },
+  "oregon":     { speedMod: 1.15, durabilityMod: 1.22, precisionMod: 1.15, heatMod: 0.88, tier: "premium" },
+
+  // Pro — професійний рівень
+  "dnipro-m":   { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
+  "intertool":  { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.03, heatMod: 0.97, tier: "pro" },
+  "haisser":    { speedMod: 1.05, durabilityMod: 1.10, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
+  "stanley":    { speedMod: 1.08, durabilityMod: 1.10, precisionMod: 1.08, heatMod: 0.92, tier: "pro" },
+  "graphite":   { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
+  "total":      { speedMod: 1.02, durabilityMod: 1.05, precisionMod: 1.02, heatMod: 0.98, tier: "pro" },
+  "patron":     { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
+  "granite":    { speedMod: 1.05, durabilityMod: 1.10, precisionMod: 1.05, heatMod: 0.93, tier: "pro" },
+  "sprut":      { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.02, heatMod: 0.97, tier: "pro" },
+  "werk":       { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.03, heatMod: 0.97, tier: "pro" },
+
+  // Standard — стандартна якість
+  "apro":       { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" },
+  "sigma":      { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" },
+  "grad":       { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" },
+  "mastertool": { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.98, heatMod: 1.02, tier: "standard" },
+  "housetools": { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.97, heatMod: 1.03, tier: "standard" },
+  "vita":       { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.98, heatMod: 1.02, tier: "standard" },
+
+  // Economy — бюджетний рівень
+  "greatflex":  { speedMod: 0.92, durabilityMod: 0.80, precisionMod: 0.90, heatMod: 1.10, tier: "economy" },
+  "luga":       { speedMod: 0.90, durabilityMod: 0.78, precisionMod: 0.88, heatMod: 1.12, tier: "economy" },
+};
+
+/** Extract brand from product name */
+function detectBrand(name: string): BrandQuality {
+  const lower = name.toLowerCase();
+
+  // Check each brand — try longest names first to avoid false matches
+  const sortedBrands = Object.entries(BRAND_QUALITY).sort((a, b) => b[0].length - a[0].length);
+
+  for (const [brand, quality] of sortedBrands) {
+    // Match brand at start, after space, or after certain chars
+    const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(?:^|\\s|\\()${escaped}(?:\\s|$|\\)|\\b)`, "i").test(lower)) {
+      return quality;
+    }
+  }
+
+  // Fallback: standard quality
+  return { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" };
+}
+
+/** Price-based quality estimation when brand is unknown */
+function priceQualityFactor(price: number | null | undefined, mode: ConsumableMode): BrandQuality {
+  if (!price || price <= 0) return { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" };
+
+  // Average price ranges per mode (in UAH)
+  const avgPrices: Record<ConsumableMode, { low: number; mid: number; high: number }> = {
+    cutting_discs:  { low: 15, mid: 35, high: 80 },
+    grinding_discs: { low: 25, mid: 60, high: 150 },
+    drill_bits:     { low: 30, mid: 80, high: 250 },
+    chainsaw:       { low: 150, mid: 400, high: 1500 },
+  };
+
+  const range = avgPrices[mode];
+  if (price >= range.high) return { speedMod: 1.10, durabilityMod: 1.15, precisionMod: 1.10, heatMod: 0.90, tier: "pro" };
+  if (price >= range.mid) return { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.03, heatMod: 0.97, tier: "pro" };
+  if (price <= range.low) return { speedMod: 0.93, durabilityMod: 0.85, precisionMod: 0.92, heatMod: 1.08, tier: "economy" };
+
+  return { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" };
+}
+
 // ============ PRODUCT → CONSUMABLE PARSER ============
 
 interface ProductInput {
@@ -129,16 +222,43 @@ export function productToConsumable(product: ProductInput, mode: ConsumableMode)
   const target = detectMaterialTarget(name, slug);
   const materialCompat = getMaterialCompat(target);
 
+  let consumable: Consumable;
   switch (mode) {
     case "cutting_discs":
-      return parseCuttingDisc(product, target, materialCompat);
+      consumable = parseCuttingDisc(product, target, materialCompat);
+      break;
     case "grinding_discs":
-      return parseGrindingDisc(product, target, materialCompat);
+      consumable = parseGrindingDisc(product, target, materialCompat);
+      break;
     case "drill_bits":
-      return parseDrillBit(product, target, materialCompat);
+      consumable = parseDrillBit(product, target, materialCompat);
+      break;
     case "chainsaw":
-      return parseChainsawProduct(product, materialCompat);
+      consumable = parseChainsawProduct(product, materialCompat);
+      break;
   }
+
+  // Apply brand quality modifiers
+  const brand = detectBrand(name);
+  // If brand is standard (unknown), try price-based estimation
+  const quality = brand.tier === "standard" ? priceQualityFactor(product.price, mode) : brand;
+
+  // Only apply if not standard (to avoid double-neutral)
+  if (quality.tier !== "standard") {
+    consumable.speedFactor = round2(consumable.speedFactor * quality.speedMod);
+    consumable.durabilityFactor = round2(consumable.durabilityFactor * quality.durabilityMod);
+    consumable.precisionFactor = round2(consumable.precisionFactor * quality.precisionMod);
+    consumable.heatFactor = round2(consumable.heatFactor * quality.heatMod);
+
+    const tierLabels: Record<string, string> = {
+      premium: "Преміум якість",
+      pro: "Професійна якість",
+      economy: "Бюджетна якість",
+    };
+    consumable.description += ` | ${tierLabels[quality.tier] || ""}`;
+  }
+
+  return consumable;
 }
 
 function parseCuttingDisc(product: ProductInput, target: string, materialCompat: Record<string, number>): Consumable {

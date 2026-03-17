@@ -79,25 +79,71 @@ const BRAND_QUALITY: Record<string, BrandQuality> = {
   // Economy — бюджетний рівень
   "greatflex":  { speedMod: 0.92, durabilityMod: 0.80, precisionMod: 0.90, heatMod: 1.10, tier: "economy" },
   "luga":       { speedMod: 0.90, durabilityMod: 0.78, precisionMod: 0.88, heatMod: 1.12, tier: "economy" },
+
+  // Additional brands
+  "gradient":   { speedMod: 1.02, durabilityMod: 1.05, precisionMod: 1.0, heatMod: 0.98, tier: "pro" },
+  "liger":      { speedMod: 0.95, durabilityMod: 0.88, precisionMod: 0.95, heatMod: 1.05, tier: "standard" },
+  "іскра":      { speedMod: 0.95, durabilityMod: 0.90, precisionMod: 0.93, heatMod: 1.05, tier: "standard" },
+  "зенит":      { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.97, heatMod: 1.02, tier: "standard" },
+  "verto":      { speedMod: 1.0, durabilityMod: 1.02, precisionMod: 1.0, heatMod: 0.99, tier: "standard" },
+  "compass":    { speedMod: 0.97, durabilityMod: 0.92, precisionMod: 0.95, heatMod: 1.04, tier: "standard" },
+  "expert":     { speedMod: 1.08, durabilityMod: 1.12, precisionMod: 1.08, heatMod: 0.92, tier: "pro" },
+  "raptor":     { speedMod: 1.05, durabilityMod: 1.05, precisionMod: 1.02, heatMod: 0.96, tier: "pro" },
+  "ring":       { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.98, heatMod: 1.02, tier: "standard" },
+  "тітан":      { speedMod: 1.0, durabilityMod: 1.03, precisionMod: 1.0, heatMod: 0.98, tier: "standard" },
+  "titan":      { speedMod: 1.0, durabilityMod: 1.03, precisionMod: 1.0, heatMod: 0.98, tier: "standard" },
+  "зубр":       { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.02, heatMod: 0.97, tier: "pro" },
+  "kraftool":   { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
+  "virok":      { speedMod: 0.98, durabilityMod: 0.95, precisionMod: 0.97, heatMod: 1.02, tier: "standard" },
+  "house":      { speedMod: 0.95, durabilityMod: 0.90, precisionMod: 0.93, heatMod: 1.05, tier: "standard" },
+  "topex":      { speedMod: 1.02, durabilityMod: 1.05, precisionMod: 1.02, heatMod: 0.97, tier: "pro" },
+  "yato":       { speedMod: 1.08, durabilityMod: 1.12, precisionMod: 1.08, heatMod: 0.92, tier: "pro" },
+  "vorel":      { speedMod: 1.0, durabilityMod: 1.03, precisionMod: 1.0, heatMod: 0.98, tier: "standard" },
+  "neo":        { speedMod: 1.03, durabilityMod: 1.05, precisionMod: 1.03, heatMod: 0.97, tier: "pro" },
+  "einhell":    { speedMod: 1.05, durabilityMod: 1.08, precisionMod: 1.05, heatMod: 0.95, tier: "pro" },
 };
 
+/** Simple string hash for deterministic brand-based variation */
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
 /** Extract brand from product name */
-function detectBrand(name: string): BrandQuality {
+function detectBrand(name: string): BrandQuality & { detected: boolean } {
   const lower = name.toLowerCase();
 
   // Check each brand — try longest names first to avoid false matches
   const sortedBrands = Object.entries(BRAND_QUALITY).sort((a, b) => b[0].length - a[0].length);
 
   for (const [brand, quality] of sortedBrands) {
-    // Match brand at start, after space, or after certain chars
     const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (new RegExp(`(?:^|\\s|\\()${escaped}(?:\\s|$|\\)|\\b)`, "i").test(lower)) {
-      return quality;
+      return { ...quality, detected: true };
     }
   }
 
-  // Fallback: standard quality
-  return { speedMod: 1.0, durabilityMod: 1.0, precisionMod: 1.0, heatMod: 1.0, tier: "standard" };
+  // Unknown brand — generate deterministic variation from name hash
+  // This ensures different brands ALWAYS get different factors
+  const hash = hashString(lower);
+  const variation = (offset: number) => {
+    // Produces values in range [-0.08, +0.08] deterministically
+    const val = ((hash + offset * 7919) % 160) / 1000 - 0.08;
+    return val;
+  };
+
+  return {
+    speedMod: 1.0 + variation(1),
+    durabilityMod: 1.0 + variation(2),
+    precisionMod: 1.0 + variation(3),
+    heatMod: 1.0 - variation(4),
+    tier: "standard",
+    detected: false,
+  };
 }
 
 /** Price-based quality estimation when brand is unknown */
@@ -240,21 +286,40 @@ export function productToConsumable(product: ProductInput, mode: ConsumableMode)
 
   // Apply brand quality modifiers
   const brand = detectBrand(name);
-  // If brand is standard (unknown), try price-based estimation
-  const quality = brand.tier === "standard" ? priceQualityFactor(product.price, mode) : brand;
 
-  // Only apply if not standard (to avoid double-neutral)
+  // If brand was detected, use it directly. Otherwise try price, then use hash-based variation.
+  let quality: BrandQuality;
+  if (brand.detected) {
+    quality = brand;
+  } else {
+    const priceQ = priceQualityFactor(product.price, mode);
+    if (priceQ.tier !== "standard") {
+      // Combine price-based tier with hash-based variation for uniqueness
+      quality = {
+        speedMod: round2(priceQ.speedMod * brand.speedMod),
+        durabilityMod: round2(priceQ.durabilityMod * brand.durabilityMod),
+        precisionMod: round2(priceQ.precisionMod * brand.precisionMod),
+        heatMod: round2(priceQ.heatMod * brand.heatMod),
+        tier: priceQ.tier,
+      };
+    } else {
+      // Unknown brand, standard price — still apply hash-based variation
+      quality = brand;
+    }
+  }
+
+  // Always apply quality modifiers (hash ensures different brands differ)
+  consumable.speedFactor = round2(consumable.speedFactor * quality.speedMod);
+  consumable.durabilityFactor = round2(consumable.durabilityFactor * quality.durabilityMod);
+  consumable.precisionFactor = round2(consumable.precisionFactor * quality.precisionMod);
+  consumable.heatFactor = round2(consumable.heatFactor * quality.heatMod);
+
+  const tierLabels: Record<string, string> = {
+    premium: "Преміум якість",
+    pro: "Професійна якість",
+    economy: "Бюджетна якість",
+  };
   if (quality.tier !== "standard") {
-    consumable.speedFactor = round2(consumable.speedFactor * quality.speedMod);
-    consumable.durabilityFactor = round2(consumable.durabilityFactor * quality.durabilityMod);
-    consumable.precisionFactor = round2(consumable.precisionFactor * quality.precisionMod);
-    consumable.heatFactor = round2(consumable.heatFactor * quality.heatMod);
-
-    const tierLabels: Record<string, string> = {
-      premium: "Преміум якість",
-      pro: "Професійна якість",
-      economy: "Бюджетна якість",
-    };
     consumable.description += ` | ${tierLabels[quality.tier] || ""}`;
   }
 

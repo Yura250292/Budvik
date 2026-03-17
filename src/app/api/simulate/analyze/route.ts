@@ -49,17 +49,24 @@ ${resultsDescription}
 
 Відповідай конкретно, без загальних фраз. Використовуй назви продуктів. Якщо знайшов реальні відгуки — цитуй ключові моменти.`;
 
-    const analysis = await chatWithGemini(
-      [{ role: "user", parts: [{ text: prompt }] }],
-      "Ти AI-консультант магазину будівельних інструментів БУДВІК. Відповідай конкретно, українською мовою. Уникай маркетингових фраз. Якщо є інформація з інтернету — використовуй її для порівняння. Не вигадуй інформацію — якщо не знайшов відгуків, скажи це чесно.",
-      { useGoogleSearch: true }
-    );
+    const systemMsg = "Ти AI-консультант магазину будівельних інструментів БУДВІК. Відповідай конкретно, українською мовою. Уникай маркетингових фраз. Якщо є інформація з інтернету — використовуй її для порівняння. Не вигадуй інформацію — якщо не знайшов відгуків, скажи це чесно.";
+    const messages: { role: "user" | "model"; parts: { text: string }[] }[] = [
+      { role: "user", parts: [{ text: prompt }] },
+    ];
+
+    // Try with Google Search first, fallback to plain if it fails
+    let analysis: string;
+    try {
+      analysis = await chatWithGemini(messages, systemMsg, { useGoogleSearch: true });
+    } catch {
+      analysis = await chatWithGemini(messages, systemMsg);
+    }
 
     return NextResponse.json({ analysis });
   } catch (error: any) {
-    console.error("AI analysis error:", error);
+    console.error("AI analysis error:", error?.message || error);
     return NextResponse.json(
-      { error: "Не вдалося отримати AI аналіз", analysis: null },
+      { error: "Не вдалося отримати AI аналіз", details: error?.message },
       { status: 500 }
     );
   }

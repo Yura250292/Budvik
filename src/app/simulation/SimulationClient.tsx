@@ -483,11 +483,25 @@ export default function SimulationClient() {
               <span className="text-[10px] text-white/40 ml-auto">Gemini</span>
             </div>
             {aiLoading ? (
-              <div className="flex items-center gap-2 text-sm text-white/60">
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31.4 31.4" />
-                </svg>
-                Аналізую результати...
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-8 h-8">
+                    <div className="absolute inset-0 rounded-full border-2 border-[#FFD600]/20" />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#FFD600] animate-spin" />
+                    <div className="absolute inset-1 rounded-full border-2 border-transparent border-b-[#FFD600]/60 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-white/80 font-medium">Аналізую результати...</p>
+                    <p className="text-[11px] text-white/40">Пошук відгуків та порівняння в інтернеті</p>
+                  </div>
+                </div>
+                {/* Skeleton lines */}
+                <div className="space-y-2 pt-1">
+                  <div className="h-3 bg-white/8 rounded-full animate-pulse w-[95%]" />
+                  <div className="h-3 bg-white/6 rounded-full animate-pulse w-[80%]" style={{ animationDelay: "0.15s" }} />
+                  <div className="h-3 bg-white/5 rounded-full animate-pulse w-[88%]" style={{ animationDelay: "0.3s" }} />
+                  <div className="h-3 bg-white/4 rounded-full animate-pulse w-[65%]" style={{ animationDelay: "0.45s" }} />
+                </div>
               </div>
             ) : aiAnalysis ? (
               <p className="text-sm text-white/85 leading-relaxed whitespace-pre-line">{aiAnalysis}</p>

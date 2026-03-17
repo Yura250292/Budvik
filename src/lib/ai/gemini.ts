@@ -35,7 +35,7 @@ export async function chatWithGemini(
 
   // Enable Google Search grounding — AI can search internet for missing specs
   if (options?.useGoogleSearch) {
-    body.tools = [{ googleSearch: {} }];
+    body.tools = [{ google_search: {} }];
   }
 
   const url = `${GEMINI_BASE_URL}/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;

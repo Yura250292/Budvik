@@ -110,10 +110,16 @@ export default function DeliveryRoutesPage() {
               <p style={{ fontSize: "14px", color: "#6B7280" }}>Шляхові листи для водіїв</p>
             </div>
           </div>
-          <button onClick={() => setShowCreate(true)}
-            style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "none" }}>
-            + Новий маршрут
-          </button>
+          <div className="flex items-center gap-3">
+            <Link href="/admin/erp/route-planner"
+              style={{ background: "linear-gradient(135deg, #8B5CF6, #6366F1)", color: "white", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", textDecoration: "none" }}>
+              Планувальник маршрутів
+            </Link>
+            <button onClick={() => setShowCreate(true)}
+              style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "none" }}>
+              + Новий маршрут
+            </button>
+          </div>
         </div>
       </header>
 

@@ -7,9 +7,12 @@ import SimulationParams from "./components/SimulationParams";
 import ResultCard from "./components/ResultCard";
 import ComparisonView from "./components/ComparisonView";
 import SimulationCanvas from "./components/SimulationCanvas";
+import RacingCanvas from "./components/RacingCanvas";
 import RadarChart from "./components/RadarChart";
+import ConsumablePicker from "./components/ConsumablePicker";
 import type { SimulationResult } from "@/lib/simulation/engine";
 import type { SimulationType } from "@/lib/simulation/specs";
+import { CONSUMABLE_MODES, type ConsumableMode, type Consumable } from "@/lib/simulation/consumables";
 
 interface ProductItem {
   id: string;
@@ -17,6 +20,8 @@ interface ProductItem {
   image?: string | null;
   category?: { name: string } | null;
 }
+
+type Mode = "tools" | "consumables";
 
 const SIM_TYPES: { id: SimulationType; label: string; icon: ReactNode }[] = [
   {
@@ -53,9 +58,16 @@ const SIM_TYPES: { id: SimulationType; label: string; icon: ReactNode }[] = [
 ];
 
 export default function SimulationClient() {
-  const [step, setStep] = useState(1);
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [step, setStep] = useState(0); // 0 = mode select
+  // Tools mode
   const [simType, setSimType] = useState<SimulationType | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<ProductItem[]>([]);
+  // Consumables mode
+  const [consumableMode, setConsumableMode] = useState<ConsumableMode | null>(null);
+  const [selectedTool, setSelectedTool] = useState<ProductItem | null>(null);
+  const [selectedConsumables, setSelectedConsumables] = useState<Consumable[]>([]);
+  // Shared
   const [materialId, setMaterialId] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, number>>({});
   const [results, setResults] = useState<SimulationResult[]>([]);
@@ -70,90 +82,135 @@ export default function SimulationClient() {
         .then((r) => r.json())
         .then((products: ProductItem[]) => {
           const found = products.find((p) => p.id === productId);
-          if (found) setSelectedProducts([found]);
+          if (found) {
+            setSelectedProducts([found]);
+            setSelectedTool(found);
+          }
         })
         .catch(() => {});
     }
   }, []);
 
-  const canProceed = useCallback(() => {
-    switch (step) {
-      case 1: return !!simType;
-      case 2: return selectedProducts.length > 0;
-      case 3: return !!materialId;
-      case 4: return true;
-      default: return false;
-    }
-  }, [step, simType, selectedProducts, materialId]);
+  // ===== TOOLS MODE STEPS =====
+  // 0: mode select, 1: sim type, 2: tools, 3: material, 4: params, 5: results
 
-  const handleSimulate = async () => {
+  // ===== CONSUMABLES MODE STEPS =====
+  // 0: mode select, 1: consumable category, 2: select tool (optional), 3: select consumables, 4: material, 5: params, 6: results
+
+  const totalSteps = mode === "consumables" ? 6 : 5;
+  const resultStep = mode === "consumables" ? 7 : 5;
+
+  const getStepLabels = (): string[] => {
+    if (mode === "consumables") {
+      return ["Категорія", "Інструмент", "Витратні", "Матеріал", "Параметри"];
+    }
+    return ["Операція", "Інструмент", "Матеріал", "Параметри"];
+  };
+
+  const canProceed = useCallback(() => {
+    if (step === 0) return !!mode;
+    if (mode === "tools") {
+      switch (step) {
+        case 1: return !!simType;
+        case 2: return selectedProducts.length > 0;
+        case 3: return !!materialId;
+        case 4: return true;
+        default: return false;
+      }
+    } else {
+      switch (step) {
+        case 1: return !!consumableMode;
+        case 2: return true; // tool is optional
+        case 3: return selectedConsumables.length >= 2;
+        case 4: return !!materialId;
+        case 5: return true;
+        default: return false;
+      }
+    }
+  }, [step, mode, simType, selectedProducts, materialId, consumableMode, selectedConsumables]);
+
+  const handleSimulateTools = async () => {
     if (!simType || !materialId || selectedProducts.length === 0) return;
     setLoading(true);
-
     try {
       if (selectedProducts.length === 1) {
         const res = await fetch("/api/simulate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productId: selectedProducts[0].id,
-            materialId,
-            type: simType,
-            params,
-          }),
+          body: JSON.stringify({ productId: selectedProducts[0].id, materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.result) {
-          setResults([data.result]);
-          setStep(5);
-        }
+        if (data.result) { setResults([data.result]); setStep(resultStep); }
       } else {
         const res = await fetch("/api/simulate/compare", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productIds: selectedProducts.map((p) => p.id),
-            materialId,
-            type: simType,
-            params,
-          }),
+          body: JSON.stringify({ productIds: selectedProducts.map(p => p.id), materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.results) {
-          setResults(data.results);
-          setStep(5);
-        }
+        if (data.results) { setResults(data.results); setStep(resultStep); }
       }
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* */ } finally { setLoading(false); }
+  };
+
+  const handleSimulateConsumables = async () => {
+    if (!materialId || !consumableMode || selectedConsumables.length < 2) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/simulate/consumables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: selectedTool?.id || null,
+          materialId,
+          consumableMode,
+          consumableIds: selectedConsumables.map(c => c.id),
+          params,
+        }),
+      });
+      const data = await res.json();
+      if (data.results) { setResults(data.results); setStep(resultStep); }
+    } catch { /* */ } finally { setLoading(false); }
+  };
+
+  const isLastInputStep = () => {
+    if (mode === "tools") return step === 4;
+    return step === 5;
   };
 
   const handleNext = () => {
-    if (step === 4) {
-      handleSimulate();
+    if (isLastInputStep()) {
+      mode === "tools" ? handleSimulateTools() : handleSimulateConsumables();
     } else {
-      setStep((s) => s + 1);
+      setStep(s => s + 1);
     }
   };
 
   const handleBack = () => {
-    if (step === 5) {
-      setResults([]);
-    }
-    setStep((s) => Math.max(1, s - 1));
+    if (step === resultStep) setResults([]);
+    if (step === 0) return;
+    setStep(s => s - 1);
   };
 
   const handleReset = () => {
-    setStep(1);
+    setStep(0);
+    setMode(null);
     setSimType(null);
     setSelectedProducts([]);
+    setConsumableMode(null);
+    setSelectedTool(null);
+    setSelectedConsumables([]);
     setMaterialId(null);
     setParams({});
     setResults([]);
   };
+
+  const isResults = step === resultStep && results.length > 0;
+  const currentSimType = mode === "tools"
+    ? simType
+    : consumableMode
+      ? (CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType as SimulationType) || "cutting"
+      : "cutting";
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 mb-20 md:mb-0">
@@ -166,87 +223,157 @@ export default function SimulationClient() {
         </div>
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-[#0A0A0A]">Симуляція інструментів</h1>
-          <p className="text-sm text-[#9E9E9E]">Перевірте продуктивність перед покупкою</p>
+          <p className="text-sm text-[#9E9E9E]">
+            {mode === "consumables" ? "Порівняння витратних матеріалів" : "Перевірте продуктивність перед покупкою"}
+          </p>
         </div>
       </div>
 
       {/* Steps indicator */}
-      {step < 5 && (
+      {step > 0 && !isResults && (
         <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-          {["Операція", "Інструмент", "Матеріал", "Параметри"].map((label, i) => (
+          {getStepLabels().map((label, i) => (
             <div key={label} className="flex items-center gap-2 shrink-0">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                  i + 1 === step
-                    ? "bg-[#FFD600] text-[#0A0A0A]"
-                    : i + 1 < step
-                    ? "bg-[#0A0A0A] text-white"
-                    : "bg-[#EFEFEF] text-[#9E9E9E]"
-                }`}
-              >
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                i + 1 === step ? "bg-[#FFD600] text-[#0A0A0A]" : i + 1 < step ? "bg-[#0A0A0A] text-white" : "bg-[#EFEFEF] text-[#9E9E9E]"
+              }`}>
                 {i + 1 < step ? "✓" : i + 1}
               </div>
-              <span className={`text-sm ${i + 1 === step ? "text-[#0A0A0A] font-semibold" : "text-[#9E9E9E]"}`}>
-                {label}
-              </span>
-              {i < 3 && <div className="w-8 h-px bg-[#EFEFEF]" />}
+              <span className={`text-sm ${i + 1 === step ? "text-[#0A0A0A] font-semibold" : "text-[#9E9E9E]"}`}>{label}</span>
+              {i < getStepLabels().length - 1 && <div className="w-8 h-px bg-[#EFEFEF]" />}
             </div>
           ))}
         </div>
       )}
 
-      {/* Step 1: Simulation Type */}
-      {step === 1 && (
+      {/* Step 0: Mode Selection */}
+      {step === 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button
+            onClick={() => setMode("tools")}
+            className={`p-6 rounded-2xl border-2 text-left transition-all ${
+              mode === "tools" ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
+            }`}
+          >
+            <div className="text-3xl mb-3">🔧</div>
+            <h3 className="text-lg font-bold text-[#0A0A0A] mb-1">Порівняти інструменти</h3>
+            <p className="text-sm text-[#9E9E9E]">Тестуйте 2-4 моделі на одному матеріалі. Наприклад: 4 бензопили на колоді</p>
+          </button>
+          <button
+            onClick={() => setMode("consumables")}
+            className={`p-6 rounded-2xl border-2 text-left transition-all ${
+              mode === "consumables" ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
+            }`}
+          >
+            <div className="text-3xl mb-3">💿</div>
+            <h3 className="text-lg font-bold text-[#0A0A0A] mb-1">Порівняти витратні</h3>
+            <p className="text-sm text-[#9E9E9E]">Обрати дриль → порівняти свердла. Або болгарку → порівняти відрізні диски</p>
+          </button>
+        </div>
+      )}
+
+      {/* ===== TOOLS MODE ===== */}
+      {mode === "tools" && step === 1 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {SIM_TYPES.map((t) => (
             <button
               key={t.id}
               onClick={() => setSimType(t.id)}
               className={`p-6 rounded-2xl border-2 transition-all text-center ${
-                simType === t.id
-                  ? "border-[#FFD600] bg-[#FFFDE7] shadow-md"
-                  : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
+                simType === t.id ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
               }`}
             >
-              <div className={`mx-auto mb-3 ${simType === t.id ? "text-[#FFB800]" : "text-[#9E9E9E]"}`}>
-                {t.icon}
-              </div>
+              <div className={`mx-auto mb-3 ${simType === t.id ? "text-[#FFB800]" : "text-[#9E9E9E]"}`}>{t.icon}</div>
               <h3 className="text-lg font-bold text-[#0A0A0A]">{t.label}</h3>
             </button>
           ))}
         </div>
       )}
-
-      {/* Step 2: Product Selection */}
-      {step === 2 && simType && (
-        <ProductPicker
-          simType={simType}
-          selected={selectedProducts}
-          onSelect={setSelectedProducts}
-        />
+      {mode === "tools" && step === 2 && simType && (
+        <ProductPicker simType={simType} selected={selectedProducts} onSelect={setSelectedProducts} />
       )}
-
-      {/* Step 3: Material Selection */}
-      {step === 3 && (
+      {mode === "tools" && step === 3 && (
         <MaterialSelector selected={materialId} onSelect={setMaterialId} />
       )}
-
-      {/* Step 4: Parameters */}
-      {step === 4 && simType && (
+      {mode === "tools" && step === 4 && simType && (
         <SimulationParams simType={simType} params={params} onChange={setParams} />
       )}
 
-      {/* Step 5: Results */}
-      {step === 5 && results.length > 0 && (
+      {/* ===== CONSUMABLES MODE ===== */}
+      {mode === "consumables" && step === 1 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {CONSUMABLE_MODES.map((cm) => (
+            <button
+              key={cm.id}
+              onClick={() => setConsumableMode(cm.id)}
+              className={`p-6 rounded-2xl border-2 text-left transition-all ${
+                consumableMode === cm.id ? "border-[#FFD600] bg-[#FFFDE7] shadow-md" : "border-[#EFEFEF] bg-white hover:border-[#FFD600]/50"
+              }`}
+            >
+              <div className="text-3xl mb-2">{cm.icon}</div>
+              <h3 className="text-lg font-bold text-[#0A0A0A]">{cm.label}</h3>
+            </button>
+          ))}
+        </div>
+      )}
+      {mode === "consumables" && step === 2 && consumableMode && (
         <div>
-          {/* Animation */}
-          <div className="bg-[#0A0A0A] rounded-2xl overflow-hidden mb-6" style={{ height: 220 }}>
-            <SimulationCanvas
-              type={results[0].type as SimulationType}
-              results={results}
-              materialColor={materialId ? undefined : "#9E9E9E"}
-            />
-          </div>
+          <p className="text-sm text-[#9E9E9E] mb-4">Оберіть інструмент (або пропустіть для стандартного)</p>
+          <ProductPicker
+            simType={(CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType || "cutting") as SimulationType}
+            selected={selectedTool ? [selectedTool] : []}
+            onSelect={(items) => setSelectedTool(items[0] || null)}
+          />
+        </div>
+      )}
+      {mode === "consumables" && step === 3 && consumableMode && (
+        <div>
+          <h3 className="text-lg font-bold text-[#0A0A0A] mb-1">
+            {selectedTool ? `Витратні для: ${selectedTool.name.substring(0, 40)}` : "Оберіть витратні матеріали"}
+          </h3>
+          <p className="text-sm text-[#9E9E9E] mb-4">Мінімум 2, максимум 4 для порівняння</p>
+          <ConsumablePicker
+            mode={consumableMode}
+            selected={selectedConsumables}
+            onSelect={setSelectedConsumables}
+            materialId={materialId}
+          />
+        </div>
+      )}
+      {mode === "consumables" && step === 4 && (
+        <MaterialSelector selected={materialId} onSelect={setMaterialId} />
+      )}
+      {mode === "consumables" && step === 5 && consumableMode && (
+        <SimulationParams
+          simType={(CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType || "cutting") as SimulationType}
+          params={params}
+          onChange={setParams}
+          isChainsaw={consumableMode === "chainsaw"}
+        />
+      )}
+
+      {/* ===== RESULTS (both modes) ===== */}
+      {isResults && (
+        <div>
+          {/* Racing animation for comparisons */}
+          {results.length > 1 && (
+            <div className="bg-[#0A0A0A] rounded-2xl overflow-hidden mb-6" style={{ height: Math.max(180, results.length * 70 + 40) }}>
+              <RacingCanvas
+                results={results}
+                type={currentSimType as "cutting" | "grinding" | "drilling"}
+              />
+            </div>
+          )}
+
+          {/* Single result animation */}
+          {results.length === 1 && (
+            <div className="bg-[#0A0A0A] rounded-2xl overflow-hidden mb-6" style={{ height: 220 }}>
+              <SimulationCanvas
+                type={currentSimType as SimulationType}
+                results={results}
+              />
+            </div>
+          )}
 
           {results.length === 1 ? (
             <ResultCard result={results[0]} />
@@ -263,10 +390,7 @@ export default function SimulationClient() {
           )}
 
           <div className="mt-6 text-center">
-            <button
-              onClick={handleReset}
-              className="bg-[#FFD600] text-[#0A0A0A] px-8 py-3 rounded-xl font-semibold hover:bg-[#FFC400] transition"
-            >
+            <button onClick={handleReset} className="bg-[#FFD600] text-[#0A0A0A] px-8 py-3 rounded-xl font-semibold hover:bg-[#FFC400] transition">
               Нова симуляція
             </button>
           </div>
@@ -274,11 +398,11 @@ export default function SimulationClient() {
       )}
 
       {/* Navigation buttons */}
-      {step < 5 && (
+      {!isResults && (
         <div className="flex items-center justify-between mt-8">
           <button
             onClick={handleBack}
-            disabled={step === 1}
+            disabled={step === 0}
             className="px-6 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-30 disabled:cursor-not-allowed text-[#555] hover:bg-[#EFEFEF]"
           >
             Назад
@@ -288,7 +412,7 @@ export default function SimulationClient() {
             disabled={!canProceed() || loading}
             className="bg-[#FFD600] text-[#0A0A0A] px-8 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#FFC400] transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {loading ? "Обчислення..." : step === 4 ? "Симулювати" : "Далі"}
+            {loading ? "Обчислення..." : isLastInputStep() ? "Симулювати" : "Далі"}
           </button>
         </div>
       )}

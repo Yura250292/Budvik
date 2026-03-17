@@ -1,14 +1,17 @@
 import { Material } from "./materials";
 import { ToolSpecs, SimulationType, isCompatible } from "./specs";
+import type { Consumable } from "./consumables";
 
 export interface SimulationInput {
   tool: ToolSpecs;
   material: Material;
   type: SimulationType;
+  consumable?: Consumable; // optional consumable modifier
   thicknessMm?: number; // cutting: material thickness
   depthMm?: number; // drilling: hole depth
   holeDiameterMm?: number; // drilling: hole diameter
   surfaceAreaCm2?: number; // grinding: surface area
+  logDiameterCm?: number; // chainsaw: log diameter
 }
 
 export interface SimulationMetrics {
@@ -31,6 +34,8 @@ export interface SimulationResult {
   metrics: SimulationMetrics;
   toolName?: string;
   productId?: string;
+  consumableName?: string;
+  consumableId?: string;
 }
 
 function clamp(val: number, min: number, max: number): number {
@@ -203,8 +208,63 @@ function simulateDrilling(tool: ToolSpecs, material: Material, depthMm: number, 
   };
 }
 
+function applyConsumable(result: SimulationResult, consumable: Consumable, materialId: string): SimulationResult {
+  const compat = consumable.materialCompat[materialId] ?? 1;
+
+  if (compat === 0) {
+    return {
+      ...result,
+      estimatedTimeSec: result.estimatedTimeSec * 5,
+      efficiencyScore: 5,
+      wearRate: "high",
+      heatLevel: "critical",
+      warnings: [...result.warnings, `"${consumable.nameUk}" не сумісний з цим матеріалом`],
+      metrics: { speed: 5, precision: 5, durability: 5, safety: 10, efficiency: 5 },
+      consumableName: consumable.nameUk,
+      consumableId: consumable.id,
+    };
+  }
+
+  const compatBonus = compat === 2 ? 1.15 : 1.0;
+  const newTime = result.estimatedTimeSec / (consumable.speedFactor * compatBonus);
+  const newHeatFactor = consumable.heatFactor / compatBonus;
+
+  const wearBase = 1 / consumable.durabilityFactor;
+  const newWearRate: "low" | "medium" | "high" = wearBase < 0.7 ? "low" : wearBase < 1.2 ? "medium" : "high";
+  const newHeatLevel = newHeatFactor < 0.6 ? "low" as const : newHeatFactor < 0.9 ? "medium" as const : newHeatFactor < 1.2 ? "high" as const : "critical" as const;
+
+  const effBoost = (consumable.speedFactor + consumable.durabilityFactor + consumable.precisionFactor) / 3;
+  const newEff = clamp(Math.round(result.efficiencyScore * effBoost * compatBonus * 0.85), 10, 100);
+
+  const warnings = [...result.warnings];
+  if (consumable.durabilityFactor < 0.7) warnings.push(`"${consumable.nameUk}" зношується швидко`);
+  if (consumable.heatFactor > 1.2) warnings.push(`"${consumable.nameUk}" генерує багато тепла`);
+
+  return {
+    ...result,
+    estimatedTimeSec: Math.round(newTime * 10) / 10,
+    efficiencyScore: newEff,
+    wearRate: newWearRate,
+    heatLevel: newHeatLevel,
+    warnings,
+    consumableName: consumable.nameUk,
+    consumableId: consumable.id,
+    metrics: {
+      speed: clamp(Math.round(result.metrics.speed * consumable.speedFactor * compatBonus), 5, 100),
+      precision: clamp(Math.round(result.metrics.precision * consumable.precisionFactor), 5, 100),
+      durability: clamp(Math.round(result.metrics.durability * consumable.durabilityFactor), 5, 100),
+      safety: clamp(Math.round(result.metrics.safety * (1 / consumable.heatFactor)), 5, 100),
+      efficiency: newEff,
+    },
+  };
+}
+
 export function simulate(input: SimulationInput): SimulationResult {
-  if (!isCompatible(input.tool.toolType, input.type)) {
+  // For chainsaw mode, use cutting simulation with adapted params
+  const isChainsawMode = input.consumable?.category === "chainsaw_chain";
+  const effectiveType = isChainsawMode ? "cutting" as SimulationType : input.type;
+
+  if (!isChainsawMode && !isCompatible(input.tool.toolType, input.type)) {
     return {
       type: input.type,
       estimatedTimeSec: 0,
@@ -218,14 +278,30 @@ export function simulate(input: SimulationInput): SimulationResult {
     };
   }
 
-  switch (input.type) {
+  // Calculate thickness from log diameter for chainsaw
+  const thicknessMm = isChainsawMode && input.logDiameterCm
+    ? input.logDiameterCm * 10
+    : input.thicknessMm ?? 10;
+
+  let result: SimulationResult;
+  switch (effectiveType) {
     case "cutting":
-      return simulateCutting(input.tool, input.material, input.thicknessMm ?? 10);
+      result = simulateCutting(input.tool, input.material, thicknessMm);
+      break;
     case "grinding":
-      return simulateGrinding(input.tool, input.material, input.surfaceAreaCm2 ?? 100);
+      result = simulateGrinding(input.tool, input.material, input.surfaceAreaCm2 ?? 100);
+      break;
     case "drilling":
-      return simulateDrilling(input.tool, input.material, input.depthMm ?? 30, input.holeDiameterMm ?? 8);
+      result = simulateDrilling(input.tool, input.material, input.depthMm ?? 30, input.holeDiameterMm ?? 8);
+      break;
   }
+
+  // Apply consumable modifiers if present
+  if (input.consumable) {
+    result = applyConsumable(result, input.consumable, input.material.id);
+  }
+
+  return result;
 }
 
 export interface ComparisonResult {

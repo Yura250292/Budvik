@@ -11,6 +11,8 @@ enum Role {
   ADMIN
   MANAGER
   SALES
+  WAREHOUSE
+  DRIVER
   WHOLESALE
   CLIENT
 }
@@ -48,7 +50,30 @@ enum BoltsType {
 enum DocumentStatus {
   DRAFT
   CONFIRMED
+  PACKING
+  IN_TRANSIT
+  DELIVERED
   CANCELLED
+}
+
+enum DeliveryMethod {
+  DRIVER
+  SALES_REP_PICKUP
+  SELF_PICKUP
+}
+
+enum DeliveryRouteStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DeliveryStopStatus {
+  PENDING
+  LOADED
+  DELIVERED
+  FAILED
 }
 
 enum PaymentStatus {
@@ -70,18 +95,18 @@ enum CounterpartyType {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  password      String?
-  name          String
-  phone         String?
-  role          Role     @default(CLIENT)
-  boltsBalance  Float    @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String?
+  name         String
+  phone        String?
+  role         Role     @default(CLIENT)
+  boltsBalance Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  orders            Order[]
-  boltsTransactions BoltsTransaction[]
+  orders                Order[]
+  boltsTransactions     BoltsTransaction[]
   wholesaleApplications WholesaleApplication[]
 
   companyId String?
@@ -94,6 +119,10 @@ model User {
   invoicesCreated       Invoice[]          @relation("invoiceCreator")
   commissionRates       CommissionRate[]   @relation("commissionRates")
   commissionRecords     CommissionRecord[] @relation("commissionRecords")
+
+  // Delivery relations
+  driverRoutes  DeliveryRoute[] @relation("driverRoutes")
+  createdRoutes DeliveryRoute[] @relation("routeCreator")
 }
 
 model Category {
@@ -105,32 +134,32 @@ model Category {
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  sku         String?  @unique
-  name        String
-  slug        String   @unique
-  description String
+  id             String   @id @default(cuid())
+  sku            String?  @unique
+  name           String
+  slug           String   @unique
+  description    String
   price          Float
   wholesalePrice Float?
-  image       String?
-  stock       Int      @default(0)
-  isActive    Boolean  @default(true)
-  priority    Int      @default(0)
-  isPromo     Boolean  @default(false)
-  promoPrice  Float?
-  promoLabel  String?
+  image          String?
+  stock          Int      @default(0)
+  isActive       Boolean  @default(true)
+  priority       Int      @default(0)
+  isPromo        Boolean  @default(false)
+  promoPrice     Float?
+  promoLabel     String?
   // Tool specification fields (optional)
-  powerWatts     Int?      // Потужність (Вт)
-  rpm            Int?      // Обороти (об/хв)
-  discDiameterMm Int?      // Діаметр диска (мм)
-  chuckMm        Float?    // Патрон (мм)
-  toolType       String?   // drill | grinder | saw | jigsaw | sander
-  weightKg       Float?    // Вага (кг)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  powerWatts     Int? // Потужність (Вт)
+  rpm            Int? // Обороти (об/хв)
+  discDiameterMm Int? // Діаметр диска (мм)
+  chuckMm        Float? // Патрон (мм)
+  toolType       String? // drill | grinder | saw | jigsaw | sander
+  weightKg       Float? // Вага (кг)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   categoryId String
-  category   Category    @relation(fields: [categoryId], references: [id])
+  category   Category          @relation(fields: [categoryId], references: [id])
   orderItems OrderItem[]
   embedding  ProductEmbedding?
 
@@ -138,24 +167,25 @@ model Product {
   supplierProducts   SupplierProduct[]
   purchaseOrderItems PurchaseOrderItem[]
   salesDocumentItems SalesDocumentItem[]
+  reservations       StockReservation[]
 }
 
 model SeasonalPromo {
-  id          String   @id @default(cuid())
-  title       String               // "Весняний розпродаж", "Зимові знижки"
+  id          String    @id @default(cuid())
+  title       String // "Весняний розпродаж", "Зимові знижки"
   description String?
-  season      String               // spring, summer, autumn, winter, custom
-  icon        String?              // emoji
-  color       String   @default("#FFD600") // accent color
-  keywords    String[]             // product name keywords to auto-match
-  categoryIds String[]             // category IDs to include
-  productIds  String[]             // manually pinned product IDs
-  isActive    Boolean  @default(true)
-  startDate   DateTime?            // for custom date ranges
+  season      String // spring, summer, autumn, winter, custom
+  icon        String? // emoji
+  color       String    @default("#FFD600") // accent color
+  keywords    String[] // product name keywords to auto-match
+  categoryIds String[] // category IDs to include
+  productIds  String[] // manually pinned product IDs
+  isActive    Boolean   @default(true)
+  startDate   DateTime? // for custom date ranges
   endDate     DateTime?
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model ImportLog {
@@ -197,13 +227,13 @@ model OrderItem {
 }
 
 model BoltsTransaction {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   amount      Float
   type        BoltsType
   orderId     String?
   description String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -229,14 +259,14 @@ model AiChatHistory {
 }
 
 model WholesaleCompany {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   legalName    String
   phone        String
   email        String
   address      String
   businessType BusinessType
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   managers     User[]
   applications WholesaleApplication[]
@@ -296,6 +326,7 @@ model Counterparty {
   salesDocuments   SalesDocument[]
   invoices         Invoice[]
   supplierProducts SupplierProduct[]
+  deliveryStops    DeliveryStop[]
 }
 
 model SupplierProduct {
@@ -323,8 +354,8 @@ model PurchaseOrder {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  supplier  Counterparty      @relation(fields: [supplierId], references: [id])
-  createdBy User              @relation("purchaseOrderCreator", fields: [createdById], references: [id])
+  supplier  Counterparty        @relation(fields: [supplierId], references: [id])
+  createdBy User                @relation("purchaseOrderCreator", fields: [createdById], references: [id])
   items     PurchaseOrderItem[]
 }
 
@@ -340,26 +371,31 @@ model PurchaseOrderItem {
 }
 
 model SalesDocument {
-  id              String         @id @default(cuid())
-  number          String         @unique
-  counterpartyId  String?
-  salesRepId      String?
-  status          DocumentStatus @default(DRAFT)
-  totalAmount     Float          @default(0)
-  discountAmount  Float          @default(0)
-  profitAmount    Float          @default(0)
-  notes           String?
-  confirmedAt     DateTime?
-  createdById     String
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id             String         @id @default(cuid())
+  number         String         @unique
+  counterpartyId String?
+  salesRepId     String?
+  status         DocumentStatus @default(DRAFT)
+  totalAmount    Float          @default(0)
+  discountAmount Float          @default(0)
+  profitAmount   Float          @default(0)
+  notes          String?
+  confirmedAt    DateTime?
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  counterparty Counterparty?     @relation(fields: [counterpartyId], references: [id])
-  salesRep     User?             @relation("salesRepSales", fields: [salesRepId], references: [id])
-  createdBy    User              @relation("salesDocCreator", fields: [createdById], references: [id])
+  deliveryMethod DeliveryMethod?
+  deliveryNotes  String?
+
+  counterparty Counterparty?       @relation(fields: [counterpartyId], references: [id])
+  salesRep     User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
+  createdBy    User                @relation("salesDocCreator", fields: [createdById], references: [id])
   items        SalesDocumentItem[]
   invoice      Invoice?
   commissions  CommissionRecord[]
+  reservations StockReservation[]
+  deliveryStop DeliveryStop?
 }
 
 model SalesDocumentItem {
@@ -434,4 +470,61 @@ model CommissionRecord {
 
   salesRep      User          @relation("commissionRecords", fields: [salesRepId], references: [id])
   salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
+}
+
+// ========== Stock Reservation ==========
+
+model StockReservation {
+  id              String   @id @default(cuid())
+  productId       String
+  salesDocumentId String
+  quantity        Int
+  createdAt       DateTime @default(now())
+
+  product       Product       @relation(fields: [productId], references: [id])
+  salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, salesDocumentId])
+}
+
+// ========== Delivery / Logistics ==========
+
+model DeliveryRoute {
+  id              String              @id @default(cuid())
+  number          String              @unique
+  driverId        String?
+  date            DateTime
+  status          DeliveryRouteStatus @default(PLANNED)
+  vehicleInfo     String?
+  fuelConsumption Float? // л/100км або кВт·год/100км
+  fuelPricePer    Float? // ціна за 1л або 1кВт·год
+  totalDistanceKm Float?
+  totalFuelCost   Float?
+  notes           String?
+  createdById     String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  driver    User?          @relation("driverRoutes", fields: [driverId], references: [id])
+  createdBy User           @relation("routeCreator", fields: [createdById], references: [id])
+  stops     DeliveryStop[]
+}
+
+model DeliveryStop {
+  id              String             @id @default(cuid())
+  deliveryRouteId String
+  salesDocumentId String             @unique
+  counterpartyId  String?
+  sequence        Int                @default(0)
+  distanceKm      Float?
+  deliveryCost    Float?
+  status          DeliveryStopStatus @default(PENDING)
+  address         String?
+  notes           String?
+  deliveredAt     DateTime?
+  createdAt       DateTime           @default(now())
+
+  deliveryRoute DeliveryRoute @relation(fields: [deliveryRouteId], references: [id], onDelete: Cascade)
+  salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
+  counterparty  Counterparty? @relation(fields: [counterpartyId], references: [id])
 }

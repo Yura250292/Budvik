@@ -6,6 +6,7 @@ interface Props {
   simType: SimulationType;
   params: Record<string, number>;
   onChange: (params: Record<string, number>) => void;
+  isChainsaw?: boolean;
 }
 
 const PARAM_CONFIG: Record<SimulationType, { key: string; label: string; unit: string; min: number; max: number; step: number; default: number }[]> = {
@@ -21,8 +22,14 @@ const PARAM_CONFIG: Record<SimulationType, { key: string; label: string; unit: s
   ],
 };
 
-export default function SimulationParams({ simType, params, onChange }: Props) {
-  const config = PARAM_CONFIG[simType];
+export default function SimulationParams({ simType, params, onChange, isChainsaw }: Props) {
+  let config = PARAM_CONFIG[simType];
+
+  if (isChainsaw) {
+    config = [
+      { key: "logDiameterCm", label: "Діаметр колоди", unit: "см", min: 10, max: 80, step: 5, default: 50 },
+    ];
+  }
 
   const getValue = (key: string, defaultVal: number) => params[key] ?? defaultVal;
 

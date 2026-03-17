@@ -80,16 +80,35 @@ export default function CatalogSidebar({
     setDrawerOpen(false);
   }, [pathname]);
 
-  // Lock body scroll when drawer is open
+  // Lock body scroll when drawer is open (Chrome Android compatible)
   useEffect(() => {
     if (drawerOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = "0";
+      document.body.style.right = "0";
       document.body.style.overflow = "hidden";
       setDragX(0);
       setIsDragging(false);
     } else {
+      const scrollY = Math.abs(parseInt(document.body.style.top || "0", 10));
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
       document.body.style.overflow = "";
+      window.scrollTo(0, scrollY);
     }
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      const scrollY = Math.abs(parseInt(document.body.style.top || "0", 10));
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.overflow = "";
+      if (scrollY) window.scrollTo(0, scrollY);
+    };
   }, [drawerOpen]);
 
   // Swipe-to-close drawer

@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     depthMm: params?.depthMm,
     holeDiameterMm: params?.holeDiameterMm,
     surfaceAreaCm2: params?.surfaceAreaCm2,
+    logDiameterCm: params?.logDiameterCm,
   });
 
   result.toolName = product.name;

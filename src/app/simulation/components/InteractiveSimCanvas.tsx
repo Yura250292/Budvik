@@ -4,6 +4,8 @@ import { useRef, useEffect, useState } from "react";
 
 interface Props {
   type: "cutting" | "grinding" | "drilling";
+  dataReady?: boolean;
+  onComplete?: () => void;
 }
 
 interface Particle {
@@ -48,14 +50,19 @@ const TIPS: Record<string, string[]> = {
   ],
 };
 
-export default function InteractiveSimCanvas({ type }: Props) {
+export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
   const stateRef = useRef({
     elapsed: 0,
     toolAngle: 0,
     heatGlow: 0,
     particles: [] as Particle[],
+    dataReadySeen: false,
+    completionFired: false,
     metrics: [
       { label: "Знос",        icon: "⚙️", progress: 0, delay: 0   },
       { label: "Нагрів",      icon: "🌡️", progress: 0, delay: 1.5 },
@@ -97,6 +104,8 @@ export default function InteractiveSimCanvas({ type }: Props) {
     S.toolAngle = 0;
     S.heatGlow = 0;
     S.particles = [];
+    S.dataReadySeen = false;
+    S.completionFired = false;
     S.metrics.forEach(m => { m.progress = 0; });
 
     let lastTime = performance.now();
@@ -157,10 +166,31 @@ export default function InteractiveSimCanvas({ type }: Props) {
       for (let i = 0; i < W; i += 40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke(); }
       for (let i = 0; i < H; i += 40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(W, i); ctx.stroke(); }
 
-      // Phase: 0→1 over 6s, then brief pause, then restart
-      const cycleTime = 9;
-      const t = S.elapsed % cycleTime;
-      const phase = t < 6 ? t / 6 : 1; // stays at 1 for last 3s before reset
+      // ─── Phase logic (synced with dataReady) ───
+      const CYCLE = 9;
+      const WORK = 0.67; // phase reaches 1.0 at this fraction of cycle
+      const cycleT = S.elapsed % CYCLE;
+
+      // Mark when data becomes ready
+      if (dataReady && !S.dataReadySeen) S.dataReadySeen = true;
+
+      let phase: number;
+      if (S.completionFired) {
+        // Freeze at 1 — results are being revealed
+        phase = 1.0;
+      } else if (S.dataReadySeen) {
+        // Data ready: finish current cycle then stop
+        phase = Math.min(1, cycleT / (CYCLE * WORK));
+        if (cycleT >= CYCLE * WORK && !S.completionFired) {
+          S.completionFired = true;
+          // All metrics must be at 100% instantly
+          S.metrics.forEach(m => { m.progress = 1; });
+          setTimeout(() => onCompleteRef.current?.(), 80);
+        }
+      } else {
+        // Still loading — loop normally
+        phase = cycleT < CYCLE * WORK ? cycleT / (CYCLE * WORK) : 1.0;
+      }
 
       S.toolAngle += dt * 20;
       S.heatGlow = Math.min(1, phase * 1.8);
@@ -267,20 +297,33 @@ export default function InteractiveSimCanvas({ type }: Props) {
   return (
     <div className="relative w-full rounded-2xl overflow-hidden bg-[#0c0c0c]" style={{ height: 340 }}>
       <canvas ref={canvasRef} className="w-full h-full" />
+
+      {/* Completion flash overlay */}
+      {dataReady && (
+        <div className="absolute inset-0 pointer-events-none animate-fade-in"
+          style={{ background: "radial-gradient(ellipse at center, rgba(34,197,94,0.12) 0%, transparent 70%)" }} />
+      )}
+
+      {/* Floating tip */}
       <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
         <div
-          key={currentTip}
+          key={dataReady ? "ready" : currentTip}
           className="bg-black/70 backdrop-blur-sm text-white/90 text-xs sm:text-sm px-5 py-2.5 rounded-full border border-white/10 animate-fade-in"
         >
-          {tips[currentTip]}
+          {dataReady ? "✓ Аналіз завершено — готуємо звіт..." : tips[currentTip]}
         </div>
       </div>
+
+      {/* Badge */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
         <div className="relative w-5 h-5">
           <div className="absolute inset-0 rounded-full border-2 border-[#FFD600]/30" />
-          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#FFD600] animate-spin" />
+          <div className={`absolute inset-0 rounded-full border-2 border-transparent border-t-[#FFD600] ${dataReady ? "" : "animate-spin"}`}
+            style={dataReady ? { borderColor: "#22C55E", transform: "rotate(0deg)" } : {}} />
         </div>
-        <span className="text-[#FFD600] text-xs font-bold tracking-wider uppercase">AI Симуляція</span>
+        <span className={`text-xs font-bold tracking-wider uppercase ${dataReady ? "text-[#22C55E]" : "text-[#FFD600]"}`}>
+          {dataReady ? "Готово!" : "AI Симуляція"}
+        </span>
       </div>
     </div>
   );

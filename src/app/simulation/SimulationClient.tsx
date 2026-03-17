@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import ProductPicker from "./components/ProductPicker";
 import MaterialSelector from "./components/MaterialSelector";
 import SimulationParams from "./components/SimulationParams";
@@ -77,6 +77,14 @@ export default function SimulationClient() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReasonings, setAiReasonings] = useState<Record<string, string>>({});
+  // Sync: hold fetched data until animation completes
+  const [dataReady, setDataReady] = useState(false);
+  const pendingRef = useRef<{
+    results: SimulationResult[];
+    aiAnalysis: string | null;
+    aiReasonings: Record<string, string>;
+    targetStep: number;
+  } | null>(null);
 
   // Pre-select product from URL
   useEffect(() => {
@@ -134,30 +142,27 @@ export default function SimulationClient() {
     }
   }, [step, mode, simType, selectedProducts, materialId, consumableMode, selectedConsumables]);
 
-  const fetchAiAnalysis = async (simResults: SimulationResult[], simTypeVal: string) => {
-    setAiLoading(true);
-    setAiAnalysis(null);
-    try {
-      const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
-      const res = await fetch("/api/simulate/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          results: simResults,
-          materialName,
-          simType: simTypeVal,
-          toolNames: simResults.map(r => r.consumableName || r.toolName),
-        }),
-      });
-      const data = await res.json();
-      if (data.analysis) setAiAnalysis(data.analysis);
-    } catch { /* */ } finally { setAiLoading(false); }
-  };
+  // Called by animation when its cycle finishes — reveals results
+  const handleAnimComplete = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    setResults(p.results);
+    setAiAnalysis(p.aiAnalysis);
+    setAiReasonings(p.aiReasonings);
+    setStep(p.targetStep);
+    setLoading(false);
+    setDataReady(false);
+    pendingRef.current = null;
+  }, []);
 
   const handleSimulateTools = async () => {
     if (!simType || !materialId || selectedProducts.length === 0) return;
     setLoading(true);
+    setDataReady(false);
+    pendingRef.current = null;
     try {
+      // 1. Fetch simulation results
+      let simResults: SimulationResult[] = [];
       if (selectedProducts.length === 1) {
         const res = await fetch("/api/simulate", {
           method: "POST",
@@ -165,11 +170,7 @@ export default function SimulationClient() {
           body: JSON.stringify({ productId: selectedProducts[0].id, materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.result) {
-          setResults([data.result]);
-          setStep(resultStep);
-          fetchAiAnalysis([data.result], simType);
-        }
+        if (data.result) simResults = [data.result];
       } else {
         const res = await fetch("/api/simulate/compare", {
           method: "POST",
@@ -177,18 +178,37 @@ export default function SimulationClient() {
           body: JSON.stringify({ productIds: selectedProducts.map(p => p.id), materialId, type: simType, params }),
         });
         const data = await res.json();
-        if (data.results) {
-          setResults(data.results);
-          setStep(resultStep);
-          fetchAiAnalysis(data.results, simType);
-        }
+        if (data.results) simResults = data.results;
       }
-    } catch { /* */ } finally { setLoading(false); }
+      if (simResults.length === 0) { setLoading(false); return; }
+
+      // 2. Fetch AI analysis in parallel (already have sim results)
+      let aiResult: string | null = null;
+      try {
+        const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
+        const aiRes = await fetch("/api/simulate/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            results: simResults, materialName, simType,
+            toolNames: simResults.map(r => r.consumableName || r.toolName),
+          }),
+        });
+        const aiData = await aiRes.json();
+        if (aiData.analysis) aiResult = aiData.analysis;
+      } catch { /* AI optional */ }
+
+      // 3. Signal animation: all data ready — wait for animation cycle to finish
+      pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: {}, targetStep: resultStep };
+      setDataReady(true);
+    } catch { setLoading(false); }
   };
 
   const handleSimulateConsumables = async () => {
     if (!materialId || !consumableMode || selectedConsumables.length < 2) return;
     setLoading(true);
+    setDataReady(false);
+    pendingRef.current = null;
     const effectiveSimType = CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType || "cutting";
     try {
       const res = await fetch("/api/simulate/consumables", {
@@ -196,20 +216,35 @@ export default function SimulationClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: selectedTool?.id || null,
-          materialId,
-          consumableMode,
+          materialId, consumableMode,
           consumableIds: selectedConsumables.map(c => c.id),
           params,
         }),
       });
       const data = await res.json();
-      if (data.results) {
-        setResults(data.results);
-        if (data.aiReasonings) setAiReasonings(data.aiReasonings);
-        setStep(resultStep);
-        fetchAiAnalysis(data.results, effectiveSimType);
-      }
-    } catch { /* */ } finally { setLoading(false); }
+      if (!data.results) { setLoading(false); return; }
+
+      const simResults: SimulationResult[] = data.results;
+      const reasonings: Record<string, string> = data.aiReasonings || {};
+
+      let aiResult: string | null = null;
+      try {
+        const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
+        const aiRes = await fetch("/api/simulate/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            results: simResults, materialName, simType: effectiveSimType,
+            toolNames: simResults.map(r => r.consumableName || r.toolName),
+          }),
+        });
+        const aiData = await aiRes.json();
+        if (aiData.analysis) aiResult = aiData.analysis;
+      } catch { /* AI optional */ }
+
+      pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: reasonings, targetStep: resultStep };
+      setDataReady(true);
+    } catch { setLoading(false); }
   };
 
   const isLastInputStep = () => {
@@ -456,7 +491,11 @@ export default function SimulationClient() {
       {/* ===== LOADING — Interactive 3D simulation ===== */}
       {loading && (
         <div className="space-y-4">
-          <InteractiveSimCanvas type={currentSimType as "cutting" | "grinding" | "drilling"} />
+          <InteractiveSimCanvas
+            type={currentSimType as "cutting" | "grinding" | "drilling"}
+            dataReady={dataReady}
+            onComplete={handleAnimComplete}
+          />
         </div>
       )}
 
@@ -529,28 +568,7 @@ export default function SimulationClient() {
               <h3 className="text-base font-bold text-[#FFD600]">AI Аналіз</h3>
               <span className="text-[10px] text-white/40 ml-auto">Gemini</span>
             </div>
-            {aiLoading ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="relative w-8 h-8">
-                    <div className="absolute inset-0 rounded-full border-2 border-[#FFD600]/20" />
-                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#FFD600] animate-spin" />
-                    <div className="absolute inset-1 rounded-full border-2 border-transparent border-b-[#FFD600]/60 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
-                  </div>
-                  <div>
-                    <p className="text-sm text-white/80 font-medium">Аналізую результати...</p>
-                    <p className="text-[11px] text-white/40">Пошук відгуків та порівняння в інтернеті</p>
-                  </div>
-                </div>
-                {/* Skeleton lines */}
-                <div className="space-y-2 pt-1">
-                  <div className="h-3 bg-white/8 rounded-full animate-pulse w-[95%]" />
-                  <div className="h-3 bg-white/6 rounded-full animate-pulse w-[80%]" style={{ animationDelay: "0.15s" }} />
-                  <div className="h-3 bg-white/5 rounded-full animate-pulse w-[88%]" style={{ animationDelay: "0.3s" }} />
-                  <div className="h-3 bg-white/4 rounded-full animate-pulse w-[65%]" style={{ animationDelay: "0.45s" }} />
-                </div>
-              </div>
-            ) : aiAnalysis ? (
+            {aiAnalysis ? (
               <p className="text-sm text-white/85 leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
             ) : (
               <p className="text-sm text-white/40">Не вдалося отримати AI аналіз</p>

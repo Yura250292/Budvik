@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 export default function TestBanner() {
   const pathname = usePathname();
   if (pathname?.startsWith("/sales")) return null;
+  if (pathname?.startsWith("/admin")) return null;
 
   return (
     <div className="w-full bg-[#0A0A0A] border-y border-[#FFD600]/30 overflow-hidden z-40 relative">

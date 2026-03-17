@@ -34,6 +34,7 @@ export default function Header() {
   const role = (session?.user as any)?.role;
 
   if (pathname?.startsWith("/sales")) return null;
+  if (pathname?.startsWith("/admin")) return null;
 
   const navLinkClass = "text-white/80 hover:text-[#FFD600] active:text-[#FFD600] active:scale-95 transition-[color,transform] duration-100 text-sm font-medium text-center py-1 -my-1";
 
@@ -94,7 +95,7 @@ export default function Header() {
           </nav>
 
           {/* Right side: icons + auth */}
-          <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
             {/* Mobile: wishlist icon */}
             <Link href="/wishlist" className="relative md:hidden flex items-center justify-center text-white/60 hover:text-red-400 active:text-red-400 active:scale-90 transition-[color,transform] duration-100 p-2 -m-1" title="Обране">
               <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill={wishlistCount > 0 ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>

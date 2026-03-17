@@ -42,15 +42,19 @@ export default function RacingCanvas({ results, type }: Props) {
     resize();
     window.addEventListener("resize", resize);
 
-    const laneHeight = () => Math.min(60, (h - 40) / results.length);
-    const laneY = (i: number) => 20 + i * laneHeight() + laneHeight() / 2;
-    const trackStart = 60;
-    const trackEnd = () => w - 30;
+    const laneHeight = () => Math.min(70, (h - 30) / results.length);
+    const laneY = (i: number) => 15 + i * laneHeight() + laneHeight() / 2;
+    // Dynamic label width: use ~40% of canvas on mobile, ~30% on desktop
+    const labelWidth = () => Math.min(220, Math.max(100, w * 0.35));
+    const trackStart = () => labelWidth() + 8;
+    const trackEnd = () => w - 35;
 
     const draw = () => {
       ctx.clearRect(0, 0, w, h);
       const lh = laneHeight();
       const te = trackEnd();
+
+      const ts = trackStart();
 
       // Draw lanes
       for (let i = 0; i < results.length; i++) {
@@ -65,18 +69,66 @@ export default function RacingCanvas({ results, type }: Props) {
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
-        ctx.moveTo(trackStart, y);
+        ctx.moveTo(ts, y);
         ctx.lineTo(te, y);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Label
-        const label = results[i].consumableName || results[i].toolName || `#${i + 1}`;
-        ctx.fillStyle = LANE_COLORS[i % LANE_COLORS.length];
-        ctx.font = "bold 11px system-ui, sans-serif";
+        // Label — fit the full name or truncate smartly
+        const fullLabel = results[i].consumableName || results[i].toolName || `#${i + 1}`;
+        const color = LANE_COLORS[i % LANE_COLORS.length];
+        ctx.fillStyle = color;
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
-        ctx.fillText(label.substring(0, 12), trackStart - 6, y);
+
+        // Try fitting full name, reduce font if needed
+        const maxLabelW = ts - 12;
+        let fontSize = 11;
+        let label = fullLabel;
+        ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+
+        if (ctx.measureText(label).width > maxLabelW) {
+          // Try smaller font first
+          fontSize = 10;
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+        }
+        if (ctx.measureText(label).width > maxLabelW) {
+          fontSize = 9;
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+        }
+
+        // If still too long, truncate with ellipsis
+        if (ctx.measureText(label).width > maxLabelW) {
+          while (label.length > 5 && ctx.measureText(label + "…").width > maxLabelW) {
+            label = label.slice(0, -1);
+          }
+          label = label.trimEnd() + "…";
+        }
+
+        // Draw on two lines if name is very long and lane is tall enough
+        if (fullLabel.length > 25 && lh >= 50 && fontSize >= 10) {
+          const mid = Math.ceil(fullLabel.length / 2);
+          const spaceIdx = fullLabel.lastIndexOf(" ", mid);
+          const breakAt = spaceIdx > 10 ? spaceIdx : mid;
+          const line1 = fullLabel.substring(0, breakAt).trim();
+          const line2 = fullLabel.substring(breakAt).trim();
+
+          ctx.font = `bold 9px system-ui, sans-serif`;
+          let l1 = line1, l2 = line2;
+          if (ctx.measureText(l1).width > maxLabelW) {
+            while (l1.length > 5 && ctx.measureText(l1 + "…").width > maxLabelW) l1 = l1.slice(0, -1);
+            l1 = l1.trimEnd() + "…";
+          }
+          if (ctx.measureText(l2).width > maxLabelW) {
+            while (l2.length > 5 && ctx.measureText(l2 + "…").width > maxLabelW) l2 = l2.slice(0, -1);
+            l2 = l2.trimEnd() + "…";
+          }
+          ctx.fillText(l1, ts - 6, y - 7);
+          ctx.fillStyle = color + "BB";
+          ctx.fillText(l2, ts - 6, y + 7);
+        } else {
+          ctx.fillText(label, ts - 6, y);
+        }
 
         // Progress
         if (!finished[i]) {
@@ -87,16 +139,15 @@ export default function RacingCanvas({ results, type }: Props) {
           }
         }
 
-        const px = trackStart + progress[i] * (te - trackStart);
-        const color = LANE_COLORS[i % LANE_COLORS.length];
+        const px = ts + progress[i] * (te - ts);
 
         // Track progress fill
         ctx.fillStyle = color + "20";
-        ctx.fillRect(trackStart, y - lh * 0.35, px - trackStart, lh * 0.7);
+        ctx.fillRect(ts, y - lh * 0.35, px - ts, lh * 0.7);
 
         // Progress bar
         ctx.fillStyle = color;
-        ctx.fillRect(trackStart, y + lh * 0.3, px - trackStart, 3);
+        ctx.fillRect(ts, y + lh * 0.3, px - ts, 3);
 
         // Tool head
         if (type === "cutting") {

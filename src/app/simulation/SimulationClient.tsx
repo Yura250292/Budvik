@@ -395,7 +395,7 @@ export default function SimulationClient() {
         <div>
           {/* Racing animation for comparisons */}
           {results.length > 1 && (
-            <div className="bg-[#0A0A0A] rounded-2xl overflow-hidden mb-6" style={{ height: Math.max(180, results.length * 70 + 40) }}>
+            <div className="bg-[#0A0A0A] rounded-2xl overflow-hidden mb-6" style={{ height: Math.max(200, results.length * 80 + 40) }}>
               <RacingCanvas
                 results={results}
                 type={currentSimType as "cutting" | "grinding" | "drilling"}

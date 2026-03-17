@@ -30,6 +30,12 @@ export async function POST(req: Request) {
       promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
       promoLabel: data.promoLabel || null,
       priority: data.priority ? parseInt(data.priority) : 0,
+      powerWatts: data.powerWatts ? parseInt(data.powerWatts) : null,
+      rpm: data.rpm ? parseInt(data.rpm) : null,
+      discDiameterMm: data.discDiameterMm ? parseInt(data.discDiameterMm) : null,
+      chuckMm: data.chuckMm ? parseFloat(data.chuckMm) : null,
+      toolType: data.toolType || null,
+      weightKg: data.weightKg ? parseFloat(data.weightKg) : null,
     },
   });
 
@@ -57,6 +63,12 @@ export async function PUT(req: Request) {
       promoPrice: data.promoPrice ? parseFloat(data.promoPrice) : null,
       promoLabel: data.promoLabel || null,
       priority: data.priority != null ? parseInt(data.priority) : 0,
+      powerWatts: data.powerWatts ? parseInt(data.powerWatts) : null,
+      rpm: data.rpm ? parseInt(data.rpm) : null,
+      discDiameterMm: data.discDiameterMm ? parseInt(data.discDiameterMm) : null,
+      chuckMm: data.chuckMm ? parseFloat(data.chuckMm) : null,
+      toolType: data.toolType || null,
+      weightKg: data.weightKg ? parseFloat(data.weightKg) : null,
     },
   });
 

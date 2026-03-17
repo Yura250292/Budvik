@@ -119,6 +119,13 @@ model Product {
   isPromo     Boolean  @default(false)
   promoPrice  Float?
   promoLabel  String?
+  // Tool specification fields (optional)
+  powerWatts     Int?      // Потужність (Вт)
+  rpm            Int?      // Обороти (об/хв)
+  discDiameterMm Int?      // Діаметр диска (мм)
+  chuckMm        Float?    // Патрон (мм)
+  toolType       String?   // drill | grinder | saw | jigsaw | sander
+  weightKg       Float?    // Вага (кг)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

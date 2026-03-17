@@ -1,17 +1,40 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+// All tool categories relevant for simulation
 const SIMULATION_CATEGORY_SLUGS = [
-  "drili-ta-perforatory",
-  "shlifuvalni-mashyny",
-  "pylky-ta-lobzyky",
-  "akumulyatornyy-instrument",
+  // Drills & perforators
+  "dryli", "udarni-dryli", "perforatory", "pryami-perforatory", "bochkovi-perforatory",
+  // Grinders (bolgarky) & sanders
+  "kutovi-shlifmashyny-bolharky", "shlifuval-ni-mashyny",
+  // Saws
+  "tsyrkulyarni-pyly", "elektrolobzyky", "elektropyly",
+  // Planers
+  "elektrorubanky",
+  // Chainsaws
+  "benzopyly",
+  // Battery-powered (specific tool types only)
+  "akumulyatorni-shurupoverty", "akumulyatorni-perforatory",
+  "akumulyatorni-bolharky-kshm", "akumulyatorni-tsyrkulyarni-pyly",
+  "akumulyatorni-shlifuval-ni-mashynky", "akumulyatorni-lobzyky",
+  "akumulyatorni-shabel-ni-pyly", "akumulyatorni-lantsyuhovi-pylky",
 ];
 
 const TYPE_CATEGORY_MAP: Record<string, string[]> = {
-  cutting: ["shlifuvalni-mashyny", "pylky-ta-lobzyky", "akumulyatornyy-instrument"],
-  grinding: ["shlifuvalni-mashyny", "akumulyatornyy-instrument"],
-  drilling: ["drili-ta-perforatory", "akumulyatornyy-instrument"],
+  cutting: [
+    "kutovi-shlifmashyny-bolharky", "tsyrkulyarni-pyly", "elektrolobzyky", "elektropyly",
+    "benzopyly",
+    "akumulyatorni-bolharky-kshm", "akumulyatorni-tsyrkulyarni-pyly",
+    "akumulyatorni-lobzyky", "akumulyatorni-shabel-ni-pyly", "akumulyatorni-lantsyuhovi-pylky",
+  ],
+  grinding: [
+    "kutovi-shlifmashyny-bolharky", "shlifuval-ni-mashyny", "elektrorubanky",
+    "akumulyatorni-bolharky-kshm", "akumulyatorni-shlifuval-ni-mashynky",
+  ],
+  drilling: [
+    "dryli", "udarni-dryli", "perforatory", "pryami-perforatory", "bochkovi-perforatory",
+    "akumulyatorni-shurupoverty", "akumulyatorni-perforatory",
+  ],
 };
 
 export async function GET(req: Request) {

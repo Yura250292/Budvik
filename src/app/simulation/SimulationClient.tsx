@@ -86,6 +86,17 @@ export default function SimulationClient() {
     targetStep: number;
   } | null>(null);
 
+  // AI timing: track real response time and adapt animation duration
+  const simStartRef = useRef<number>(0);
+  const [expectedMs, setExpectedMs] = useState<number>(() => {
+    // Persist last known AI response time in localStorage
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("sim_expected_ms");
+      if (saved) return Math.max(6000, Math.min(24000, parseInt(saved, 10)));
+    }
+    return 13000; // first-time default: 13s
+  });
+
   // Pre-select product from URL
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -157,6 +168,7 @@ export default function SimulationClient() {
 
   const handleSimulateTools = async () => {
     if (!simType || !materialId || selectedProducts.length === 0) return;
+    simStartRef.current = Date.now();
     setLoading(true);
     setDataReady(false);
     pendingRef.current = null;
@@ -205,7 +217,12 @@ export default function SimulationClient() {
         }
       } catch { /* AI optional — timeout or error, show results without AI text */ }
 
-      // 3. Signal animation: all data ready — wait for animation cycle to finish
+      // 3. Update timing estimate for next session, then signal animation
+      const actualMs = Date.now() - simStartRef.current;
+      const next = Math.round(Math.min(24000, Math.max(6000, (expectedMs + actualMs) / 2)));
+      setExpectedMs(next);
+      if (typeof window !== "undefined") localStorage.setItem("sim_expected_ms", String(next));
+
       pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: {}, targetStep: resultStep };
       setDataReady(true);
     } catch { setLoading(false); }
@@ -213,6 +230,7 @@ export default function SimulationClient() {
 
   const handleSimulateConsumables = async () => {
     if (!materialId || !consumableMode || selectedConsumables.length < 2) return;
+    simStartRef.current = Date.now();
     setLoading(true);
     setDataReady(false);
     pendingRef.current = null;
@@ -263,6 +281,11 @@ export default function SimulationClient() {
           clearTimeout(tid);
         }
       } catch { /* AI optional — timeout or error, show results without AI text */ }
+
+      const actualMs = Date.now() - simStartRef.current;
+      const next = Math.round(Math.min(24000, Math.max(6000, (expectedMs + actualMs) / 2)));
+      setExpectedMs(next);
+      if (typeof window !== "undefined") localStorage.setItem("sim_expected_ms", String(next));
 
       pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: reasonings, targetStep: resultStep };
       setDataReady(true);
@@ -517,6 +540,7 @@ export default function SimulationClient() {
             type={currentSimType as "cutting" | "grinding" | "drilling"}
             dataReady={dataReady}
             onComplete={handleAnimComplete}
+            expectedMs={expectedMs}
           />
         </div>
       )}

@@ -6,6 +6,7 @@ interface Props {
   type: "cutting" | "grinding" | "drilling";
   dataReady?: boolean;
   onComplete?: () => void;
+  expectedMs?: number; // estimated AI processing time in ms — animation duration
 }
 
 interface Particle {
@@ -50,15 +51,17 @@ const TIPS: Record<string, string[]> = {
   ],
 };
 
-export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Props) {
+export default function InteractiveSimCanvas({ type, dataReady, onComplete, expectedMs }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
-  // Keep a ref so the rAF draw closure always reads the latest dataReady value.
-  // Without this, dataReady is stale in the closure (captured once when type changes).
+  // Keep refs so rAF draw closure always reads the latest prop values (stale closure fix)
   const dataReadyRef = useRef(dataReady);
+  const expectedMsRef = useRef(expectedMs ?? 13000);
+  useEffect(() => { expectedMsRef.current = expectedMs ?? 13000; }, [expectedMs]);
+
   useEffect(() => {
     dataReadyRef.current = dataReady;
     // When a new simulation starts (dataReady resets to false), reset animation state
@@ -193,23 +196,23 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
       // Mark when data becomes ready — use ref to avoid stale closure
       if (dataReadyRef.current && !S.dataReadySeen) S.dataReadySeen = true;
 
-      // Loading: smooth ping-pong 0 ↔ 0.78 — tool works but never finishes
-      const LOAD_CYCLE = 5.5; // seconds per full oscillation
-      const pingT = (S.elapsed % LOAD_CYCLE) / LOAD_CYCLE;
-      const pingPong = pingT < 0.5 ? pingT * 2 : 2 - pingT * 2; // triangle wave 0→1→0
+      // Animation = loading bar calibrated to expected AI response time.
+      // Loading: linear 0→0.96 over expectedMs seconds, then holds at 0.96.
+      // Data ready: smoothly finishes 0.96→1.0 over ~1s, then reveals results.
+      const EXPECTED_S = expectedMsRef.current / 1000;
 
       let phase: number;
       if (S.completionFired) {
-        // Freeze at 1 — results are being revealed
+        // Freeze — results already revealed
         phase = 1.0;
       } else if (S.dataReadySeen) {
-        // Smoothly advance from wherever loading was → 1.0 over 1.5s
+        // Data is ready: lock current position and advance to 1.0 over ~1s
         if (!S.completionStarted) {
           S.completionStarted = true;
-          S.completionFromPhase = pingPong * 0.78;
+          S.completionFromPhase = Math.min(0.96, S.elapsed / EXPECTED_S);
           S.completionProgress = 0;
         }
-        S.completionProgress = Math.min(1, S.completionProgress + dt / 1.5);
+        S.completionProgress = Math.min(1, S.completionProgress + dt / 1.0);
         phase = S.completionFromPhase + (1 - S.completionFromPhase) * S.completionProgress;
         if (S.completionProgress >= 1 && !S.completionFired) {
           S.completionFired = true;
@@ -217,8 +220,8 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
           setTimeout(() => onCompleteRef.current?.(), 80);
         }
       } else {
-        // Loading loop — oscillate, never complete
-        phase = pingPong * 0.78;
+        // Loading: linear progress, caps at 0.96 and waits for dataReady
+        phase = Math.min(0.96, S.elapsed / EXPECTED_S);
       }
 
       S.toolAngle += dt * 20;

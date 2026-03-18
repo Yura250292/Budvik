@@ -67,6 +67,9 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
       const S = stateRef.current;
       S.dataReadySeen = false;
       S.completionFired = false;
+      S.completionStarted = false;
+      S.completionFromPhase = 0;
+      S.completionProgress = 0;
       S.elapsed = 0;
       S.particles = [];
       S.metrics.forEach(m => { m.progress = 0; });
@@ -80,6 +83,9 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
     particles: [] as Particle[],
     dataReadySeen: false,
     completionFired: false,
+    completionStarted: false,
+    completionFromPhase: 0,
+    completionProgress: 0,
     metrics: [
       { label: "Знос",        icon: "⚙️", progress: 0, delay: 0   },
       { label: "Нагрів",      icon: "🌡️", progress: 0, delay: 1.5 },
@@ -184,29 +190,35 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
       for (let i = 0; i < H; i += 40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(W, i); ctx.stroke(); }
 
       // ─── Phase logic (synced with dataReady) ───
-      const CYCLE = 9;
-      const WORK = 0.67; // phase reaches 1.0 at this fraction of cycle
-      const cycleT = S.elapsed % CYCLE;
-
       // Mark when data becomes ready — use ref to avoid stale closure
       if (dataReadyRef.current && !S.dataReadySeen) S.dataReadySeen = true;
+
+      // Loading: smooth ping-pong 0 ↔ 0.78 — tool works but never finishes
+      const LOAD_CYCLE = 5.5; // seconds per full oscillation
+      const pingT = (S.elapsed % LOAD_CYCLE) / LOAD_CYCLE;
+      const pingPong = pingT < 0.5 ? pingT * 2 : 2 - pingT * 2; // triangle wave 0→1→0
 
       let phase: number;
       if (S.completionFired) {
         // Freeze at 1 — results are being revealed
         phase = 1.0;
       } else if (S.dataReadySeen) {
-        // Data ready: finish current cycle then stop
-        phase = Math.min(1, cycleT / (CYCLE * WORK));
-        if (cycleT >= CYCLE * WORK && !S.completionFired) {
+        // Smoothly advance from wherever loading was → 1.0 over 1.5s
+        if (!S.completionStarted) {
+          S.completionStarted = true;
+          S.completionFromPhase = pingPong * 0.78;
+          S.completionProgress = 0;
+        }
+        S.completionProgress = Math.min(1, S.completionProgress + dt / 1.5);
+        phase = S.completionFromPhase + (1 - S.completionFromPhase) * S.completionProgress;
+        if (S.completionProgress >= 1 && !S.completionFired) {
           S.completionFired = true;
-          // All metrics must be at 100% instantly
           S.metrics.forEach(m => { m.progress = 1; });
           setTimeout(() => onCompleteRef.current?.(), 80);
         }
       } else {
-        // Still loading — loop normally
-        phase = cycleT < CYCLE * WORK ? cycleT / (CYCLE * WORK) : 1.0;
+        // Loading loop — oscillate, never complete
+        phase = pingPong * 0.78;
       }
 
       S.toolAngle += dt * 20;
@@ -347,7 +359,7 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
 }
 
 // ═══════════════════════════════════════════════════════
-// CUTTING — grinder moves across material, kerf opens up
+// CUTTING — grinder descends vertically, splits material in two
 // ═══════════════════════════════════════════════════════
 function drawCutting(
   ctx: CanvasRenderingContext2D, W: number, H: number, dt: number,
@@ -356,169 +368,170 @@ function drawCutting(
 ) {
   const eased = easeInOut(phase);
 
-  // ─── Material block (3D isometric-ish) ───
-  const bx = W * 0.08;
-  const by = H * 0.42;
-  const bw = W * 0.84;
-  const bh = H * 0.34;
-  const thick = 14; // top face thickness
+  // ─── Material block ───
+  const cx   = W * 0.50;         // vertical cut line (center)
+  const matY = H * 0.28;
+  const matH = H * 0.42;
+  const matW = W * 0.78;
+  const matX = (W - matW) / 2;
+  const toph = 13;               // 3D top-face depth
+  const kerfW = 5;
 
-  // Cut X position across the block
-  const cutX = bx + bw * eased;
+  // Pieces drift apart horizontally once cut passes 35%
+  const sep = Math.max(0, (eased - 0.35) / 0.65) * 16;
 
-  // Left part (already cut) — slightly separated
-  const sepOffset = eased * 4;
+  const lEnd = cx - kerfW / 2;   // right edge of left piece
+  const rSt  = cx + kerfW / 2;   // left edge of right piece
 
-  // Top face - left piece
-  const topGradL = ctx.createLinearGradient(bx, by - thick, bx + cutX, by);
-  topGradL.addColorStop(0, "#5a5a5a");
-  topGradL.addColorStop(1, "#484848");
-  ctx.fillStyle = topGradL;
+  // ── LEFT PIECE ──
+  ctx.save();
+  ctx.translate(-sep, 0);
+  // top face
+  const tgL = ctx.createLinearGradient(matX, matY - toph, lEnd, matY);
+  tgL.addColorStop(0, "#5c5c5c"); tgL.addColorStop(1, "#4a4a4a");
+  ctx.fillStyle = tgL;
   ctx.beginPath();
-  ctx.moveTo(bx,       by - sepOffset);
-  ctx.lineTo(bx + thick, by - thick - sepOffset);
-  ctx.lineTo(cutX + thick, by - thick - sepOffset);
-  ctx.lineTo(cutX,     by - sepOffset);
+  ctx.moveTo(matX,        matY);
+  ctx.lineTo(matX + toph, matY - toph);
+  ctx.lineTo(lEnd + toph, matY - toph);
+  ctx.lineTo(lEnd,        matY);
   ctx.closePath(); ctx.fill();
-
-  // Front face - left piece
-  const frontGradL = ctx.createLinearGradient(bx, by, bx, by + bh);
-  frontGradL.addColorStop(0, "#525252");
-  frontGradL.addColorStop(0.5, "#3c3c3c");
-  frontGradL.addColorStop(1, "#2c2c2c");
-  ctx.fillStyle = frontGradL;
-  ctx.fillRect(bx, by - sepOffset, cutX - bx, bh);
-
-  // Right piece (stationary)
-  const topGradR = ctx.createLinearGradient(cutX, by - thick, bx + bw, by);
-  topGradR.addColorStop(0, "#484848");
-  topGradR.addColorStop(1, "#3e3e3e");
-  ctx.fillStyle = topGradR;
+  // front face
+  const fgL = ctx.createLinearGradient(0, matY, 0, matY + matH);
+  fgL.addColorStop(0, "#525252"); fgL.addColorStop(0.5, "#3e3e3e"); fgL.addColorStop(1, "#2a2a2a");
+  ctx.fillStyle = fgL;
+  ctx.fillRect(matX, matY, lEnd - matX, matH);
+  // left side face
+  ctx.fillStyle = "#303030";
   ctx.beginPath();
-  ctx.moveTo(cutX,       by);
-  ctx.lineTo(cutX + thick, by - thick);
-  ctx.lineTo(bx + bw + thick, by - thick);
-  ctx.lineTo(bx + bw,   by);
+  ctx.moveTo(matX,        matY);
+  ctx.lineTo(matX + toph, matY - toph);
+  ctx.lineTo(matX + toph, matY + matH - toph);
+  ctx.lineTo(matX,        matY + matH);
   ctx.closePath(); ctx.fill();
+  ctx.restore();
 
-  const frontGradR = ctx.createLinearGradient(cutX, by, cutX, by + bh);
-  frontGradR.addColorStop(0, "#484848");
-  frontGradR.addColorStop(0.5, "#363636");
-  frontGradR.addColorStop(1, "#262626");
-  ctx.fillStyle = frontGradR;
-  ctx.fillRect(cutX, by, bw - (cutX - bx), bh);
-
-  // Side face right piece
-  ctx.fillStyle = "#2e2e2e";
+  // ── RIGHT PIECE ──
+  ctx.save();
+  ctx.translate(sep, 0);
+  // top face
+  const tgR = ctx.createLinearGradient(rSt, matY - toph, matX + matW, matY);
+  tgR.addColorStop(0, "#4a4a4a"); tgR.addColorStop(1, "#3e3e3e");
+  ctx.fillStyle = tgR;
   ctx.beginPath();
-  ctx.moveTo(bx + bw, by);
-  ctx.lineTo(bx + bw + thick, by - thick);
-  ctx.lineTo(bx + bw + thick, by + bh - thick);
-  ctx.lineTo(bx + bw, by + bh);
+  ctx.moveTo(rSt,             matY);
+  ctx.lineTo(rSt + toph,      matY - toph);
+  ctx.lineTo(matX + matW + toph, matY - toph);
+  ctx.lineTo(matX + matW,     matY);
   ctx.closePath(); ctx.fill();
+  // front face
+  const fgR = ctx.createLinearGradient(0, matY, 0, matY + matH);
+  fgR.addColorStop(0, "#484848"); fgR.addColorStop(0.5, "#363636"); fgR.addColorStop(1, "#262626");
+  ctx.fillStyle = fgR;
+  ctx.fillRect(rSt, matY, matX + matW - rSt, matH);
+  // right side face
+  ctx.fillStyle = "#282828";
+  ctx.beginPath();
+  ctx.moveTo(matX + matW,        matY);
+  ctx.lineTo(matX + matW + toph, matY - toph);
+  ctx.lineTo(matX + matW + toph, matY + matH - toph);
+  ctx.lineTo(matX + matW,        matY + matH);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
 
-  // ─── Kerf (cut slot) ───
-  if (eased > 0.005) {
-    const kerfW = 4;
-    // Dark slot in material
-    ctx.fillStyle = "rgba(0,0,0,0.85)";
-    ctx.fillRect(cutX - kerfW / 2, by - sepOffset, kerfW, bh);
-
-    // Glowing kerf edges
+  // ── KERF (vertical slot, deepens from top) ──
+  const kerfDepth = Math.min(matH + toph, eased * (matH + toph + 18));
+  if (kerfDepth > 1) {
+    ctx.fillStyle = "rgba(0,0,0,0.88)";
+    ctx.fillRect(cx - kerfW / 2, matY - toph, kerfW, kerfDepth);
     ctx.shadowColor = "#FF8800";
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = `rgba(255, 160, 0, ${0.4 + S.heatGlow * 0.5})`;
+    ctx.shadowBlur = 7;
+    ctx.strokeStyle = `rgba(255,160,0,${0.35 + S.heatGlow * 0.5})`;
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(cutX - kerfW / 2, by - sepOffset); ctx.lineTo(cutX - kerfW / 2, by + bh - sepOffset); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cutX + kerfW / 2, by); ctx.lineTo(cutX + kerfW / 2, by + bh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - kerfW / 2, matY - toph); ctx.lineTo(cx - kerfW / 2, matY - toph + kerfDepth); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + kerfW / 2, matY - toph); ctx.lineTo(cx + kerfW / 2, matY - toph + kerfDepth); ctx.stroke();
     ctx.shadowBlur = 0;
   }
 
-  // ─── Depth progress bar ───
-  const barX = W * 0.94;
-  const barY = by;
-  const barH = bh;
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  ctx.beginPath(); ctx.roundRect(barX, barY, 6, barH, 3); ctx.fill();
-  ctx.fillStyle = "#FFD600";
-  ctx.beginPath(); ctx.roundRect(barX, barY, 6, barH * eased, 3); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
-  ctx.font = "9px system-ui"; ctx.textAlign = "center";
-  ctx.fillText(`${Math.round(eased * 100)}%`, barX + 3, by + barH + 14);
-
-  // ─── Angle grinder ───
+  // ── GRINDER (descends vertically, body horizontal) ──
   const discR = 28;
-  const toolX = cutX;
-  const toolY = by - sepOffset - discR + 4;
+  // disc center starts above material top, ends below material bottom
+  const discStart = matY - toph - discR - 12;
+  const discEnd   = matY + matH + discR + 10;
+  const toolY = discStart + eased * (discEnd - discStart);
+  const contactY = toolY + discR;
 
   ctx.save();
-  ctx.translate(toolX, toolY);
+  ctx.translate(cx, toolY);
 
-  // Grinder body
-  const bodyGrad = ctx.createLinearGradient(-20, -50, 20, 0);
-  bodyGrad.addColorStop(0, "#2a2a2a");
-  bodyGrad.addColorStop(0.5, "#444");
-  bodyGrad.addColorStop(1, "#323232");
+  // Body (vertical, extends upward from disc)
+  const bodyGrad = ctx.createLinearGradient(-15, -65, 15, 0);
+  bodyGrad.addColorStop(0, "#2a2a2a"); bodyGrad.addColorStop(0.5, "#464646"); bodyGrad.addColorStop(1, "#343434");
   ctx.fillStyle = bodyGrad;
-  ctx.beginPath();
-  ctx.moveTo(-14, -50); ctx.lineTo(14, -50);
-  ctx.lineTo(18, -8);  ctx.lineTo(-18, -8);
-  ctx.closePath(); ctx.fill();
-
-  // Side handle
-  ctx.fillStyle = "#1e1e1e";
-  ctx.beginPath(); ctx.roundRect(-45, -40, 28, 13, 5); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
-  for (let xi = -42; xi < -20; xi += 4) {
-    ctx.beginPath(); ctx.moveTo(xi, -39); ctx.lineTo(xi, -28); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(-15, -68, 30, 58, 5); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath(); ctx.moveTo(-11, -65 + i * 9); ctx.lineTo(11, -65 + i * 9); ctx.stroke();
   }
 
   // Gear housing
-  ctx.fillStyle = "#383838";
-  ctx.beginPath(); ctx.arc(0, 0, 17, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#3a3a3a";
+  ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = "#555"; ctx.lineWidth = 2; ctx.stroke();
+
+  // Side handle (extends right)
+  ctx.fillStyle = "#1e1e1e";
+  ctx.beginPath(); ctx.roundRect(18, -48, 32, 13, 5); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath(); ctx.moveTo(21 + i * 6, -47); ctx.lineTo(21 + i * 6, -36); ctx.stroke();
+  }
 
   // Spinning disc
   ctx.save();
   ctx.rotate(S.toolAngle);
   const dg = ctx.createRadialGradient(0, 0, 2, 0, 0, discR);
-  dg.addColorStop(0, "#999");
-  dg.addColorStop(0.4, "#666");
-  dg.addColorStop(0.85, "#555");
-  dg.addColorStop(1, "#444");
+  dg.addColorStop(0, "#999"); dg.addColorStop(0.4, "#666"); dg.addColorStop(0.85, "#555"); dg.addColorStop(1, "#444");
   ctx.fillStyle = dg;
   ctx.beginPath(); ctx.arc(0, 0, discR, 0, Math.PI * 2); ctx.fill();
-  // Motion blur lines
   ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 0.7;
   for (let ri = 0; ri < 10; ri++) {
     const a = (ri / 10) * Math.PI * 2;
-    ctx.beginPath(); ctx.moveTo(Math.cos(a) * 5, Math.sin(a) * 5);
-    ctx.lineTo(Math.cos(a) * discR, Math.sin(a) * discR); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * 5, Math.sin(a) * 5); ctx.lineTo(Math.cos(a) * discR, Math.sin(a) * discR); ctx.stroke();
   }
-  // Outer ring (wear edge)
   ctx.strokeStyle = "rgba(255,200,80,0.3)"; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(0, 0, discR - 1, 0, Math.PI * 2); ctx.stroke();
-  // Center
   ctx.fillStyle = "#888"; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 
-  // Heat glow at contact
-  if (S.heatGlow > 0.1) {
-    const gr = 18 + S.heatGlow * 22;
-    const glow = ctx.createRadialGradient(0, discR - 4, 0, 0, discR - 4, gr);
-    glow.addColorStop(0, `rgba(255, 200, 0, ${S.heatGlow * 0.7})`);
-    glow.addColorStop(0.4, `rgba(255, 100, 0, ${S.heatGlow * 0.4})`);
-    glow.addColorStop(1, "rgba(255, 50, 0, 0)");
+  // Heat glow at cutting contact
+  const inMat = contactY >= matY - toph - 4 && contactY <= matY + matH + 4;
+  if (S.heatGlow > 0.1 && inMat) {
+    const gr = 16 + S.heatGlow * 22;
+    const glow = ctx.createRadialGradient(0, discR - 3, 0, 0, discR - 3, gr);
+    glow.addColorStop(0, `rgba(255,200,0,${S.heatGlow * 0.7})`);
+    glow.addColorStop(0.4, `rgba(255,100,0,${S.heatGlow * 0.35})`);
+    glow.addColorStop(1, "rgba(255,50,0,0)");
     ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(0, discR - 4, gr, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, discR - 3, gr, 0, Math.PI * 2); ctx.fill();
   }
-
   ctx.restore();
 
-  // Sparks from contact point — spray diagonally right+down
-  if (phase > 0.01 && phase < 0.99) {
-    spawnSparks(toolX + 4, toolY + discR - 2, 3 + Math.floor(S.heatGlow * 3), S.heatGlow > 0.5, 0.7, 0.9);
+  // Sparks spray left + right from contact
+  if (phase > 0.02 && phase < 0.98 && inMat) {
+    spawnSparks(cx - 4, contactY, 2 + Math.floor(S.heatGlow * 3), S.heatGlow > 0.5, -0.9, 0.6);
+    spawnSparks(cx + 4, contactY, 2 + Math.floor(S.heatGlow * 3), S.heatGlow > 0.5,  0.9, 0.6);
   }
+
+  // ─── Progress bar (left side) ───
+  const barX = W * 0.06;
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath(); ctx.roundRect(barX, matY, 6, matH, 3); ctx.fill();
+  ctx.fillStyle = "#FFD600";
+  ctx.beginPath(); ctx.roundRect(barX, matY, 6, matH * eased, 3); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.font = "9px system-ui"; ctx.textAlign = "center";
+  ctx.fillText(`${Math.round(eased * 100)}%`, barX + 3, matY + matH + 14);
 }
 
 // ════════════════════════════════════════════════════════════════

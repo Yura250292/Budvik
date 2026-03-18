@@ -56,6 +56,23 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
+  // Keep a ref so the rAF draw closure always reads the latest dataReady value.
+  // Without this, dataReady is stale in the closure (captured once when type changes).
+  const dataReadyRef = useRef(dataReady);
+  useEffect(() => {
+    dataReadyRef.current = dataReady;
+    // When a new simulation starts (dataReady resets to false), reset animation state
+    // so completionFired from a previous run doesn't block the next one.
+    if (!dataReady) {
+      const S = stateRef.current;
+      S.dataReadySeen = false;
+      S.completionFired = false;
+      S.elapsed = 0;
+      S.particles = [];
+      S.metrics.forEach(m => { m.progress = 0; });
+    }
+  }, [dataReady]);
+
   const stateRef = useRef({
     elapsed: 0,
     toolAngle: 0,
@@ -171,8 +188,8 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete }: Pr
       const WORK = 0.67; // phase reaches 1.0 at this fraction of cycle
       const cycleT = S.elapsed % CYCLE;
 
-      // Mark when data becomes ready
-      if (dataReady && !S.dataReadySeen) S.dataReadySeen = true;
+      // Mark when data becomes ready — use ref to avoid stale closure
+      if (dataReadyRef.current && !S.dataReadySeen) S.dataReadySeen = true;
 
       let phase: number;
       if (S.completionFired) {

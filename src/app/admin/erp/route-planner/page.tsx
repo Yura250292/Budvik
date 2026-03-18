@@ -1125,19 +1125,37 @@ function RoutePlannerContent() {
                 {/* Share: Google Maps + Waze */}
                 {(() => {
                   const allPoints = result.optimizedAddresses;
-                  const googleMapsUrl = `https://www.google.com/maps/dir/${allPoints.map((p) => `${p.lat},${p.lng}`).join("/")}`;
+                  const startPoint = allPoints.find((p) => p.type === "start");
                   const stops = allPoints.filter((p) => p.type === "stop");
                   const lastStop = stops[stops.length - 1];
+                  const midStops = stops.slice(0, -1);
+
+                  // Google Maps: origin=склад, destination=остання зупинка, waypoints=проміжні
+                  const gmOrigin = startPoint ? `${startPoint.lat},${startPoint.lng}` : "";
+                  const gmDest = lastStop ? `${lastStop.lat},${lastStop.lng}` : "";
+                  const gmWaypoints = midStops.map((p) => `${p.lat},${p.lng}`).join("|");
+                  const gmParams = new URLSearchParams({
+                    api: "1",
+                    origin: gmOrigin,
+                    destination: gmDest,
+                    travelmode: "driving",
+                  });
+                  if (gmWaypoints) gmParams.set("waypoints", gmWaypoints);
+                  const googleMapsUrl = `https://www.google.com/maps/dir/?${gmParams.toString()}`;
+
+                  // Waze: doesn't support multi-stop — open with all points as dir/ URL
+                  // Waze deeplink navigates to a single point, so for multi-stop we build
+                  // a Google Maps-style share and per-stop Waze links in the legs section
                   const wazeUrl = lastStop
                     ? `https://waze.com/ul?ll=${lastStop.lat},${lastStop.lng}&navigate=yes`
                     : null;
 
                   const handleCopyLink = async () => {
                     const text = [
-                      `Маршрут: ${allPoints[0]?.address || "Старт"} -> ${stops.length} зупинок`,
+                      `Маршрут: ${startPoint?.address || "Старт"} -> ${stops.length} зупинок`,
                       `${result.totalDistanceKm} км, ~${result.totalDurationMin < 60 ? `${result.totalDurationMin} хв` : `${Math.floor(result.totalDurationMin / 60)} год ${result.totalDurationMin % 60} хв`}`,
                       "",
-                      "Google Maps:",
+                      "Google Maps (повний маршрут):",
                       googleMapsUrl,
                       "",
                       "Зупинки:",
@@ -1150,69 +1168,96 @@ function RoutePlannerContent() {
                     } catch { /* fallback: do nothing */ }
                   };
 
+                  // Google Maps without warehouse (driver already loaded — start from first stop)
+                  const gmNoWarehouseParams = stops.length >= 2
+                    ? (() => {
+                        const p = new URLSearchParams({
+                          api: "1",
+                          origin: `${stops[0].lat},${stops[0].lng}`,
+                          destination: `${stops[stops.length - 1].lat},${stops[stops.length - 1].lng}`,
+                          travelmode: "driving",
+                        });
+                        const wps = stops.slice(1, -1).map((s) => `${s.lat},${s.lng}`).join("|");
+                        if (wps) p.set("waypoints", wps);
+                        return p;
+                      })()
+                    : null;
+                  const googleMapsNoWarehouseUrl = gmNoWarehouseParams
+                    ? `https://www.google.com/maps/dir/?${gmNoWarehouseParams.toString()}`
+                    : stops.length === 1
+                      ? `https://www.google.com/maps/dir/?api=1&destination=${stops[0].lat},${stops[0].lng}&travelmode=driving`
+                      : null;
+
                   return (
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      <a
-                        href={googleMapsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: "6px",
-                          padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                          background: "#EEF2FF", color: "#4338CA", border: "1px solid #C7D2FE",
-                          textDecoration: "none",
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="#4338CA"/>
-                        </svg>
-                        Google Maps
-                      </a>
-                      {wazeUrl && (
+                    <div className="space-y-2 mb-4">
+                      {/* Main navigation row */}
+                      <div className="flex flex-wrap gap-2">
                         <a
-                          href={wazeUrl}
+                          href={googleMapsUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
                             display: "inline-flex", alignItems: "center", gap: "6px",
                             padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                            background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0",
+                            background: "#EEF2FF", color: "#4338CA", border: "1px solid #C7D2FE",
                             textDecoration: "none",
                           }}
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <path d="M20.54 6.63A8.97 8.97 0 0012.05 3C7.05 3 3 7.05 3 12.05c0 2.8 1.28 5.3 3.29 6.95H6.3c-.02 1.1.88 2 1.98 2h.02c1.1 0 2-0.9 2-2h3.4c0 1.1.9 2 2 2s2-.9 2-2c2.37-1.62 3.3-4.03 3.3-6.58 0-2.07-.7-3.97-1.86-5.47l-.6-.32zM9 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z" fill="#15803D"/>
+                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="#4338CA"/>
                           </svg>
-                          Waze
+                          Google Maps
                         </a>
-                      )}
-                      <button
-                        onClick={handleCopyLink}
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: "6px",
-                          padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                          background: copiedLink ? "#F0FDF4" : "#F9FAFB",
-                          color: copiedLink ? "#16A34A" : "#374151",
-                          border: copiedLink ? "1px solid #BBF7D0" : "1px solid #E5E7EB",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {copiedLink ? (
-                          <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        {googleMapsNoWarehouseUrl && (
+                          <a
+                            href={googleMapsNoWarehouseUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Маршрут без складу — водій вже завантажений"
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: "6px",
+                              padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                              background: "#FFF7ED", color: "#C2410C", border: "1px solid #FED7AA",
+                              textDecoration: "none",
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="#C2410C"/>
                             </svg>
-                            Скопійовано!
-                          </>
-                        ) : (
-                          <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                            </svg>
-                            Поділитись
-                          </>
+                            Без складу
+                          </a>
                         )}
-                      </button>
+                        <button
+                          onClick={handleCopyLink}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: "6px",
+                            padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                            background: copiedLink ? "#F0FDF4" : "#F9FAFB",
+                            color: copiedLink ? "#16A34A" : "#374151",
+                            border: copiedLink ? "1px solid #BBF7D0" : "1px solid #E5E7EB",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {copiedLink ? (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                              Скопійовано!
+                            </>
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                              </svg>
+                              Поділитись
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p style={{ fontSize: "11px", color: "#9CA3AF" }}>
+                        &laquo;Без складу&raquo; — маршрут тільки по зупинках (водій вже завантажений)
+                      </p>
                     </div>
                   );
                 })()}
@@ -1230,11 +1275,31 @@ function RoutePlannerContent() {
                         {addr.type === "start" ? "⚑" : addr.sequence}
                       </div>
                       <span className="flex-1 truncate" style={{ color: "#374151" }}>{addr.address}</span>
-                      {idx > 0 && result.legs[idx - 1] && (
-                        <span style={{ color: "#6B7280", fontSize: "12px", flexShrink: 0 }}>
-                          {result.legs[idx - 1].distanceKm} км · {result.legs[idx - 1].durationMin} хв
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {idx > 0 && result.legs[idx - 1] && (
+                          <span style={{ color: "#6B7280", fontSize: "12px" }}>
+                            {result.legs[idx - 1].distanceKm} км · {result.legs[idx - 1].durationMin} хв
+                          </span>
+                        )}
+                        {addr.type === "stop" && (
+                          <a
+                            href={`https://waze.com/ul?ll=${addr.lat},${addr.lng}&navigate=yes`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Навігація Waze: ${addr.address}`}
+                            style={{
+                              display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              width: "22px", height: "22px", borderRadius: "5px",
+                              background: "#F0FDF4", border: "1px solid #BBF7D0",
+                              textDecoration: "none", flexShrink: 0,
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                              <path d="M20.54 6.63A8.97 8.97 0 0012.05 3C7.05 3 3 7.05 3 12.05c0 2.8 1.28 5.3 3.29 6.95H6.3c-.02 1.1.88 2 1.98 2h.02c1.1 0 2-0.9 2-2h3.4c0 1.1.9 2 2 2s2-.9 2-2c2.37-1.62 3.3-4.03 3.3-6.58 0-2.07-.7-3.97-1.86-5.47l-.6-.32zM9 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z" fill="#15803D"/>
+                            </svg>
+                          </a>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

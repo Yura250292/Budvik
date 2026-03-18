@@ -16,6 +16,88 @@ async function waitForRateLimit() {
   lastRequestTime = Date.now();
 }
 
+/** Common Russian→Ukrainian city name mappings */
+const CITY_NAME_MAP: Record<string, string> = {
+  "светловодск": "Світловодськ",
+  "кременчуг": "Кременчук",
+  "днепр": "Дніпро",
+  "днепропетровск": "Дніпро",
+  "запорожье": "Запоріжжя",
+  "житомир": "Житомир",
+  "харьков": "Харків",
+  "херсон": "Херсон",
+  "одесса": "Одеса",
+  "николаев": "Миколаїв",
+  "полтава": "Полтава",
+  "сумы": "Суми",
+  "чернигов": "Чернігів",
+  "черновцы": "Чернівці",
+  "черкассы": "Черкаси",
+  "кировоград": "Кропивницький",
+  "кропивницкий": "Кропивницький",
+  "ровно": "Рівне",
+  "луцк": "Луцьк",
+  "ужгород": "Ужгород",
+  "тернополь": "Тернопіль",
+  "ивано-франковск": "Івано-Франківськ",
+  "львов": "Львів",
+  "винница": "Вінниця",
+  "хмельницкий": "Хмельницький",
+  "белая церковь": "Біла Церква",
+  "бердянск": "Бердянськ",
+  "мелитополь": "Мелітополь",
+  "каменец-подольский": "Кам'янець-Подільський",
+  "александрия": "Олександрія",
+  "знаменка": "Знам'янка",
+  "павлоград": "Павлоград",
+  "никополь": "Нікополь",
+  "умань": "Умань",
+  "нежин": "Ніжин",
+  "конотоп": "Конотоп",
+  "шостка": "Шостка",
+  "коростень": "Коростень",
+  "бердичев": "Бердичів",
+  "славута": "Славута",
+  "новоград-волынский": "Новоград-Волинський",
+  "измаил": "Ізмаїл",
+  "первомайск": "Первомайськ",
+  "вознесенск": "Вознесенськ",
+  "кривой рог": "Кривий Ріг",
+};
+
+/**
+ * Normalize a Nova Poshta address into a geocodable street address.
+ * Input:  "НОВА ПОШТА №1,Светловодск,вул. Січових Стрільців(ран.вул.9-го Января),102"
+ * Output: "Світловодськ, вулиця Січових Стрільців, 102"
+ */
+function normalizeNovaPoshtaAddress(address: string): string | null {
+  // Detect NP-style address (case-insensitive)
+  if (!/нова\s*пошта|nova\s*poshta|відділення|нп\s*№?\d/i.test(address)) {
+    return null;
+  }
+
+  // Remove "НОВА ПОШТА №N" / "Відділення №N" prefix
+  let cleaned = address
+    .replace(/^(НОВА\s*ПОШТА|Nova\s*Poshta|НП)\s*№?\s*\d+\s*[,;:\s]*/i, "")
+    .replace(/^відділення\s*№?\s*\d+\s*[,;:\s]*/i, "")
+    .trim();
+
+  // Remove parenthetical old street names: "(ран.вул.9-го Января)" or "(раніше вул. ...)"
+  cleaned = cleaned.replace(/\s*\(ран(?:іше)?\.?\s*[^)]*\)/gi, "");
+
+  // Split into parts (city, street, number...)
+  const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  // Translate Russian city names to Ukrainian
+  const normalizedParts = parts.map((part) => {
+    const lower = part.toLowerCase().trim();
+    return CITY_NAME_MAP[lower] || part;
+  });
+
+  return normalizedParts.join(", ");
+}
+
 /** Expand Ukrainian abbreviations for better Nominatim matching */
 function expandAbbreviations(address: string): string {
   return address
@@ -39,6 +121,16 @@ function stripAbbreviations(address: string): string {
     .replace(/\b(вул\.|вулиця|пров\.|провулок|просп\.|проспект|бульв\.|бульвар|пл\.|площа|р-н|район|обл\.|область|с\.|село|смт\.?|м\.)\s*/gi, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Replace Russian city names with Ukrainian equivalents in address string */
+function normalizeRussianCityNames(address: string): string {
+  const parts = address.split(",").map((p) => p.trim());
+  const normalized = parts.map((part) => {
+    const lower = part.toLowerCase().trim();
+    return CITY_NAME_MAP[lower] || part;
+  });
+  return normalized.join(", ");
 }
 
 /** Try a single Nominatim search query */
@@ -129,6 +221,32 @@ export async function geocodeAddress(
     return cache.get(cacheKey)!;
   }
 
+  // Strategy 0: if it looks like a Nova Poshta address, normalize it first
+  const npNormalized = normalizeNovaPoshtaAddress(trimmed);
+  if (npNormalized) {
+    const npExpanded = expandAbbreviations(npNormalized);
+    const npStripped = stripAbbreviations(npNormalized);
+
+    // Try normalized NP address with expanded abbreviations
+    let result = await nominatimSearch(npExpanded, { country: "ua" });
+    if (!result) {
+      result = await nominatimSearch(npStripped, { country: "ua" });
+    }
+    // Try just "City, Street" without house number (NP branch may not match exact number)
+    if (!result) {
+      const npParts = npStripped.split(",").map((p) => p.trim()).filter(Boolean);
+      if (npParts.length >= 2) {
+        // Try city + street (without house number)
+        const cityStreet = npParts.slice(0, 2).join(", ");
+        result = await nominatimSearch(cityStreet, { country: "ua" });
+      }
+    }
+    if (result) {
+      cache.set(cacheKey, result);
+      return result;
+    }
+  }
+
   const expanded = expandAbbreviations(trimmed);
   const stripped = stripAbbreviations(trimmed);
 
@@ -143,6 +261,14 @@ export async function geocodeAddress(
   // Strategy 3: stripped abbreviations, Ukraine
   if (!result && stripped !== trimmed && stripped !== expanded) {
     result = await nominatimSearch(stripped, { country: "ua" });
+  }
+
+  // Strategy 3.5: normalize Russian city names to Ukrainian
+  if (!result) {
+    const withUkrCities = normalizeRussianCityNames(expanded);
+    if (withUkrCities !== expanded) {
+      result = await nominatimSearch(withUkrCities, { country: "ua" });
+    }
   }
 
   // Strategy 4: append "Україна" for better context

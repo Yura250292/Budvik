@@ -1309,23 +1309,31 @@ function RoutePlannerContent() {
 
           {/* Right panel: map */}
           <div className="lg:sticky lg:top-[80px] lg:self-start">
-            {isPicking && (
-              <div style={{
-                padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: "13px", fontWeight: 600,
-                background: "#FFD600", color: "#0A0A0A", textAlign: "center",
-              }}>
-                {pickingStart ? "Натисніть на карту щоб вказати початкову точку" :
-                 pickingStopId ? "Натисніть на карту щоб вказати зупинку" :
-                 "Натисніть на карту щоб додати нову зупинку"}
-              </div>
-            )}
-            <DynamicDeliveryMap
-              stops={mapStops}
-              routeGeometry={routeGeometry}
-              height="calc(100vh - 120px)"
-              onMapClick={handleMapClick}
-              pickingMode={isPicking}
-            />
+            <div style={{
+              background: "white",
+              borderRadius: "16px",
+              border: isPicking ? "2px solid #FFD600" : "1px solid #EFEFEF",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+              overflow: "hidden",
+            }}>
+              {isPicking && (
+                <div style={{
+                  padding: "8px 16px", fontSize: "13px", fontWeight: 600,
+                  background: "#FFD600", color: "#0A0A0A", textAlign: "center",
+                }}>
+                  {pickingStart ? "Натисніть на карту щоб вказати початкову точку" :
+                   pickingStopId ? "Натисніть на карту щоб вказати зупинку" :
+                   "Натисніть на карту щоб додати нову зупинку"}
+                </div>
+              )}
+              <DynamicDeliveryMap
+                stops={mapStops}
+                routeGeometry={routeGeometry}
+                height="min(60vh, 500px)"
+                onMapClick={handleMapClick}
+                pickingMode={isPicking}
+              />
+            </div>
           </div>
         </div>
       </div>

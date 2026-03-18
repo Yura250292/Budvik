@@ -145,9 +145,8 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
       style={{
         height,
         width: "100%",
-        borderRadius: "12px",
+        borderRadius: "14px",
         overflow: "hidden",
-        border: pickingMode ? "2px solid #FFD600" : "1px solid #E5E7EB",
       }}
     />
   );

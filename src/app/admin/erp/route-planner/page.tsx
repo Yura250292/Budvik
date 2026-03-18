@@ -112,6 +112,9 @@ function RoutePlannerContent() {
   const [linkedDeliveryRoute, setLinkedDeliveryRoute] = useState<any>(null);
   const [savingToDelivery, setSavingToDelivery] = useState(false);
 
+  // Share
+  const [copiedLink, setCopiedLink] = useState(false);
+
   const isPicking = pickingStart || !!pickingStopId || pickingNewStop;
 
   // Load warehouses & saved routes on mount
@@ -1118,6 +1121,101 @@ function RoutePlannerContent() {
                     <p style={{ fontSize: "12px", color: "#6B7280" }}>в дорозі</p>
                   </div>
                 </div>
+
+                {/* Share: Google Maps + Waze */}
+                {(() => {
+                  const allPoints = result.optimizedAddresses;
+                  const googleMapsUrl = `https://www.google.com/maps/dir/${allPoints.map((p) => `${p.lat},${p.lng}`).join("/")}`;
+                  const stops = allPoints.filter((p) => p.type === "stop");
+                  const lastStop = stops[stops.length - 1];
+                  const wazeUrl = lastStop
+                    ? `https://waze.com/ul?ll=${lastStop.lat},${lastStop.lng}&navigate=yes`
+                    : null;
+
+                  const handleCopyLink = async () => {
+                    const text = [
+                      `Маршрут: ${allPoints[0]?.address || "Старт"} -> ${stops.length} зупинок`,
+                      `${result.totalDistanceKm} км, ~${result.totalDurationMin < 60 ? `${result.totalDurationMin} хв` : `${Math.floor(result.totalDurationMin / 60)} год ${result.totalDurationMin % 60} хв`}`,
+                      "",
+                      "Google Maps:",
+                      googleMapsUrl,
+                      "",
+                      "Зупинки:",
+                      ...stops.map((s, i) => `${i + 1}. ${s.address}`),
+                    ].join("\n");
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    } catch { /* fallback: do nothing */ }
+                  };
+
+                  return (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <a
+                        href={googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: "6px",
+                          padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                          background: "#EEF2FF", color: "#4338CA", border: "1px solid #C7D2FE",
+                          textDecoration: "none",
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="#4338CA"/>
+                        </svg>
+                        Google Maps
+                      </a>
+                      {wazeUrl && (
+                        <a
+                          href={wazeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: "6px",
+                            padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                            background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0",
+                            textDecoration: "none",
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <path d="M20.54 6.63A8.97 8.97 0 0012.05 3C7.05 3 3 7.05 3 12.05c0 2.8 1.28 5.3 3.29 6.95H6.3c-.02 1.1.88 2 1.98 2h.02c1.1 0 2-0.9 2-2h3.4c0 1.1.9 2 2 2s2-.9 2-2c2.37-1.62 3.3-4.03 3.3-6.58 0-2.07-.7-3.97-1.86-5.47l-.6-.32zM9 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z" fill="#15803D"/>
+                          </svg>
+                          Waze
+                        </a>
+                      )}
+                      <button
+                        onClick={handleCopyLink}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: "6px",
+                          padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+                          background: copiedLink ? "#F0FDF4" : "#F9FAFB",
+                          color: copiedLink ? "#16A34A" : "#374151",
+                          border: copiedLink ? "1px solid #BBF7D0" : "1px solid #E5E7EB",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {copiedLink ? (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Скопійовано!
+                          </>
+                        ) : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                            </svg>
+                            Поділитись
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Legs details */}
                 <div className="space-y-2">

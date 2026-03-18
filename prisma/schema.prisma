@@ -176,6 +176,10 @@ model Product {
   orderItems OrderItem[]
   embedding  ProductEmbedding?
 
+  // Sync fields
+  syncedAt    DateTime? // Коли останній раз синхронізовано з 1С
+  syncSource  String?   // "1C" — позначка що дані прийшли з 1С
+
   // ERP relations
   supplierProducts   SupplierProduct[]
   purchaseOrderItems PurchaseOrderItem[]
@@ -689,6 +693,41 @@ model SavedRouteStop {
   sequence     Int    @default(0)
 
   savedRoute SavedRoute @relation(fields: [savedRouteId], references: [id], onDelete: Cascade)
+}
+
+// ========== Sync (1С Integration) ==========
+
+model SyncJob {
+  id              String   @id @default(cuid())
+  type            String   // "products", "counterparties"
+  status          String   // "running", "completed", "failed"
+  fileName        String
+  recordsTotal    Int      @default(0)
+  recordsCreated  Int      @default(0)
+  recordsUpdated  Int      @default(0)
+  recordsSkipped  Int      @default(0)
+  recordsFailed   Int      @default(0)
+  errors          String?  // JSON array of error messages
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  discrepancies SyncDiscrepancy[]
+}
+
+model SyncDiscrepancy {
+  id          String   @id @default(cuid())
+  syncJobId   String
+  entityType  String   // "product", "counterparty"
+  entityRef   String   // SKU або код контрагента
+  entityName  String
+  field       String   // "price", "stock", "name", "NEW", "MISSING"
+  value1C     String
+  valueBudvik String
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  syncJob SyncJob @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
 }
 
 // ========== Notifications ==========

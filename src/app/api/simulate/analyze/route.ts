@@ -76,12 +76,30 @@ ${resultsDescription}
       { role: "user", parts: [{ text: prompt }] },
     ];
 
-    // Try with Google Search first, fallback to plain if it fails
+    // Try with Google Search first (20s timeout), fallback to plain Gemini (15s timeout)
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+        ),
+      ]);
+
     let analysis: string;
     try {
-      analysis = await chatWithGemini(messages, systemMsg, { useGoogleSearch: true });
+      analysis = await withTimeout(
+        chatWithGemini(messages, systemMsg, { useGoogleSearch: true }),
+        20000
+      );
     } catch {
-      analysis = await chatWithGemini(messages, systemMsg);
+      try {
+        analysis = await withTimeout(
+          chatWithGemini(messages, systemMsg),
+          15000
+        );
+      } catch {
+        return NextResponse.json({ analysis: null });
+      }
     }
 
     return NextResponse.json({ analysis });

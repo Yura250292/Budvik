@@ -41,13 +41,18 @@ export async function POST(req: Request) {
     )
   );
 
-  // AI enrichment — get real-world quality factors from Gemini + Google Search
+  // AI enrichment — get real-world quality factors from Gemini + Google Search (max 18s)
   let aiFactors = new Map<string, any>();
   try {
-    aiFactors = await aiEnrichConsumables(
-      consumableProducts.map(p => ({ name: p.name, price: p.price })),
-      consumableMode
-    );
+    aiFactors = await Promise.race([
+      aiEnrichConsumables(
+        consumableProducts.map(p => ({ name: p.name, price: p.price })),
+        consumableMode
+      ),
+      new Promise<Map<string, any>>(resolve =>
+        setTimeout(() => resolve(new Map()), 18000)
+      ),
+    ]);
   } catch (err) {
     console.error("AI enrichment skipped:", err);
   }

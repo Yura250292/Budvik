@@ -182,21 +182,28 @@ export default function SimulationClient() {
       }
       if (simResults.length === 0) { setLoading(false); return; }
 
-      // 2. Fetch AI analysis in parallel (already have sim results)
+      // 2. Fetch AI analysis (25s client-side timeout — server also has its own timeout)
       let aiResult: string | null = null;
       try {
         const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
-        const aiRes = await fetch("/api/simulate/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            results: simResults, materialName, simType,
-            toolNames: simResults.map(r => r.consumableName || r.toolName),
-          }),
-        });
-        const aiData = await aiRes.json();
-        if (aiData.analysis) aiResult = aiData.analysis;
-      } catch { /* AI optional */ }
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 25000);
+        try {
+          const aiRes = await fetch("/api/simulate/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              results: simResults, materialName, simType,
+              toolNames: simResults.map(r => r.consumableName || r.toolName),
+            }),
+          });
+          const aiData = await aiRes.json();
+          if (aiData.analysis) aiResult = aiData.analysis;
+        } finally {
+          clearTimeout(tid);
+        }
+      } catch { /* AI optional — timeout or error, show results without AI text */ }
 
       // 3. Signal animation: all data ready — wait for animation cycle to finish
       pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: {}, targetStep: resultStep };
@@ -211,18 +218,26 @@ export default function SimulationClient() {
     pendingRef.current = null;
     const effectiveSimType = CONSUMABLE_MODES.find(m => m.id === consumableMode)?.simType || "cutting";
     try {
-      const res = await fetch("/api/simulate/consumables", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: selectedTool?.id || null,
-          materialId, consumableMode,
-          consumableIds: selectedConsumables.map(c => c.id),
-          params,
-        }),
-      });
-      const data = await res.json();
-      if (!data.results) { setLoading(false); return; }
+      const consumablesController = new AbortController();
+      const consumablesTid = setTimeout(() => consumablesController.abort(), 25000);
+      let data: any;
+      try {
+        const res = await fetch("/api/simulate/consumables", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: consumablesController.signal,
+          body: JSON.stringify({
+            productId: selectedTool?.id || null,
+            materialId, consumableMode,
+            consumableIds: selectedConsumables.map(c => c.id),
+            params,
+          }),
+        });
+        data = await res.json();
+      } finally {
+        clearTimeout(consumablesTid);
+      }
+      if (!data?.results) { setLoading(false); return; }
 
       const simResults: SimulationResult[] = data.results;
       const reasonings: Record<string, string> = data.aiReasonings || {};
@@ -230,17 +245,24 @@ export default function SimulationClient() {
       let aiResult: string | null = null;
       try {
         const materialName = MATERIALS.find(m => m.id === materialId)?.nameUk || materialId;
-        const aiRes = await fetch("/api/simulate/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            results: simResults, materialName, simType: effectiveSimType,
-            toolNames: simResults.map(r => r.consumableName || r.toolName),
-          }),
-        });
-        const aiData = await aiRes.json();
-        if (aiData.analysis) aiResult = aiData.analysis;
-      } catch { /* AI optional */ }
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 25000);
+        try {
+          const aiRes = await fetch("/api/simulate/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              results: simResults, materialName, simType: effectiveSimType,
+              toolNames: simResults.map(r => r.consumableName || r.toolName),
+            }),
+          });
+          const aiData = await aiRes.json();
+          if (aiData.analysis) aiResult = aiData.analysis;
+        } finally {
+          clearTimeout(tid);
+        }
+      } catch { /* AI optional — timeout or error, show results without AI text */ }
 
       pendingRef.current = { results: simResults, aiAnalysis: aiResult, aiReasonings: reasonings, targetStep: resultStep };
       setDataReady(true);

@@ -220,8 +220,15 @@ export default function InteractiveSimCanvas({ type, dataReady, onComplete, expe
           setTimeout(() => onCompleteRef.current?.(), 80);
         }
       } else {
-        // Loading: linear progress, caps at 0.96 and waits for dataReady
-        phase = Math.min(0.96, S.elapsed / EXPECTED_S);
+        // Loading: linear 0→0.96 over expectedMs, then asymptotic creep 0.96→0.995
+        // (always moving — like Chrome tab progress bar — never freezes, never reaches 1)
+        if (S.elapsed <= EXPECTED_S) {
+          phase = (S.elapsed / EXPECTED_S) * 0.96;
+        } else {
+          const overtime = S.elapsed - EXPECTED_S;
+          // Exponential decay: gets slower and slower, asymptote ≈ 0.995
+          phase = 0.96 + 0.035 * (1 - Math.exp(-overtime * 0.12));
+        }
       }
 
       S.toolAngle += dt * 20;

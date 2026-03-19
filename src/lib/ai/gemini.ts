@@ -38,7 +38,7 @@ export async function chatWithGemini(
     body.tools = [{ google_search: {} }];
   }
 
-  const url = `${GEMINI_BASE_URL}/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `${GEMINI_BASE_URL}/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
   const fetchOptions = {
     method: "POST",
     headers: { "Content-Type": "application/json" },

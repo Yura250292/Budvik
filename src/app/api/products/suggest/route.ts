@@ -19,30 +19,54 @@ export async function GET(req: Request) {
     return NextResponse.json([]);
   }
 
-  // Search products matching all terms in name or category
-  const conditions = terms.map((term) => ({
+  const select = {
+    name: true,
+    slug: true,
+    price: true,
+    image: true,
+    stock: true,
+    category: { select: { name: true } },
+  } as const;
+
+  // Name match condition: all terms in name
+  const nameConditions = terms.map((term) => ({
+    name: { contains: term, mode: "insensitive" as const },
+  }));
+
+  // Broader condition: all terms in name OR category
+  const broadConditions = terms.map((term) => ({
     OR: [
       { name: { contains: term, mode: "insensitive" as const } },
       { category: { name: { contains: term, mode: "insensitive" as const } } },
     ],
   }));
 
-  const products = await prisma.product.findMany({
-    where: {
-      isActive: true,
-      AND: conditions,
-    },
-    select: {
-      name: true,
-      slug: true,
-      price: true,
-      image: true,
-      stock: true,
-      category: { select: { name: true } },
-    },
+  // First: products with search term in name (most relevant)
+  const nameMatches = await prisma.product.findMany({
+    where: { isActive: true, AND: nameConditions },
+    select,
     orderBy: [{ stock: "desc" }, { name: "asc" }],
     take: 8,
   });
 
-  return NextResponse.json(products);
+  if (nameMatches.length >= 8) {
+    return NextResponse.json(nameMatches);
+  }
+
+  // Fill remaining with category-only matches
+  const nameIds = nameMatches.map((p) => p.slug);
+  const remaining = 8 - nameMatches.length;
+  const categoryMatches = await prisma.product.findMany({
+    where: {
+      isActive: true,
+      AND: broadConditions,
+      slug: { notIn: nameIds },
+      NOT: { AND: nameConditions },
+    },
+    select,
+    orderBy: [{ stock: "desc" }, { name: "asc" }],
+    take: remaining,
+  });
+
+  return NextResponse.json([...nameMatches, ...categoryMatches]);
 }

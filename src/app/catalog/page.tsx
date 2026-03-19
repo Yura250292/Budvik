@@ -88,7 +88,73 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   let rawProducts: any[];
   let total: number;
 
-  if (isDefaultSort) {
+  if (search && !sort) {
+    // Search with relevance ranking: name match > category-only match
+    // Fetch two groups separately for correct ordering across pages
+    const searchTerms = search
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter((w: string) => w.length > 1);
+
+    // Build "name contains all terms" condition
+    const nameMatchWhere: any = { ...where };
+    if (searchTerms.length > 1) {
+      nameMatchWhere.AND = [
+        ...(nameMatchWhere.AND || []),
+        ...searchTerms.map((term: string) => ({ name: { contains: term, mode: "insensitive" } })),
+      ];
+    } else {
+      nameMatchWhere.name = { contains: search, mode: "insensitive" };
+    }
+
+    const [totalAll, totalNameMatch] = await Promise.all([
+      prisma.product.count({ where }),
+      prisma.product.count({ where: nameMatchWhere }),
+    ]);
+    total = totalAll;
+
+    const nameOrderBy: any[] = [{ stock: "desc" }, { priority: "desc" }, { name: "asc" }];
+
+    if (skip < totalNameMatch) {
+      // Page starts within name-match products
+      const nameProducts = await prisma.product.findMany({
+        where: nameMatchWhere,
+        include: { category: true },
+        orderBy: nameOrderBy,
+        skip,
+        take: PAGE_SIZE,
+      });
+      if (nameProducts.length < PAGE_SIZE) {
+        // Fill remaining with category-only matches (exclude name matches)
+        const nameIds = nameProducts.map((p: any) => p.id);
+        const remaining = PAGE_SIZE - nameProducts.length;
+        const categoryOnlyProducts = await prisma.product.findMany({
+          where: { ...where, id: { notIn: nameIds }, NOT: nameMatchWhere.name ? { name: nameMatchWhere.name } : { AND: searchTerms.map((t: string) => ({ name: { contains: t, mode: "insensitive" as const } })) } },
+          include: { category: true },
+          orderBy: nameOrderBy,
+          take: remaining,
+        });
+        rawProducts = [...nameProducts, ...categoryOnlyProducts];
+      } else {
+        rawProducts = nameProducts;
+      }
+    } else {
+      // Page is entirely in category-only match territory
+      const catSkip = skip - totalNameMatch;
+      // Exclude all name-match products
+      const excludeNameWhere = searchTerms.length > 1
+        ? { AND: searchTerms.map((t: string) => ({ name: { contains: t, mode: "insensitive" as const } })) }
+        : { name: { contains: search, mode: "insensitive" as const } };
+      rawProducts = await prisma.product.findMany({
+        where: { ...where, NOT: excludeNameWhere },
+        include: { category: true },
+        orderBy: nameOrderBy,
+        skip: catSkip,
+        take: PAGE_SIZE,
+      });
+    }
+  } else if (isDefaultSort) {
     // Two-pass fetch: products with images first, then without
     const whereHasImage = { ...where, AND: [...(where.AND || []), { image: { not: null } }, { NOT: { image: "" } }] };
     const whereNoImage = { ...where, AND: [...(where.AND || []), { OR: [{ image: null }, { image: "" }] }] };
@@ -100,7 +166,6 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     total = totalAll;
 
     if (skip < totalWithImage) {
-      // This page starts within "with image" products
       const withImageProducts = await prisma.product.findMany({
         where: whereHasImage,
         include: { category: true },
@@ -109,7 +174,6 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         take: PAGE_SIZE,
       });
       if (withImageProducts.length < PAGE_SIZE) {
-        // Fill remaining slots with no-image products
         const remaining = PAGE_SIZE - withImageProducts.length;
         const noImageProducts = await prisma.product.findMany({
           where: whereNoImage,
@@ -122,7 +186,6 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         rawProducts = withImageProducts;
       }
     } else {
-      // This page is entirely in "no image" territory
       const noImageSkip = skip - totalWithImage;
       rawProducts = await prisma.product.findMany({
         where: whereNoImage,

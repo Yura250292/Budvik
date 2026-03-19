@@ -6,6 +6,7 @@ export interface CartItem {
   price: number;
   quantity: number;
   slug: string;
+  image?: string | null;
 }
 
 const CART_KEY = "budvik_cart";

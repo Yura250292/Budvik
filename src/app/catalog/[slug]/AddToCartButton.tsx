@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
 
-export default function AddToCartButton({ productId, name, price, slug }: {
-  productId: string; name: string; price: number; slug: string;
+export default function AddToCartButton({ productId, name, price, slug, image }: {
+  productId: string; name: string; price: number; slug: string; image?: string | null;
 }) {
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
 
   const handleAdd = () => {
-    addToCart({ productId, name, price, slug }, qty);
+    addToCart({ productId, name, price, slug, image }, qty);
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   };

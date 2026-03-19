@@ -55,7 +55,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
-    addToCart({ productId: id, name, price: displayPrice, slug });
+    addToCart({ productId: id, name, price: displayPrice, slug, image });
   };
 
   const handleWishlist = (e: React.MouseEvent) => {

@@ -110,6 +110,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                 name={product.name}
                 price={displayPrice}
                 slug={product.slug}
+                image={product.image}
               />
             )}
 

@@ -18,7 +18,7 @@ export default function ComparePage() {
   }, []);
 
   const handleAddToCart = (item: CompareItem) => {
-    addToCart({ productId: item.productId, name: item.name, price: item.price, slug: item.slug });
+    addToCart({ productId: item.productId, name: item.name, price: item.price, slug: item.slug, image: item.image });
   };
 
   return (

@@ -36,7 +36,7 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
     e.preventDefault();
     e.stopPropagation();
     const finalPrice = product.promoPrice ?? product.price;
-    addToCart({ productId: product.id, name: product.name, price: finalPrice, slug: product.slug });
+    addToCart({ productId: product.id, name: product.name, price: finalPrice, slug: product.slug, image: product.image });
   };
 
   return (

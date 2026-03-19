@@ -43,6 +43,7 @@ function ProductCard({ product }: { product: AIProduct }) {
       name: product.name,
       price: product.isPromo && product.promoPrice ? product.promoPrice : product.price,
       slug: product.slug,
+      image: product.image,
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);

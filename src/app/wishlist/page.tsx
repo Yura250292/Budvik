@@ -18,7 +18,7 @@ export default function WishlistPage() {
   }, []);
 
   const handleAddToCart = (item: WishlistItem) => {
-    addToCart({ productId: item.productId, name: item.name, price: item.price, slug: item.slug });
+    addToCart({ productId: item.productId, name: item.name, price: item.price, slug: item.slug, image: item.image });
   };
 
   return (

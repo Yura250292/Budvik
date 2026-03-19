@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getCart, updateCartQty, clearCart, getCartTotal, CartItem } from "@/lib/cart";
+import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
 
 export default function CartPage() {
@@ -112,10 +113,14 @@ export default function CartPage() {
           {cart.map((item) => (
             <div key={item.productId} className="bg-white border border-[#EFEFEF] rounded-xl p-3 sm:p-4">
               <div className="flex items-start gap-3">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-[#FAFAFA] rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sm:h-8 sm:w-8 text-[#DADADA]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                  </svg>
+                <div className="relative w-12 h-12 sm:w-16 sm:h-16 bg-[#FAFAFA] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {item.image ? (
+                    <Image src={item.image} alt="" fill className="object-contain" sizes="64px" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 sm:h-8 sm:w-8 text-[#DADADA]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <Link href={`/catalog/${item.slug}`} className="font-medium text-[#0A0A0A] hover:text-[#FFB800] text-sm sm:text-base line-clamp-2">

@@ -44,16 +44,7 @@ export default function LoginPage() {
       setError("Невірний email або пароль");
       setLoading(false);
     } else {
-      // Fetch session to get role for redirect
-      const sessionRes = await fetch("/api/auth/session");
-      const sessionData = await sessionRes.json();
-      const role = sessionData?.user?.role;
-      if (role === "MANAGER") router.push("/manager");
-      else if (role === "ADMIN") router.push("/admin");
-      else if (role === "SALES") router.push("/sales");
-      else if (role === "WAREHOUSE") router.push("/warehouse");
-      else if (role === "DRIVER") router.push("/driver");
-      else router.push("/dashboard");
+      // Refresh router so useSession updates, then useEffect handles role-based redirect
       router.refresh();
     }
   };

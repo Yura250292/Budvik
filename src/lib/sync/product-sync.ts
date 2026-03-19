@@ -121,6 +121,14 @@ export function parseFileToProducts(content: string, fileName: string): ParsedPr
 
 /** Preview what will change without writing to DB */
 export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncPreviewResult> {
+  // Load all products at once for speed
+  const allProducts = await prisma.product.findMany({
+    select: { sku: true, name: true, price: true, wholesalePrice: true, stock: true },
+  });
+
+  const bySku = new Map(allProducts.filter((p) => p.sku).map((p) => [p.sku!, p]));
+  const byName = new Map(allProducts.map((p) => [p.name.toLowerCase(), p]));
+
   const items: SyncPreviewItem[] = [];
   let toCreate = 0;
   let toUpdate = 0;
@@ -128,12 +136,7 @@ export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncP
 
   for (const p of parsed) {
     const sku = p.sku || generateSKU(p.name);
-
-    // Try to find existing product by SKU, then by exact name
-    const existing = await prisma.product.findFirst({
-      where: { OR: [{ sku }, { name: p.name }] },
-      select: { sku: true, name: true, price: true, wholesalePrice: true, stock: true },
-    });
+    const existing = bySku.get(sku) || byName.get(p.name.toLowerCase());
 
     if (!existing) {
       toCreate++;
@@ -146,7 +149,6 @@ export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncP
       continue;
     }
 
-    // Compare fields
     const changes: { field: string; from: string; to: string }[] = [];
 
     if (p.price !== undefined && Math.abs((existing.price || 0) - p.price) > 0.01) {
@@ -181,7 +183,7 @@ export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncP
   return { total: parsed.length, toCreate, toUpdate, unchanged, items };
 }
 
-/** Apply product sync — actually write changes to DB */
+/** Apply product sync — batch operations for speed */
 export async function applyProductSync(
   parsed: ParsedProduct[],
   fileName: string
@@ -195,14 +197,24 @@ export async function applyProductSync(
     },
   });
 
+  // Load all existing products at once
+  const allProducts = await prisma.product.findMany({
+    select: { id: true, sku: true, name: true, price: true, stock: true, slug: true },
+  });
+
+  const bySku = new Map(allProducts.filter((p) => p.sku).map((p) => [p.sku!, p]));
+  const byName = new Map(allProducts.map((p) => [p.name.toLowerCase(), p]));
+  const allSlugs = new Set(allProducts.map((p) => p.slug));
+  const allSkus = new Set(allProducts.filter((p) => p.sku).map((p) => p.sku!));
+
   let created = 0;
   let updated = 0;
   let skipped = 0;
   let failed = 0;
   const errors: string[] = [];
-  let discrepancyCount = 0;
+  const discrepancyBatch: any[] = [];
 
-  // Ensure default category for new products
+  // Ensure default category
   let defaultCategory = await prisma.category.findFirst({ where: { slug: "import-z-1s" } });
   if (!defaultCategory) {
     defaultCategory = await prisma.category.create({
@@ -210,102 +222,107 @@ export async function applyProductSync(
     });
   }
 
-  for (const p of parsed) {
-    try {
-      const sku = p.sku || generateSKU(p.name);
+  const CHUNK = 50;
 
-      const existing = await prisma.product.findFirst({
-        where: { OR: [{ sku }, { name: p.name }] },
+  // Separate new products vs updates
+  const newProducts: any[] = [];
+
+  for (const p of parsed) {
+    const sku = p.sku || generateSKU(p.name);
+    const existing = bySku.get(sku) || byName.get(p.name.toLowerCase());
+
+    if (!existing) {
+      // Prepare new product
+      let slug = generateSlug(p.name) || `product-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      if (allSlugs.has(slug)) slug = `${slug}-${Date.now().toString(36)}`;
+      allSlugs.add(slug);
+
+      const finalSku = allSkus.has(sku) ? `${sku}-${Date.now().toString(36)}` : sku;
+      allSkus.add(finalSku);
+
+      newProducts.push({
+        name: p.name,
+        slug,
+        sku: finalSku,
+        description: p.description || "",
+        price: p.price && !isNaN(p.price) ? p.price : 0,
+        stock: p.stock && !isNaN(p.stock) ? p.stock : 0,
+        categoryId: defaultCategory.id,
+        isActive: true,
+        syncedAt: new Date(),
+        syncSource: "1C",
       });
 
-      if (!existing) {
-        // Create new product
-        let slug = generateSlug(p.name) || `product-${Date.now()}`;
-        const slugExists = await prisma.product.findFirst({ where: { slug } });
-        if (slugExists) slug = `${slug}-${Date.now().toString(36)}`;
+      discrepancyBatch.push({
+        syncJobId: syncJob.id,
+        entityType: "product",
+        entityRef: sku,
+        entityName: p.name,
+        field: "NEW",
+        value1C: `stock: ${p.stock ?? 0}`,
+        valueBudvik: "не існує",
+      });
+      continue;
+    }
 
-        const skuExists = await prisma.product.findFirst({ where: { sku } });
+    // Update existing
+    const updates: Record<string, any> = {};
 
-        await prisma.product.create({
-          data: {
-            name: p.name,
-            slug,
-            sku: skuExists ? `${sku}-${Date.now().toString(36)}` : sku,
-            description: p.description || "",
-            price: p.price && !isNaN(p.price) ? p.price : 0,
-            stock: p.stock && !isNaN(p.stock) ? p.stock : 0,
-            categoryId: defaultCategory.id,
-            isActive: true,
-            syncedAt: new Date(),
-            syncSource: "1C",
-          },
-        });
+    if (p.price !== undefined && Math.abs((existing.price || 0) - p.price) > 0.01) {
+      discrepancyBatch.push({ syncJobId: syncJob.id, entityType: "product", entityRef: existing.sku || sku, entityName: p.name, field: "price", value1C: String(p.price), valueBudvik: String(existing.price) });
+      updates.price = p.price;
+    }
+    if (p.stock !== undefined && existing.stock !== p.stock) {
+      discrepancyBatch.push({ syncJobId: syncJob.id, entityType: "product", entityRef: existing.sku || sku, entityName: p.name, field: "stock", value1C: String(p.stock), valueBudvik: String(existing.stock) });
+      updates.stock = p.stock;
+    }
 
-        // Record discrepancy for new item
-        await prisma.syncDiscrepancy.create({
-          data: {
-            syncJobId: syncJob.id,
-            entityType: "product",
-            entityRef: sku,
-            entityName: p.name,
-            field: "NEW",
-            value1C: `price: ${p.price ?? 0}, stock: ${p.stock ?? 0}`,
-            valueBudvik: "не існує",
-          },
-        });
-        discrepancyCount++;
-        created++;
-        continue;
-      }
-
-      // Compare and update existing
-      const updates: Record<string, any> = {};
-      const discrepancies: { field: string; v1c: string; vBud: string }[] = [];
-
-      if (p.price !== undefined && Math.abs((existing.price || 0) - p.price) > 0.01) {
-        discrepancies.push({ field: "price", v1c: String(p.price), vBud: String(existing.price) });
-        updates.price = p.price;
-      }
-      if (p.stock !== undefined && existing.stock !== p.stock) {
-        discrepancies.push({ field: "stock", v1c: String(p.stock), vBud: String(existing.stock) });
-        updates.stock = p.stock;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        updates.syncedAt = new Date();
-        updates.syncSource = "1C";
+    if (Object.keys(updates).length > 0) {
+      updates.syncedAt = new Date();
+      updates.syncSource = "1C";
+      try {
         await prisma.product.update({ where: { id: existing.id }, data: updates });
-
-        for (const d of discrepancies) {
-          await prisma.syncDiscrepancy.create({
-            data: {
-              syncJobId: syncJob.id,
-              entityType: "product",
-              entityRef: existing.sku || sku,
-              entityName: p.name,
-              field: d.field,
-              value1C: d.v1c,
-              valueBudvik: d.vBud,
-            },
-          });
-          discrepancyCount++;
-        }
         updated++;
-      } else {
-        // Just update sync timestamp
-        await prisma.product.update({
-          where: { id: existing.id },
-          data: { syncedAt: new Date(), syncSource: "1C" },
-        });
-        skipped++;
+      } catch (e: any) {
+        errors.push(`"${p.name.slice(0, 40)}": ${e.message}`);
+        failed++;
       }
-    } catch (e: any) {
-      errors.push(`"${p.name.slice(0, 40)}": ${e.message}`);
-      failed++;
+    } else {
+      skipped++;
     }
   }
 
-  // Update sync job
+  // Batch create new products
+  for (let i = 0; i < newProducts.length; i += CHUNK) {
+    try {
+      const result = await prisma.product.createMany({
+        data: newProducts.slice(i, i + CHUNK),
+        skipDuplicates: true,
+      });
+      created += result.count;
+    } catch (e: any) {
+      // Fallback to individual creates
+      for (const item of newProducts.slice(i, i + CHUNK)) {
+        try {
+          await prisma.product.create({ data: item });
+          created++;
+        } catch (e2: any) {
+          errors.push(`"${item.name.slice(0, 40)}": ${e2.message}`);
+          failed++;
+        }
+      }
+    }
+  }
+
+  // Batch create discrepancies
+  for (let i = 0; i < discrepancyBatch.length; i += CHUNK) {
+    try {
+      await prisma.syncDiscrepancy.createMany({
+        data: discrepancyBatch.slice(i, i + CHUNK),
+      });
+    } catch {}
+  }
+
   await prisma.syncJob.update({
     where: { id: syncJob.id },
     data: {
@@ -327,6 +344,6 @@ export async function applyProductSync(
     skipped,
     failed,
     errors: errors.slice(0, 30),
-    discrepancies: discrepancyCount,
+    discrepancies: discrepancyBatch.length,
   };
 }

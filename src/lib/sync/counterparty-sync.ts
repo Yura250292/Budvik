@@ -25,19 +25,25 @@ export function parseFileToCounterparties(content: string, fileName: string): Pa
   return parseCounterpartiesCSV(content);
 }
 
-/** Preview counterparty sync changes */
+/** Preview counterparty sync changes — load all existing at once for speed */
 export async function previewCounterpartySync(
   parsed: ParsedCounterparty[]
 ): Promise<CounterpartySyncPreviewResult> {
+  // Load all existing counterparties at once
+  const allExisting = await prisma.counterparty.findMany({
+    select: { id: true, code: true, name: true, phone: true, email: true, address: true },
+  });
+
+  const byCode = new Map(allExisting.filter((c) => c.code).map((c) => [c.code!, c]));
+  const byName = new Map(allExisting.map((c) => [c.name.toLowerCase(), c]));
+
   const items: CounterpartySyncPreviewItem[] = [];
   let toCreate = 0;
   let toUpdate = 0;
   let unchanged = 0;
 
   for (const c of parsed) {
-    const existing = await prisma.counterparty.findFirst({
-      where: { OR: [{ code: c.code }, { name: c.name }] },
-    });
+    const existing = byCode.get(c.code) || byName.get(c.name.toLowerCase());
 
     if (!existing) {
       toCreate++;
@@ -68,7 +74,7 @@ export async function previewCounterpartySync(
   return { total: parsed.length, toCreate, toUpdate, unchanged, items };
 }
 
-/** Apply counterparty sync */
+/** Apply counterparty sync — batch operations for speed */
 export async function applyCounterpartySync(
   parsed: ParsedCounterparty[],
   fileName: string
@@ -82,89 +88,118 @@ export async function applyCounterpartySync(
     },
   });
 
+  // Load all existing counterparties at once
+  const allExisting = await prisma.counterparty.findMany({
+    select: { id: true, code: true, name: true, phone: true, email: true, address: true },
+  });
+
+  const byCode = new Map(allExisting.filter((c) => c.code).map((c) => [c.code!, c]));
+  const byName = new Map(allExisting.map((c) => [c.name.toLowerCase(), c]));
+
   let created = 0;
   let updated = 0;
   let skipped = 0;
   let failed = 0;
   const errors: string[] = [];
-  let discrepancyCount = 0;
+  const discrepancyBatch: any[] = [];
+
+  // Collect creates and updates
+  const toCreate: any[] = [];
+  const toUpdate: { id: string; data: any; discrepancies: any[] }[] = [];
 
   for (const c of parsed) {
-    try {
-      const existing = await prisma.counterparty.findFirst({
-        where: { OR: [{ code: c.code }, { name: c.name }] },
+    const existing = byCode.get(c.code) || byName.get(c.name.toLowerCase());
+
+    if (!existing) {
+      toCreate.push({
+        name: c.name,
+        code: c.code,
+        type: c.type || "BOTH",
+        phone: c.phone || null,
+        email: c.email || null,
+        address: c.address || null,
+        contactPerson: c.contactPerson || null,
       });
+      discrepancyBatch.push({
+        syncJobId: syncJob.id,
+        entityType: "counterparty",
+        entityRef: c.code,
+        entityName: c.name,
+        field: "NEW",
+        value1C: c.name,
+        valueBudvik: "не існує",
+      });
+      continue;
+    }
 
-      if (!existing) {
-        await prisma.counterparty.create({
-          data: {
-            name: c.name,
-            code: c.code,
-            type: c.type || "BOTH",
-            phone: c.phone,
-            email: c.email,
-            address: c.address,
-            contactPerson: c.contactPerson,
-          },
-        });
+    const updates: Record<string, any> = {};
+    const discs: any[] = [];
 
-        await prisma.syncDiscrepancy.create({
-          data: {
-            syncJobId: syncJob.id,
-            entityType: "counterparty",
-            entityRef: c.code,
-            entityName: c.name,
-            field: "NEW",
-            value1C: c.name,
-            valueBudvik: "не існує",
-          },
-        });
-        discrepancyCount++;
-        created++;
-        continue;
-      }
+    if (c.phone && c.phone !== existing.phone) {
+      updates.phone = c.phone;
+      discs.push({ syncJobId: syncJob.id, entityType: "counterparty", entityRef: existing.code || c.code, entityName: c.name, field: "phone", value1C: c.phone, valueBudvik: existing.phone || "" });
+    }
+    if (c.address && c.address !== existing.address) {
+      updates.address = c.address;
+      discs.push({ syncJobId: syncJob.id, entityType: "counterparty", entityRef: existing.code || c.code, entityName: c.name, field: "address", value1C: c.address, valueBudvik: existing.address || "" });
+    }
+    if (c.email && c.email !== existing.email) {
+      updates.email = c.email;
+      discs.push({ syncJobId: syncJob.id, entityType: "counterparty", entityRef: existing.code || c.code, entityName: c.name, field: "email", value1C: c.email, valueBudvik: existing.email || "" });
+    }
 
-      // Compare and update
-      const updates: Record<string, any> = {};
-      const discrepancies: { field: string; v1c: string; vBud: string }[] = [];
+    if (Object.keys(updates).length > 0) {
+      toUpdate.push({ id: existing.id, data: updates, discrepancies: discs });
+    } else {
+      skipped++;
+    }
+  }
 
-      if (c.phone && c.phone !== existing.phone) {
-        updates.phone = c.phone;
-        discrepancies.push({ field: "phone", v1c: c.phone, vBud: existing.phone || "" });
-      }
-      if (c.address && c.address !== existing.address) {
-        updates.address = c.address;
-        discrepancies.push({ field: "address", v1c: c.address, vBud: existing.address || "" });
-      }
-      if (c.email && c.email !== existing.email) {
-        updates.email = c.email;
-        discrepancies.push({ field: "email", v1c: c.email, vBud: existing.email || "" });
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await prisma.counterparty.update({ where: { id: existing.id }, data: updates });
-
-        for (const d of discrepancies) {
-          await prisma.syncDiscrepancy.create({
-            data: {
-              syncJobId: syncJob.id,
-              entityType: "counterparty",
-              entityRef: existing.code || c.code,
-              entityName: c.name,
-              field: d.field,
-              value1C: d.v1c,
-              valueBudvik: d.vBud,
-            },
-          });
-          discrepancyCount++;
-        }
-        updated++;
-      } else {
-        skipped++;
-      }
+  // Batch create counterparties (in chunks of 100)
+  const CHUNK = 100;
+  for (let i = 0; i < toCreate.length; i += CHUNK) {
+    const chunk = toCreate.slice(i, i + CHUNK);
+    try {
+      // Use createMany — skip duplicates
+      const result = await prisma.counterparty.createMany({
+        data: chunk,
+        skipDuplicates: true,
+      });
+      created += result.count;
     } catch (e: any) {
-      errors.push(`"${c.name.slice(0, 40)}": ${e.message}`);
+      // Fallback to individual creates
+      for (const item of chunk) {
+        try {
+          await prisma.counterparty.create({ data: item });
+          created++;
+        } catch (e2: any) {
+          errors.push(`"${item.name.slice(0, 40)}": ${e2.message}`);
+          failed++;
+        }
+      }
+    }
+  }
+
+  // Batch updates (individual but faster since there are few)
+  for (const u of toUpdate) {
+    try {
+      await prisma.counterparty.update({ where: { id: u.id }, data: u.data });
+      discrepancyBatch.push(...u.discrepancies);
+      updated++;
+    } catch (e: any) {
+      errors.push(`Update: ${e.message}`);
       failed++;
+    }
+  }
+
+  // Batch create discrepancies
+  if (discrepancyBatch.length > 0) {
+    for (let i = 0; i < discrepancyBatch.length; i += CHUNK) {
+      try {
+        await prisma.syncDiscrepancy.createMany({
+          data: discrepancyBatch.slice(i, i + CHUNK),
+        });
+      } catch {}
     }
   }
 
@@ -189,6 +224,6 @@ export async function applyCounterpartySync(
     skipped,
     failed,
     errors: errors.slice(0, 30),
-    discrepancies: discrepancyCount,
+    discrepancies: discrepancyBatch.length,
   };
 }

@@ -1,4 +1,4 @@
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -110,7 +110,7 @@ export default async function HomePage() {
   const bestSellerIds = topOrderedItems.map((i) => i.productId);
   const bestSellers = bestSellerIds.length > 0
     ? await prisma.product.findMany({
-        where: { id: { in: bestSellerIds }, isActive: true, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
+        where: { id: { in: bestSellerIds }, isActive: true, stock: { gt: 0 }, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
         include: { category: true },
       })
     : [];

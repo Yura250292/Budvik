@@ -27,33 +27,55 @@ export interface DebtSyncPreviewResult {
   items: DebtSyncPreviewItem[];
 }
 
-/** Parse debt CSV from 1C
- * Expected columns: код/code, назва/name, борг/debt/дебіторка/заборгованість, оплачено/paid
+/**
+ * Parse debt CSV from 1C.
+ * Handles two formats:
+ * 1. Simple CSV: код;назва;борг
+ * 2. 1C report format with metadata headers:
+ *    ;Дебиторская задолженность по срокам долга;;
+ *    ... (metadata lines) ...
+ *    ;Код;Контрагент;Остаток долга контрагента
+ *    ;000001927;DNIPRO-M  (Щирецька, 36а);23 921,48
  */
 export function parseDebtCSV(csv: string): ParsedDebtRecord[] {
-  const lines = csv.trim().split("\n");
+  const lines = csv.trim().split("\n").map((l) => l.replace(/\r$/, ""));
   if (lines.length < 2) return [];
 
   const sep = lines[0].includes(";") ? ";" : ",";
-  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
 
-  const codeIdx = headers.findIndex((h) =>
-    ["код", "code", "єдрпоу", "едрпоу", "id", "ід"].includes(h)
-  );
-  const nameIdx = headers.findIndex((h) =>
-    ["назва", "наименование", "найменування", "name", "контрагент", "counterparty"].includes(h)
-  );
-  const debtIdx = headers.findIndex((h) =>
-    ["борг", "debt", "дебіторка", "дебиторка", "заборгованість", "задолженность", "залишок_боргу", "сума_боргу", "balance"].includes(h)
-  );
-  const paidIdx = headers.findIndex((h) =>
-    ["оплачено", "paid", "сплачено", "оплата"].includes(h)
-  );
+  // Find the header row by looking for "контрагент" and ("долг" or "борг" or "залишок")
+  let headerIdx = -1;
+  let headers: string[] = [];
+
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const lower = lines[i].toLowerCase();
+    if ((lower.includes("контрагент") || lower.includes("назва") || lower.includes("наименование")) &&
+        (lower.includes("долг") || lower.includes("борг") || lower.includes("залишок") || lower.includes("задолженность") || lower.includes("debt"))) {
+      headerIdx = i;
+      headers = lines[i].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+      break;
+    }
+  }
+
+  // If no metadata header found, try first line as header
+  if (headerIdx === -1) {
+    headerIdx = 0;
+    headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+  }
+
+  // Find columns using substring matching
+  const findCol = (keywords: string[]) =>
+    headers.findIndex((h) => keywords.some((k) => h.includes(k)));
+
+  const codeIdx = findCol(["код", "code", "єдрпоу", "едрпоу", "id"]);
+  const nameIdx = findCol(["контрагент", "назва", "наименование", "найменування", "name"]);
+  const debtIdx = findCol(["долг", "борг", "дебіторка", "задолженность", "залишок", "debt", "balance"]);
+  const paidIdx = findCol(["оплачено", "paid", "сплачено", "оплата"]);
 
   if (nameIdx === -1) return [];
 
   const records: ParsedDebtRecord[] = [];
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     const cols = parseCSVLine(line, sep);
@@ -61,20 +83,31 @@ export function parseDebtCSV(csv: string): ParsedDebtRecord[] {
     const name = cols[nameIdx]?.trim().replace(/^"(.*)"$/, "$1");
     if (!name || name.length < 3) continue;
 
+    // Skip summary/total rows
+    const nameLower = name.toLowerCase();
+    if (nameLower.includes("итого") || nameLower.includes("всього") || nameLower.includes("разом")) continue;
+
     const code = codeIdx >= 0 ? cols[codeIdx]?.trim().replace(/^"(.*)"$/, "$1") : "";
-    const debt = debtIdx >= 0
-      ? parseFloat(cols[debtIdx]?.replace(",", ".").replace(/\s/g, "")) || 0
-      : 0;
+
+    // Parse debt amount — handle "23 921,48" format (space as thousands, comma as decimal)
+    let debt = 0;
+    if (debtIdx >= 0) {
+      const raw = cols[debtIdx]?.trim().replace(/^"(.*)"$/, "$1").replace(/\s/g, "").replace(",", ".");
+      debt = parseFloat(raw) || 0;
+    }
+
     const paid = paidIdx >= 0
-      ? parseFloat(cols[paidIdx]?.replace(",", ".").replace(/\s/g, "")) || 0
+      ? parseFloat(cols[paidIdx]?.trim().replace(/\s/g, "").replace(",", ".")) || 0
       : undefined;
 
-    records.push({
-      counterpartyCode: code || name,
-      counterpartyName: name,
-      totalDebt: Math.round(debt * 100) / 100,
-      paidAmount: paid !== undefined ? Math.round(paid * 100) / 100 : undefined,
-    });
+    if (debt > 0 || (paid !== undefined && paid > 0)) {
+      records.push({
+        counterpartyCode: code || name,
+        counterpartyName: name,
+        totalDebt: Math.round(debt * 100) / 100,
+        paidAmount: paid !== undefined ? Math.round(paid * 100) / 100 : undefined,
+      });
+    }
   }
 
   return records;

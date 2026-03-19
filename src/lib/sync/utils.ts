@@ -1,3 +1,5 @@
+import iconv from "iconv-lite";
+
 /** Parse a CSV line handling quoted fields */
 export function parseCSVLine(line: string, sep: string): string[] {
   const result: string[] = [];
@@ -22,4 +24,87 @@ export function parseCSVLine(line: string, sep: string): string[] {
   }
   result.push(current);
   return result;
+}
+
+/**
+ * Detect encoding and convert file content to UTF-8 string.
+ * 1C typically exports in Windows-1251 (Cyrillic).
+ * We detect by checking for UTF-8 BOM or valid UTF-8 sequences.
+ */
+export function decodeFileContent(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+
+  // Check for UTF-8 BOM
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(buffer);
+  }
+
+  // Try UTF-8 first — if it has Cyrillic-looking bytes (0x80-0xFF) that
+  // don't form valid UTF-8 sequences, it's likely Windows-1251
+  const text = new TextDecoder("utf-8").decode(buffer);
+
+  // Heuristic: if replacement character (U+FFFD) appears, likely not UTF-8
+  if (text.includes("\ufffd")) {
+    return iconv.decode(Buffer.from(bytes), "windows-1251");
+  }
+
+  // Another heuristic: check if high bytes appear without valid UTF-8 multibyte prefix
+  let hasHighBytes = false;
+  let looksLikeUtf8 = true;
+  for (let i = 0; i < Math.min(bytes.length, 4096); i++) {
+    if (bytes[i] >= 0x80) {
+      hasHighBytes = true;
+      // Valid UTF-8 multibyte: 110xxxxx 10xxxxxx, 1110xxxx 10xxxxxx 10xxxxxx, etc.
+      if (bytes[i] >= 0xc0 && bytes[i] < 0xfe) {
+        const expected = bytes[i] < 0xe0 ? 1 : bytes[i] < 0xf0 ? 2 : 3;
+        for (let j = 1; j <= expected; j++) {
+          if (i + j >= bytes.length || (bytes[i + j] & 0xc0) !== 0x80) {
+            looksLikeUtf8 = false;
+            break;
+          }
+        }
+        if (!looksLikeUtf8) break;
+        i += bytes[i] < 0xe0 ? 1 : bytes[i] < 0xf0 ? 2 : 3;
+      } else if ((bytes[i] & 0xc0) === 0x80) {
+        // Continuation byte without start byte — not UTF-8
+        looksLikeUtf8 = false;
+        break;
+      }
+    }
+  }
+
+  if (hasHighBytes && !looksLikeUtf8) {
+    return iconv.decode(Buffer.from(bytes), "windows-1251");
+  }
+
+  return text;
+}
+
+/**
+ * Find the header row in a 1C report CSV.
+ * 1C reports have metadata lines at the top (report name, period, filters).
+ * The actual header row contains column names.
+ * Returns the index of the header line and the remaining data lines.
+ */
+export function findDataStart(
+  lines: string[],
+  headerPatterns: string[]
+): { headerIdx: number; headers: string[]; sep: string } | null {
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const sep = line.includes(";") ? ";" : ",";
+    const cols = line.split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+
+    // Check if any of the header patterns match any column
+    const matchCount = headerPatterns.filter((p) =>
+      cols.some((c) => c.includes(p))
+    ).length;
+
+    if (matchCount >= 2) {
+      return { headerIdx: i, headers: cols, sep };
+    }
+  }
+  return null;
 }

@@ -311,20 +311,33 @@ export function parseCounterpartiesXML(xml: string): ParsedCounterparty[] {
   return result;
 }
 
+// Find column index by checking if header contains any of the keywords
+function findColIdx(headers: string[], keywords: string[]): number {
+  // First try exact match
+  const exact = headers.findIndex((h) => keywords.includes(h));
+  if (exact !== -1) return exact;
+  // Then try substring match (for headers like "телефон: телефон контрагента")
+  return headers.findIndex((h) => keywords.some((k) => h.includes(k)));
+}
+
 export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
-  const lines = csv.trim().split("\n");
+  const lines = csv.trim().split("\n").map((l) => l.replace(/\r$/, ""));
   if (lines.length < 2) return [];
 
   const sep = lines[0].includes(";") ? ";" : ",";
   const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
 
-  const codeIdx = headers.findIndex((h) => ["код", "code", "єдрпоу", "едрпоу", "id", "ід"].includes(h));
-  const nameIdx = headers.findIndex((h) => ["назва", "наименование", "найменування", "name", "counterparty_name", "full_name"].includes(h));
-  const typeIdx = headers.findIndex((h) => ["тип", "type"].includes(h));
-  const phoneIdx = headers.findIndex((h) => ["телефон", "phone"].includes(h));
-  const emailIdx = headers.findIndex((h) => ["email", "пошта", "e-mail"].includes(h));
-  const addressIdx = headers.findIndex((h) => ["адреса", "адрес", "address"].includes(h));
-  const contactIdx = headers.findIndex((h) => ["контакт", "контактна особа", "contactperson"].includes(h));
+  const codeIdx = findColIdx(headers, ["код", "code", "єдрпоу", "едрпоу", "егрпоу", "id", "ід"]);
+  const nameIdx = findColIdx(headers, ["наименование", "назва", "найменування", "name", "counterparty_name", "full_name", "контрагент"]);
+  const typeIdx = findColIdx(headers, ["тип", "type"]);
+  const phoneIdx = findColIdx(headers, ["телефон", "phone"]);
+  const emailIdx = findColIdx(headers, ["email", "пошта", "e-mail"]);
+  const addressIdx = findColIdx(headers, ["адрес", "адреса", "address"]);
+  const contactIdx = findColIdx(headers, ["контактна особа", "контакт", "contactperson"]);
+  const buyerIdx = findColIdx(headers, ["покупатель", "покупець", "buyer"]);
+  const supplierIdx = findColIdx(headers, ["поставщик", "постачальник", "supplier"]);
+  const innIdx = findColIdx(headers, ["инн", "інн", "inn"]);
+  const edrpouIdx = findColIdx(headers, ["егрпоу", "єдрпоу", "edrpou"]);
 
   // Support single-column format (just name, no code)
   if (nameIdx === -1) return [];
@@ -339,10 +352,18 @@ export function parseCounterpartiesCSV(csv: string): ParsedCounterparty[] {
 
     // Auto-generate code if not present
     const code = codeIdx >= 0 ? cols[codeIdx]?.trim() : undefined;
-    const autoCode = code || `1C-${String(i).padStart(4, "0")}`;
+    const edrpou = edrpouIdx >= 0 ? cols[edrpouIdx]?.trim() : undefined;
+    const autoCode = code || edrpou || `1C-${String(i).padStart(4, "0")}`;
 
+    // Determine type from Покупатель/Поставщик columns (Так/Ні format)
     let type: "SUPPLIER" | "CUSTOMER" | "BOTH" = "BOTH";
-    if (typeIdx >= 0) {
+    if (buyerIdx >= 0 || supplierIdx >= 0) {
+      const isBuyer = buyerIdx >= 0 && (cols[buyerIdx] || "").trim().toLowerCase() === "так";
+      const isSupplier = supplierIdx >= 0 && (cols[supplierIdx] || "").trim().toLowerCase() === "так";
+      if (isBuyer && isSupplier) type = "BOTH";
+      else if (isBuyer) type = "CUSTOMER";
+      else if (isSupplier) type = "SUPPLIER";
+    } else if (typeIdx >= 0) {
       const t = (cols[typeIdx] || "").toUpperCase();
       if (t.includes("ПОСТАЧ") || t.includes("SUPPLIER")) type = "SUPPLIER";
       else if (t.includes("ПОКУП") || t.includes("CUSTOMER")) type = "CUSTOMER";

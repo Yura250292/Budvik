@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { parseCSV, parseCommerceML, generateSlug, type ParsedProduct } from "@/lib/import-1c";
+import { parseCSVLine } from "./utils";
 import crypto from "crypto";
 
 function generateSKU(name: string): string {
@@ -35,6 +36,69 @@ export interface SyncApplyResult {
   discrepancies: number;
 }
 
+/**
+ * Parse 1C stock report format (Ведомость по товарам на складах).
+ * Has metadata rows at top, header row with Артикул/Номенклатура/Количество,
+ * then data rows mixed with category groupings.
+ *
+ * Format:
+ *   ;Артикул ;Номенклатура, Базовая единица измерения;Базовая единица измерения;Количество (в базовых единицах)
+ *   ;899273;APRO Машина шліфувальна..., шт;шт;6,000
+ */
+function parse1CStockReport(content: string): ParsedProduct[] {
+  const lines = content.split("\n").map((l) => l.replace(/\r$/, ""));
+  const products: ParsedProduct[] = [];
+
+  // Find the header row containing "Артикул" and "Номенклатура"
+  let headerIdx = -1;
+  let sep = ";";
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const lower = lines[i].toLowerCase();
+    if (lower.includes("артикул") && (lower.includes("номенклатура") || lower.includes("найменування"))) {
+      headerIdx = i;
+      sep = lines[i].includes(";") ? ";" : ",";
+      break;
+    }
+  }
+
+  if (headerIdx === -1) return [];
+
+  const headers = lines[headerIdx].split(sep).map((h) => h.trim().replace(/^"(.*)"$/, "$1").toLowerCase());
+  const skuIdx = headers.findIndex((h) => h.includes("артикул") || h.includes("sku") || h === "код");
+  const nameIdx = headers.findIndex((h) => h.includes("номенклатура") || h.includes("найменування") || h.includes("назва"));
+  const qtyIdx = headers.findIndex((h) => h.includes("количество") || h.includes("кількість") || h.includes("залишок") || h.includes("остаток"));
+
+  if (nameIdx === -1) return [];
+
+  // Parse data rows (skip next row if it's "Конечный остаток" subheader)
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const cols = parseCSVLine(line, sep);
+
+    // Get SKU — skip rows without SKU (they are category grouping rows)
+    const sku = skuIdx >= 0 ? cols[skuIdx]?.trim() : "";
+    if (!sku) continue;
+
+    // Get name — strip unit suffix like ", шт"
+    let name = cols[nameIdx]?.trim() || "";
+    name = name.replace(/,\s*(шт|кг|л|м|упак|компл|пар)\.?$/i, "").trim();
+    if (!name || name.length < 3) continue;
+
+    // Get quantity — handle "6,000" format (comma decimal, space thousands)
+    let stock: number | undefined;
+    if (qtyIdx >= 0) {
+      const raw = cols[qtyIdx]?.trim().replace(/\s/g, "").replace(",", ".");
+      stock = raw ? Math.round(parseFloat(raw)) : undefined;
+    }
+
+    products.push({ sku, name, stock });
+  }
+
+  return products;
+}
+
 /** Parse file content into ParsedProduct[] based on filename extension */
 export function parseFileToProducts(content: string, fileName: string): ParsedProduct[] {
   const ext = fileName.toLowerCase();
@@ -42,6 +106,16 @@ export function parseFileToProducts(content: string, fileName: string): ParsedPr
     const result = parseCommerceML(content);
     return result.products;
   }
+
+  // Try 1C stock report format first (has "Ведомость" or "Артикул" in first 20 lines)
+  const firstLines = content.split("\n").slice(0, 20).join("\n").toLowerCase();
+  if (firstLines.includes("ведомость") || firstLines.includes("відомість") ||
+      (firstLines.includes("артикул") && firstLines.includes("номенклатура"))) {
+    const result = parse1CStockReport(content);
+    if (result.length > 0) return result;
+  }
+
+  // Fall back to simple CSV
   return parseCSV(content);
 }
 

@@ -6,6 +6,7 @@ import { parseFileToCounterparties, applyCounterpartySync } from "@/lib/sync/cou
 import { parseFileToSalesDocs, applySalesDocSync } from "@/lib/sync/sales-sync";
 import { parseFileToPurchaseDocs, applyPurchaseDocSync } from "@/lib/sync/purchase-sync";
 import { parseDebtCSV, applyDebtSync } from "@/lib/sync/debt-sync";
+import { decodeFileContent } from "@/lib/sync/utils";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -21,7 +22,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Файл не завантажено" }, { status: 400 });
   }
 
-  const content = await file.text();
+  const buffer = await file.arrayBuffer();
+  const content = decodeFileContent(buffer);
 
   try {
     switch (type) {

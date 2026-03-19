@@ -6,6 +6,7 @@ import { parseFileToCounterparties, previewCounterpartySync } from "@/lib/sync/c
 import { parseFileToSalesDocs, previewSalesDocSync } from "@/lib/sync/sales-sync";
 import { parseFileToPurchaseDocs, previewPurchaseDocSync } from "@/lib/sync/purchase-sync";
 import { parseDebtCSV, previewDebtSync } from "@/lib/sync/debt-sync";
+import { decodeFileContent } from "@/lib/sync/utils";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Підтримуються формати: CSV, TXT, XML" }, { status: 400 });
   }
 
-  const content = await file.text();
+  // Auto-detect encoding (Windows-1251 vs UTF-8)
+  const buffer = await file.arrayBuffer();
+  const content = decodeFileContent(buffer);
 
   try {
     switch (type) {

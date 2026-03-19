@@ -54,7 +54,12 @@ function parse1CStockReport(content: string): ParsedProduct[] {
   let sep = ";";
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
     const lower = lines[i].toLowerCase();
-    if (lower.includes("артикул") && (lower.includes("номенклатура") || lower.includes("найменування"))) {
+    // Real header must have: артикул + номенклатура + количество/кількість
+    // (metadata lines may have артикул+номенклатура but never количество)
+    const hasArt = lower.includes("артикул");
+    const hasNom = lower.includes("номенклатура") || lower.includes("найменування");
+    const hasQty = lower.includes("количество") || lower.includes("кількість") || lower.includes("залишок");
+    if (hasArt && hasNom && hasQty) {
       headerIdx = i;
       sep = lines[i].includes(";") ? ";" : ",";
       break;
@@ -107,10 +112,10 @@ export function parseFileToProducts(content: string, fileName: string): ParsedPr
     return result.products;
   }
 
-  // Try 1C stock report format first (has "Ведомость" or "Артикул" in first 20 lines)
+  // Try 1C stock report format first
   const firstLines = content.split("\n").slice(0, 20).join("\n").toLowerCase();
   if (firstLines.includes("ведомость") || firstLines.includes("відомість") ||
-      (firstLines.includes("артикул") && firstLines.includes("номенклатура"))) {
+      (firstLines.includes("артикул") && firstLines.includes("количество"))) {
     const result = parse1CStockReport(content);
     if (result.length > 0) return result;
   }

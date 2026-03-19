@@ -6,7 +6,7 @@ import { parseFileToCounterparties, applyCounterpartySync } from "@/lib/sync/cou
 import { parseFileToSalesDocs, applySalesDocSync } from "@/lib/sync/sales-sync";
 import { parseFileToPurchaseDocs, applyPurchaseDocSync } from "@/lib/sync/purchase-sync";
 import { parseDebtCSV, applyDebtSync } from "@/lib/sync/debt-sync";
-import { decodeFileContent } from "@/lib/sync/utils";
+import { decodeAnyFile } from "@/lib/sync/utils";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = await file.arrayBuffer();
-  const content = decodeFileContent(buffer);
+  const content = decodeAnyFile(buffer, file.name);
 
   try {
     switch (type) {

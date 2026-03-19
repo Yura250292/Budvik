@@ -1,4 +1,5 @@
 import iconv from "iconv-lite";
+import * as XLSX from "xlsx";
 
 /** Parse a CSV line handling quoted fields */
 export function parseCSVLine(line: string, sep: string): string[] {
@@ -107,4 +108,25 @@ export function findDataStart(
     }
   }
   return null;
+}
+
+/**
+ * Convert XLSX/XLS file buffer to CSV string (semicolon-separated).
+ * Returns the CSV text that can be parsed by existing CSV parsers.
+ */
+export function xlsxToCSV(buffer: ArrayBuffer): string {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_csv(ws, { FS: ";" });
+}
+
+/**
+ * Decode any file: XLSX → CSV string, or CSV/TXT → decoded string.
+ */
+export function decodeAnyFile(buffer: ArrayBuffer, fileName: string): string {
+  const ext = fileName.toLowerCase();
+  if (ext.endsWith(".xlsx") || ext.endsWith(".xls")) {
+    return xlsxToCSV(buffer);
+  }
+  return decodeFileContent(buffer);
 }

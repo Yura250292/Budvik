@@ -6,7 +6,7 @@ import { parseFileToCounterparties, previewCounterpartySync } from "@/lib/sync/c
 import { parseFileToSalesDocs, previewSalesDocSync } from "@/lib/sync/sales-sync";
 import { parseFileToPurchaseDocs, previewPurchaseDocSync } from "@/lib/sync/purchase-sync";
 import { parseDebtCSV, previewDebtSync } from "@/lib/sync/debt-sync";
-import { decodeFileContent } from "@/lib/sync/utils";
+import { decodeAnyFile } from "@/lib/sync/utils";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -23,13 +23,13 @@ export async function POST(req: NextRequest) {
   }
 
   const fileName = file.name.toLowerCase();
-  if (!fileName.endsWith(".csv") && !fileName.endsWith(".txt") && !fileName.endsWith(".xml")) {
-    return NextResponse.json({ error: "Підтримуються формати: CSV, TXT, XML" }, { status: 400 });
+  if (!fileName.endsWith(".csv") && !fileName.endsWith(".txt") && !fileName.endsWith(".xml") && !fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
+    return NextResponse.json({ error: "Підтримуються формати: CSV, TXT, XML, XLSX" }, { status: 400 });
   }
 
-  // Auto-detect encoding (Windows-1251 vs UTF-8)
+  // Auto-detect encoding (Windows-1251 vs UTF-8) + XLSX support
   const buffer = await file.arrayBuffer();
-  const content = decodeFileContent(buffer);
+  const content = decodeAnyFile(buffer, file.name);
 
   try {
     switch (type) {

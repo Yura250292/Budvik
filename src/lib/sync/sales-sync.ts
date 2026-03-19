@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { parseSalesDocumentsCSV, parseSalesDocumentsXML, type ParsedSalesDocumentImport } from "@/lib/import-1c";
+import { parseCSVLine } from "./utils";
 
 export interface SalesDocSyncPreviewItem {
   number: string;
@@ -20,10 +21,105 @@ export interface SalesDocSyncPreviewResult {
   items: SalesDocSyncPreviewItem[];
 }
 
+/**
+ * Parse 1C sales report format (hierarchical: document row → item rows).
+ * Header row: Номер;Дата;Контрагент;...;;Кількість;Сума
+ * Doc row:    00000001094;02.03.2026 09:30:51;Левкович Олександр;...;;1.000;1,305.00
+ * Item row:   ;;;Grösser Шуруповерт..., шт;GCD 522;1.000;1,305.00
+ */
+function parse1CSalesReport(content: string): ParsedSalesDocumentImport[] {
+  const lines = content.split("\n").map((l) => l.replace(/\r$/, ""));
+  const sep = ";";
+
+  // Find header row with "Номер" and "Дата"
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const lower = lines[i].toLowerCase();
+    if (lower.includes("номер") && lower.includes("дата") && lower.includes("контрагент")) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return [];
+
+  const headers = lines[headerIdx].split(sep).map((h) => h.trim().toLowerCase());
+  const numIdx = headers.findIndex((h) => h.includes("номер") || h === "номер");
+  const dateIdx = headers.findIndex((h) => h === "дата" || h.includes("дата"));
+  const cpIdx = headers.findIndex((h) => h.includes("контрагент"));
+  // Quantity and amount are the last 2 columns
+  const qtyIdx = headers.length - 2;
+  const amtIdx = headers.length - 1;
+
+  const result: ParsedSalesDocumentImport[] = [];
+  let currentDoc: ParsedSalesDocumentImport | null = null;
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const cols = parseCSVLine(line, sep);
+    const docNumber = cols[numIdx]?.trim();
+
+    if (docNumber && docNumber.length > 3) {
+      // This is a document header row
+      if (currentDoc && currentDoc.items.length > 0) {
+        result.push(currentDoc);
+      }
+
+      const date = cols[dateIdx]?.trim() || "";
+      const counterparty = cols[cpIdx]?.trim() || "";
+
+      // Parse date "02.03.2026 09:30:51" → "2026-03-02"
+      const dateMatch = date.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+      const isoDate = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : date;
+
+      currentDoc = {
+        number: docNumber,
+        date: isoDate,
+        customerCode: counterparty,
+        items: [],
+      };
+    } else if (currentDoc) {
+      // This is an item row — product name in col 3, SKU in col 4
+      const productName = cols[3]?.trim().replace(/,\s*(шт|кг|л|м|упак|компл)\.?$/i, "").trim();
+      const sku = cols[4]?.trim();
+      if (!productName || productName.length < 3) continue;
+
+      const qty = parseFloat(cols[qtyIdx]?.replace(/\s/g, "").replace(",", ".")) || 0;
+      const amount = parseFloat(cols[amtIdx]?.replace(/\s/g, "").replace(",", ".")) || 0;
+      const unitPrice = qty > 0 ? amount / qty : amount;
+
+      if (qty > 0) {
+        currentDoc.items.push({
+          sku: sku || productName,
+          quantity: Math.round(qty),
+          sellingPrice: Math.round(unitPrice * 100) / 100,
+        });
+      }
+    }
+  }
+
+  // Don't forget the last document
+  if (currentDoc && currentDoc.items.length > 0) {
+    result.push(currentDoc);
+  }
+
+  return result;
+}
+
 /** Parse file content into sales documents */
 export function parseFileToSalesDocs(content: string, fileName: string): ParsedSalesDocumentImport[] {
   const ext = fileName.toLowerCase();
   if (ext.endsWith(".xml")) return parseSalesDocumentsXML(content);
+
+  // Try 1C report format first
+  const firstLines = content.split("\n").slice(0, 20).join("\n").toLowerCase();
+  if (firstLines.includes("продаж") || firstLines.includes("реализаци") ||
+      (firstLines.includes("номер") && firstLines.includes("контрагент") && firstLines.includes("сумм"))) {
+    const result = parse1CSalesReport(content);
+    if (result.length > 0) return result;
+  }
+
   return parseSalesDocumentsCSV(content);
 }
 

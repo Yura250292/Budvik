@@ -8,7 +8,7 @@ import DynamicShiftMap from "@/components/map/DynamicShiftMap";
 import type { ShiftPoint } from "@/components/map/ShiftMap";
 
 type PeriodPreset = "today" | "week" | "month" | "quarter" | "year" | "all";
-type Tab = "overview" | "workers" | "reports" | "nomenclature" | "shifts";
+type Tab = "overview" | "productivity" | "workers" | "reports" | "nomenclature" | "shifts";
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "В черзі",
@@ -392,6 +392,10 @@ export default function WarehouseReportsPage() {
       n.sku?.toLowerCase().includes(searchNom.toLowerCase())
   );
   const maxWorkerAmount = Math.max(1, ...workers.map((w: any) => w.totalAmount || 0));
+  const maxItems = Math.max(1, ...workers.map((w: any) => w.itemsCount || 0));
+  const hourly = data?.hourly || [];
+  const maxHourly = Math.max(1, ...hourly.map((h: any) => h.reports || 0));
+  const teamAvg = data?.teamAvg || { itemsPerHour: 0, itemsPerDay: 0, reportsPerDay: 0 };
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
@@ -422,6 +426,7 @@ export default function WarehouseReportsPage() {
             {(
               [
                 ["overview", "Огляд"],
+                ["productivity", "Продуктивність"],
                 ["workers", "Складовщики"],
                 ["reports", "Накладні"],
                 ["nomenclature", "Номенклатура"],
@@ -684,6 +689,159 @@ export default function WarehouseReportsPage() {
                 </div>
               </>
             )}
+
+            {/* ---------- ПРОДУКТИВНІСТЬ ---------- */}
+            {activeTab === "productivity" && (
+              <>
+                <div style={{ ...CARD, padding: "14px 16px", marginBottom: "16px", background: "#F0F9FF", borderColor: "#BAE6FD" }}>
+                  <p style={{ fontSize: "13px", color: "#075985" }}>
+                    <b>Як рахується:</b> продуктивність міряється <b>позиціями товару</b>, а не
+                    кількістю накладних — накладна на 2 рядки і на 40 це різний обсяг роботи.
+                    Швидкість рахується на <b>тривалість зміни</b>, а не на активні години —
+                    інакше той, хто здав усе залпом за 20 хвилин, виглядав би найшвидшим.
+                    <b> Рівномірність</b> показує, яку частку зміни людина справді працювала.
+                  </p>
+                </div>
+
+                {workers.length === 0 ? (
+                  <div style={{ ...CARD, padding: "24px", textAlign: "center", color: "#6B7280" }}>
+                    Немає даних за обраний період
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      {[
+                        { label: "Позицій за годину", value: teamAvg.itemsPerHour, sub: "у середньому по складу" },
+                        { label: "Позицій за день", value: teamAvg.itemsPerDay, sub: "на одного складовщика" },
+                        { label: "Накладних за день", value: teamAvg.reportsPerDay, sub: "на одного складовщика" },
+                        { label: "Активних складовщиків", value: workers.filter((w: any) => w.doneCount > 0).length, sub: "за період" },
+                      ].map((k) => (
+                        <div key={k.label} style={{ ...CARD, padding: "14px 16px" }}>
+                          <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "4px" }}>{k.label}</p>
+                          <p style={{ fontSize: "22px", fontWeight: 700, color: "#0A0A0A" }}>{k.value}</p>
+                          <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "2px" }}>{k.sub}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Рейтинг за обсягом опрацьованих позицій */}
+                    <div style={{ ...CARD, padding: "16px", marginBottom: "16px" }}>
+                      <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>
+                        Рейтинг за обсягом роботи
+                      </h2>
+                      <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "14px" }}>
+                        Скільки позицій товару опрацював кожен складовщик
+                      </p>
+
+                      {workers.map((w: any, i: number) => {
+                        const pct = Math.round((w.itemsCount / maxItems) * 100);
+                        const vsTeam = teamAvg.itemsPerHour
+                          ? Math.round((w.itemsPerHour / teamAvg.itemsPerHour - 1) * 100)
+                          : 0;
+                        return (
+                          <div key={w.id} style={{ padding: "12px 0", borderTop: i === 0 ? "none" : "1px solid #F3F4F6" }}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2">
+                                <span style={{ fontSize: "13px", color: "#9CA3AF", width: "18px" }}>{i + 1}.</span>
+                                {w.openShift && (
+                                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#16A34A", display: "inline-block" }} title="Зараз на зміні" />
+                                )}
+                                <span style={{ fontWeight: 600, fontSize: "14px" }}>{w.name}</span>
+                                {w.doneCount > 0 && (
+                                  <span
+                                    style={{
+                                      fontSize: "11px",
+                                      padding: "2px 7px",
+                                      borderRadius: "5px",
+                                      fontWeight: 600,
+                                      background: vsTeam >= 0 ? "#F0FDF4" : "#FEF3C7",
+                                      color: vsTeam >= 0 ? "#16A34A" : "#D97706",
+                                    }}
+                                    title="Порівняно із середнім по складу"
+                                  >
+                                    {vsTeam >= 0 ? "+" : ""}{vsTeam}% до середнього
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{ fontSize: "14px", fontWeight: 700 }}>
+                                {w.itemsCount} позицій
+                              </span>
+                            </div>
+
+                            <div style={{ height: "8px", background: "#F3F4F6", borderRadius: "4px", marginBottom: "8px" }}>
+                              <div style={{ height: "100%", width: `${pct}%`, background: "#FFD600", borderRadius: "4px" }} />
+                            </div>
+
+                            <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: "12px", color: "#6B7280" }}>
+                              <span>⚡️ <b style={{ color: "#0A0A0A" }}>{w.itemsPerHour}</b> позицій/год</span>
+                              <span>📄 {w.doneCount} накладних (по {w.avgItemsPerReport} позицій)</span>
+                              <span>⏱ {formatHours(w.activeHours)} активних</span>
+                              <span>📅 {w.daysWorked} {w.daysWorked === 1 ? "день" : "днів"}</span>
+                              {w.avgGapMinutes != null && <span>⏳ пауза ~{w.avgGapMinutes} хв</span>}
+                              {w.evenness != null && (
+                                <span
+                                  title="Яку частку зміни людина реально працювала. 100% — рівномірно весь день, низький % — здав усе одним залпом"
+                                  style={{ color: w.evenness < 30 ? "#D97706" : undefined }}
+                                >
+                                  📊 рівномірність {w.evenness}%
+                                </span>
+                              )}
+                              {w.failRate > 0 && (
+                                <span style={{ color: "#DC2626" }}>❌ {w.failRate}% фото не розпізнано</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Навантаження по годинах доби */}
+                    <div style={{ ...CARD, padding: "16px" }}>
+                      <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>
+                        Навантаження по годинах
+                      </h2>
+                      <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "14px" }}>
+                        Коли складовщики здають накладні (київський час)
+                      </p>
+
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", height: "120px" }}>
+                        {hourly.map((h: any) => {
+                          const pct = maxHourly ? (h.reports / maxHourly) * 100 : 0;
+                          return (
+                            <div
+                              key={h.hour}
+                              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}
+                              title={`${String(h.hour).padStart(2, "0")}:00 — ${h.reports} накладних`}
+                            >
+                              <div style={{ fontSize: "10px", color: "#9CA3AF", height: "12px" }}>
+                                {h.reports || ""}
+                              </div>
+                              <div
+                                style={{
+                                  width: "100%",
+                                  height: `${Math.max(pct, h.reports ? 4 : 0)}%`,
+                                  minHeight: h.reports ? "3px" : "0",
+                                  background: h.reports ? "#FFD600" : "transparent",
+                                  borderRadius: "3px 3px 0 0",
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
+                        {hourly.map((h: any) => (
+                          <div key={h.hour} style={{ flex: 1, textAlign: "center", fontSize: "9px", color: "#9CA3AF" }}>
+                            {h.hour % 3 === 0 ? String(h.hour).padStart(2, "0") : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
 
             {/* ---------- СКЛАДОВЩИКИ ---------- */}
             {activeTab === "workers" && (

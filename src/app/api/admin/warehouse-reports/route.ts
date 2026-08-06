@@ -118,6 +118,8 @@ export async function GET(req: NextRequest) {
     itemsCount: number;
     lastActivityAt: Date | null;
     openShift: { openedAt: Date; openAddress: string | null } | null;
+    /** Час усіх накладних працівника — для рівномірності та активних годин */
+    reportTimes: Date[];
   };
 
   const workerMap = new Map<string, WorkerAgg>();
@@ -139,6 +141,7 @@ export async function GET(req: NextRequest) {
         itemsCount: 0,
         lastActivityAt: null,
         openShift: null,
+        reportTimes: [],
       };
       workerMap.set(id, w);
     }
@@ -157,6 +160,7 @@ export async function GET(req: NextRequest) {
     } else {
       w.pendingCount++;
     }
+    w.reportTimes.push(r.createdAt);
     if (!w.lastActivityAt || r.createdAt > w.lastActivityAt) w.lastActivityAt = r.createdAt;
   });
 
@@ -170,9 +174,124 @@ export async function GET(req: NextRequest) {
     if (!w.lastActivityAt || s.openedAt > w.lastActivityAt) w.lastActivityAt = s.openedAt;
   });
 
-  const workers = Array.from(workerMap.values()).sort(
-    (a, b) => b.totalAmount - a.totalAmount || b.reportsCount - a.reportsCount
-  );
+  /**
+   * Продуктивність. Свідомо рахуємо від ПОЗИЦІЙ, а не від накладних:
+   * накладна на 2 рядки і на 40 — різний обсяг роботи.
+   *
+   * activeHours — час від першої до останньої накладної за день, підсумований
+   * по днях. Це чесніше за тривалість зміни: якщо людина відкрила зміну о 8:00,
+   * а першу накладну здала о 16:00, зміна триває 8 год, а працювала вона менше.
+   */
+  const workers = Array.from(workerMap.values())
+    .map((w) => {
+      // Групуємо накладні по київських днях
+      const byDay = new Map<string, Date[]>();
+      w.reportTimes.forEach((t) => {
+        const d = kyivDate(t);
+        const list = byDay.get(d) || [];
+        list.push(t);
+        byDay.set(d, list);
+      });
+
+      let activeHours = 0;
+      const gaps: number[] = [];
+
+      byDay.forEach((times) => {
+        const sorted = [...times].sort((a, b) => a.getTime() - b.getTime());
+        if (sorted.length > 1) {
+          activeHours +=
+            (sorted[sorted.length - 1].getTime() - sorted[0].getTime()) / 3600000;
+          for (let i = 1; i < sorted.length; i++) {
+            gaps.push((sorted[i].getTime() - sorted[i - 1].getTime()) / 60000);
+          }
+        }
+      });
+
+      // База для «за годину» — ТРИВАЛІСТЬ ЗМІНИ, а не активні години.
+      //
+      // Спокуса ділити на activeHours хибна: складовщик, який здав усе
+      // одним залпом за 20 хвилин перед закриттям, отримав би 120 позицій/год
+      // і виглядав би найкращим. Ділення на зміну показує реальну віддачу
+      // за оплачений час.
+      const base = w.totalHours > 0 ? w.totalHours : activeHours;
+
+      const avgGap = gaps.length
+        ? gaps.reduce((s, g) => s + g, 0) / gaps.length
+        : null;
+
+      /**
+       * Рівномірність — яку частку зміни людина реально працювала.
+       *
+       * Свідомо НЕ рахуємо через розкид інтервалів: 9 накладних рівно
+       * через 5 хвилин мають ідеальний розкид, але це і є «залп» наприкінці
+       * дня. Тому беремо відношення активного вікна до тривалості зміни:
+       * працював 8 год зі зміни 8 год → 100%, здав усе за 20 хв → 4%.
+       */
+      let evenness: number | null = null;
+      if (w.doneCount >= 3 && w.totalHours > 0 && activeHours > 0) {
+        evenness = Math.round(Math.min(1, activeHours / w.totalHours) * 100);
+      }
+
+      return {
+        ...w,
+        reportTimes: undefined, // назовні не віддаємо — це службові дані
+        activeHours: Math.round(activeHours * 10) / 10,
+        itemsPerHour: base > 0 ? Math.round((w.itemsCount / base) * 10) / 10 : 0,
+        reportsPerHour: base > 0 ? Math.round((w.doneCount / base) * 10) / 10 : 0,
+        avgItemsPerReport:
+          w.doneCount > 0 ? Math.round((w.itemsCount / w.doneCount) * 10) / 10 : 0,
+        avgGapMinutes: avgGap != null ? Math.round(avgGap) : null,
+        evenness,
+        daysWorked: byDay.size,
+        // Частка невдалих розпізнавань — непряма ознака якості фото
+        failRate:
+          w.reportsCount > 0 ? Math.round((w.failedCount / w.reportsCount) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.itemsCount - a.itemsCount || b.totalAmount - a.totalAmount);
+
+  // Середні по складу — щоб порівнювати працівника з колективом, а не з нулем
+  const activeWorkersList = workers.filter((w) => w.doneCount > 0);
+  const teamAvg = {
+    itemsPerHour: activeWorkersList.length
+      ? Math.round(
+          (activeWorkersList.reduce((s, w) => s + w.itemsPerHour, 0) /
+            activeWorkersList.length) *
+            10
+        ) / 10
+      : 0,
+    itemsPerDay: activeWorkersList.length
+      ? Math.round(
+          activeWorkersList.reduce(
+            (s, w) => s + (w.daysWorked ? w.itemsCount / w.daysWorked : 0),
+            0
+          ) / activeWorkersList.length
+        )
+      : 0,
+    reportsPerDay: activeWorkersList.length
+      ? Math.round(
+          (activeWorkersList.reduce(
+            (s, w) => s + (w.daysWorked ? w.doneCount / w.daysWorked : 0),
+            0
+          ) /
+            activeWorkersList.length) *
+            10
+        ) / 10
+      : 0,
+  };
+
+  // Розподіл накладних по годинах доби — коли на складі пік навантаження
+  const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, reports: 0 }));
+  reports.forEach((r) => {
+    const h = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: KYIV_TZ,
+        hour: "2-digit",
+        hour12: false,
+      }).format(r.createdAt)
+    );
+    if (h >= 0 && h < 24) hourly[h].reports++;
+  });
 
   // ---- Зведення по номенклатурі ----
   // Групуємо за matchedProductId, інакше за нормалізованою назвою —
@@ -303,6 +422,8 @@ export async function GET(req: NextRequest) {
     })),
     nomenclature,
     daily,
+    hourly,
+    teamAvg,
     workersList,
   });
 }

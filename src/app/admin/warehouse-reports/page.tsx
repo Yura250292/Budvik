@@ -36,9 +36,24 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   sales: "Видаткова",
 };
 
+/**
+ * Дата YYYY-MM-DD за КИЇВСЬКИМ часом.
+ *
+ * toISOString() дає UTC-дату: о 00:25 за Києвом він поверне ще вчорашнє
+ * число, і накладна, здана вночі, випадала б з фільтра «Сьогодні»/«Місяць».
+ */
+function kyivDateStr(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Kyiv",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 function getDateRange(preset: PeriodPreset): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().slice(0, 10);
+  const to = kyivDateStr(now);
   let from = "";
 
   switch (preset) {
@@ -48,23 +63,23 @@ function getDateRange(preset: PeriodPreset): { from: string; to: string } {
     case "week": {
       const d = new Date(now);
       d.setDate(d.getDate() - 7);
-      from = d.toISOString().slice(0, 10);
+      from = kyivDateStr(d);
       break;
     }
     case "month": {
       const d = new Date(now);
       d.setMonth(d.getMonth() - 1);
-      from = d.toISOString().slice(0, 10);
+      from = kyivDateStr(d);
       break;
     }
     case "quarter": {
       const d = new Date(now);
       d.setMonth(d.getMonth() - 3);
-      from = d.toISOString().slice(0, 10);
+      from = kyivDateStr(d);
       break;
     }
     case "year":
-      from = `${now.getFullYear()}-01-01`;
+      from = `${Number(kyivDateStr(now).slice(0, 4))}-01-01`;
       break;
     default:
       from = "";

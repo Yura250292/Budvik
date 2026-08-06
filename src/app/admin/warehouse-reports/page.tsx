@@ -262,6 +262,28 @@ export default function WarehouseReportsPage() {
     setBusy(null);
   };
 
+  const deleteReport = async (r: any) => {
+    const label = r.docNumber ? `№${r.docNumber}` : "без номера";
+    if (
+      !confirm(
+        `Видалити накладну ${label} (${r.userName})?\n\n` +
+          "Фото та всі позиції буде видалено назавжди. Дію не можна скасувати."
+      )
+    )
+      return;
+
+    setBusy(r.id);
+    const res = await fetch(`/api/admin/warehouse-reports/${r.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert(j.error || "Помилка видалення");
+    } else {
+      if (expandedReport === r.id) setExpandedReport(null);
+      await fetchData();
+    }
+    setBusy(null);
+  };
+
   const approveRequest = async (requestId: string) => {
     const userId = linkTarget[requestId];
     const draft = newWorker[requestId];
@@ -956,13 +978,28 @@ export default function WarehouseReportsPage() {
                                 </span>
                               </td>
                               <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                                <Link
-                                  href={`/admin/warehouse-reports/${r.id}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{ fontSize: "12px", color: "#2563EB", fontWeight: 600 }}
-                                >
-                                  Відкрити ↗
-                                </Link>
+                                <div className="flex items-center gap-3">
+                                  <Link
+                                    href={`/admin/warehouse-reports/${r.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ fontSize: "12px", color: "#2563EB", fontWeight: 600 }}
+                                  >
+                                    Відкрити ↗
+                                  </Link>
+                                  {role === "ADMIN" && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteReport(r);
+                                      }}
+                                      disabled={busy === r.id}
+                                      title="Видалити накладну"
+                                      style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}
+                                    >
+                                      {busy === r.id ? "..." : "Видалити"}
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
 
@@ -1072,6 +1109,60 @@ export default function WarehouseReportsPage() {
                                               </tr>
                                             ))}
                                           </tbody>
+                                          <tfoot>
+                                            <tr style={{ borderTop: "2px solid #D1D5DB", background: "#FAFAFA" }}>
+                                              <td
+                                                colSpan={5}
+                                                style={{ padding: "8px", fontWeight: 700, textAlign: "right" }}
+                                              >
+                                                Разом:
+                                              </td>
+                                              <td style={{ padding: "8px", fontWeight: 700, whiteSpace: "nowrap" }}>
+                                                {formatPrice2(
+                                                  reportDetails[r.id].items.reduce(
+                                                    (s: number, i: any) => s + (i.lineTotal || 0),
+                                                    0
+                                                  )
+                                                )}
+                                              </td>
+                                            </tr>
+                                            {(() => {
+                                              // Сума з документа поруч із сумою позицій — одразу видно,
+                                              // чи AI не пропустив рядок
+                                              const itemsSum = reportDetails[r.id].items.reduce(
+                                                (s: number, i: any) => s + (i.lineTotal || 0),
+                                                0
+                                              );
+                                              const declared = reportDetails[r.id].totalAmount || 0;
+                                              if (!declared) return null;
+                                              const diff = Math.abs(declared - itemsSum) > 1;
+                                              return (
+                                                <tr style={{ background: diff ? "#FEF3C7" : "#FAFAFA" }}>
+                                                  <td
+                                                    colSpan={5}
+                                                    style={{
+                                                      padding: "8px",
+                                                      textAlign: "right",
+                                                      color: diff ? "#D97706" : "#6B7280",
+                                                      fontWeight: diff ? 700 : 500,
+                                                    }}
+                                                  >
+                                                    {diff ? "⚠️ У накладній вказано:" : "У накладній вказано:"}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "8px",
+                                                      fontWeight: 700,
+                                                      whiteSpace: "nowrap",
+                                                      color: diff ? "#D97706" : "#6B7280",
+                                                    }}
+                                                  >
+                                                    {formatPrice2(declared)}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })()}
+                                          </tfoot>
                                         </table>
                                       ) : (
                                         <p style={{ fontSize: "13px", color: "#6B7280" }}>

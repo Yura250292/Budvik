@@ -221,25 +221,31 @@ export async function matchItemsToProducts(
     });
   }
 
-  // 3) Для решти — пошук за входженням назви, потім за значущими словами
+  // 3) Для решти — пошук за входженням повної назви.
+  //
+  // Свідомо НЕ шукаємо за одним словом: у базі 40k+ товарів, і збіг по
+  // одному слову дає абсурдні результати («Ялинка зелена 150 см» →
+  // «Штуцер ... "ялинка" FI 25», «Куля скляна» → «Циркулярна пила»).
+  // Краще не зіставити нічого, ніж підставити чужий товар — адмін
+  // однаково звіряє з фото.
   const stillPending = result.filter((i) => !i.matched && i.name?.trim());
   for (const item of stillPending) {
+    const cleaned = item.name.trim();
+
+    // Точне входження всієї назви
     let product = await prisma.product.findFirst({
-      where: { name: { contains: item.name, mode: "insensitive" } },
+      where: { name: { contains: cleaned, mode: "insensitive" } },
       select: PRODUCT_SELECT,
     });
 
+    // Якщо ні — пробуємо назву без хвоста в дужках/після коми
     if (!product) {
-      const words = item.name
-        .split(/\s+/)
-        .filter((w) => w.length > 3)
-        .slice(0, 3);
-      for (const word of words) {
+      const core = cleaned.split(/[(,]/)[0].trim();
+      if (core.length >= 8 && core !== cleaned) {
         product = await prisma.product.findFirst({
-          where: { name: { contains: word, mode: "insensitive" } },
+          where: { name: { contains: core, mode: "insensitive" } },
           select: PRODUCT_SELECT,
         });
-        if (product) break;
       }
     }
 

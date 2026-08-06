@@ -3,6 +3,37 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+const KYIV_TZ = "Europe/Kyiv";
+
+/** Дата у форматі YYYY-MM-DD за київським часом (сервер працює в UTC). */
+function kyivDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: KYIV_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
+}
+
+/** Зсув Києва відносно UTC у мілісекундах на конкретний момент (враховує DST). */
+function kyivOffsetMs(at: Date): number {
+  const kyiv = new Date(at.toLocaleString("en-US", { timeZone: KYIV_TZ }));
+  const utc = new Date(at.toLocaleString("en-US", { timeZone: "UTC" }));
+  return kyiv.getTime() - utc.getTime();
+}
+
+/** "2026-08-07" → момент 00:00:00 за Києвом, у UTC. */
+function kyivDayStart(day: string): Date {
+  const asUtc = new Date(`${day}T00:00:00Z`);
+  return new Date(asUtc.getTime() - kyivOffsetMs(asUtc));
+}
+
+/** "2026-08-07" → момент 23:59:59.999 за Києвом, у UTC. */
+function kyivDayEnd(day: string): Date {
+  const asUtc = new Date(`${day}T23:59:59.999Z`);
+  return new Date(asUtc.getTime() - kyivOffsetMs(asUtc));
+}
+
 /**
  * Аналітика «Звіти з складу».
  * Агрегація в JS після одного findMany — як в /api/admin/analytics.
@@ -23,8 +54,8 @@ export async function GET(req: NextRequest) {
   const dateFilter: Record<string, unknown> = {};
   if (from || to) {
     dateFilter.createdAt = {
-      ...(from && { gte: new Date(from) }),
-      ...(to && { lte: new Date(to + "T23:59:59") }),
+      ...(from && { gte: kyivDayStart(from) }),
+      ...(to && { lte: kyivDayEnd(to) }),
     };
   }
 
@@ -45,8 +76,8 @@ export async function GET(req: NextRequest) {
         ...(from || to
           ? {
               openedAt: {
-                ...(from && { gte: new Date(from) }),
-                ...(to && { lte: new Date(to + "T23:59:59") }),
+                ...(from && { gte: kyivDayStart(from) }),
+                ...(to && { lte: kyivDayEnd(to) }),
               },
             }
           : {}),
@@ -208,7 +239,9 @@ export async function GET(req: NextRequest) {
   // ---- Динаміка по днях ----
   const dailyMap = new Map<string, { date: string; reports: number; amount: number }>();
   reports.forEach((r) => {
-    const date = r.createdAt.toISOString().slice(0, 10);
+    // Групуємо за київською датою, а не UTC: на Vercel сервер працює в UTC,
+    // тож накладна о 00:30 за Києвом інакше потрапила б у попередній день
+    const date = kyivDate(r.createdAt);
     let d = dailyMap.get(date);
     if (!d) {
       d = { date, reports: 0, amount: 0 };

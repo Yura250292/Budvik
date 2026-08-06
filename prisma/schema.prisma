@@ -94,6 +94,18 @@ enum CounterpartyType {
   BOTH
 }
 
+enum WarehouseShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum WarehouseReportStatus {
+  PENDING // фото збережено, чекає на розпізнавання
+  PROCESSING // воркер узяв у роботу
+  DONE // розпізнано успішно
+  FAILED // помилка розпізнавання
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -102,6 +114,11 @@ model User {
   phone        String?
   role         Role     @default(CLIENT)
   boltsBalance Float    @default(0)
+
+  // Telegram (бот складу Budvik_Sklad)
+  telegramId       String? @unique // Telegram user id як рядок — ID перевищують 2^31
+  telegramUsername String? // @username на момент прив'язки, довідково
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -135,6 +152,11 @@ model User {
   salesRepCategories SalesRepCategoryAccess[]
 
   notifications Notification[]
+
+  // Warehouse (Telegram bot) relations
+  warehouseShifts        WarehouseShift[]       @relation("warehouseShiftWorker")
+  warehouseReports       WarehouseReport[]      @relation("warehouseReportWorker")
+  warehouseLinksApproved WarehouseLinkRequest[] @relation("warehouseLinkApprover")
 }
 
 model Category {
@@ -186,6 +208,9 @@ model Product {
   salesDocumentItems SalesDocumentItem[]
   reservations       StockReservation[]
   locationStocks     LocationStock[]
+
+  // Warehouse reports (лише довідковий матчинг, склад не змінюється)
+  warehouseReportItems WarehouseReportItem[] @relation("warehouseItemProduct")
 }
 
 model SeasonalPromo {
@@ -374,6 +399,7 @@ model Counterparty {
   assignedSalesReps SalesRepClient[]
   folderItems       ClientFolderItem[]
   linkedUsers       User[]             @relation("UserLinkedCounterparty")
+  warehouseReports  WarehouseReport[]  @relation("warehouseReportCounterparty")
 }
 
 model SupplierProduct {
@@ -743,4 +769,133 @@ model Notification {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ========== Звіти з складу (Telegram бот Budvik_Sklad) ==========
+// УВАГА: ці моделі НЕ впливають на ERP. Розпізнані накладні зберігаються
+// лише як звітність — SalesDocument / PurchaseOrder / LocationStock /
+// Product.stock ніколи не змінюються з цього модуля.
+
+model WarehouseShift {
+  id     String               @id @default(cuid())
+  userId String
+  status WarehouseShiftStatus @default(OPEN)
+
+  // Відкриття зміни
+  openedAt        DateTime @default(now())
+  openLat         Float?
+  openLng         Float?
+  openAddress     String? // reverseGeocode().shortName
+  openAddressFull String? // reverseGeocode().displayName
+
+  // Закриття зміни
+  closedAt         DateTime?
+  closeLat         Float?
+  closeLng         Float?
+  closeAddress     String?
+  closeAddressFull String?
+
+  durationMinutes Int? // рахується при закритті — для швидкої агрегації годин
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User              @relation("warehouseShiftWorker", fields: [userId], references: [id], onDelete: Cascade)
+  reports WarehouseReport[]
+
+  @@index([userId, openedAt])
+  @@index([status])
+}
+
+model WarehouseReport {
+  id      String                @id @default(cuid())
+  userId  String
+  shiftId String? // null, якщо фото надіслано поза зміною
+  status  WarehouseReportStatus @default(PENDING)
+
+  // Джерело (Telegram)
+  telegramMessageId String?
+  telegramFileId    String? @unique // ідемпотентність: одне фото = один звіт
+  mediaGroupId      String? // Telegram album id
+  batchId           String? // наш id пачки (= mediaGroupId або cuid)
+
+  // Файл
+  photoUrl      String
+  photoKey      String // R2 key — щоб можна було видалити
+  photoMimeType String?
+  photoSize     Int?
+
+  // Результат OCR (дзеркалить формат /api/erp/scan)
+  docType               String? // "purchase" | "sales"
+  docNumber             String?
+  docDate               DateTime?
+  counterpartyName      String?
+  counterpartyCode      String?
+  matchedCounterpartyId String?
+  totalAmount           Float?
+  itemsCount            Int       @default(0)
+  notes                 String?
+  rawResponse           Json? // повна відповідь Gemini для дебагу
+
+  attempts     Int       @default(0)
+  processedAt  DateTime?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                User            @relation("warehouseReportWorker", fields: [userId], references: [id], onDelete: Cascade)
+  shift               WarehouseShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  matchedCounterparty Counterparty?   @relation("warehouseReportCounterparty", fields: [matchedCounterpartyId], references: [id], onDelete: SetNull)
+
+  items WarehouseReportItem[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([shiftId])
+  @@index([mediaGroupId])
+}
+
+model WarehouseReportItem {
+  id       String @id @default(cuid())
+  reportId String
+
+  name      String
+  sku       String?
+  quantity  Float   @default(0) // Float, не Int — накладні містять "12,5 м"
+  price     Float   @default(0) // ціна за одиницю
+  unit      String?
+  lineTotal Float   @default(0) // quantity * price, денормалізовано для SUM
+
+  // Фаззі-матчинг до Product — ЛИШЕ довідково, склад не змінюється
+  matchedProductId    String?
+  matchedProductName  String?
+  matchedProductPrice Float?
+
+  report         WarehouseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  matchedProduct Product?        @relation("warehouseItemProduct", fields: [matchedProductId], references: [id], onDelete: SetNull)
+
+  @@index([reportId])
+  @@index([matchedProductId])
+  @@index([name])
+}
+
+model WarehouseLinkRequest {
+  id               String    @id @default(cuid())
+  telegramId       String
+  telegramUsername String?
+  telegramName     String? // first_name + last_name
+  code             String    @unique // 6-значний код, який показує бот
+  approved         Boolean   @default(false)
+  approvedById     String?
+  approvedAt       DateTime?
+  linkedUserId     String?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+
+  approvedBy User? @relation("warehouseLinkApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([telegramId])
+  @@index([approved, expiresAt])
 }

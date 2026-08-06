@@ -15,6 +15,7 @@ export default withAuth(
         (pathname.startsWith("/admin/products") ||
          pathname.startsWith("/admin/users") ||
          pathname.startsWith("/admin/sales") ||
+         pathname.startsWith("/admin/warehouse-reports") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {

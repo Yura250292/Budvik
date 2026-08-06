@@ -2,75 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-
-interface ScannedItem {
-  name: string;
-  sku?: string;
-  quantity: number;
-  price: number;
-  unit?: string;
-}
-
-interface ScannedDocument {
-  type: "purchase" | "sales";
-  number?: string;
-  date?: string;
-  counterpartyName?: string;
-  counterpartyCode?: string;
-  items: ScannedItem[];
-  totalAmount?: number;
-  notes?: string;
-}
-
-const SYSTEM_PROMPT = `Ти — експерт з розпізнавання документів. Тобі дають фото видаткової накладної, прихідної накладної, рахунку або іншого торгового документа.
-
-Твоє завдання — витягти ВСЮ інформацію з документа та повернути її в JSON форматі.
-
-Правила:
-1. Визнач тип документа: "purchase" (прихідна/закупівля) або "sales" (видаткова/продаж)
-2. Знайди номер документа, дату
-3. Знайди назву контрагента (постачальник або покупець) та його код (ЄДРПОУ) якщо є
-4. Для КОЖНОГО товару в таблиці витягни: назву, артикул/код (якщо є), кількість, ціну за одиницю, одиницю виміру
-5. Знайди загальну суму документа
-6. Якщо є додаткові примітки — включи їх
-
-ВАЖЛИВО:
-- Ціна — це ціна ЗА ОДИНИЦЮ, а не за рядок
-- Кількість — числове значення
-- Якщо щось не вдається прочитати — пропусти, не вигадуй
-- Поверни ТІЛЬКИ валідний JSON, без markdown обгортки
-
-Формат відповіді:
-{
-  "type": "purchase" | "sales",
-  "number": "номер документа",
-  "date": "дата у форматі YYYY-MM-DD",
-  "counterpartyName": "назва контрагента",
-  "counterpartyCode": "ЄДРПОУ або код",
-  "items": [
-    {
-      "name": "назва товару",
-      "sku": "артикул якщо є",
-      "quantity": 10,
-      "price": 150.50,
-      "unit": "шт"
-    }
-  ],
-  "totalAmount": 1505.00,
-  "notes": "додаткові примітки"
-}`;
+import { scanAndMatch, ScanError } from "@/lib/ai/scan-invoice";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  if (!GEMINI_API_KEY) {
-    return NextResponse.json({ error: "AI сервіс не налаштований" }, { status: 500 });
   }
 
   const formData = await req.formData();
@@ -88,114 +25,22 @@ export async function POST(req: NextRequest) {
       const base64 = Buffer.from(bytes).toString("base64");
       const mimeType = file!.type || "image/jpeg";
 
-      const url = `${GEMINI_BASE_URL}/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      const geminiRes = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { inlineData: { mimeType, data: base64 } },
-                { text: "Розпізнай цей документ (накладну/рахунок). Витягни всю інформацію." },
-              ],
-            },
-          ],
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 8192,
-          },
-        }),
-      });
-
-      if (!geminiRes.ok) {
-        const err = await geminiRes.text();
-        if (geminiRes.status === 429) {
-          return NextResponse.json({ error: "AI сервіс перевантажений. Спробуйте через хвилину." }, { status: 429 });
-        }
-        return NextResponse.json({ error: `AI помилка: ${geminiRes.status}` }, { status: 500 });
-      }
-
-      const geminiData = await geminiRes.json();
-      const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-      // Parse JSON from response (handle markdown wrapping)
-      let jsonStr = rawText.trim();
-      if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-      }
-
-      let scanned: ScannedDocument;
-      try {
-        scanned = JSON.parse(jsonStr);
-      } catch {
-        return NextResponse.json({ error: "AI не зміг розпізнати документ. Спробуйте краще фото.", raw: rawText }, { status: 422 });
-      }
-
-      // Try to match items to existing products
-      const matchedItems = [];
-      for (const item of scanned.items || []) {
-        let product = null;
-
-        // Try SKU match first
-        if (item.sku) {
-          product = await prisma.product.findFirst({
-            where: { sku: item.sku },
-            select: { id: true, name: true, sku: true, price: true },
-          });
-        }
-
-        // Try name match
-        if (!product && item.name) {
-          product = await prisma.product.findFirst({
-            where: { name: { contains: item.name, mode: "insensitive" } },
-            select: { id: true, name: true, sku: true, price: true },
-          });
-        }
-
-        // Fuzzy: try first significant words
-        if (!product && item.name) {
-          const words = item.name.split(/\s+/).filter((w) => w.length > 3).slice(0, 3);
-          for (const word of words) {
-            product = await prisma.product.findFirst({
-              where: { name: { contains: word, mode: "insensitive" } },
-              select: { id: true, name: true, sku: true, price: true },
-            });
-            if (product) break;
-          }
-        }
-
-        matchedItems.push({
-          ...item,
-          matched: product ? { id: product.id, name: product.name, sku: product.sku, currentPrice: product.price } : null,
-        });
-      }
-
-      // Try to match counterparty
-      let matchedCounterparty = null;
-      if (scanned.counterpartyCode) {
-        matchedCounterparty = await prisma.counterparty.findUnique({
-          where: { code: scanned.counterpartyCode },
-          select: { id: true, name: true, code: true, type: true },
-        });
-      }
-      if (!matchedCounterparty && scanned.counterpartyName) {
-        matchedCounterparty = await prisma.counterparty.findFirst({
-          where: { name: { contains: scanned.counterpartyName, mode: "insensitive" } },
-          select: { id: true, name: true, code: true, type: true },
-        });
-      }
+      const { scanned, items, matchedCounterparty } = await scanAndMatch(base64, mimeType);
 
       return NextResponse.json({
         scanned: {
           ...scanned,
-          items: matchedItems,
+          items,
           matchedCounterparty,
         },
       });
     } catch (e: any) {
+      if (e instanceof ScanError) {
+        return NextResponse.json(
+          e.raw ? { error: e.message, raw: e.raw } : { error: e.message },
+          { status: e.status }
+        );
+      }
       return NextResponse.json({ error: e.message || "Помилка розпізнавання" }, { status: 500 });
     }
   }

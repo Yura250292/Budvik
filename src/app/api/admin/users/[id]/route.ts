@@ -62,7 +62,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const body = await req.json();
-  const { role, counterpartyId } = body;
+  const { role, counterpartyId, telegramId } = body;
+
+  // Handle Telegram link update (складовщик ↔ бот Budvik_Sklad)
+  if ("telegramId" in body) {
+    const value = telegramId ? String(telegramId).trim() : null;
+
+    if (value) {
+      const taken = await prisma.user.findUnique({
+        where: { telegramId: value },
+        select: { id: true, name: true },
+      });
+      if (taken && taken.id !== id) {
+        return NextResponse.json(
+          { error: `Цей Telegram вже прив'язано до користувача ${taken.name}` },
+          { status: 409 }
+        );
+      }
+    }
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { telegramId: value, telegramUsername: value ? undefined : null },
+      select: { id: true, name: true, telegramId: true, telegramUsername: true },
+    });
+    return NextResponse.json(user);
+  }
 
   // Handle counterparty link update
   if ("counterpartyId" in body) {
@@ -78,7 +103,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json(user);
   }
 
-  if (!role || !["CLIENT", "MANAGER", "SALES", "WHOLESALE"].includes(role)) {
+  if (!role || !["CLIENT", "MANAGER", "SALES", "WAREHOUSE", "WHOLESALE"].includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 

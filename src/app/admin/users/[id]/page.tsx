@@ -54,7 +54,7 @@ export default function UserProfilePage() {
   };
 
   const changeRole = async (newRole: string) => {
-    const label = newRole === "MANAGER" ? "менеджером" : newRole === "SALES" ? "торговим менеджером" : newRole === "WHOLESALE" ? "оптовиком" : "клієнтом";
+    const label = newRole === "MANAGER" ? "менеджером" : newRole === "SALES" ? "торговим менеджером" : newRole === "WAREHOUSE" ? "складовщиком" : newRole === "WHOLESALE" ? "оптовиком" : "клієнтом";
     if (!confirm(`Призначити ${user.name} ${label}?`)) return;
 
     const res = await fetch(`/api/admin/users/${user.id}`, {
@@ -109,8 +109,8 @@ export default function UserProfilePage() {
     );
   }
 
-  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", MANAGER: "Менеджер", SALES: "Торговий менеджер", WHOLESALE: "Оптовик", CLIENT: "Клієнт" };
-  const roleColors: Record<string, string> = { ADMIN: "bg-bk text-primary", MANAGER: "bg-purple-100 text-purple-700", SALES: "bg-blue-100 text-blue-700", WHOLESALE: "bg-primary/10 text-primary-dark", CLIENT: "bg-green-100 text-green-700" };
+  const roleLabels: Record<string, string> = { ADMIN: "Адміністратор", MANAGER: "Менеджер", SALES: "Торговий менеджер", WAREHOUSE: "Складовщик", WHOLESALE: "Оптовик", CLIENT: "Клієнт" };
+  const roleColors: Record<string, string> = { ADMIN: "bg-bk text-primary", MANAGER: "bg-purple-100 text-purple-700", SALES: "bg-blue-100 text-blue-700", WAREHOUSE: "bg-orange-100 text-orange-700", WHOLESALE: "bg-primary/10 text-primary-dark", CLIENT: "bg-green-100 text-green-700" };
 
   const activeOrders = user.orders.filter((o: any) => !["DELIVERED", "CANCELLED"].includes(o.status));
   const completedOrders = user.orders.filter((o: any) => ["DELIVERED", "CANCELLED"].includes(o.status));
@@ -168,7 +168,21 @@ export default function UserProfilePage() {
                 >
                   Зробити оптовиком
                 </button>
+                <button
+                  onClick={() => changeRole("WAREHOUSE")}
+                  className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-500 transition"
+                >
+                  Зробити складовщиком
+                </button>
               </>
+            )}
+            {user.role === "WAREHOUSE" && (
+              <button
+                onClick={() => changeRole("CLIENT")}
+                className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 transition"
+              >
+                Зняти роль складовщика
+              </button>
             )}
             {user.role === "MANAGER" && (
               <button

@@ -2,8 +2,10 @@
 
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { formatPrice } from "@/lib/utils";
+import DynamicShiftMap from "@/components/map/DynamicShiftMap";
+import type { ShiftPoint } from "@/components/map/ShiftMap";
 
 type PeriodPreset = "today" | "week" | "month" | "quarter" | "year" | "all";
 type Tab = "overview" | "workers" | "reports" | "nomenclature" | "shifts";
@@ -126,6 +128,39 @@ const CARD: React.CSSProperties = {
   border: "1px solid #E5E7EB",
 };
 
+/**
+ * Клітинка геолокації: адреса + посилання на Google Maps із точними
+ * координатами, щоб адмін міг перевірити, де саме був складовщик.
+ */
+function GeoCell({
+  address,
+  lat,
+  lng,
+}: {
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+}) {
+  if (!address && lat == null) return <span>—</span>;
+
+  return (
+    <div>
+      <div>{address || "Адресу не визначено"}</div>
+      {lat != null && lng != null && (
+        <a
+          href={`https://www.google.com/maps?q=${lat},${lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          style={{ fontSize: "11px", color: "#2563EB", fontFamily: "monospace" }}
+        >
+          {lat.toFixed(5)}, {lng.toFixed(5)} ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
 export default function WarehouseReportsPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
@@ -136,6 +171,8 @@ export default function WarehouseReportsPage() {
   const [toDate, setToDate] = useState("");
   const [workerFilter, setWorkerFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [docTypeFilter, setDocTypeFilter] = useState("ALL");
+  const [searchReport, setSearchReport] = useState("");
   const [searchNom, setSearchNom] = useState("");
 
   const [data, setData] = useState<any>(null);
@@ -267,6 +304,39 @@ export default function WarehouseReportsPage() {
     setBusy(null);
   };
 
+  /**
+   * Точки для карти: по дві на зміну (відкриття + закриття).
+   * useMemo стоїть ДО раннього return, інакше порушується порядок хуків.
+   */
+  const shiftPoints: ShiftPoint[] = useMemo(() => {
+    const list: ShiftPoint[] = [];
+    for (const s of data?.shifts || []) {
+      if (s.openLat != null && s.openLng != null) {
+        list.push({
+          lat: s.openLat,
+          lng: s.openLng,
+          type: "open",
+          workerName: s.userName,
+          time: formatDateTime(s.openedAt),
+          address: s.openAddress,
+          shiftId: s.id,
+        });
+      }
+      if (s.closeLat != null && s.closeLng != null) {
+        list.push({
+          lat: s.closeLat,
+          lng: s.closeLng,
+          type: "close",
+          workerName: s.userName,
+          time: formatDateTime(s.closedAt),
+          address: s.closeAddress,
+          shiftId: s.id,
+        });
+      }
+    }
+    return list;
+  }, [data]);
+
   if (!["ADMIN", "MANAGER"].includes(role)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -277,7 +347,21 @@ export default function WarehouseReportsPage() {
 
   const kpis = data?.kpis;
   const workers = data?.workers || [];
-  const reports = data?.reports || [];
+  // Тип документа й пошук фільтруються на клієнті — дані вже завантажені,
+  // тож зайвий запит на сервер не потрібен
+  const reports = (data?.reports || []).filter((r: any) => {
+    if (docTypeFilter !== "ALL" && r.docType !== docTypeFilter) return false;
+    if (!searchReport) return true;
+    const q = searchReport.toLowerCase();
+    return (
+      r.docNumber?.toLowerCase().includes(q) ||
+      r.counterpartyName?.toLowerCase().includes(q) ||
+      r.userName?.toLowerCase().includes(q)
+    );
+  });
+  const reportsSum = reports
+    .filter((r: any) => r.status === "DONE")
+    .reduce((s: number, r: any) => s + (r.totalAmount || 0), 0);
   const shifts = data?.shifts || [];
   const nomenclature = (data?.nomenclature || []).filter(
     (n: any) =>
@@ -429,6 +513,33 @@ export default function WarehouseReportsPage() {
                 </option>
               ))}
             </select>
+          )}
+
+          {activeTab === "reports" && (
+            <>
+              <select
+                value={docTypeFilter}
+                onChange={(e) => setDocTypeFilter(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "13px", background: "white" }}
+              >
+                <option value="ALL">Усі типи</option>
+                <option value="purchase">Прихідні</option>
+                <option value="sales">Видаткові</option>
+              </select>
+
+              <input
+                placeholder="Пошук: № або контрагент..."
+                value={searchReport}
+                onChange={(e) => setSearchReport(e.target.value)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid #E5E7EB",
+                  fontSize: "13px",
+                  minWidth: "220px",
+                }}
+              />
+            </>
           )}
         </div>
 
@@ -761,9 +872,32 @@ export default function WarehouseReportsPage() {
             {/* ---------- НАКЛАДНІ ---------- */}
             {activeTab === "reports" && (
               <div style={{ ...CARD, overflow: "hidden" }}>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #F3F4F6",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "16px",
+                    alignItems: "baseline",
+                  }}
+                >
+                  <span style={{ fontSize: "14px", fontWeight: 700 }}>
+                    Знайдено: {reports.length}
+                  </span>
+                  {reportsSum > 0 && (
+                    <span style={{ fontSize: "14px", color: "#6B7280" }}>
+                      Сума розпізнаних: <b style={{ color: "#0A0A0A" }}>{formatPrice(reportsSum)}</b>
+                    </span>
+                  )}
+                  <span style={{ fontSize: "12px", color: "#9CA3AF", marginLeft: "auto" }}>
+                    Клік по рядку — швидкий перегляд, «Відкрити» — повна накладна
+                  </span>
+                </div>
+
                 {reports.length === 0 && (
                   <p style={{ padding: "20px", color: "#6B7280", fontSize: "14px" }}>
-                    Немає накладних за обраний період
+                    Немає накладних за обраними фільтрами
                   </p>
                 )}
                 {reports.length > 0 && (
@@ -771,7 +905,7 @@ export default function WarehouseReportsPage() {
                     <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: "#FAFAFA", textAlign: "left" }}>
-                          {["Дата", "Складовщик", "Тип", "№", "Дата док.", "Контрагент", "Позицій", "Сума", "Статус"].map(
+                          {["Дата", "Складовщик", "Тип", "№", "Дата док.", "Контрагент", "Позицій", "Сума", "Статус", ""].map(
                             (h) => (
                               <th
                                 key={h}
@@ -821,11 +955,20 @@ export default function WarehouseReportsPage() {
                                   {STATUS_LABELS[r.status]}
                                 </span>
                               </td>
+                              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                                <Link
+                                  href={`/admin/warehouse-reports/${r.id}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ fontSize: "12px", color: "#2563EB", fontWeight: 600 }}
+                                >
+                                  Відкрити ↗
+                                </Link>
+                              </td>
                             </tr>
 
                             {expandedReport === r.id && (
                               <tr>
-                                <td colSpan={9} style={{ padding: "0 12px 16px", background: "#FAFAFA" }}>
+                                <td colSpan={10} style={{ padding: "0 12px 16px", background: "#FAFAFA" }}>
                                   {r.errorMessage && (
                                     <p
                                       style={{
@@ -1020,82 +1163,129 @@ export default function WarehouseReportsPage() {
 
             {/* ---------- ЗМІНИ ---------- */}
             {activeTab === "shifts" && (
-              <div style={{ ...CARD, overflow: "hidden" }}>
-                {shifts.length === 0 ? (
-                  <p style={{ padding: "20px", color: "#6B7280", fontSize: "14px" }}>
-                    Немає змін за обраний період
-                  </p>
-                ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-                      <thead>
-                        <tr style={{ background: "#FAFAFA", textAlign: "left" }}>
-                          {[
-                            "Дата",
-                            "Складовщик",
-                            "Відкрито",
-                            "Закрито",
-                            "Тривалість",
-                            "Адреса відкриття",
-                            "Адреса закриття",
-                            "Накладних",
-                            "Сума",
-                          ].map((h) => (
-                            <th
-                              key={h}
-                              style={{ padding: "10px 12px", fontWeight: 600, color: "#6B7280", whiteSpace: "nowrap" }}
-                            >
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shifts.map((s: any) => (
-                          <tr key={s.id} style={{ borderTop: "1px solid #F3F4F6" }}>
-                            <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                              {formatDateOnly(s.openedAt)}
-                            </td>
-                            <td style={{ padding: "10px 12px", fontWeight: 600 }}>
-                              <div className="flex items-center gap-2">
-                                {s.status === "OPEN" && (
-                                  <span
-                                    style={{
-                                      width: "8px",
-                                      height: "8px",
-                                      borderRadius: "50%",
-                                      background: "#16A34A",
-                                      display: "inline-block",
-                                    }}
-                                  />
-                                )}
-                                {s.userName}
-                              </div>
-                            </td>
-                            <td style={{ padding: "10px 12px" }}>{formatTime(s.openedAt)}</td>
-                            <td style={{ padding: "10px 12px" }}>
-                              {s.closedAt ? formatTime(s.closedAt) : "— на зміні —"}
-                            </td>
-                            <td style={{ padding: "10px 12px" }}>
-                              {s.durationMinutes != null ? formatHours(s.durationMinutes / 60) : "—"}
-                            </td>
-                            <td style={{ padding: "10px 12px", color: "#6B7280", maxWidth: "220px" }}>
-                              {s.openAddress || "—"}
-                            </td>
-                            <td style={{ padding: "10px 12px", color: "#6B7280", maxWidth: "220px" }}>
-                              {s.closeAddress || "—"}
-                            </td>
-                            <td style={{ padding: "10px 12px" }}>{s.reportsCount}</td>
-                            <td style={{ padding: "10px 12px", fontWeight: 600 }}>
-                              {formatPrice(s.reportsAmount)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <>
+                {/* Карта: зелений пін — відкриття, червоний — закриття */}
+                <div style={{ ...CARD, padding: "16px", marginBottom: "16px" }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h2 style={{ fontSize: "16px", fontWeight: 700 }}>
+                      Карта змін
+                    </h2>
+                    <div className="flex items-center gap-4" style={{ fontSize: "12px", color: "#6B7280" }}>
+                      <span className="flex items-center gap-1.5">
+                        <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#16A34A", display: "inline-block" }} />
+                        Відкриття зміни
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#DC2626", display: "inline-block" }} />
+                        Закриття зміни
+                      </span>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {shiftPoints.length === 0 ? (
+                    <div
+                      style={{
+                        height: "420px",
+                        background: "#F9FAFB",
+                        borderRadius: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#9CA3AF",
+                        fontSize: "14px",
+                        textAlign: "center",
+                        padding: "20px",
+                      }}
+                    >
+                      Немає геолокації за обраний період.
+                      <br />
+                      Координати з&apos;являться, коли складовщик відкриє зміну в боті.
+                    </div>
+                  ) : (
+                    <DynamicShiftMap points={shiftPoints} />
+                  )}
+                </div>
+
+                <div style={{ ...CARD, overflow: "hidden" }}>
+                  {shifts.length === 0 ? (
+                    <p style={{ padding: "20px", color: "#6B7280", fontSize: "14px" }}>
+                      Немає змін за обраний період
+                    </p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#FAFAFA", textAlign: "left" }}>
+                            {[
+                              "Дата",
+                              "Складовщик",
+                              "Відкрито",
+                              "Закрито",
+                              "Тривалість",
+                              "Місце відкриття",
+                              "Місце закриття",
+                              "Накладних",
+                              "Сума",
+                            ].map((h) => (
+                              <th
+                                key={h}
+                                style={{ padding: "10px 12px", fontWeight: 600, color: "#6B7280", whiteSpace: "nowrap" }}
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shifts.map((s: any) => (
+                            <tr key={s.id} style={{ borderTop: "1px solid #F3F4F6" }}>
+                              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                                {formatDateOnly(s.openedAt)}
+                              </td>
+                              <td style={{ padding: "10px 12px", fontWeight: 600 }}>
+                                <div className="flex items-center gap-2">
+                                  {s.status === "OPEN" && (
+                                    <span
+                                      style={{
+                                        width: "8px",
+                                        height: "8px",
+                                        borderRadius: "50%",
+                                        background: "#16A34A",
+                                        display: "inline-block",
+                                      }}
+                                      title="Зміна триває"
+                                    />
+                                  )}
+                                  {s.userName}
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 12px", fontWeight: 600, color: "#16A34A", whiteSpace: "nowrap" }}>
+                                {formatTime(s.openedAt)}
+                              </td>
+                              <td style={{ padding: "10px 12px", fontWeight: 600, color: s.closedAt ? "#DC2626" : "#6B7280", whiteSpace: "nowrap" }}>
+                                {s.closedAt ? formatTime(s.closedAt) : "на зміні"}
+                              </td>
+                              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                                {s.durationMinutes != null ? formatHours(s.durationMinutes / 60) : "—"}
+                              </td>
+                              <td style={{ padding: "10px 12px", color: "#6B7280", maxWidth: "220px" }}>
+                                <GeoCell address={s.openAddress} lat={s.openLat} lng={s.openLng} />
+                              </td>
+                              <td style={{ padding: "10px 12px", color: "#6B7280", maxWidth: "220px" }}>
+                                <GeoCell address={s.closeAddress} lat={s.closeLat} lng={s.closeLng} />
+                              </td>
+                              <td style={{ padding: "10px 12px" }}>{s.reportsCount}</td>
+                              <td style={{ padding: "10px 12px", fontWeight: 600 }}>
+                                {formatPrice(s.reportsAmount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </>
         )}

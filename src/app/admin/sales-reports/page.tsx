@@ -125,6 +125,11 @@ interface Trip {
   endOdometer: number | null;
   endOdometerSource: string | null;
   distanceKm: number | null;
+  gpsDistanceKm: number | null;
+  odometerToGpsRatio: number | null;
+  personalKm: number | null;
+  startPhotoSuspicious: boolean;
+  endPhotoSuspicious: boolean;
   durationMinutes: number | null;
   checkpointsCount: number;
   odometerSuspicious: boolean;
@@ -149,6 +154,9 @@ interface RepRow {
   avgGapMinutes: number | null;
   suspiciousCount: number;
   manualOdometerRate: number | null;
+  personalKm: number;
+  avgOdometerToGps: number | null;
+  photoSuspiciousCount: number;
 }
 
 interface Data {
@@ -162,6 +170,8 @@ interface Data {
     totalHours: number;
     repsCount: number;
     suspiciousCount: number;
+    personalKm: number;
+    photoSuspiciousCount: number;
   };
   workers: RepRow[];
   teamAvg: {
@@ -411,6 +421,7 @@ export default function SalesReportsPage() {
                 ["Точок", String(data.kpis.checkpointsCount)],
                 ["Годин у дорозі", formatHours(data.kpis.totalHours)],
                 ["Торгових", String(data.kpis.repsCount)],
+                ["Поза роботою", `${formatKm(data.kpis.personalKm)} км`],
                 ["Перевірити", String(data.kpis.suspiciousCount)],
               ].map(([label, value]) => (
                 <div key={label} style={{ ...CARD, padding: "14px" }}>
@@ -540,8 +551,18 @@ export default function SalesReportsPage() {
                       <span>🕐 до 1-ї точки ~{formatMinutes(w.avgFirstCheckpointMinutes)}</span>
                     )}
                     {w.avgGapMinutes != null && <span>⏳ між точками ~{formatMinutes(w.avgGapMinutes)}</span>}
+                    {w.avgOdometerToGps != null && (
+                      <span style={{ color: w.avgOdometerToGps > 2.5 ? "#DC2626" : "#6B7280" }}>
+                        🧭 одометр/маршрут ×{w.avgOdometerToGps}
+                        {w.avgOdometerToGps > 2.5 ? " — перевірити" : ""}
+                      </span>
+                    )}
+                    {w.personalKm > 0 && <span>🚙 поза роботою {formatKm(w.personalKm)} км</span>}
                     {w.manualOdometerRate != null && w.manualOdometerRate > 0 && (
                       <span style={{ color: "#D97706" }}>✍️ {w.manualOdometerRate}% одометра вручну</span>
+                    )}
+                    {w.photoSuspiciousCount > 0 && (
+                      <span style={{ color: "#D97706" }}>🖼 {w.photoSuspiciousCount} фото не з камери</span>
                     )}
                     {w.suspiciousCount > 0 && (
                       <span style={{ color: "#DC2626" }}>⚠️ {w.suspiciousCount} перевірити</span>
@@ -562,7 +583,7 @@ export default function SalesReportsPage() {
               <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "#FAFAFA" }}>
-                    {["Дата", "Торговий", "Старт", "Фініш", "Одометр", "Км", "Точок", "Тривалість", "Статус"].map((h) => (
+                    {["Дата", "Торговий", "Старт", "Фініш", "Одометр", "Км", "GPS", "Точок", "Тривалість", "Статус"].map((h) => (
                       <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "#6B7280", fontSize: "11px", whiteSpace: "nowrap" }}>
                         {h}
                       </th>
@@ -572,7 +593,7 @@ export default function SalesReportsPage() {
                 <tbody>
                   {data.trips.length === 0 && (
                     <tr>
-                      <td colSpan={9} style={{ padding: "32px", textAlign: "center", color: "#6B7280" }}>
+                      <td colSpan={10} style={{ padding: "32px", textAlign: "center", color: "#6B7280" }}>
                         За цей період поїздок не було
                       </td>
                     </tr>
@@ -626,8 +647,34 @@ export default function SalesReportsPage() {
                           <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>
                             {formatKm(t.distanceKm)}
                             {t.odometerSuspicious && <span title="Перевірити показання"> ⚠️</span>}
+                            {t.personalKm != null && t.personalKm > 0 && (
+                              <div style={{ fontSize: "10px", color: "#6B7280", fontWeight: 400 }}>
+                                +{formatKm(t.personalKm)} поза роботою
+                              </div>
+                            )}
                           </td>
-                          <td style={{ padding: "10px 12px" }}>{t.checkpointsCount}</td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", fontSize: "12px" }}>
+                            {t.gpsDistanceKm != null ? `${formatKm(t.gpsDistanceKm)} км` : "—"}
+                            {t.odometerToGpsRatio != null && (
+                              <div
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  color: t.odometerToGpsRatio > 2.5 ? "#DC2626" : "#6B7280",
+                                }}
+                                title="Одометр / відстань по GPS-точках. Дороги не прямі, тож 1.2-1.6 — норма."
+                              >
+                                ×{t.odometerToGpsRatio}
+                                {t.odometerToGpsRatio > 2.5 ? " ⚠️" : ""}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            {t.checkpointsCount}
+                            {(t.startPhotoSuspicious || t.endPhotoSuspicious) && (
+                              <span title="Фото не щойно з камери — переслане, з галереї або старе"> 🖼</span>
+                            )}
+                          </td>
                           <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{formatMinutes(t.durationMinutes)}</td>
                           <td style={{ padding: "10px 12px" }}>
                             <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", fontWeight: 600, background: st.bg, color: st.color, whiteSpace: "nowrap" }}>
@@ -637,7 +684,7 @@ export default function SalesReportsPage() {
                         </tr>
                         {isOpen && t.checkpoints.length > 0 && (
                           <tr>
-                            <td colSpan={9} style={{ padding: "0 12px 14px", background: "#FAFAFA" }}>
+                            <td colSpan={10} style={{ padding: "0 12px 14px", background: "#FAFAFA" }}>
                               <div style={{ fontSize: "12px", fontWeight: 600, margin: "8px 0" }}>
                                 Точки маршруту
                               </div>

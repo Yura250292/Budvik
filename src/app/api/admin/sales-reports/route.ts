@@ -78,6 +78,9 @@ export async function GET(req: NextRequest) {
     manualOdometerCount: number;
     odometerReadings: number;
     onTrip: boolean;
+    personalKm: number;
+    ratios: number[];
+    photoSuspiciousCount: number;
   };
 
   const byRep = new Map<string, RepAgg>();
@@ -105,6 +108,9 @@ export async function GET(req: NextRequest) {
         manualOdometerCount: 0,
         odometerReadings: 0,
         onTrip: false,
+        personalKm: 0,
+        ratios: [],
+        photoSuspiciousCount: 0,
       };
       byRep.set(id, agg);
     }
@@ -131,6 +137,16 @@ export async function GET(req: NextRequest) {
     }
     if (t.durationMinutes != null) agg.totalMinutes += t.durationMinutes;
     if (t.odometerSuspicious) agg.suspiciousCount += 1;
+
+    // Особистий пробіг — облік, не порушення: торговий їздить на авто
+    // у своїх справах за свій кошт.
+    if (t.personalKm != null && t.personalKm > 0) agg.personalKm += t.personalKm;
+
+    // Коефіцієнт одометр/GPS — саме він ловить кілометри, яких немає
+    // в маршруті. Фото одометра цього не покаже ніколи.
+    if (t.odometerToGpsRatio != null) agg.ratios.push(t.odometerToGpsRatio);
+
+    if (t.startPhotoSuspicious || t.endPhotoSuspicious) agg.photoSuspiciousCount += 1;
 
     // Якість AI: скільки показань довелося вводити руками чи виправляти
     [t.startOdometerSource, t.endOdometerSource].forEach((src) => {
@@ -181,6 +197,16 @@ export async function GET(req: NextRequest) {
         manualOdometerRate: a.odometerReadings
           ? Math.round((a.manualOdometerCount / a.odometerReadings) * 100)
           : null,
+        // Пробіг поза роботою — паливо за кошт торгового
+        personalKm: a.personalKm,
+        // Медіана стійкіша за середнє: один день з малою кількістю
+        // чекпоінтів не має тягнути оцінку в один бік
+        avgOdometerToGps: a.ratios.length
+          ? Number(
+              [...a.ratios].sort((x, y) => x - y)[Math.floor(a.ratios.length / 2)].toFixed(2)
+            )
+          : null,
+        photoSuspiciousCount: a.photoSuspiciousCount,
       };
     })
     .sort((a, b) => b.totalKm - a.totalKm);
@@ -236,6 +262,8 @@ export async function GET(req: NextRequest) {
     ),
     repsCount: byRep.size,
     suspiciousCount: trips.filter((t) => t.odometerSuspicious).length,
+    personalKm: trips.reduce((s, t) => s + (t.personalKm && t.personalKm > 0 ? t.personalKm : 0), 0),
+    photoSuspiciousCount: trips.filter((t) => t.startPhotoSuspicious || t.endPhotoSuspicious).length,
   };
 
   return NextResponse.json({
@@ -265,6 +293,11 @@ export async function GET(req: NextRequest) {
       endOdometerSource: t.endOdometerSource,
       endPhotoUrl: t.endPhotoUrl,
       distanceKm: t.distanceKm,
+      gpsDistanceKm: t.gpsDistanceKm,
+      odometerToGpsRatio: t.odometerToGpsRatio,
+      personalKm: t.personalKm,
+      startPhotoSuspicious: t.startPhotoSuspicious,
+      endPhotoSuspicious: t.endPhotoSuspicious,
       durationMinutes: t.durationMinutes,
       checkpointsCount: t.checkpoints.length,
       odometerSuspicious: t.odometerSuspicious,

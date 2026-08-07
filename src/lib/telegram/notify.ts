@@ -40,14 +40,22 @@ export async function sendTelegramMessage(
   }
 }
 
-/** Повідомити складовщика, що адмін підтвердив прив'язку. */
+/**
+ * Повідомити працівника, що адмін підтвердив прив'язку.
+ * Текст залежить від ролі: у складовщика і торгового різні кнопки,
+ * і загальна інструкція вела б до кнопки, якої в людини немає.
+ */
 export async function notifyWorkerLinked(
   telegramId: string,
-  workerName: string
+  workerName: string,
+  role: "WAREHOUSE" | "SALES" = "WAREHOUSE"
 ): Promise<boolean> {
+  const roleLabel = role === "SALES" ? "торгового представника" : "складовщика";
+  const button = role === "SALES" ? "🚗 Розпочати поїздку" : "🟢 Відкрити зміну";
+
   return sendTelegramMessage(
     telegramId,
-    `✅ Вас підключено як <b>${workerName}</b>.\n\n` +
-      "Надішліть /start, щоб оновити клавіатуру, і натисніть «📍 Відкрити зміну»."
+    `✅ Вас підключено як ${roleLabel} — <b>${workerName}</b>.\n\n` +
+      `Надішліть /start, щоб оновити клавіатуру, і натисніть «${button}».`
   );
 }

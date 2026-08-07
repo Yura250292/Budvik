@@ -11,10 +11,14 @@ export default withAuth(
       if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "SALES") {
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
+      // Увага: /admin/reports і /admin/sales-reports обов'язково тут —
+      // SALES пускається в /admin, і без цього торговий бачив би
+      // статистику всіх колег.
       if (
         (pathname.startsWith("/admin/products") ||
          pathname.startsWith("/admin/users") ||
          pathname.startsWith("/admin/sales") ||
+         pathname.startsWith("/admin/reports") ||
          pathname.startsWith("/admin/warehouse-reports") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"

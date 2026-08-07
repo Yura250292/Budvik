@@ -2,37 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-const KYIV_TZ = "Europe/Kyiv";
-
-/** Дата у форматі YYYY-MM-DD за київським часом (сервер працює в UTC). */
-function kyivDate(value: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: KYIV_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(value);
-}
-
-/** Зсув Києва відносно UTC у мілісекундах на конкретний момент (враховує DST). */
-function kyivOffsetMs(at: Date): number {
-  const kyiv = new Date(at.toLocaleString("en-US", { timeZone: KYIV_TZ }));
-  const utc = new Date(at.toLocaleString("en-US", { timeZone: "UTC" }));
-  return kyiv.getTime() - utc.getTime();
-}
-
-/** "2026-08-07" → момент 00:00:00 за Києвом, у UTC. */
-function kyivDayStart(day: string): Date {
-  const asUtc = new Date(`${day}T00:00:00Z`);
-  return new Date(asUtc.getTime() - kyivOffsetMs(asUtc));
-}
-
-/** "2026-08-07" → момент 23:59:59.999 за Києвом, у UTC. */
-function kyivDayEnd(day: string): Date {
-  const asUtc = new Date(`${day}T23:59:59.999Z`);
-  return new Date(asUtc.getTime() - kyivOffsetMs(asUtc));
-}
+import { KYIV_TZ, kyivDate, kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
 
 /**
  * Аналітика «Звіти з складу».

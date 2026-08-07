@@ -106,6 +106,18 @@ enum WarehouseReportStatus {
   FAILED // помилка розпізнавання
 }
 
+enum SalesTripStatus {
+  OPEN // поїздка триває
+  CLOSED // торговий завершив і підтвердив кінцевий одометр
+  ABANDONED // закрито автоматично — торговий не завершив поїздку
+}
+
+enum OdometerSource {
+  AI // Gemini розпізнав, торговий підтвердив
+  MANUAL // торговий увів число руками (AI не спрацював)
+  CORRECTED // AI розпізнав, але торговий виправив — головна метрика якості AI
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -157,6 +169,10 @@ model User {
   warehouseShifts        WarehouseShift[]       @relation("warehouseShiftWorker")
   warehouseReports       WarehouseReport[]      @relation("warehouseReportWorker")
   warehouseLinksApproved WarehouseLinkRequest[] @relation("warehouseLinkApprover")
+
+  // Sales rep trips (той самий Telegram бот, роль SALES)
+  salesTrips       SalesTrip[]       @relation("salesTripRep")
+  salesCheckpoints SalesCheckpoint[] @relation("salesCheckpointRep")
 }
 
 model Category {
@@ -166,6 +182,14 @@ model Category {
   image    String?
   products Product[]
   salesRepAccess SalesRepCategoryAccess[]
+
+  // Синхронізація з 1С: дерево груп номенклатури дзеркалиться сюди,
+  // але навігація сайту лишається ручною (див. src/lib/category-tree.ts)
+  externalId String?    @unique // Ref_Key групи в 1С
+  source     String? // "1C" — категорія прийшла з 1С, null — ручна
+  parentId   String?
+  parent     Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children   Category[] @relation("CategoryTree")
 }
 
 model Product {
@@ -201,6 +225,7 @@ model Product {
   // Sync fields
   syncedAt    DateTime? // Коли останній раз синхронізовано з 1С
   syncSource  String?   // "1C" — позначка що дані прийшли з 1С
+  externalId  String?   @unique // Ref_Key (GUID) номенклатури в 1С — стабільний ключ зіставлення
 
   // ERP relations
   supplierProducts   SupplierProduct[]
@@ -391,6 +416,11 @@ model Counterparty {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
+  // Синхронізація з 1С
+  externalId        String?   @unique // Ref_Key контрагента в 1С
+  receivableBalance Float? // Сальдо дебіторки за даними 1С
+  balanceSyncedAt   DateTime?
+
   purchaseOrders   PurchaseOrder[]
   salesDocuments   SalesDocument[]
   invoices         Invoice[]
@@ -427,6 +457,8 @@ model PurchaseOrder {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
+  externalId String? @unique // Ref_Key документа надходження в 1С
+
   supplier  Counterparty        @relation(fields: [supplierId], references: [id])
   createdBy User                @relation("purchaseOrderCreator", fields: [createdById], references: [id])
   items     PurchaseOrderItem[]
@@ -460,6 +492,8 @@ model SalesDocument {
 
   deliveryMethod DeliveryMethod?
   deliveryNotes  String?
+
+  externalId String? @unique // Ref_Key документа реалізації в 1С
 
   counterparty Counterparty?       @relation(fields: [counterpartyId], references: [id])
   salesRep     User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
@@ -671,6 +705,8 @@ model StockLocation {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  externalId String? @unique // Ref_Key складу в 1С
+
   stocks LocationStock[]
 }
 
@@ -754,6 +790,27 @@ model SyncDiscrepancy {
   createdAt   DateTime @default(now())
 
   syncJob SyncJob @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+}
+
+/// Реєстр застосованих батчів від агента 1С — забезпечує ідемпотентність:
+/// повторна доставка того самого batchId не застосовується вдруге.
+model SyncBatch {
+  id         String   @id // batchId (uuid), який згенерував агент
+  runId      String // збігається з SyncJob.fileName
+  seq        Int
+  entityType String
+  records    Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([runId])
+}
+
+/// Ключ-значення для стану синхронізації: heartbeat агента, watermark'и,
+/// час останньої повної звірки. Не містить даних предметної області.
+model SyncState {
+  key       String   @id // "agent:lastSeen", "products:lastFullRun", ...
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // ========== Notifications ==========
@@ -881,6 +938,9 @@ model WarehouseReportItem {
   @@index([name])
 }
 
+/// Запит на прив'язку Telegram. Обслуговує ОБИДВІ ролі бота —
+/// складовщика (WAREHOUSE) і торгового (SALES). Назва історична:
+/// модель у проді, ренейм коштував би зайвої міграції.
 model WarehouseLinkRequest {
   id               String    @id @default(cuid())
   telegramId       String
@@ -894,8 +954,115 @@ model WarehouseLinkRequest {
   expiresAt        DateTime
   createdAt        DateTime  @default(now())
 
+  /// Роль, яку призначив адмін при підтвердженні. Бот її НЕ ставить:
+  /// у момент /start він ще не знає, хто це, а самопризначення ролі
+  /// зламало б сенс гейту requireWorker. Зберігаємо для аудиту —
+  /// User.role потім можуть змінити.
+  assignedRole Role?
+
   approvedBy User? @relation("warehouseLinkApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([telegramId])
   @@index([approved, expiresAt])
+}
+
+// ========== Поїздки торгових представників (той самий Telegram бот) ==========
+// Свідомо окремі моделі, а не розширення WarehouseShift: у складовщика немає
+// одометра, у торгового немає накладних — змішування залишило б половину
+// колонок вічно порожніми. Як і склад, цей модуль НЕ впливає на ERP.
+
+model SalesTrip {
+  id     String          @id @default(cuid())
+  userId String
+  status SalesTripStatus @default(OPEN)
+
+  // --- Старт ---
+  startedAt        DateTime @default(now())
+  startLat         Float?
+  startLng         Float?
+  startAddress     String? // reverseGeocode().shortName
+  startAddressFull String?
+
+  // Одометр Int, не Float: одометри цілочисельні в км, а Float спокушає
+  // AI повертати 123456.7 з добового лічильника (TRIP), а не загального (ODO).
+  startOdometer        Int? // null, поки фото не підтверджено — поїздка стартує від геолокації
+  startOdometerSource  OdometerSource?
+  startOdometerAiValue Int? // що сказав AI до правки — для оцінки якості моделі
+  startPhotoUrl        String?
+  startPhotoKey        String? // R2 key — щоб можна було видалити
+  startPhotoMimeType   String?
+  startTelegramFileId  String?         @unique // ідемпотентність: одне фото = один одометр
+  startConfirmedAt     DateTime?
+
+  // --- Фініш ---
+  endedAt        DateTime? // ставиться при отриманні фінішної локації, ДО одометра
+  endLat         Float?
+  endLng         Float?
+  endAddress     String?
+  endAddressFull String?
+
+  endOdometer        Int?
+  endOdometerSource  OdometerSource?
+  endOdometerAiValue Int?
+  endPhotoUrl        String?
+  endPhotoKey        String?
+  endPhotoMimeType   String?
+  endTelegramFileId  String?         @unique
+  endConfirmedAt     DateTime?
+
+  // --- Похідні: рахуємо один раз при закритті, щоб не агрегувати в JS ---
+  distanceKm       Int? // endOdometer - startOdometer
+  durationMinutes  Int?
+  checkpointsCount Int  @default(0) // денормалізовано, інкрементується при створенні точки
+
+  /// Різниця від'ємна, нульова або неправдоподібна. Поїздку все одно
+  /// зберігаємо — рішення за людиною, не за ботом.
+  odometerSuspicious Boolean @default(false)
+  notes              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User              @relation("salesTripRep", fields: [userId], references: [id], onDelete: Cascade)
+  checkpoints SalesCheckpoint[]
+
+  @@index([userId, startedAt])
+  @@index([status])
+  @@index([startedAt])
+}
+
+/// Відмітка у клієнта. Необов'язкова, повторювана, лише геолокація + час.
+/// Фото і одометра тут свідомо немає — це «я тут», а не звіт.
+model SalesCheckpoint {
+  id     String @id @default(cuid())
+  tripId String
+  userId String // денормалізовано: аналітика по торговому без join через trip
+
+  lat         Float
+  lng         Float
+  address     String?
+  addressFull String?
+
+  /// Порядковий номер у межах поїздки, 1-based.
+  seq Int
+
+  /// Хвилини від попередньої точки (від старту поїздки для seq=1).
+  /// Рахуємо при вставці — інакше кожен звіт робив би віконну функцію.
+  minutesFromPrev Int?
+
+  /// Метри від попередньої точки по прямій. Не одометр — грубий контроль
+  /// «чи торговий узагалі рухався між клієнтами».
+  metersFromPrev Int?
+
+  clientNote String? // на майбутнє: назва клієнта / коментар
+
+  createdAt DateTime @default(now())
+
+  trip SalesTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User      @relation("salesCheckpointRep", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Ловить гонку подвійного тапу на рівні БД — бот трактує P2002 як дубль
+  @@unique([tripId, seq])
+  @@index([tripId, createdAt])
+  @@index([userId, createdAt])
 }

@@ -199,6 +199,9 @@ export default function WarehouseReportsPage() {
   // Складовщики та запити на прив'язку
   const [workersData, setWorkersData] = useState<any>(null);
   const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
+  // Роль визначає, які кнопки людина побачить у боті. Обирається ПЕРШОЮ,
+  // бо фільтрує список кандидатів нижче.
+  const [linkRole, setLinkRole] = useState<Record<string, string>>({});
   const [newWorker, setNewWorker] = useState<Record<string, { name: string; email: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -302,13 +305,14 @@ export default function WarehouseReportsPage() {
   const approveRequest = async (requestId: string) => {
     const userId = linkTarget[requestId];
     const draft = newWorker[requestId];
+    const role = linkRole[requestId] || "WAREHOUSE";
 
-    const body: any = { requestId };
+    const body: any = { requestId, role };
     if (userId && userId !== "NEW") {
       body.userId = userId;
     } else {
       if (!draft?.name || !draft?.email) {
-        alert("Вкажіть ім'я та email нового складовщика");
+        alert(`Вкажіть ім'я та email нового ${role === "SALES" ? "торгового" : "складовщика"}`);
         return;
       }
       body.name = draft.name;
@@ -384,6 +388,15 @@ export default function WarehouseReportsPage() {
 
   const kpis = data?.kpis;
   const workers = data?.workers || [];
+
+  // API прив'язки віддає працівників обох ролей — цей розділ про склад,
+  // тож торгових звідси відфільтровуємо (їхні звіти в /admin/sales-reports).
+  const warehouseOnly = (workersData?.workers || []).filter(
+    (w: any) => w.role !== "SALES"
+  );
+  const salesCount = (workersData?.workers || []).filter(
+    (w: any) => w.role === "SALES"
+  ).length;
   // Тип документа й пошук фільтруються на клієнті — дані вже завантажені,
   // тож зайвий запит на сервер не потрібен
   const reports = (data?.reports || []).filter((r: any) => {
@@ -861,6 +874,29 @@ export default function WarehouseReportsPage() {
             {/* ---------- СКЛАДОВЩИКИ ---------- */}
             {activeTab === "workers" && (
               <>
+                {/* API віддає працівників обох ролей — тут показуємо лише
+                    складовщиків, торгові живуть у своєму розділі звітів */}
+                {salesCount > 0 && (
+                  <div
+                    style={{
+                      ...CARD,
+                      padding: "12px 16px",
+                      marginBottom: "16px",
+                      background: "#EFF6FF",
+                      borderColor: "#BFDBFE",
+                    }}
+                  >
+                    <p style={{ fontSize: "13px", color: "#1E40AF" }}>
+                      Торгових представників у боті: <strong>{salesCount}</strong>. Їхні поїздки та
+                      пробіг —{" "}
+                      <Link href="/admin/sales-reports" style={{ textDecoration: "underline", fontWeight: 600 }}>
+                        у розділі «Звіти торгових»
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                )}
+
                 {workersData?.requests?.length > 0 && (
                   <div style={{ ...CARD, padding: "16px", marginBottom: "16px" }}>
                     <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>
@@ -901,6 +937,27 @@ export default function WarehouseReportsPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-2 items-center">
+                          {/* Роль першою: від неї залежать кнопки в боті
+                              і вона фільтрує список кандидатів */}
+                          <select
+                            value={linkRole[r.id] || "WAREHOUSE"}
+                            onChange={(e) => {
+                              setLinkRole((p) => ({ ...p, [r.id]: e.target.value }));
+                              setLinkTarget((p) => ({ ...p, [r.id]: "" }));
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "8px",
+                              border: "1px solid #E5E7EB",
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              background: "white",
+                            }}
+                          >
+                            <option value="WAREHOUSE">Складовщик</option>
+                            <option value="SALES">Торговий</option>
+                          </select>
+
                           <select
                             value={linkTarget[r.id] || ""}
                             onChange={(e) =>
@@ -914,9 +971,14 @@ export default function WarehouseReportsPage() {
                               background: "white",
                             }}
                           >
-                            <option value="">— Оберіть складовщика —</option>
+                            <option value="">
+                              — Оберіть {(linkRole[r.id] || "WAREHOUSE") === "SALES" ? "торгового" : "складовщика"} —
+                            </option>
                             {(workersData.workers || [])
-                              .filter((w: any) => !w.telegramId)
+                              .filter(
+                                (w: any) =>
+                                  !w.telegramId && w.role === (linkRole[r.id] || "WAREHOUSE")
+                              )
                               .map((w: any) => (
                                 <option key={w.id} value={w.id}>
                                   {w.name} ({w.email})
@@ -984,15 +1046,15 @@ export default function WarehouseReportsPage() {
 
                 <div style={{ ...CARD, padding: "16px" }}>
                   <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px" }}>
-                    Складовщики ({workersData?.workers?.length || 0})
+                    Складовщики ({warehouseOnly.length})
                   </h2>
-                  {(workersData?.workers || []).length === 0 && (
+                  {warehouseOnly.length === 0 && (
                     <p style={{ color: "#6B7280", fontSize: "14px" }}>
                       Немає складовщиків. Створіть користувача з роллю «Складовщик» або підтвердьте
                       запит із бота.
                     </p>
                   )}
-                  {(workersData?.workers || []).map((w: any) => {
+                  {warehouseOnly.map((w: any) => {
                     const agg = workers.find((x: any) => x.id === w.id);
                     return (
                       <div

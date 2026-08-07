@@ -1,8 +1,5 @@
 import { prisma } from "@/lib/prisma";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-const GEMINI_MODEL = "gemini-2.5-flash";
+import { callGeminiVision, stripJsonFence, logUsage } from "./gemini-vision";
 
 export interface ScannedItem {
   name: string;
@@ -100,52 +97,36 @@ export async function scanInvoiceImage(
   base64: string,
   mimeType: string
 ): Promise<{ scanned: ScannedDocument; raw: string }> {
-  if (!GEMINI_API_KEY) {
-    throw new ScanError("AI сервіс не налаштований", 500);
-  }
-
-  const url = `${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { inlineData: { mimeType, data: base64 } },
-            { text: "Розпізнай цей документ (накладну/рахунок). Витягни всю інформацію." },
-          ],
-        },
-      ],
-      systemInstruction: { parts: [{ text: INVOICE_SYSTEM_PROMPT }] },
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 8192,
-      },
-    }),
+  // Перевірку ключа робить callGeminiVision — тут вона була б дублем.
+  const { rawText, finishReason, usage, model, usedFallback } = await callGeminiVision({
+    label: "invoice",
+    base64,
+    mimeType,
+    systemPrompt: INVOICE_SYSTEM_PROMPT,
+    userText: "Розпізнай цей документ (накладну/рахунок). Витягни всю інформацію.",
+    // 32768, а не 8192: накладна на 60+ позицій не вміщалася, JSON
+    // обривався посеред рядка і це виглядало як «погане фото».
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 32768,
+    },
   });
 
-  if (!res.ok) {
-    if (res.status === 429) {
-      throw new ScanError("AI сервіс перевантажений. Спробуйте через хвилину.", 429);
-    }
-    throw new ScanError(`AI помилка: ${res.status}`, 500);
-  }
-
-  const data = await res.json();
-  const rawText: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-  // Знімаємо markdown-обгортку, якщо модель її додала
-  let jsonStr = rawText.trim();
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
+  logUsage("invoice", usage, model, usedFallback);
 
   let scanned: ScannedDocument;
   try {
-    scanned = JSON.parse(jsonStr);
+    scanned = JSON.parse(stripJsonFence(rawText));
   } catch {
+    // Обрив по токенах ≠ погане фото. Повідомлення мають різнитися,
+    // інакше людина перефотографує ідеальний документ і знову впреться.
+    if (finishReason === "MAX_TOKENS") {
+      throw new ScanError(
+        "Документ завеликий — розпізналася лише частина. Сфотографуйте його частинами.",
+        422,
+        rawText
+      );
+    }
     throw new ScanError(
       "AI не зміг розпізнати документ. Спробуйте краще фото.",
       422,

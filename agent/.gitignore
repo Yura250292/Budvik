@@ -1,0 +1,15 @@
+# Конфігурація конкретного сервера — містить облікові дані 1С
+config.json
+
+# Робочі дані агента
+state.db
+state.db-*
+outbox/
+logs/
+dist/
+
+node_modules/
+
+# PowerShell-агент: конфіг конкретного сервера (паролі 1С і секрет ingest)
+ps/config.json
+ps/out/

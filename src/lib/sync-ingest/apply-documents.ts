@@ -1,0 +1,286 @@
+/**
+ * Документи реалізації та надходження з 1С.
+ *
+ * SalesDocument.createdById і PurchaseOrder.createdById обов'язкові у схемі,
+ * а в 1С автора документа зіставити ні з ким. Тому документи створюються від
+ * імені технічного користувача "sync-1c@budvik.local" — так схема лишається
+ * строгою, а походження документа видно з externalId і автора.
+ *
+ * Табличні частини перезаписуються цілком: у 1С рядок документа не має
+ * стабільного ідентифікатора, тож дешевше й надійніше видалити старі рядки
+ * та створити нові, ніж намагатися їх зіставити.
+ */
+
+import { prisma } from "@/lib/prisma";
+import type { DocumentRecord, DocumentItemRecord } from "./types";
+import { ApplyContext } from "./context";
+
+const SYNC_USER_EMAIL = "sync-1c@budvik.local";
+
+let cachedSyncUserId: string | null = null;
+
+/** Технічний користувач-автор для документів, що прийшли з 1С. */
+async function ensureSyncUser(): Promise<string> {
+  if (cachedSyncUserId) return cachedSyncUserId;
+
+  const existing = await prisma.user.findUnique({
+    where: { email: SYNC_USER_EMAIL },
+    select: { id: true },
+  });
+  if (existing) {
+    cachedSyncUserId = existing.id;
+    return existing.id;
+  }
+
+  const created = await prisma.user.create({
+    data: {
+      email: SYNC_USER_EMAIL,
+      name: "Синхронізація 1С",
+      role: "MANAGER",
+      // password не задаємо: увійти цим користувачем неможливо
+    },
+    select: { id: true },
+  });
+  cachedSyncUserId = created.id;
+  return created.id;
+}
+
+/** Зіставляє рядки документа з товарами сайту за externalId. */
+async function resolveItems(
+  items: DocumentItemRecord[],
+  ctx: ApplyContext,
+  documentNumber: string
+): Promise<{ productId: string; quantity: number; price: number }[]> {
+  if (items.length === 0) return [];
+
+  const products = await prisma.product.findMany({
+    where: { externalId: { in: [...new Set(items.map((i) => i.productExternalId))] } },
+    select: { id: true, externalId: true },
+  });
+  const byExternalId = new Map(products.map((p) => [p.externalId!, p.id]));
+
+  const resolved: { productId: string; quantity: number; price: number }[] = [];
+
+  for (const item of items) {
+    const productId = byExternalId.get(item.productExternalId);
+    if (!productId) {
+      // Документ зберігаємо навіть без цього рядка — інакше втратимо весь
+      // документ через один незнайомий товар. Розбіжність лишається в журналі.
+      ctx.discrepancy({
+        entityType: "document_item",
+        entityRef: documentNumber,
+        entityName: `Товар ${item.productExternalId}`,
+        field: "UNMATCHED_PRODUCT",
+        value1C: `к-сть ${item.quantity}`,
+        valueBudvik: "товар не знайдено",
+      });
+      continue;
+    }
+    resolved.push({
+      productId,
+      quantity: Math.max(0, Math.round(item.quantity)),
+      price: Number.isFinite(item.price) ? item.price : 0,
+    });
+  }
+
+  return resolved;
+}
+
+export async function applySalesDocuments(
+  records: DocumentRecord[],
+  ctx: ApplyContext
+): Promise<void> {
+  if (records.length === 0) return;
+
+  const existing = await prisma.salesDocument.findMany({
+    where: { externalId: { in: records.map((r) => r.externalId) } },
+    select: { id: true, externalId: true, number: true, totalAmount: true },
+  });
+  const byExternalId = new Map(existing.map((d) => [d.externalId!, d]));
+
+  const counterpartyExternalIds = [
+    ...new Set(records.map((r) => r.counterpartyExternalId).filter((c): c is string => !!c)),
+  ];
+  const counterparties =
+    counterpartyExternalIds.length > 0
+      ? await prisma.counterparty.findMany({
+          where: { externalId: { in: counterpartyExternalIds } },
+          select: { id: true, externalId: true },
+        })
+      : [];
+  const counterpartyByExternalId = new Map(counterparties.map((c) => [c.externalId!, c.id]));
+
+  for (const rec of records) {
+    if (ctx.isPreview) {
+      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
+      continue;
+    }
+
+    const counterpartyId = rec.counterpartyExternalId
+      ? counterpartyByExternalId.get(rec.counterpartyExternalId) ?? null
+      : null;
+    const items = await resolveItems(rec.items ?? [], ctx, rec.number);
+    const totalAmount =
+      rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
+
+    const found = byExternalId.get(rec.externalId);
+
+    try {
+      if (!found) {
+        const createdById = await ensureSyncUser();
+        await prisma.salesDocument.create({
+          data: {
+            externalId: rec.externalId,
+            number: rec.number,
+            counterpartyId,
+            status: rec.posted ? "CONFIRMED" : "DRAFT",
+            totalAmount,
+            createdById,
+            createdAt: new Date(rec.date),
+            confirmedAt: rec.posted ? new Date(rec.date) : null,
+            items: {
+              create: items.map((i) => ({
+                productId: i.productId,
+                quantity: i.quantity,
+                sellingPrice: i.price,
+                purchasePrice: 0, // собівартість 1С у цьому обміні не передає
+              })),
+            },
+          },
+        });
+        ctx.created++;
+      } else {
+        // Табличну частину перезаписуємо цілком (див. коментар угорі файлу).
+        await prisma.$transaction([
+          prisma.salesDocumentItem.deleteMany({ where: { salesDocumentId: found.id } }),
+          prisma.salesDocument.update({
+            where: { id: found.id },
+            data: {
+              number: rec.number,
+              counterpartyId,
+              status: rec.posted ? "CONFIRMED" : "DRAFT",
+              totalAmount,
+              items: {
+                create: items.map((i) => ({
+                  productId: i.productId,
+                  quantity: i.quantity,
+                  sellingPrice: i.price,
+                  purchasePrice: 0,
+                })),
+              },
+            },
+          }),
+        ]);
+        ctx.updated++;
+      }
+    } catch (e) {
+      ctx.fail(`реалізація ${rec.number}`, e);
+    }
+  }
+}
+
+export async function applyPurchaseDocuments(
+  records: DocumentRecord[],
+  ctx: ApplyContext
+): Promise<void> {
+  if (records.length === 0) return;
+
+  const existing = await prisma.purchaseOrder.findMany({
+    where: { externalId: { in: records.map((r) => r.externalId) } },
+    select: { id: true, externalId: true, number: true },
+  });
+  const byExternalId = new Map(existing.map((d) => [d.externalId!, d]));
+
+  const supplierExternalIds = [
+    ...new Set(records.map((r) => r.counterpartyExternalId).filter((c): c is string => !!c)),
+  ];
+  const suppliers =
+    supplierExternalIds.length > 0
+      ? await prisma.counterparty.findMany({
+          where: { externalId: { in: supplierExternalIds } },
+          select: { id: true, externalId: true },
+        })
+      : [];
+  const supplierByExternalId = new Map(suppliers.map((c) => [c.externalId!, c.id]));
+
+  for (const rec of records) {
+    const supplierId = rec.counterpartyExternalId
+      ? supplierByExternalId.get(rec.counterpartyExternalId)
+      : undefined;
+
+    // На відміну від реалізації, постачальник у PurchaseOrder обов'язковий —
+    // без нього документ створити неможливо.
+    if (!supplierId) {
+      ctx.discrepancy({
+        entityType: "purchase_doc",
+        entityRef: rec.number,
+        entityName: `Надходження ${rec.number}`,
+        field: "UNMATCHED_SUPPLIER",
+        value1C: rec.counterpartyExternalId ?? "не вказано",
+        valueBudvik: "постачальник не знайдений",
+      });
+      ctx.skipped++;
+      continue;
+    }
+
+    if (ctx.isPreview) {
+      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
+      continue;
+    }
+
+    const items = await resolveItems(rec.items ?? [], ctx, rec.number);
+    const totalAmount =
+      rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
+
+    const found = byExternalId.get(rec.externalId);
+
+    try {
+      if (!found) {
+        const createdById = await ensureSyncUser();
+        await prisma.purchaseOrder.create({
+          data: {
+            externalId: rec.externalId,
+            number: rec.number,
+            supplierId,
+            status: rec.posted ? "CONFIRMED" : "DRAFT",
+            totalAmount,
+            createdById,
+            createdAt: new Date(rec.date),
+            confirmedAt: rec.posted ? new Date(rec.date) : null,
+            items: {
+              create: items.map((i) => ({
+                productId: i.productId,
+                quantity: i.quantity,
+                purchasePrice: i.price,
+              })),
+            },
+          },
+        });
+        ctx.created++;
+      } else {
+        await prisma.$transaction([
+          prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: found.id } }),
+          prisma.purchaseOrder.update({
+            where: { id: found.id },
+            data: {
+              number: rec.number,
+              supplierId,
+              status: rec.posted ? "CONFIRMED" : "DRAFT",
+              totalAmount,
+              items: {
+                create: items.map((i) => ({
+                  productId: i.productId,
+                  quantity: i.quantity,
+                  purchasePrice: i.price,
+                })),
+              },
+            },
+          }),
+        ]);
+        ctx.updated++;
+      }
+    } catch (e) {
+      ctx.fail(`надходження ${rec.number}`, e);
+    }
+  }
+}

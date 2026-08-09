@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Агент 1С — окремий Node-проєкт із власним tsconfig (CommonJS, alias @contract).
+    // Перевіряється командою `npm run typecheck` у папці agent.
+    "agent"
+  ]
 }

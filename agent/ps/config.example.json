@@ -1,0 +1,33 @@
+{
+  "_comment": "Скопіюйте у config.json на сервері 1С і заповніть. config.json у .gitignore — паролі в репозиторій не потрапляють.",
+
+  "oneC": {
+    "server": "SRVKAVETSKIY",
+    "base": "kavetskiy",
+    "user": "budvik_sync",
+    "password": "ЗАПОВНИТИ"
+  },
+
+  "priceTypes": {
+    "_comment": "Назва типу цін у 1С, з якого береться роздрібна ціна для сайту.",
+    "retail": "6.МАГАЗИНИ"
+  },
+
+  "scope": {
+    "_comment": "Що читати. Документи додамо на наступному етапі.",
+    "categories": true,
+    "products": true,
+    "prices": true,
+    "warehouses": true,
+    "stock": true
+  },
+
+  "ingest": {
+    "_comment": "Куди відправляти. agentSecret має збігатися зі SYNC_AGENT_SECRET на Railway.",
+    "url": "https://budvik.up.railway.app",
+    "agentId": "budvik-1c-prod",
+    "agentSecret": "ЗАПОВНИТИ",
+    "preview": true,
+    "batchSize": 500
+  }
+}

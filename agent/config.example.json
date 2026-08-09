@@ -1,0 +1,67 @@
+{
+  "_comment": "Скопіюйте у config.json і заповніть під конкретний сервер 1С. Секрети можна не тримати тут: значення виду \"env:ІМЯ\" читаються зі змінних середовища.",
+
+  "agentId": "budvik-1c-prod",
+  "agentSecret": "env:SYNC_AGENT_SECRET",
+
+  "ingestUrl": "https://budvik.up.railway.app",
+
+  "odata": {
+    "baseUrl": "http://localhost/budvik/odata/standard.odata",
+    "username": "budvik_sync",
+    "password": "env:ODATA_PASSWORD",
+    "_comment": "Користувач 1С має мати ЛИШЕ права читання. Агент не виконує жодних POST/PATCH/DELETE до 1С.",
+    "pageSize": 1000,
+    "timeoutMs": 120000
+  },
+
+  "entities": {
+    "_comment": "Імена сутностей залежать від конфігурації (УТ / BAS / УНФ). Уточнюються у Фазі 0 через GET {baseUrl}/$metadata",
+    "products": "Catalog_Номенклатура",
+    "counterparties": "Catalog_Контрагенты",
+    "warehouses": "Catalog_Склады",
+    "priceSlice": "InformationRegister_ЦеныНоменклатуры_SliceLast",
+    "stockBalance": "AccumulationRegister_ТоварыНаСкладах/Balance",
+    "salesDocuments": "Document_РеализацияТоваровУслуг",
+    "purchaseDocuments": "Document_ПоступлениеТоваровУслуг",
+    "debtBalance": "AccumulationRegister_РасчетыСКлиентами/Balance"
+  },
+
+  "priceTypes": {
+    "_comment": "GUID видів цін з Catalog_ВидыЦен. Дізнатись: GET {baseUrl}/Catalog_ВидыЦен?$format=json",
+    "retail": "00000000-0000-0000-0000-000000000000",
+    "wholesale": "00000000-0000-0000-0000-000000000000"
+  },
+
+  "scope": {
+    "_comment": "Вмикайте фази поступово: спершу лише товари/ціни/залишки.",
+    "categories": true,
+    "products": true,
+    "prices": true,
+    "warehouses": true,
+    "stock": true,
+    "counterparties": false,
+    "documents": false,
+    "debts": false
+  },
+
+  "schedule": {
+    "intervalMinutes": 20,
+    "fullSyncCron": "30 3 * * *",
+    "_comment": "fullSyncCron — нічна повна звірка. Не ставте на час резервного копіювання 1С."
+  },
+
+  "documents": {
+    "windowDays": 3,
+    "_comment": "Ковзне вікно перечитування документів — ловить заднім числом виправлені документи."
+  },
+
+  "preview": false,
+  "_previewComment": "true — сухий прогін: розбіжності рахуються, але сайт не змінюється. Тримайте true перший тиждень.",
+
+  "batchSize": 500,
+  "outboxDir": "./outbox",
+  "statePath": "./state.db",
+  "logDir": "./logs",
+  "logLevel": "info"
+}

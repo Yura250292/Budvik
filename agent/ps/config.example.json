@@ -1,18 +1,15 @@
 {
   "_comment": "Скопіюйте у config.json на сервері 1С і заповніть. config.json у .gitignore — паролі в репозиторій не потрапляють.",
-
   "oneC": {
     "server": "SRVKAVETSKIY",
     "base": "kavetskiy",
     "user": "budvik_sync",
     "password": "ЗАПОВНИТИ"
   },
-
   "priceTypes": {
     "_comment": "Назва типу цін у 1С, з якого береться роздрібна ціна для сайту.",
     "retail": "6.МАГАЗИНИ"
   },
-
   "scope": {
     "_comment": "Що читати. Документи додамо на наступному етапі.",
     "categories": true,
@@ -21,7 +18,6 @@
     "warehouses": true,
     "stock": true
   },
-
   "ingest": {
     "_comment": "Куди відправляти. agentSecret має збігатися зі SYNC_AGENT_SECRET на Vercel.",
     "url": "https://www.budvik27.com",
@@ -29,5 +25,7 @@
     "agentSecret": "ЗАПОВНИТИ",
     "preview": true,
     "batchSize": 500
-  }
+  },
+  "baseCurrencyCode": "980",
+  "_baseCurrencyComment": "Код валюти обліку сайту (980 = гривня). Ціни в інших валютах множаться на курс із 1С."
 }

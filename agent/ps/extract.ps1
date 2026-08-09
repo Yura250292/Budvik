@@ -164,30 +164,84 @@ try {
         Log "products: $n"
     }
 
-    # --- prices: retail price type, converted to UAH via latest FX rate ---
+    # --- prices: retail price type, converted to UAH ---
+    #
+    # Prices in this base are stored per-row in mixed currencies (USD, UAH,
+    # EUR, PLN), so each row is multiplied by its own rate. Rates are read
+    # into a hashtable first: joining the two registers inside a single 1C
+    # query proved unstable on this 8.2 build.
     if ($config.scope.prices) {
+        Log "reading rates..."
+        $rates = @{}
+        $r = RunQuery $queries.rates
+        while ($r.Next()) {
+            $code = Str $r.Get(0)
+            if (-not $code) { continue }
+            $rate = Num $r.Get(1)
+            $mult = Num $r.Get(2)
+            if ($mult -le 0) { $mult = 1 }
+            if ($rate -le 0) { continue }
+            $rates[$code] = $rate / $mult
+        }
+        Log ("rates: " + $rates.Count)
+
+        Log "resolving price type..."
+        $priceTypeRef = $null
+        $sel = RunQuery $queries.priceTypeList
+        $available = New-Object Collections.Generic.List[string]
+        while ($sel.Next()) {
+            $ptName = Str $sel.Get(0)
+            $available.Add($ptName)
+            if ($ptName -eq $config.priceTypes.retail) { $priceTypeRef = $sel.Get(1) }
+        }
+        if (-not $priceTypeRef) {
+            # Naming in 1C mixes Ukrainian and Russian glyphs that look
+            # identical (И/І), so an exact-match failure needs the real list
+            # printed rather than a bare "not found".
+            Log ("price types in base: " + ($available -join " | "))
+            throw ("price type not found: '" + $config.priceTypes.retail + "'")
+        }
+
         Log "reading prices..."
-        $r = RunQueryP $queries.priceTypeByName $queries.paramName $config.priceTypes.retail
-        if (-not $r.Next()) { throw ("price type not found: " + $config.priceTypes.retail) }
-        $priceTypeRef = $r.Get(0)
 
         $w = NewWriter (Join-Path $OutDir "price.ndjson")
         $n = 0
+        $noRate = 0
         $r = RunQueryP $queries.pricesRetail $queries.paramPriceType $priceTypeRef
         while ($r.Next()) {
             $id = RefId $ib $r.Get(0)
             if (-not $id) { continue }
             $value = Num $r.Get(1)
             if ($value -le 0) { continue }
+
+            # An unknown or missing currency code means we cannot trust the
+            # figure: shipping it unconverted would silently understate a USD
+            # price by ~46x. Skip and report instead.
+            $code = Str $r.Get(2)
+            $rate = 1
+            if ($code -and $code -ne $config.baseCurrencyCode) {
+                if ($rates.ContainsKey($code)) {
+                    $rate = $rates[$code]
+                } else {
+                    $noRate++
+                    continue
+                }
+            }
+
             WriteRecord $w ([ordered]@{
                 externalId = $id
-                retail     = [math]::Round($value, 2)
+                retail     = [math]::Round($value * $rate, 2)
             })
             $n++
         }
         $w.Close()
         $stats.prices = $n
-        Log "prices: $n"
+        if ($noRate -gt 0) {
+            $stats.pricesSkippedNoRate = $noRate
+            Log "prices: $n  (skipped $noRate with unknown currency)"
+        } else {
+            Log "prices: $n"
+        }
     }
 
     # --- warehouses ---

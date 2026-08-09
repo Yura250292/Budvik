@@ -108,21 +108,32 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
     }
 
     const quantity = Number.isFinite(rec.quantity) ? Math.max(0, Math.round(rec.quantity)) : 0;
+    const reserved = Number.isFinite(rec.reserved) ? Math.max(0, Math.round(rec.reserved!)) : 0;
+    // Довіряємо available з агента, але перераховуємо, якщо його не надіслали
+    // (старіша версія агента) — щоб поле ніколи не лишалось нулем при
+    // наявному залишку.
+    const available = Number.isFinite(rec.available)
+      ? Math.max(0, Math.round(rec.available!))
+      : Math.max(0, quantity - reserved);
 
     if (ctx.isPreview) {
       const current = await prisma.locationStock.findUnique({
         where: { stockLocationId_productId: { stockLocationId: warehouseId, productId: product.id } },
-        select: { quantity: true },
+        select: { quantity: true, reserved: true, available: true },
       });
-      if ((current?.quantity ?? 0) !== quantity) {
+      if (
+        (current?.quantity ?? 0) !== quantity ||
+        (current?.reserved ?? 0) !== reserved ||
+        (current?.available ?? 0) !== available
+      ) {
         ctx.updated++;
         ctx.discrepancy({
           entityType: "product",
           entityRef: product.sku || rec.externalId,
           entityName: product.name,
           field: "stock",
-          value1C: String(quantity),
-          valueBudvik: String(current?.quantity ?? 0),
+          value1C: `${quantity} (резерв ${reserved}, вільно ${available})`,
+          valueBudvik: `${current?.quantity ?? 0} (резерв ${current?.reserved ?? 0}, вільно ${current?.available ?? 0})`,
         });
       } else {
         ctx.skipped++;
@@ -135,8 +146,8 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
         where: {
           stockLocationId_productId: { stockLocationId: warehouseId, productId: product.id },
         },
-        create: { stockLocationId: warehouseId, productId: product.id, quantity },
-        update: { quantity },
+        create: { stockLocationId: warehouseId, productId: product.id, quantity, reserved, available },
+        update: { quantity, reserved, available },
       });
       touchedProductIds.add(product.id);
       ctx.updated++;
@@ -148,14 +159,18 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
   if (touchedProductIds.size === 0) return;
 
   // Перерахунок сумарного залишку по зачеплених товарах.
+  //
+  // Product.stock — це ВІЛЬНИЙ залишок, а не фізичний: саме він визначає, що
+  // можна продати. Фізичний лишається доступним по складах у LocationStock —
+  // складу він потрібен, щоб зібрати замовлення.
   const totals = await prisma.locationStock.groupBy({
     by: ["productId"],
     where: { productId: { in: [...touchedProductIds] } },
-    _sum: { quantity: true },
+    _sum: { available: true },
   });
 
   for (const t of totals) {
-    const total = t._sum.quantity ?? 0;
+    const total = t._sum.available ?? 0;
     const product = products.find((p) => p.id === t.productId);
     if (product && product.stock === total) continue;
 

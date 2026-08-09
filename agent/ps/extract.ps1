@@ -1,6 +1,6 @@
 # Budvik 1C extractor -- READ-ONLY.
 #
-# Reads catalogs, prices and stock from 1C 8.2 (УТ 2.3) over COM and writes
+# Reads catalogs, prices and stock from 1C 8.2 (UT 2.3) over COM and writes
 # newline-delimited JSON files. Sending to the site is a separate step, so a
 # failed upload never means re-reading 20k rows.
 #
@@ -14,8 +14,21 @@
 # Field access uses $row.Get(index) throughout: named access to query columns
 # returns null on this build.
 
+# Scopes, cheapest first:
+#   light   -- prices and stock only, and only for positions that moved since
+#              the last successful run. The 5-minute cycle.
+#   hourly  -- light plus the full catalogs (products, categories, warehouses).
+#   full    -- everything, ignoring the incremental watermark. Nightly; also
+#              the only scope that can carry a full snapshot for reconciliation.
+#
+# Why light is not simply "read the change register": the site needs the
+# CURRENT balance, not the delta, so the register tells us WHICH positions
+# moved and a second query fetches their present totals.
+
 [CmdletBinding()]
 param(
+    [ValidateSet("light", "hourly", "full")]
+    [string] $Scope = "full",
     [string] $ConfigPath,
     [string] $OutDir,
     [switch] $Quiet
@@ -85,21 +98,84 @@ function WriteRecord($writer, $obj) {
     $writer.WriteLine(($obj | ConvertTo-Json -Compress -Depth 5))
 }
 
+<#
+  One stock line. "available" is clamped at zero: 1C can report a reserve
+  larger than the balance (goods promised before they arrive), and a negative
+  availability would read as a quantity rather than as "none to sell".
+  The unclamped shortfall stays visible as quantity vs reserved.
+#>
+function StockRecord($productId, $warehouseId, $qty, $res) {
+    $free = $qty - $res
+    if ($free -lt 0) { $free = 0 }
+    return [ordered]@{
+        externalId          = $productId
+        warehouseExternalId = $warehouseId
+        quantity            = $qty
+        reserved            = $res
+        available           = $free
+    }
+}
+
 # ----------------------------------------------------------------- config ---
 
 $config  = ReadJsonUtf8 $ConfigPath
 $queries = ReadJsonUtf8 (Join-Path $scriptDir "queries.json")
+
+# --- incremental watermark ------------------------------------------------
+#
+# Holds the start time of the last successful extract. Read before the run,
+# written only after the manifest lands, so a crashed run re-reads the same
+# window next time instead of skipping it.
+#
+# The window is deliberately overlapped by a few minutes: 1C document dates
+# are the document's own date, which a manager can back-date when posting, and
+# server/agent clocks need not agree to the second.
+$statePath = Join-Path $scriptDir "state.json"
+$runStart  = Get-Date
+
+$since = $null
+if ($Scope -ne "full") {
+    if (Test-Path $statePath) {
+        try {
+            $state = ReadJsonUtf8 $statePath
+            if ($state.lastSuccessAt) {
+                $overlap = 15
+                if ($config.incremental -and $config.incremental.overlapMinutes) {
+                    $overlap = [int]$config.incremental.overlapMinutes
+                }
+                $since = ([datetime]$state.lastSuccessAt).AddMinutes(-$overlap)
+            }
+        } catch {
+            # A corrupt state file must not wedge the schedule: fall back to a
+            # full read, which is correct, merely slower.
+            Log ("state.json unreadable, falling back to full: " + $_.Exception.Message)
+        }
+    }
+    if (-not $since) {
+        Log "no previous watermark -- this run reads everything"
+    }
+}
+
+# A light run still needs catalogs the very first time, otherwise prices would
+# reference products the site has never seen.
+$doCatalogs = ($Scope -ne "light") -or (-not $since)
 
 $connString = 'Srvr="' + $config.oneC.server + '";Ref="' + $config.oneC.base +
               '";Usr="' + $config.oneC.user + '";Pwd="' + $config.oneC.password + '";'
 
 if (-not (Test-Path $OutDir)) { [void](New-Item -ItemType Directory -Path $OutDir -Force) }
 
+# Clear the previous run's output before writing. Otherwise a light run, which
+# never touches product.ndjson, would leave last hour's file in place and the
+# sender would ship those 20k rows again every five minutes.
+Remove-Item (Join-Path $OutDir "*.ndjson") -Force -EA 0
+Remove-Item (Join-Path $OutDir "manifest.json") -Force -EA 0
+
 $stats = [ordered]@{}
 
 # ------------------------------------------------------------------- run ----
 
-Log "extract.ps1 v1.8"
+Log ("extract.ps1 v1.9  scope=" + $Scope)
 Log "connecting to 1C..."
 $connector = New-Object -ComObject V82.COMConnector
 $ib = $connector.Connect($connString)
@@ -121,7 +197,7 @@ function RunQuery($text) {
 
 try {
     # --- categories (product groups) ---
-    if ($config.scope.categories) {
+    if ($config.scope.categories -and $doCatalogs) {
         Log "reading categories..."
         $w = NewWriter (Join-Path $OutDir "category.ndjson")
         $n = 0
@@ -142,7 +218,7 @@ try {
     }
 
     # --- products ---
-    if ($config.scope.products) {
+    if ($config.scope.products -and $doCatalogs) {
         Log "reading products..."
         $w = NewWriter (Join-Path $OutDir "product.ndjson")
         $n = 0
@@ -206,7 +282,8 @@ try {
         if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
         if (-not $sel.Next()) {
             # Naming in 1C mixes Ukrainian and Russian glyphs that look
-            # identical (И/І), so an exact-match miss needs the real list
+            # identical (Cyrillic I vs Ukrainian I), so an exact-match miss
+            # needs the real list
             # printed rather than a bare "not found".
             $names = New-Object Collections.Generic.List[string]
             $list = RunQuery $queries.priceTypeList
@@ -217,11 +294,31 @@ try {
         $priceTypeRef = $sel.Get(0)
         if ($null -eq $priceTypeRef) { throw "price type ref is null" }
 
+        # On an incremental run, find which products had a price written since
+        # the watermark. Everything else keeps the value the site already has.
+        $changedProducts = $null
+        if ($since) {
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.pricesChangedSince
+            $q.SetParameter([string]$queries.paramFrom, $since)
+            $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on changed-prices query" }
+            $r = $rs.Choose()
+            $changedProducts = @{}
+            while ($r.Next()) {
+                $cid = RefId $ib $r.Get(0)
+                if ($cid) { $changedProducts[$cid] = $true }
+            }
+            Log ("prices changed since {0:yyyy-MM-dd HH:mm}: {1}" -f $since, $changedProducts.Count)
+        }
+
         Log "reading prices..."
 
         $w = NewWriter (Join-Path $OutDir "price.ndjson")
         $n = 0
         $noRate = 0
+        $skipUnchanged = 0
         # Inline, not a helper: a parameterised query built inside a function
         # comes back null on this build; the identical inline sequence works.
         $q = $ib.NewObject("Query")
@@ -234,6 +331,10 @@ try {
         while ($r.Next()) {
             $id = RefId $ib $r.Get(0)
             if (-not $id) { continue }
+            if ($null -ne $changedProducts -and -not $changedProducts.ContainsKey($id)) {
+                $skipUnchanged++
+                continue
+            }
             $value = Num $r.Get(1)
             if ($value -le 0) { continue }
 
@@ -259,16 +360,13 @@ try {
         }
         $w.Close()
         $stats.prices = $n
-        if ($noRate -gt 0) {
-            $stats.pricesSkippedNoRate = $noRate
-            Log "prices: $n  (skipped $noRate with unknown currency)"
-        } else {
-            Log "prices: $n"
-        }
+        if ($noRate -gt 0) { $stats.pricesSkippedNoRate = $noRate }
+        if ($skipUnchanged -gt 0) { $stats.pricesUnchanged = $skipUnchanged }
+        Log ("prices: {0}  (unchanged {1}, no-rate {2})" -f $n, $skipUnchanged, $noRate)
     }
 
     # --- warehouses ---
-    if ($config.scope.warehouses) {
+    if ($config.scope.warehouses -and $doCatalogs) {
         Log "reading warehouses..."
         $w = NewWriter (Join-Path $OutDir "warehouse.ndjson")
         $n = 0
@@ -284,41 +382,161 @@ try {
         Log "warehouses: $n"
     }
 
-    # --- stock balances, per warehouse ---
+    # --- stock balances, per warehouse, net of reservations ---
+    #
+    # Three numbers go to the site, not one:
+    #   quantity  -- physical, what the warehouse can actually pick
+    #   reserved  -- promised to a customer order
+    #   available -- quantity - reserved, what a rep may still sell
+    #
+    # Collapsing these into a single figure would break one side or the other:
+    # the warehouse picks against physical, the rep sells against available.
     if ($config.scope.stock) {
+        # Which product/warehouse pairs moved since the watermark. A pair that
+        # moved to zero still matters -- the site must be told it is now empty
+        # -- so the key set is built from the movement register, and the
+        # balance query below reports whatever the current total is.
+        #
+        # Reservations are unioned into the same key set: a reservation that
+        # expires or is cancelled changes what a rep may sell WITHOUT any
+        # physical movement, so watching TovaryNaSkladah alone would miss it.
+        $changedStock = $null
+        if ($since) {
+            $changedStock = @{}
+
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.stockChangedSince
+            $q.SetParameter([string]$queries.paramFrom, $since)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on changed-stock query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                $p = RefId $ib $r.Get(0)
+                $h = RefId $ib $r.Get(1)
+                if ($p -and $h) { $changedStock[($p + "|" + $h)] = $true }
+            }
+            $movedPhysical = $changedStock.Count
+
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.reserveChangedSince
+            $q.SetParameter([string]$queries.paramFrom, $since)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on changed-reserve query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                $p = RefId $ib $r.Get(0)
+                $h = RefId $ib $r.Get(1)
+                if ($p -and $h) { $changedStock[($p + "|" + $h)] = $true }
+            }
+            Log ("changed since {0:yyyy-MM-dd HH:mm}: {1} physical, {2} incl. reservations" -f `
+                 $since, $movedPhysical, $changedStock.Count)
+        }
+
+        # Reservations are read in full every cycle regardless of scope: the
+        # register is small (thousands, not tens of thousands) and a stale
+        # reserve figure is exactly what oversells the warehouse.
+        Log "reading reservations..."
+        $reserved = @{}
+        $r = RunQuery $queries.reserve
+        while ($r.Next()) {
+            $p = RefId $ib $r.Get(0)
+            $h = RefId $ib $r.Get(1)
+            if (-not $p -or -not $h) { continue }
+            $reserved[($p + "|" + $h)] = Num $r.Get(2)
+        }
+        $stats.reservations = $reserved.Count
+        Log ("reservations: " + $reserved.Count)
+
         Log "reading stock..."
         $w = NewWriter (Join-Path $OutDir "stock.ndjson")
         $n = 0
+        $skipUnchanged = 0
+        $seen = @{}
+
         $r = RunQuery $queries.stock
         while ($r.Next()) {
             $product = RefId $ib $r.Get(0)
             $wh      = RefId $ib $r.Get(1)
             if (-not $product -or -not $wh) { continue }
-            WriteRecord $w ([ordered]@{
-                externalId          = $product
-                warehouseExternalId = $wh
-                quantity            = Num $r.Get(2)
-            })
+            $key = $product + "|" + $wh
+            if ($null -ne $changedStock) {
+                if (-not $changedStock.ContainsKey($key)) { $skipUnchanged++; continue }
+            }
+            $seen[$key] = $true
+
+            $qty = Num $r.Get(2)
+            $res = 0
+            if ($reserved.ContainsKey($key)) { $res = $reserved[$key] }
+
+            WriteRecord $w (StockRecord $product $wh $qty $res)
             $n++
         }
+
+        # Two cases land here, both of which the balance query cannot report:
+        #   * a pair that moved but is absent from balances -- sold to zero;
+        #   * a pair with a reservation but no physical stock -- oversold, and
+        #     the site must see it as zero available rather than stale.
+        # Without this the classic bug appears: sold-out goods stay in stock
+        # on the site forever.
+        $zeroed = 0
+        $keysToZero = New-Object Collections.Generic.List[string]
+        if ($null -ne $changedStock) {
+            foreach ($key in $changedStock.Keys) {
+                if (-not $seen.ContainsKey($key)) { $keysToZero.Add($key) }
+            }
+        } else {
+            foreach ($key in $reserved.Keys) {
+                if (-not $seen.ContainsKey($key)) { $keysToZero.Add($key) }
+            }
+        }
+        foreach ($key in $keysToZero) {
+            $parts = $key.Split("|")
+            $res = 0
+            if ($reserved.ContainsKey($key)) { $res = $reserved[$key] }
+            WriteRecord $w (StockRecord $parts[0] $parts[1] 0 $res)
+            $zeroed++
+            $n++
+        }
+
         $w.Close()
         $stats.stock = $n
-        Log "stock: $n"
+        if ($zeroed -gt 0) { $stats.stockZeroed = $zeroed }
+        if ($skipUnchanged -gt 0) { $stats.stockUnchanged = $skipUnchanged }
+        Log ("stock: {0}  (zeroed {1}, unchanged {2})" -f $n, $zeroed, $skipUnchanged)
     }
 
     # Manifest doubles as the success marker: the sender refuses to run
     # without it, so a crashed extract can never be shipped as complete.
     $manifest = [ordered]@{
         extractedAt = (Get-Date).ToString("o")
+        scope       = $Scope
         server      = $config.oneC.server
         base        = $config.oneC.base
         priceType   = $config.priceTypes.retail
         counts      = $stats
     }
+    # Only a full run has seen every record, so only a full run may claim the
+    # snapshot is complete -- the sender uses this to decide whether missing
+    # records mean "deleted in 1C" or merely "not in this batch".
+    $manifest.fullSnapshot = ($Scope -eq "full")
+    if ($since) { $manifest.incrementalSince = $since.ToString("o") }
+    if (-not $doCatalogs) { $manifest.catalogsSkipped = $true }
+
     $manifestPath = Join-Path $OutDir "manifest.json"
     [IO.File]::WriteAllText(
         $manifestPath,
         ($manifest | ConvertTo-Json -Depth 5),
+        (New-Object Text.UTF8Encoding($false))
+    )
+
+    # Watermark advances to the moment this run STARTED, not finished: rows
+    # written to 1C while we were reading must fall inside the next window.
+    [IO.File]::WriteAllText(
+        $statePath,
+        ([ordered]@{
+            lastSuccessAt = $runStart.ToString("o")
+            lastScope     = $Scope
+        } | ConvertTo-Json),
         (New-Object Text.UTF8Encoding($false))
     )
 

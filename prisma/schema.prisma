@@ -782,6 +782,14 @@ model LocationStock {
   productId       String
   quantity        Int    @default(0)
 
+  // Резерв із 1С. quantity — фізичний залишок на складі; reserved — скільки з
+  // нього вже обіцяно клієнтським замовленням. Торговий може продавати лише
+  // available = quantity - reserved, а склад збирає з quantity. Одним числом
+  // ці два сценарії не покрити: якщо віддати сайту лише фізичний залишок,
+  // другий торговий продасть те, що вже зарезервував перший.
+  reserved  Int @default(0)
+  available Int @default(0)
+
   stockLocation StockLocation @relation(fields: [stockLocationId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
 

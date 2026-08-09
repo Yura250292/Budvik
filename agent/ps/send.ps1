@@ -58,7 +58,16 @@ $secret  = $config.ingest.agentSecret
 if ([string]::IsNullOrWhiteSpace($secret)) { throw "ingest.agentSecret is empty in config.json" }
 
 if (-not $Kind) {
-    if ($config.ingest.preview) { $Kind = "preview" } else { $Kind = "full" }
+    if ($config.ingest.preview) { $Kind = "preview" } else { $Kind = "incremental" }
+    if ($manifest.fullSnapshot -and -not $config.ingest.preview) { $Kind = "full" }
+}
+
+# A "full" send tells the server that anything absent from the payload is gone
+# from 1C. An incremental extract only read what changed, so calling it full
+# would flag most of the catalogue as missing. Refuse rather than corrupt.
+if ($Kind -eq "full" -and -not $manifest.fullSnapshot) {
+    throw ("cannot send -Kind full: the extract was scope=" + $manifest.scope +
+           ". Re-run extract.ps1 -Scope full first.")
 }
 
 $batchSize = 500

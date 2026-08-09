@@ -23,8 +23,8 @@
   },
 
   "ingest": {
-    "_comment": "Куди відправляти. agentSecret має збігатися зі SYNC_AGENT_SECRET на Railway.",
-    "url": "https://budvik.up.railway.app",
+    "_comment": "Куди відправляти. agentSecret має збігатися зі SYNC_AGENT_SECRET на Vercel.",
+    "url": "https://www.budvik27.com",
     "agentId": "budvik-1c-prod",
     "agentSecret": "ЗАПОВНИТИ",
     "preview": true,

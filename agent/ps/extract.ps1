@@ -99,22 +99,24 @@ $stats = [ordered]@{}
 
 # ------------------------------------------------------------------- run ----
 
+Log "extract.ps1 v1.8"
 Log "connecting to 1C..."
 $connector = New-Object -ComObject V82.COMConnector
 $ib = $connector.Connect($connString)
 Log "connected"
 
+# Each COM step is checked separately: a bare "you cannot call a method on a
+# null-valued expression" gives no clue which of NewObject/Execute/Choose
+# returned nothing.
 function RunQuery($text) {
     $q = $ib.NewObject("Query")
-    $q.Text = $text
-    return $q.Execute().Choose()
-}
-
-function RunQueryP($text, $paramName, $paramValue) {
-    $q = $ib.NewObject("Query")
-    $q.Text = $text
-    $q.SetParameter($paramName, $paramValue)
-    return $q.Execute().Choose()
+    if ($null -eq $q) { throw "NewObject(Query) returned null" }
+    $q.Text = [string]$text
+    $res = $q.Execute()
+    if ($null -eq $res) { throw ("Execute() returned null for: " + $text.Substring(0, [Math]::Min(80, $text.Length))) }
+    $sel = $res.Choose()
+    if ($null -eq $sel) { throw "Choose() returned null" }
+    return $sel
 }
 
 try {
@@ -185,47 +187,68 @@ try {
         }
         Log ("rates: " + $rates.Count)
 
+        # Inlined (not via RunQueryP) with a log per step: this exact spot
+        # failed four times with a bare null error, and every value that
+        # crosses into COM is cast to [string] -- JSON-sourced strings arrive
+        # PSObject-wrapped and can marshal wrong through IDispatch.
         Log "resolving price type..."
-        $priceTypeRef = $null
-        $sel = RunQuery $queries.priceTypeList
-        $available = New-Object Collections.Generic.List[string]
-        while ($sel.Next()) {
-            $ptName = Str $sel.Get(0)
-            $available.Add($ptName)
-            if ($ptName -eq $config.priceTypes.retail) { $priceTypeRef = $sel.Get(1) }
-        }
-        if (-not $priceTypeRef) {
+        $q = $ib.NewObject("Query")
+        Log ("  query object: " + ($null -ne $q))
+        $q.Text = [string]$queries.priceTypeByName
+        Log "  text set"
+        $q.SetParameter([string]$queries.paramName, [string]$config.priceTypes.retail)
+        Log "  parameter set"
+        $rs = $q.Execute()
+        Log ("  executed: " + ($null -ne $rs))
+        if ($null -eq $rs) { throw "Execute() returned null on price type lookup" }
+        $sel = $rs.Choose()
+        Log ("  selection: " + ($null -ne $sel))
+        if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
+        if (-not $sel.Next()) {
             # Naming in 1C mixes Ukrainian and Russian glyphs that look
-            # identical (И/І), so an exact-match failure needs the real list
+            # identical (И/І), so an exact-match miss needs the real list
             # printed rather than a bare "not found".
-            Log ("price types in base: " + ($available -join " | "))
+            $names = New-Object Collections.Generic.List[string]
+            $list = RunQuery $queries.priceTypeList
+            while ($list.Next()) { $names.Add((Str $list.Get(0))) }
+            Log ("price types in base: " + ($names -join " | "))
             throw ("price type not found: '" + $config.priceTypes.retail + "'")
         }
+        $priceTypeRef = $sel.Get(0)
+        if ($null -eq $priceTypeRef) { throw "price type ref is null" }
 
         Log "reading prices..."
 
         $w = NewWriter (Join-Path $OutDir "price.ndjson")
         $n = 0
         $noRate = 0
-        $r = RunQueryP $queries.pricesRetail $queries.paramPriceType $priceTypeRef
+        # Inline, not a helper: a parameterised query built inside a function
+        # comes back null on this build; the identical inline sequence works.
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.pricesRetail
+        $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on prices query" }
+        $r = $rs.Choose()
+        if ($null -eq $r) { throw "Choose() returned null on prices query" }
         while ($r.Next()) {
             $id = RefId $ib $r.Get(0)
             if (-not $id) { continue }
             $value = Num $r.Get(1)
             if ($value -le 0) { continue }
 
-            # An unknown or missing currency code means we cannot trust the
-            # figure: shipping it unconverted would silently understate a USD
-            # price by ~46x. Skip and report instead.
+            # An unknown or EMPTY currency code means we cannot trust the
+            # figure: this base has 335 price rows in a currency whose code
+            # is blank (EUR entered without a code), and shipping those
+            # unconverted would put them on the site ~52x too cheap.
             $code = Str $r.Get(2)
-            $rate = 1
-            if ($code -and $code -ne $config.baseCurrencyCode) {
-                if ($rates.ContainsKey($code)) {
-                    $rate = $rates[$code]
-                } else {
-                    $noRate++
-                    continue
-                }
+            if ($code -eq [string]$config.baseCurrencyCode) {
+                $rate = 1
+            } elseif ($code -and $rates.ContainsKey($code)) {
+                $rate = $rates[$code]
+            } else {
+                $noRate++
+                continue
             }
 
             WriteRecord $w ([ordered]@{
@@ -301,6 +324,14 @@ try {
 
     Log "extract complete"
     $manifest | ConvertTo-Json -Depth 5
+}
+catch {
+    # Print the exact failing line: the console error record from -File hides
+    # the position inside functions.
+    Log ("ERROR: " + $_.Exception.Message)
+    Log ("AT:    " + $_.InvocationInfo.PositionMessage)
+    Log ("STACK: " + $_.ScriptStackTrace)
+    throw
 }
 finally {
     # Release the COM connection explicitly; the 1C server keeps the session

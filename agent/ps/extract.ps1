@@ -168,8 +168,22 @@ if (-not (Test-Path $OutDir)) { [void](New-Item -ItemType Directory -Path $OutDi
 # Clear the previous run's output before writing. Otherwise a light run, which
 # never touches product.ndjson, would leave last hour's file in place and the
 # sender would ship those 20k rows again every five minutes.
-Remove-Item (Join-Path $OutDir "*.ndjson") -Force -EA 0
+#
+# The manifest goes first and unconditionally: it is the success marker, so
+# from here until it is rewritten, send.ps1 will refuse to ship a partial run.
 Remove-Item (Join-Path $OutDir "manifest.json") -Force -EA 0
+
+# Only remove what this scope will actually rewrite. A light run deleting
+# product.ndjson destroys the file the matching script needs, and gains
+# nothing -- the sender skips files that are absent, not files that are stale,
+# and staleness is prevented by deleting them here per scope.
+$filesThisScope = @("price.ndjson", "stock.ndjson")
+if ($doCatalogs) {
+    $filesThisScope += @("category.ndjson", "product.ndjson", "warehouse.ndjson")
+}
+foreach ($f in $filesThisScope) {
+    Remove-Item (Join-Path $OutDir $f) -Force -EA 0
+}
 
 $stats = [ordered]@{}
 

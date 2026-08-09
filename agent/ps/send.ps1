@@ -155,6 +155,17 @@ $sendError = $null
 try {
     foreach ($step in $plan) {
         $path = Join-Path $OutDir $step.file
+
+        # A light extract leaves catalog files on disk from the last hourly
+        # run so the matching script can use them, so presence on disk is not
+        # proof this run produced them. The manifest is the authority: it says
+        # whether catalogs were part of this extract at all.
+        if ($manifest.catalogsSkipped -and
+            $step.entity -in @("category", "product", "warehouse")) {
+            Log ("skip {0} (catalogs not part of this extract)" -f $step.file)
+            continue
+        }
+
         if (-not (Test-Path $path)) {
             Log ("skip {0} (not extracted)" -f $step.file)
             continue

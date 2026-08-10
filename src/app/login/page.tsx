@@ -25,8 +25,12 @@ export default function LoginPage() {
     else router.replace("/dashboard");
   }, [session, router]);
 
+  // Повертаємось на /login, а не одразу на /dashboard: розбір ролей вище
+  // вже вміє відправити кожного куди треба. З хардкодом на /dashboard
+  // торговий (як і склад, водій, менеджер) після Google-входу опинявся в
+  // кабінеті покупця.
   const handleGoogle = () => {
-    signIn("google", { callbackUrl: "/dashboard" });
+    signIn("google", { callbackUrl: "/login" });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

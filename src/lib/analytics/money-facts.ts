@@ -138,10 +138,56 @@ export type AgedSlice = {
  * Обидва LATERAL повертають максимум один рядок, тож борг клієнта не
  * задвоюється між торговими.
  */
+/**
+ * Чи є вже колонка SalesDocument.docType.
+ *
+ * Розділення на замовлення й реалізації викочується поетапно: спершу
+ * міграція, потім наповнення каналу з 1С, і лише потім код. Запити тут не
+ * мають від цього падати — тому наявність колонки перевіряється, а не
+ * припускається. Результат кешується на час життя процесу: колонка не
+ * зникає, а зайвий запит до information_schema на кожен рядок дорогий.
+ */
+let docTypeColumnCache: boolean | null = null;
+
+async function hasDocTypeColumn(): Promise<boolean> {
+  if (docTypeColumnCache !== null) return docTypeColumnCache;
+
+  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'SalesDocument' AND column_name = 'docType'
+    ) AS exists
+  `;
+  docTypeColumnCache = rows[0]?.exists ?? false;
+  return docTypeColumnCache;
+}
+
 export async function receivableRowsByRep(
   repId?: string | null,
   now: Date = new Date()
 ): Promise<ReceivableRow[]> {
+  const hasDocType = await hasDocTypeColumn();
+
+  // Реалізація виграє над замовленням, коли обидва є в того самого клієнта.
+  const realizationFirst = hasDocType
+    ? Prisma.sql`("docType" = 'REALIZATION') DESC,`
+    : Prisma.empty;
+
+  // У списку відвантажень тип має бути ОДИН: замовлення й реалізація на ту
+  // саму партію подвоїли б масу документів, і борг виглядав би молодшим.
+  // Але поки реалізацій немає, жорсткий фільтр лишив би список порожнім і
+  // весь борг став би «понад 90 днів» — мовчки й неправильно. Тому вибір
+  // робиться на рівні клієнта й самозачищається після наповнення каналу.
+  const shipmentTypeFilter = hasDocType
+    ? Prisma.sql`AND s."docType" = (
+        SELECT CASE WHEN bool_or(s2."docType" = 'REALIZATION')
+                    THEN 'REALIZATION' ELSE 'ORDER' END::"SalesDocType"
+        FROM "SalesDocument" s2
+        WHERE s2."counterpartyId" = c.id
+          AND s2."externalId" IS NOT NULL
+          AND s2.status = 'CONFIRMED'
+      )`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     Array<Omit<ReceivableRow, "aged" | "unknownDebt"> & { shipments: Array<{ date: string; amount: number }> }>
   >`
@@ -164,36 +210,22 @@ export async function receivableRowsByRep(
     LEFT JOIN LATERAL (
       -- Реалізації пріоритетніші за замовлення, але поки їх немає —
       -- беремо будь-який документ, інакше борг лишиться без торгового.
+      -- Слід про те, хто веде клієнта, лишає й замовлення.
       SELECT "salesRepId", "createdAt" FROM "SalesDocument"
       WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
-      ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC
+      ORDER BY ${realizationFirst} "createdAt" DESC
       LIMIT 1
     ) sd ON TRUE
     LEFT JOIN LATERAL (
       -- Відвантаження від найновішого: борг гаситься за FIFO, тож
       -- непогашеною лишається саме свіжа частина.
-      --
-      -- Реалізації, якщо вони вже є, інакше замовлення. Борг створює саме
-      -- відвантаження, але канал realization_doc лише запускається, і
-      -- жорсткий фільтр по REALIZATION обнулив би вік усієї дебіторки —
-      -- мовчки, без помилки. Коли реалізації наповняться, гілка ORDER
-      -- перестане спрацьовувати сама.
-      SELECT json_agg(json_build_object('date', x."createdAt", 'amount', x."totalAmount")
-                      ORDER BY x."createdAt" DESC) AS shipments
-      FROM (
-        SELECT s."createdAt", s."totalAmount", s."docType"
-        FROM "SalesDocument" s
-        WHERE s."counterpartyId" = c.id
-          AND s."externalId" IS NOT NULL
-          AND s.status = 'CONFIRMED'
-      ) x
-      WHERE x."docType" = (
-        SELECT CASE WHEN bool_or(s2."docType" = 'REALIZATION') THEN 'REALIZATION' ELSE 'ORDER' END::"SalesDocType"
-        FROM "SalesDocument" s2
-        WHERE s2."counterpartyId" = c.id
-          AND s2."externalId" IS NOT NULL
-          AND s2.status = 'CONFIRMED'
-      )
+      SELECT json_agg(json_build_object('date', s."createdAt", 'amount', s."totalAmount")
+                      ORDER BY s."createdAt" DESC) AS shipments
+      FROM "SalesDocument" s
+      WHERE s."counterpartyId" = c.id
+        AND s."externalId" IS NOT NULL
+        AND s.status = 'CONFIRMED'
+        ${shipmentTypeFilter}
     ) sh ON TRUE
     WHERE c."receivableBalance" > 0.01
   `;
@@ -355,6 +387,10 @@ export type DebtDelta = {
  * бути — відповідає той, хто веде клієнта зараз.
  */
 export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, DebtDelta>> {
+  const realizationFirst = (await hasDocTypeColumn())
+    ? Prisma.sql`("docType" = 'REALIZATION') DESC,`
+    : Prisma.empty;
+
   const rows = await prisma.$queryRaw<
     Array<{ repId: string; opening: number; closing: number; withOpening: number }>
   >`
@@ -369,7 +405,7 @@ export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, 
       LEFT JOIN LATERAL (
         SELECT "salesRepId" FROM "SalesDocument"
         WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
-        ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC LIMIT 1
+        ORDER BY ${realizationFirst} "createdAt" DESC LIMIT 1
       ) sd ON TRUE
     ),
     opening AS (

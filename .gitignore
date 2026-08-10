@@ -46,3 +46,6 @@ dev.db-journal
 
 # migration data
 scripts/sitemap-products.json
+
+# логіни й паролі торгових для set-rep-credentials.ts
+creds*.txt

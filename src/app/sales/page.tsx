@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -84,6 +84,7 @@ export default function SalesDashboard() {
                 <h1 style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>{userName}</h1>
               </div>
             </div>
+            <div className="flex items-center gap-2">
             {/* Notification bell */}
             <button
               onClick={() => { setShowNotifications((v) => !v); if (unreadCount > 0) markAllRead(); }}
@@ -103,6 +104,19 @@ export default function SalesDashboard() {
                 </span>
               )}
             </button>
+
+            {/* Вийти */}
+            <button
+              onClick={() => signOut({ callbackUrl: "/" })}
+              title="Вийти"
+              aria-label="Вийти з акаунту"
+              style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "12px", padding: "10px", color: "#F87171" }}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+            </div>
           </div>
 
           {/* Notifications dropdown */}

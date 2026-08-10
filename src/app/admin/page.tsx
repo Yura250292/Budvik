@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 export default function AdminPage() {
@@ -389,6 +389,17 @@ export default function AdminPage() {
               </svg>
               <span className="hidden sm:inline">На сайт</span>
             </Link>
+            <button
+              onClick={() => signOut({ callbackUrl: "/" })}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-[var(--radius-btn)] transition-colors"
+              title="Вийти"
+              aria-label="Вийти з акаунту"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="hidden sm:inline">Вийти</span>
+            </button>
           </div>
         </div>
       </header>

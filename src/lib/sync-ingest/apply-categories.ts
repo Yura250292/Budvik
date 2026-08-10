@@ -11,6 +11,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
 import type { CategoryRecord } from "./types";
 import { ApplyContext } from "./context";
@@ -73,15 +74,31 @@ export async function applyCategories(
       if (takenSlugs.has(slug)) slug = `${slug}-${rec.externalId.slice(0, 6)}`;
       takenSlugs.add(slug);
 
-      try {
-        const created = await prisma.category.create({
-          data: { externalId: rec.externalId, name: rec.name, slug, source: "1C" },
-          select: { id: true, externalId: true, name: true, parentId: true },
-        });
+      // Друга спроба з GUID у слугу, якщо перша впала на унікальному індексі.
+      // Групи 1С "1. MASTERTOOL", "1.MASTERTOOL" і "1.1 MASTERTOOL" дають
+      // однаковий slug, а takenSlugs бачить лише кандидатів свого батча —
+      // тому частина категорій просто не створювалась.
+      let created = null;
+      for (const attempt of [0, 1]) {
+        const trySlug = attempt === 0 ? slug : `${slug}-${rec.externalId.slice(0, 8)}`;
+        try {
+          created = await prisma.category.create({
+            data: { externalId: rec.externalId, name: rec.name, slug: trySlug, source: "1C" },
+            select: { id: true, externalId: true, name: true, parentId: true },
+          });
+          break;
+        } catch (e) {
+          const isUniqueConflict =
+            e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+          if (!isUniqueConflict || attempt === 1) {
+            ctx.fail(rec.name, e);
+            break;
+          }
+        }
+      }
+      if (created) {
         byExternalId.set(rec.externalId, created);
         ctx.created++;
-      } catch (e) {
-        ctx.fail(rec.name, e);
       }
       continue;
     }

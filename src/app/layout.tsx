@@ -29,11 +29,12 @@ export const metadata: Metadata = {
   },
 };
 
+// maximumScale/userScalable навмисно не задаємо: заблокований зум
+// позбавляє можливості розтягнути дрібний або обрізаний текст, і це
+// пряме порушення WCAG 1.4.4.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: "#FFD600",
   viewportFit: "cover",
 };

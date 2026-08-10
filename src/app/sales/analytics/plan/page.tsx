@@ -42,7 +42,7 @@ function PlanDrill() {
         subtitle={data?.rep.name}
         month={data?.month}
         period={period}
-        backTo={withPeriod("/sales/analytics", period)}
+        backTo={withPeriod("/sales", period)}
         showFrames={false}
       />
 

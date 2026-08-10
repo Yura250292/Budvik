@@ -1,17 +1,15 @@
 "use client";
 
-import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { SalesHeader } from "@/components/sales/SalesHeader";
 
 const STATUS_LABELS: Record<string, string> = { DRAFT: "Чернетка", CONFIRMED: "Підтверджено", CANCELLED: "Скасовано" };
 const STATUS_BG: Record<string, string> = { DRAFT: "#FFF7ED", CONFIRMED: "#F0FDF4", CANCELLED: "#FEF2F2" };
 const STATUS_COLOR: Record<string, string> = { DRAFT: "#D97706", CONFIRMED: "#16A34A", CANCELLED: "#DC2626" };
 
 export default function SalesOrderDetailPage() {
-  const { data: session } = useSession();
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
@@ -19,8 +17,6 @@ export default function SalesOrderDetailPage() {
   const [doc, setDoc] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-
-  const role = (session?.user as any)?.role;
 
   const fetchDoc = useCallback(async () => {
     setLoading(true);
@@ -73,9 +69,7 @@ export default function SalesOrderDetailPage() {
     setActionLoading(false);
   };
 
-  if (role !== "ADMIN" && role !== "SALES") {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
-  }
+  // Роль-гейт живе в SalesGate на рівні секції (src/app/sales/layout.tsx).
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження...</div>;
@@ -89,32 +83,23 @@ export default function SalesOrderDetailPage() {
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      {/* Header */}
-      <header className="sticky top-0 z-50" style={{
-        background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-      }}>
-        <div style={{ height: "2px", background: "linear-gradient(to right, transparent, #FFD600, transparent)" }} />
-        <div className="max-w-lg mx-auto flex items-center gap-3" style={{ padding: "12px 16px" }}>
-          <Link href="/sales/orders" className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.7)" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="flex-1">
-            <h1 style={{ fontSize: "20px", fontWeight: 700, color: "white" }}>{doc.number}</h1>
-            <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)" }}>{formatDate(doc.createdAt)}</p>
-          </div>
+      <SalesHeader
+        title={doc.number}
+        subtitle={formatDate(doc.createdAt)}
+        backTo="/sales/orders"
+        sticky
+        right={
           <span style={{
             fontSize: "12px", fontWeight: 600, padding: "4px 10px", borderRadius: "8px",
             background: STATUS_BG[doc.status], color: STATUS_COLOR[doc.status],
           }}>
             {STATUS_LABELS[doc.status]}
           </span>
-        </div>
-      </header>
+        }
+      />
 
-      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: isDraft ? "200px" : "100px" }}>
+      {/* Відступ під навбар дає SalesLayout. */}
+      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "12px" }}>
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="bg-white rounded-xl p-3 text-center" style={{ border: "1px solid #EFEFEF" }}>

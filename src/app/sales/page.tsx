@@ -1,283 +1,257 @@
 "use client";
 
+import { Suspense, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { formatPrice } from "@/lib/utils";
+import { Card, EmptyState } from "@/components/ui/Card";
+import { Skeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
+import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
+import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { SalesHeader } from "@/components/sales/SalesHeader";
+import { HeroPlan } from "./analytics/components/HeroPlan";
+import { MetricGrid } from "./analytics/components/MetricGrid";
+import {
+  monthLabel,
+  useMySummary,
+  usePeriodFromUrl,
+  withPeriod,
+} from "./analytics/components/useSalesAnalytics";
 
-export default function SalesDashboard() {
-  const { data: session } = useSession();
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
+/**
+ * Головна кабінету торгового — одразу показники.
+ *
+ * Раніше тут була плитка-меню з шести пунктів, три з яких дублювали
+ * нижні вкладки, а власні числа торгового лежали на крок глибше, в
+ * /sales/analytics. Тобто екран, який відкривається першим, не відповідав
+ * на єдине питання, з яким торговий заходить: «як у мене справи».
+ *
+ * Дані — той самий запит, що живить зведену керівника
+ * (/api/admin/sales-analytics/summary у режимі scope: "own"). Копія під
+ * /api/sales/* дала б друге місце, де ті самі 11 показників можуть
+ * розійтися.
+ */
 
-  const role = (session?.user as any)?.role;
-  const userName = (session?.user as any)?.name || "Торговий";
+function HomeSkeleton() {
+  return (
+    <>
+      <Skeleton className="h-[220px] w-full rounded-[var(--radius-card)]" />
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <StatCardSkeleton key={i} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** Дзвіночок і «Вийти» — єдине, що лишилось від старої шапки. */
+function HeaderActions() {
+  const [notifications, setNotifications] = useState<{ id: string; title: string; body: string; isRead: boolean; createdAt: string; relatedId?: string }[]>([]);
+  const [open, setOpen] = useState(false);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   useEffect(() => {
-    if (!session) return;
-    Promise.all([
-      fetch("/api/erp/sales").then((r) => r.json()),
-      fetch("/api/erp/commissions/my").then((r) => r.json()),
-      fetch("/api/notifications").then((r) => r.json()),
-    ]).then(([sales, commissions, notifs]) => {
-      const docs = Array.isArray(sales) ? sales : [];
-      const today = new Date().toDateString();
-      const todaySales = docs.filter((d: any) => new Date(d.createdAt).toDateString() === today);
-      const confirmed = docs.filter((d: any) => d.status === "CONFIRMED");
-
-      setStats({
-        totalDocs: docs.length,
-        todayCount: todaySales.length,
-        todayAmount: todaySales.reduce((s: number, d: any) => s + d.totalAmount, 0),
-        confirmedCount: confirmed.length,
-        confirmedAmount: confirmed.reduce((s: number, d: any) => s + d.totalAmount, 0),
-        drafts: docs.filter((d: any) => d.status === "DRAFT").length,
-        commission: commissions.summary || {},
-      });
-      setNotifications(Array.isArray(notifs) ? notifs : []);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [session]);
+    fetch("/api/notifications")
+      .then((r) => r.json())
+      .then((d) => setNotifications(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
 
   const markAllRead = async () => {
     await fetch("/api/notifications/read-all", { method: "PATCH" });
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
   };
 
-  if (role !== "ADMIN" && role !== "SALES") {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
-  }
+  return (
+    <>
+      <button
+        onClick={() => {
+          setOpen((v) => !v);
+          if (unreadCount > 0) markAllRead();
+        }}
+        aria-label={unreadCount > 0 ? `Сповіщення, ${unreadCount} непрочитаних` : "Сповіщення"}
+        style={{
+          position: "relative",
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: "12px",
+          padding: "10px",
+          color: "white",
+        }}
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+        </svg>
+        {unreadCount > 0 && (
+          <span
+            style={{
+              position: "absolute", top: "-4px", right: "-4px",
+              background: "#EF4444", color: "white", borderRadius: "9999px",
+              fontSize: "11px", fontWeight: 700, minWidth: "18px", height: "18px",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
+            }}
+          >
+            {unreadCount}
+          </span>
+        )}
+      </button>
+
+      <button
+        onClick={() => signOut({ callbackUrl: "/" })}
+        title="Вийти"
+        aria-label="Вийти з акаунту"
+        style={{
+          background: "rgba(239,68,68,0.12)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          borderRadius: "12px",
+          padding: "10px",
+          color: "#F87171",
+        }}
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% - 4px)", right: "16px", zIndex: 50,
+            background: "white", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            width: "min(320px, calc(100vw - 32px))", maxHeight: "400px", overflowY: "auto",
+          }}
+        >
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, fontSize: "14px", color: "#0A0A0A" }}>Сповіщення</span>
+            {unreadCount > 0 && (
+              <button onClick={markAllRead} style={{ fontSize: "12px", color: "#6B7280" }}>
+                Прочитати всі
+              </button>
+            )}
+          </div>
+          {notifications.length === 0 ? (
+            <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: "13px" }}>
+              Немає сповіщень
+            </div>
+          ) : (
+            notifications.map((n) => {
+              const body = (
+                <>
+                  <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
+                  <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
+                  <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
+                    {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </>
+              );
+              return (
+                <div
+                  key={n.id}
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #F7F7F7",
+                    background: n.isRead ? "white" : "#FFF9E6",
+                  }}
+                >
+                  {n.relatedId ? (
+                    <Link href={`/sales/orders/${n.relatedId}`} onClick={() => setOpen(false)}>
+                      {body}
+                    </Link>
+                  ) : (
+                    body
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function Home() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const period = usePeriodFromUrl();
+  const { data, row, loading, error, reload } = useMySummary(period);
+
+  const name = (session?.user as { name?: string } | undefined)?.name ?? "Торговий";
+
+  // Період у query, а не в стані: перехід у дрілл і назад має повертати
+  // той самий діапазон. replace, не push — інакше кожен клік по пресету
+  // додавав би запис в історію і «Назад» гортало б власні кліки.
+  const onPeriodChange = (p: Period) => {
+    router.replace(`?from=${p.from}&to=${p.to}`, { scroll: false });
+  };
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      {/* Dark branded header */}
-      <div style={{
-        background: "linear-gradient(135deg, #0A0A0A 0%, #1A1A1A 100%)",
-        padding: "20px 20px 40px",
-        position: "relative",
-        overflow: "hidden",
-      }}>
-        {/* Gold accent line */}
-        <div style={{
-          position: "absolute", top: 0, left: 0, right: 0, height: "2px",
-          background: "linear-gradient(to right, transparent, #FFD600, transparent)",
-        }} />
-        {/* Subtle gold glow */}
-        <div style={{
-          position: "absolute", top: "-50px", right: "-30px",
-          width: "200px", height: "200px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(255,214,0,0.08) 0%, transparent 70%)",
-        }} />
+    <div className="min-h-screen bg-background">
+      <SalesHeader title={name} subtitle="Мої показники" right={<HeaderActions />} />
 
-        <div className="max-w-lg mx-auto relative">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
-              <div>
-                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
-                  Торговий портал
-                </p>
-                <h1 style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>{userName}</h1>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-            {/* Notification bell */}
-            <button
-              onClick={() => { setShowNotifications((v) => !v); if (unreadCount > 0) markAllRead(); }}
-              style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", padding: "10px", color: "white" }}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-              </svg>
-              {unreadCount > 0 && (
-                <span style={{
-                  position: "absolute", top: "-4px", right: "-4px",
-                  background: "#EF4444", color: "white", borderRadius: "9999px",
-                  fontSize: "11px", fontWeight: 700, minWidth: "18px", height: "18px",
-                  display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
-                }}>
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-
-            {/* Вийти */}
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              title="Вийти"
-              aria-label="Вийти з акаунту"
-              style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "12px", padding: "10px", color: "#F87171" }}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-            </div>
+      <div className="mx-auto max-w-lg px-4 pt-4">
+        <div className="-mx-4 mb-3 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
+          <div className="w-max">
+            <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
-
-          {/* Notifications dropdown */}
-          {showNotifications && (
-            <div style={{
-              position: "absolute", top: "60px", right: 0, zIndex: 50,
-              background: "white", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-              width: "320px", maxHeight: "400px", overflowY: "auto",
-            }}>
-              <div style={{ padding: "14px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 700, fontSize: "14px", color: "#0A0A0A" }}>Сповіщення</span>
-                {unreadCount > 0 && (
-                  <button onClick={markAllRead} style={{ fontSize: "12px", color: "#6B7280" }}>Прочитати всі</button>
-                )}
-              </div>
-              {notifications.length === 0 ? (
-                <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: "13px" }}>
-                  Немає сповіщень
-                </div>
-              ) : (
-                notifications.map((n) => (
-                  <div key={n.id} style={{
-                    padding: "12px 16px", borderBottom: "1px solid #F7F7F7",
-                    background: n.isRead ? "white" : "#FFF9E6",
-                  }}>
-                    {n.relatedId ? (
-                      <Link href={`/admin/erp/sales/${n.relatedId}`} onClick={() => setShowNotifications(false)}>
-                        <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
-                        <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
-                        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
-                          {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      </Link>
-                    ) : (
-                      <>
-                        <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
-                        <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
-                        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
-                          {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-
-          {!loading && stats && (
-            <div className="flex gap-3 mt-2">
-              <div style={{
-                flex: 1, background: "rgba(255,255,255,0.06)", borderRadius: "14px",
-                padding: "14px", border: "1px solid rgba(255,255,255,0.08)",
-              }}>
-                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", marginBottom: "4px" }}>Сьогодні</p>
-                <p style={{ fontSize: "22px", fontWeight: 700, color: "#FFD600" }}>{formatPrice(stats.todayAmount)}</p>
-                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>{stats.todayCount} док.</p>
-              </div>
-              <div style={{
-                flex: 1, background: "rgba(255,255,255,0.06)", borderRadius: "14px",
-                padding: "14px", border: "1px solid rgba(255,255,255,0.08)",
-              }}>
-                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", marginBottom: "4px" }}>Комісія</p>
-                <p style={{ fontSize: "22px", fontWeight: 700, color: "#22C55E" }}>{formatPrice(stats.commission.totalCommission || 0)}</p>
-                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>
-                  очікує: {formatPrice(stats.commission.pendingCommission || 0)}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
-      </div>
 
-      <div className="max-w-lg mx-auto px-4" style={{ marginTop: "-20px", paddingBottom: "100px" }}>
-        {/* Quick action CTA */}
-        <Link href="/sales/new"
-          className="flex items-center justify-center gap-2 w-full"
-          style={{
-            background: "linear-gradient(135deg, #FFD600 0%, #FFA000 100%)",
-            color: "#0A0A0A", padding: "16px", borderRadius: "16px",
-            fontWeight: 700, fontSize: "17px", marginBottom: "24px",
-            boxShadow: "0 8px 32px rgba(255,214,0,0.3)",
-            textDecoration: "none",
-          }}>
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Нове замовлення
-        </Link>
+        {/*
+          Три різні часові рамки в одному екрані — без цього рядка числа
+          виглядають суперечливо: оборот за 10 днів поруч із планом за
+          весь місяць і боргом «станом на зараз» читається як помилка.
+        */}
+        <p className="mb-3 text-[11px] leading-relaxed text-g500">
+          Оборот, паливо і зібране — за обраний період. План —
+          {data?.month ? ` за весь ${monthLabel(data.month)}` : " за календарний місяць"}. Дебіторка —
+          борг станом на зараз, від періоду не залежить.
+        </p>
 
-        {/* Stats grid */}
-        {loading ? (
-          <div className="text-center py-8" style={{ color: "#9CA3AF" }}>Завантаження...</div>
-        ) : stats && (
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <div className="bg-white rounded-2xl p-4" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: "#F0FDF4" }}>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#16A34A" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-                </svg>
-              </div>
-              <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "2px" }}>Всього продажів</p>
-              <p style={{ fontSize: "22px", fontWeight: 700, color: "#0A0A0A" }}>{formatPrice(stats.confirmedAmount)}</p>
-              <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{stats.confirmedCount} підтверджених</p>
-            </div>
-            <div className="bg-white rounded-2xl p-4" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: "#FFF7ED" }}>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#F59E0B" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
-              </div>
-              <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "2px" }}>Чернетки</p>
-              <p style={{ fontSize: "22px", fontWeight: 700, color: "#0A0A0A" }}>{stats.drafts}</p>
-              <p style={{ fontSize: "11px", color: "#9CA3AF" }}>потребують підтвердження</p>
-            </div>
-          </div>
+        {error && <ErrorBox message={error} onRetry={reload} />}
+
+        {loading && !data && <HomeSkeleton />}
+
+        {data && !row && (
+          <Card>
+            <EmptyState
+              title="За цей період даних немає"
+              hint="Зведена будується по користувачах із роллю «Торговий». Якщо ви бачите це повідомлення, зверніться до керівника — можливо, обліковий запис ще не позначено як торгового."
+            />
+          </Card>
         )}
 
-        {/* Quick navigation */}
-        <p style={{ fontSize: "13px", fontWeight: 600, color: "#9CA3AF", marginBottom: "12px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
-          Меню
-        </p>
-        <div className="space-y-2">
-          {[
-            { href: "/sales/analytics", icon: "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z", title: "Мої показники", desc: "План, оборот, заробіток", gradient: "linear-gradient(135deg, #6366F1, #4F46E5)", badge: null },
-            { href: "/sales/new", icon: "M12 4v16m8-8H4", title: "Нове замовлення", desc: "Створити документ продажу", gradient: "linear-gradient(135deg, #22C55E, #16A34A)", badge: null },
-            { href: "/sales/orders?status=DRAFT", icon: "M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4", title: "Запити від клієнтів", desc: "Чернетки від оптовиків", gradient: "linear-gradient(135deg, #F59E0B, #D97706)", badge: stats?.drafts ?? 0 },
-            { href: "/sales/clients", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", title: "Клієнти", desc: "Контрагенти та дебіторка", gradient: "linear-gradient(135deg, #3B82F6, #2563EB)", badge: null },
-            { href: "/sales/orders", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", title: "Мої документи", desc: "Історія продажів", gradient: "linear-gradient(135deg, #8B5CF6, #7C3AED)", badge: null },
-            { href: "/dashboard/commissions", icon: "M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z", title: "Мої комісії", desc: "Заробіток та виплати", gradient: "linear-gradient(135deg, #F59E0B, #D97706)", badge: null },
-          ].map((item) => (
-            <Link key={item.href} href={item.href}
-              className="flex items-center gap-4 bg-white rounded-2xl p-4"
-              style={{ border: "1px solid #EFEFEF", textDecoration: "none", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: item.gradient }}>
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: "16px", fontWeight: 600, color: "#0A0A0A" }}>{item.title}</p>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>{item.desc}</p>
-              </div>
-              {item.badge != null && item.badge > 0 ? (
-                <span style={{
-                  background: "#EF4444", color: "white", borderRadius: "9999px",
-                  fontSize: "12px", fontWeight: 700, minWidth: "22px", height: "22px",
-                  display: "flex", alignItems: "center", justifyContent: "center", padding: "0 6px",
-                }}>
-                  {item.badge}
-                </span>
-              ) : (
-                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              )}
-            </Link>
-          ))}
-        </div>
+        {data && row && (
+          <>
+            <HeroPlan
+              plan={row.plan}
+              month={data.month}
+              planHref={row.plan.target > 0 ? withPeriod("/sales/analytics/plan", period) : null}
+            />
+            <MetricGrid row={row} moneyHref={withPeriod("/sales/analytics/money", period)} />
+
+            <p className="mt-4 px-1 text-[11px] leading-relaxed text-g500">
+              «Чистий результат» — прибуток по ваших продажах за період мінус пальне. «Заробіток»
+              рахується зі зібраних коштів, а не з обороту: продаж без оплати не приносить нічого.
+            </p>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+export default function SalesHomePage() {
+  // Suspense обов'язковий: період читається з useSearchParams.
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-lg px-4 pt-4">
+          <HomeSkeleton />
+        </div>
+      }
+    >
+      <Home />
+    </Suspense>
   );
 }

@@ -17,13 +17,37 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {};
   if (type) where.type = type;
   if (active !== null) where.isActive = active !== "false";
+
+  // Умови збираємо в AND, а не пишемо два where.OR поспіль: другий
+  // перетер би перший. Саме так тут і був витік — пошук знімав би скоуп
+  // ролі, і торговий бачив би всю базу контрагентів за будь-яким запитом.
+  const and: Record<string, unknown>[] = [];
+
   if (search) {
-    where.OR = [
-      { name: { contains: search, mode: "insensitive" } },
-      { code: { contains: search, mode: "insensitive" } },
-      { contactPerson: { contains: search, mode: "insensitive" } },
-    ];
+    and.push({
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { code: { contains: search, mode: "insensitive" } },
+        { contactPerson: { contains: search, mode: "insensitive" } },
+      ],
+    });
   }
+
+  // Торговий бачить лише своїх. Два джерела, бо жодного не досить:
+  // SalesRepClient заповнюється керівником вручну і покриває не всіх, а
+  // прив'язка документів до торгового йде зіставленням імені з 1С
+  // (див. src/lib/sync-ingest/apply-documents.ts) і теж не стовідсоткова.
+  // Разом вони дають робочий список; ADMIN і MANAGER бачать усе.
+  if (session.user.role === "SALES") {
+    and.push({
+      OR: [
+        { assignedSalesReps: { some: { salesRepId: session.user.id } } },
+        { salesDocuments: { some: { salesRepId: session.user.id } } },
+      ],
+    });
+  }
+
+  if (and.length > 0) where.AND = and;
 
   const counterparties = await prisma.counterparty.findMany({
     where,

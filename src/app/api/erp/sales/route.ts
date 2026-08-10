@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
 import { getLatestPurchasePrice } from "@/lib/erp/sales";
+import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -14,6 +15,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
   const salesRepId = searchParams.get("salesRepId");
+  const from = searchParams.get("from");
+  const to = searchParams.get("to");
 
   // Список ERP — це замовлення: саме їх збирають, комплектують і везуть.
   // Реалізації з 1С лежать у тій самій таблиці, але в роботі складу й водія
@@ -21,6 +24,16 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = { docType: "ORDER" };
   if (status) where.status = status;
   if (salesRepId) where.salesRepId = salesRepId;
+
+  // Межі доби — київські. Наївний new Date("2026-08-10") дав би опівніч
+  // UTC, і документ, оформлений о 01:30 ночі, випадав би з «сьогодні»
+  // (той самий баг уже фіксили для звітів — див. src/lib/date/kyiv.ts).
+  if (from || to) {
+    const createdAt: { gte?: Date; lte?: Date } = {};
+    if (from) createdAt.gte = kyivDayStart(from);
+    if (to) createdAt.lte = kyivDayEnd(to);
+    where.createdAt = createdAt;
+  }
 
   // SALES role can only see their own documents
   if (session.user.role === "SALES") {
@@ -46,6 +59,10 @@ export async function GET(req: NextRequest) {
       _count: { select: { items: true } },
     },
     orderBy: { createdAt: "desc" },
+    // Стеля на випадок запиту без періоду («Всі»): в окремих торгових
+    // історія на тисячі документів, і віддавати її цілком у телефон
+    // немає сенсу — далі першого екрана ніхто не гортає.
+    take: 300,
   });
 
   return NextResponse.json(docs);

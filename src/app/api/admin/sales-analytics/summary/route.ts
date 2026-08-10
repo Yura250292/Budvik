@@ -136,7 +136,9 @@ export async function GET(req: NextRequest) {
         overdue: debt.overdue,
         overdueRatio: debt.overdueRatio,
         buckets: debt.buckets,
-        /** Борг, для якого 1С ще не дала строки — не «робочий», а невідомий */
+        /** Робоча частина за етапами: товар їде vs чекаємо гроші */
+        stages: debt.stages,
+        /** Борг без відвантажень у базі — старший за нашу історію */
         unknown: debt.unknown,
       },
       earnings: earned

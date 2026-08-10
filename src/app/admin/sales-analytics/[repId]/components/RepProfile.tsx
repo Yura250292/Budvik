@@ -12,7 +12,13 @@ import { ErrorBox } from "../../components/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { ColorDot } from "@/components/ui/Badge";
 import { CATEGORICAL, NEUTRAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
-import { BUCKET_LABELS, BUCKET_COLORS } from "@/lib/erp/receivables";
+import {
+  BUCKET_LABELS,
+  BUCKET_COLORS,
+  STAGE_LABELS,
+  STAGE_COLORS,
+  type WorkingStage,
+} from "@/lib/erp/receivables";
 import type { ReceivableBucket } from "@prisma/client";
 
 /**
@@ -71,14 +77,16 @@ type RepResponse = {
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
+    stages: Record<WorkingStage, number>;
     unknown: number;
     clients: Array<{
       counterpartyId: string;
       name: string;
       code: string | null;
       debt: number;
-      overdue: number | null;
-      current: number | null;
+      overdue: number;
+      current: number;
+      oldestDays: number | null;
       lastDocAt: string | null;
     }>;
   };
@@ -227,8 +235,8 @@ export function RepProfile({
                     title="Дебіторка"
                     hint={
                       data.receivables.syncedAt
-                        ? `Сальдо з 1С станом на ${formatDate(data.receivables.syncedAt)} — залишок, а не оборот за період.`
-                        : "Сальдо з 1С — залишок, а не оборот за період."
+                        ? `Сальдо з 1С станом на ${formatDate(data.receivables.syncedAt)}. Борг понад 15 днів від відвантаження — протермінований.`
+                        : "Сальдо з 1С. Борг понад 15 днів від відвантаження — протермінований."
                     }
                   />
 
@@ -240,23 +248,37 @@ export function RepProfile({
                         </span>
                         <span className="text-sm text-g500">грн</span>
                         <span className="ml-auto">
-                          {data.receivables.unknown >= data.receivables.total ? (
-                            <Badge status="neutral" dot>
-                              строки невідомі
-                            </Badge>
-                          ) : (
-                            <Badge status={data.receivables.overdue > 0 ? "bad" : "good"} dot>
-                              {data.receivables.overdue > 0
-                                ? `прострочено ${money(data.receivables.overdue)} (${num(data.receivables.overdueRatio)}%)`
-                                : "простроченої немає"}
-                            </Badge>
-                          )}
+                          <Badge status={data.receivables.overdue > 0 ? "bad" : "good"} dot>
+                            {data.receivables.overdue > 0
+                              ? `прострочено ${money(data.receivables.overdue)} (${num(data.receivables.overdueRatio)}%)`
+                              : "простроченої немає"}
+                          </Badge>
                         </span>
                       </div>
 
+                      {/* Робоча частина: де товар ще їде, а де вже чекаємо гроші */}
+                      {data.receivables.current > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {(Object.keys(STAGE_LABELS) as WorkingStage[])
+                            .filter((s) => data.receivables.stages[s] > 0)
+                            .map((s) => (
+                              <span
+                                key={s}
+                                className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs"
+                              >
+                                <ColorDot color={STAGE_COLORS[s]} size={8} />
+                                <span className="text-g600">{STAGE_LABELS[s]}</span>
+                                <span className="font-semibold tabular-nums text-bk">
+                                  {money(data.receivables.stages[s])}
+                                </span>
+                              </span>
+                            ))}
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap gap-2">
                         {(Object.keys(BUCKET_LABELS) as ReceivableBucket[])
-                          .filter((b) => data.receivables.buckets[b] > 0)
+                          .filter((b) => b !== "CURRENT" && data.receivables.buckets[b] > 0)
                           .map((b) => (
                             <span
                               key={b}
@@ -273,8 +295,8 @@ export function RepProfile({
 
                       {data.receivables.unknown > 0 && (
                         <p className="text-xs text-g500">
-                          Для {money(data.receivables.unknown)} грн 1С ще не передала розбивку за
-                          строками — цей борг не віднесено ні до робочого, ні до простроченого.
+                          {money(data.receivables.unknown)} грн — борг без відвантажень у базі
+                          (історія з травня), зарахований як прострочений понад 90 днів.
                         </p>
                       )}
                     </div>
@@ -289,6 +311,7 @@ export function RepProfile({
                       <thead className="sticky top-0">
                         <tr className="border-b border-g200 bg-g50 text-left text-xs font-medium text-g500">
                           <th className="px-4 py-2.5">Клієнт</th>
+                          <th className="px-4 py-2.5 text-right">Вік</th>
                           <th className="px-4 py-2.5 text-right">Прострочено</th>
                           <th className="px-4 py-2.5 text-right">Борг</th>
                         </tr>
@@ -304,12 +327,17 @@ export function RepProfile({
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-2.5 text-right text-xs tabular-nums">
-                              {client.overdue === null ? (
-                                <span className="text-g400" title="1С не передала розбивку за строками">
-                                  ?
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums text-g600">
+                              {client.oldestDays === null ? (
+                                <span className="text-g400" title="Відвантажень під цей борг у базі немає">
+                                  &gt; 90 дн.
                                 </span>
-                              ) : client.overdue > 0 ? (
+                              ) : (
+                                `${num(client.oldestDays)} дн.`
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                              {client.overdue > 0 ? (
                                 <span className="font-semibold" style={{ color: STATUS.bad.fg }}>
                                   {money(client.overdue)}
                                 </span>
@@ -534,7 +562,7 @@ export function RepProfile({
             {/* --- Документи --- */}
             <Card padded={false}>
               <div className="p-4 sm:p-5">
-                <CardHeader title="Останні документи" hint="Проведені документи з 1С, до 50 штук" />
+                <CardHeader title="Останні документи" hint="Проведені реалізації з 1С, до 50 штук" />
               </div>
               {data.documents.length === 0 ? (
                 <div className="pb-4">

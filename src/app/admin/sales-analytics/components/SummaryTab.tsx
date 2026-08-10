@@ -9,7 +9,13 @@ import { Badge } from "@/components/ui/Badge";
 import { money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { attainmentStatus, STATUS, categoricalColor } from "@/lib/analytics/colors";
-import { BUCKET_LABELS, BUCKET_COLORS } from "@/lib/erp/receivables";
+import {
+  BUCKET_LABELS,
+  BUCKET_COLORS,
+  STAGE_LABELS,
+  STAGE_COLORS,
+  type WorkingStage,
+} from "@/lib/erp/receivables";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 
@@ -42,6 +48,7 @@ type SummaryRow = {
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
+    stages: Record<WorkingStage, number>;
     unknown: number;
   };
   earnings: null | { total: number; gross: number; penalties: number; schemeName: string };
@@ -80,6 +87,7 @@ type ReceivablesResponse = {
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
+    stages: Record<WorkingStage, number>;
     unknown: number;
   };
   clients: Array<{
@@ -87,9 +95,12 @@ type ReceivablesResponse = {
     name: string;
     code: string | null;
     debt: number;
-    overdue: number | null;
-    current: number | null;
-    buckets: Record<ReceivableBucket, number> | null;
+    overdue: number;
+    current: number;
+    buckets: Record<ReceivableBucket, number>;
+    stages: Record<WorkingStage, number>;
+    oldestDays: number | null;
+    unknownDebt: number;
     lastDocAt: string | null;
   }>;
 };
@@ -140,19 +151,42 @@ function ReceivablesPanel({ repId }: { repId: string }) {
         </div>
       )}
 
+      {/* Робоча частина за етапами: де товар ще їде, а де вже чекаємо гроші */}
+      {(data.aging.stages.DELIVERY > 0 || data.aging.stages.AWAITING_PAYMENT > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(STAGE_LABELS) as WorkingStage[])
+            .filter((s) => data.aging.stages[s] > 0)
+            .map((s) => (
+              <span
+                key={s}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 bg-white px-2 py-1 text-xs"
+              >
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: STAGE_COLORS[s] }}
+                />
+                <span className="text-g600">{STAGE_LABELS[s]}</span>
+                <span className="font-semibold tabular-nums text-bk">{money(data.aging.stages[s])}</span>
+              </span>
+            ))}
+        </div>
+      )}
+
       {data.aging.unknown > 0 && (
         <p className="text-xs text-g500">
-          Для {money(data.aging.unknown)} грн 1С ще не передала розбивку за строками — цей борг не
-          віднесено ні до робочого, ні до простроченого.
+          {money(data.aging.unknown)} грн — борг без відвантажень у базі (історія з травня), тому
+          зарахований як прострочений понад 90 днів.
         </p>
       )}
 
       <div className="max-h-[320px] overflow-auto rounded-[var(--radius-card)] border border-g200 bg-white">
-        <table className="w-full min-w-[640px] text-xs">
+        <table className="w-full min-w-[680px] text-xs">
           <thead className="sticky top-0 z-10 bg-g50">
             <tr className="border-b border-g200 text-left font-medium text-g500">
               <th className="px-3 py-2">Клієнт</th>
               <th className="px-3 py-2">Остання відвантажка</th>
+              <th className="px-3 py-2 text-right">Вік боргу</th>
               <th className="px-3 py-2 text-right">Робоча</th>
               <th className="px-3 py-2 text-right">Прострочено</th>
               <th className="px-3 py-2 text-right">Борг, грн</th>
@@ -169,14 +203,19 @@ function ReceivablesPanel({ repId }: { repId: string }) {
                   {client.lastDocAt ? dateFmt.format(new Date(client.lastDocAt)) : "—"}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-g600">
-                  {client.current === null ? <span className="text-g400">?</span> : money(client.current)}
+                  {client.oldestDays === null ? (
+                    <span className="text-g400" title="Відвантажень під цей борг у базі немає">
+                      &gt; 90 дн.
+                    </span>
+                  ) : (
+                    `${num(client.oldestDays)} дн.`
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-g600">
+                  {client.current > 0 ? money(client.current) : <span className="text-g400">—</span>}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
-                  {client.overdue === null ? (
-                    <span className="text-g400" title="1С не передала розбивку за строками">
-                      ?
-                    </span>
-                  ) : client.overdue > 0 ? (
+                  {client.overdue > 0 ? (
                     <span className="font-semibold" style={{ color: STATUS.bad.fg }}>
                       {money(client.overdue)}
                     </span>
@@ -227,7 +266,7 @@ export function SummaryTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Зведена по торгових"
-            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — сальдо з 1С станом на ${asOf}, не залежить від періоду. Клік по рядку відкриває профіль.`}
+            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — сальдо з 1С станом на ${asOf}: борг понад 15 днів від відвантаження вважається протермінованим. Клік по рядку відкриває профіль.`}
           />
         </div>
 

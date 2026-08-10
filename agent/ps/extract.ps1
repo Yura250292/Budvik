@@ -225,17 +225,37 @@ foreach ($f in $filesThisScope) {
 
 $stats = [ordered]@{}
 
+# --- retry window ---------------------------------------------------------
+#
+# 1C drops user sessions around 20:00 for roughly half an hour while it runs
+# its scheduled maintenance. A run that starts just before that loses the
+# connection either on Connect() or midway through reading, and without a
+# retry the nightly full extract would simply not happen that day -- the
+# five-minute scopes recover on their own, the nightly one has no second
+# chance until tomorrow.
+#
+# Retrying is safe precisely because of how the run ends: the manifest is the
+# success marker and is written last, and the watermark advances only after
+# it, so an aborted attempt leaves nothing behind for the next one to trip on.
+$retryAttempts = 3
+$retryDelayMin = 10
+if ($config.retry) {
+    if ($config.retry.attempts)     { $retryAttempts = [int]$config.retry.attempts }
+    if ($config.retry.delayMinutes) { $retryDelayMin = [int]$config.retry.delayMinutes }
+}
+if ($retryAttempts -lt 1) { $retryAttempts = 1 }
+
 # ------------------------------------------------------------------- run ----
 
-Log ("extract.ps1 v2.0  scope=" + $Scope)
-Log "connecting to 1C..."
-$connector = New-Object -ComObject V82.COMConnector
-$ib = $connector.Connect($connString)
-Log "connected"
+Log ("extract.ps1 v2.1  scope=" + $Scope)
 
 # Each COM step is checked separately: a bare "you cannot call a method on a
 # null-valued expression" gives no clue which of NewObject/Execute/Choose
 # returned nothing.
+#
+# Reads $ib from the enclosing scope, which the retry loop below rebinds on
+# every attempt -- PowerShell resolves it at call time, so the function always
+# talks to the current attempt's connection.
 function RunQuery($text) {
     $q = $ib.NewObject("Query")
     if ($null -eq $q) { throw "NewObject(Query) returned null" }
@@ -253,7 +273,63 @@ function RunQuery($text) {
 # back null on this 1C build -- the same failure that forced the price query
 # to be inlined earlier. The identical code inline works.
 
+<#
+  Tells a dead connection apart from a query this build cannot run.
+
+  The debt and payment blocks are deliberately best-effort: those queries fail
+  on this 1C build for their own reasons, and losing the balances is better
+  than losing the orders already read. But they are also the LAST things the
+  run does, which puts them squarely in the 20:00 window when 1C drops
+  sessions -- and a swallowed disconnect there is the worst outcome available:
+  the run writes its manifest, calls itself a success and advances the
+  watermark, so the skipped window is never re-read and the debt figures are
+  quietly a day stale.
+
+  So a connection-level failure has to escape the best-effort catch and reach
+  the retry loop. Matched on the COM error text because that is all the 1C
+  connector gives us -- there is no typed exception to check.
+
+  Deliberately narrow, and matched on HRESULT codes rather than words. A
+  pattern that also caught "RPC" or the word "connection" would fire on
+  ordinary query failures ("Execute() returned null on ..."), and the
+  best-effort blocks would stop being best-effort: a debt query this build
+  cannot run would abort and retry the whole extract instead of being
+  skipped. Over-matching costs more than under-matching here -- a missed
+  disconnect merely falls through to the behaviour we had before.
+
+  Only ASCII: PowerShell 5 reads .ps1 in the OEM codepage, so Cyrillic in a
+  literal is mangled before the regex ever sees it (see the file header).
+  That rules out matching the localised 1C wording directly -- the HRESULT
+  codes appear in the message regardless of interface language.
+#>
+function IsConnectionLost($err) {
+    $msg = ""
+    try { $msg = [string]$err.Exception.Message } catch { }
+    if (-not $msg) { return $false }
+    # 800706BA RPC server unavailable   800706BE remote call failed
+    # 80010108 object disconnected      8001010A message filter busy
+    # 800706BF/8007071A call cancelled or interface unavailable
+    return ($msg -match "(?i)800706BA|800706BE|800706BF|8007071A|80010108|8001010A|RPC server")
+}
+
+$attempt = 0
+while ($true) {
+$attempt++
+$connector = $null
+$ib = $null
+
+# Stats accumulate into the same hashtable across the whole run, so a retry
+# must start from a clean slate -- otherwise an attempt that died after
+# writing "products: 20000" would carry that count into the manifest of the
+# attempt that actually succeeded.
+$stats = [ordered]@{}
+
 try {
+    Log "connecting to 1C..."
+    $connector = New-Object -ComObject V82.COMConnector
+    $ib = $connector.Connect($connString)
+    Log "connected"
+
     # --- categories (product groups) ---
     if ($config.scope.categories -and $doCatalogs) {
         Log "reading categories..."
@@ -818,6 +894,13 @@ try {
         catch {
             if ($w) { try { $w.Close() } catch { } }
             Remove-Item (Join-Path $OutDir "debt.ndjson") -Force -EA 0
+            # A lost connection is not a skippable query failure: swallowing it
+            # here would let the run finish "successfully" and advance the
+            # watermark past a window it never read. See IsConnectionLost.
+            if (IsConnectionLost $_) {
+                Log ("debt: connection lost -- aborting attempt")
+                throw
+            }
             $stats.debtFailed = $_.Exception.Message
             Log ("debt: SKIPPED -- " + $_.Exception.Message)
         }
@@ -855,6 +938,11 @@ try {
         catch {
             if ($w) { try { $w.Close() } catch { } }
             Remove-Item (Join-Path $OutDir "payment.ndjson") -Force -EA 0
+            # Same reasoning as debt above.
+            if (IsConnectionLost $_) {
+                Log ("payments: connection lost -- aborting attempt")
+                throw
+            }
             $stats.paymentsFailed = $_.Exception.Message
             Log ("payments: SKIPPED -- " + $_.Exception.Message)
         }
@@ -904,6 +992,7 @@ try {
 
     Log "extract complete"
     $manifest | ConvertTo-Json -Depth 5
+    break
 }
 catch {
     # Print the exact failing line: the console error record from -File hides
@@ -911,12 +1000,30 @@ catch {
     Log ("ERROR: " + $_.Exception.Message)
     Log ("AT:    " + $_.InvocationInfo.PositionMessage)
     Log ("STACK: " + $_.ScriptStackTrace)
-    throw
+
+    # Out of attempts -- fail exactly as before, so the scheduler still sees a
+    # non-zero exit and nothing downstream mistakes this for a good run.
+    if ($attempt -ge $retryAttempts) {
+        Log ("giving up after {0} attempt(s)" -f $attempt)
+        throw
+    }
+
+    # Retrying is only safe because the failed attempt left nothing usable
+    # behind: manifest.json was deleted before reading started and is written
+    # only on success, so send.ps1 cannot ship a partial run in the meantime,
+    # and the watermark has not moved either.
+    Log ("attempt {0}/{1} failed -- waiting {2} min before retrying (1C drops sessions ~20:00 for about half an hour)" -f `
+         $attempt, $retryAttempts, $retryDelayMin)
+    Start-Sleep -Seconds ($retryDelayMin * 60)
 }
 finally {
     # Release the COM connection explicitly; the 1C server keeps the session
-    # alive otherwise and licences leak on repeated scheduled runs.
+    # alive otherwise and licences leak on repeated scheduled runs. Runs on
+    # every attempt, not just the last, or a retry would leak the connection
+    # the previous attempt died holding.
     if ($ib) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($ib) }
     if ($connector) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($connector) }
     [GC]::Collect()
 }
+
+}   # end retry loop

@@ -40,13 +40,38 @@ const SYSTEM_PROMPT = `Ти аналітик відділу продажів б�
 4. Суми пиши в гривнях із розділювачами: 1 234 567 ₴.
 5. Українською, діловим тоном, без вступів на кшталт "Звичайно!".
 6. Якщо бачиш щось справді варте уваги (різкий спад, аномалію) — скажи,
-   навіть якщо не питали. Але без домислів про причини, яких не видно з цифр.`;
+   навіть якщо не питали. Але без домислів про причини, яких не видно з цифр.
+
+ФОРМАТ ВІДПОВІДІ. Спершу — рядок JSON, потім з нового рядка звичайний текст:
+{"focus":"reps|brands|clients|none","names":["точні імена з даних"]}
+У "names" клади ЛИШЕ ті імена, які дослівно є в даних, і лише ті, про кого
+справді йдеться у відповіді (максимум 6). Якщо питання загальне — "none" і
+порожній список. Сам JSON у тексті відповіді не повторюй і не коментуй.`;
+
+/**
+ * Вікно періоду з запиту.
+ *
+ * from/to — те, що стоїть в адресі сторінки; days лишається запасним
+ * варіантом для старих викликів. `to` розтягуємо до кінця доби, бо
+ * "2026-08-10" парситься як опівніч, і весь останній день випав би.
+ */
+function resolvePeriod(fromRaw?: string, toRaw?: string, daysRaw?: number) {
+  const from = fromRaw ? new Date(`${fromRaw}T00:00:00`) : null;
+  const to = toRaw ? new Date(`${toRaw}T23:59:59.999`) : null;
+
+  if (from && to && !Number.isNaN(+from) && !Number.isNaN(+to) && from <= to) {
+    const days = Math.max(1, Math.round((+to - +from) / 86_400_000));
+    return { from, to, days };
+  }
+
+  const days = Math.min(365, Math.max(1, daysRaw ?? 30));
+  const fallbackFrom = new Date();
+  fallbackFrom.setDate(fallbackFrom.getDate() - days);
+  return { from: fallbackFrom, to: new Date(), days };
+}
 
 /** Компактне зведення для моделі: усе потрібне, нічого зайвого. */
-async function buildSummary(days: number, restrictToRep: string | null) {
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-
+async function buildSummary(from: Date, to: Date, days: number, restrictToRep: string | null) {
   const repCondition = restrictToRep
     ? Prisma.sql`AND s."salesRepId" = ${restrictToRep}`
     : Prisma.empty;
@@ -57,7 +82,7 @@ async function buildSummary(days: number, restrictToRep: string | null) {
       FROM "SalesDocument" s
       JOIN "User" u ON u.id = s."salesRepId"
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
-        AND s."createdAt" >= ${from} ${repCondition}
+        AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY u.name ORDER BY amount DESC
     `,
     prisma.$queryRaw<Array<{ brand: string | null; amount: number; qty: number }>>`
@@ -69,7 +94,7 @@ async function buildSummary(days: number, restrictToRep: string | null) {
       JOIN "Product" p ON p.id = i."productId"
       LEFT JOIN "Brand" b ON b.id = p."brandId"
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
-        AND s."createdAt" >= ${from} ${repCondition}
+        AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY b.name ORDER BY amount DESC NULLS LAST LIMIT 20
     `,
     prisma.$queryRaw<Array<{ docs: number; amount: number; avg: number; clients: number }>>`
@@ -79,7 +104,7 @@ async function buildSummary(days: number, restrictToRep: string | null) {
              COUNT(DISTINCT s."counterpartyId")::int AS clients
       FROM "SalesDocument" s
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
-        AND s."createdAt" >= ${from} ${repCondition}
+        AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
     `,
     // Тижнями, а не днями: 90 днів по днях — це 90 рядків шуму, з яких
     // модель однаково побачить лише тренд.
@@ -88,7 +113,7 @@ async function buildSummary(days: number, restrictToRep: string | null) {
              COUNT(*)::int AS docs, SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
-        AND s."createdAt" >= ${from} ${repCondition}
+        AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw<Array<{ client: string; amount: number; docs: number }>>`
@@ -96,7 +121,7 @@ async function buildSummary(days: number, restrictToRep: string | null) {
       FROM "SalesDocument" s
       JOIN "Counterparty" c ON c.id = s."counterpartyId"
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
-        AND s."createdAt" >= ${from} ${repCondition}
+        AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY c.name ORDER BY amount DESC LIMIT 15
     `,
   ]);
@@ -135,6 +160,111 @@ async function buildSummary(days: number, restrictToRep: string | null) {
   };
 }
 
+type Focus = "reps" | "brands" | "clients" | "none";
+
+/** Картка показника поруч із текстом відповіді. */
+export type AskFact = {
+  name: string;
+  amount: number;
+  docs: number;
+  average: number;
+  /** Частка від найбільшого у вибірці — довжина смуги в інтерфейсі. */
+  share: number;
+};
+
+/**
+ * Відділяє службовий JSON-заголовок від тексту для людини.
+ *
+ * Модель іноді загортає його у ```json — знімаємо й це. Якщо заголовка
+ * немає або він побитий, показуємо текст як є: краще відповідь без
+ * карток, ніж помилка на рівному місці.
+ */
+function splitFocus(raw: string): { answer: string; focus: Focus; names: string[] } {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const brace = cleaned.indexOf("{");
+  const end = cleaned.indexOf("}");
+
+  if (brace === 0 && end > 0) {
+    try {
+      const head = JSON.parse(cleaned.slice(0, end + 1)) as { focus?: string; names?: unknown };
+      const focus: Focus = ["reps", "brands", "clients"].includes(head.focus ?? "")
+        ? (head.focus as Focus)
+        : "none";
+      const names = Array.isArray(head.names)
+        ? head.names.filter((n): n is string => typeof n === "string").slice(0, 6)
+        : [];
+      const answer = cleaned.slice(end + 1).trim();
+      if (answer) return { answer, focus, names };
+    } catch {
+      // Побитий JSON — нижче віддамо весь текст без карток.
+    }
+  }
+
+  // Заголовок є, але непридатний — прибираємо його з тексту, інакше
+  // користувач побачить сирий JSON у відповіді.
+  const stripped = brace === 0 && end > 0 ? cleaned.slice(end + 1).trim() : cleaned;
+  return { answer: stripped || cleaned, focus: "none", names: [] };
+}
+
+/**
+ * Числа для карток — з нашого зведення, а не зі слів моделі.
+ *
+ * Модель лише називає, ПРО КОГО йдеться; суми ми підставляємо з тих
+ * самих рядків, що пішли в запит. Тому картка не може розійтися з базою,
+ * навіть якщо модель помилилася в тексті.
+ */
+function buildFacts(
+  summary: Awaited<ReturnType<typeof buildSummary>>,
+  focus: Focus,
+  names: string[]
+): AskFact[] {
+  if (focus === "none" || names.length === 0) return [];
+
+  const pool: AskFact[] =
+    focus === "reps"
+      ? summary.торгові.map((r) => ({
+          name: r.імя,
+          amount: r.сума,
+          docs: r.замовлень,
+          average: r.середній_чек,
+          share: 0,
+        }))
+      : focus === "brands"
+        ? summary.бренди.map((b) => ({
+            name: b.бренд,
+            amount: b.сума,
+            docs: 0,
+            average: 0,
+            share: 0,
+          }))
+        : summary.топ_клієнтів.map((c) => ({
+            name: c.клієнт,
+            amount: c.сума,
+            docs: c.замовлень,
+            average: c.замовлень > 0 ? Math.round(c.сума / c.замовлень) : 0,
+            share: 0,
+          }));
+
+  // Зіставлення нестроге: модель пише «Кулик Дмитро», у базі може бути
+  // «Кулик Дмитро Іванович». Але лише в один бік і по підрядку — щоб
+  // випадкове «Олександр» не підтягнуло трьох різних людей, беремо
+  // перший збіг на кожне ім'я.
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const picked: AskFact[] = [];
+  for (const name of names) {
+    const key = norm(name);
+    const hit =
+      pool.find((p) => norm(p.name) === key) ??
+      pool.find((p) => norm(p.name).includes(key) || key.includes(norm(p.name)));
+    if (hit && !picked.some((p) => p.name === hit.name)) picked.push(hit);
+  }
+
+  const max = Math.max(...picked.map((p) => p.amount), 0);
+  return picked
+    .map((p) => ({ ...p, share: max > 0 ? (p.amount / max) * 100 : 0 }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -157,7 +287,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { question?: string; days?: number };
+  let body: { question?: string; days?: number; from?: string; to?: string };
   try {
     body = await req.json();
   } catch {
@@ -172,17 +302,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Питання задовге" }, { status: 400 });
   }
 
-  const days = Math.min(365, Math.max(1, body.days ?? 30));
+  // Вікно беремо з from/to — тих самих, що в адресі сторінки. Інакше
+  // помічник відповідав би за «останні N днів від сьогодні», а дашборд
+  // поруч показував би інший відрізок, і цифри не сходилися б.
+  const { from, to, days } = resolvePeriod(body.from, body.to, body.days);
 
   // Торговий бачить лише свої дані — обмеження на сервері, не в інтерфейсі.
   const restrictToRep = isFullAccess ? null : userId ?? null;
 
-  const summary = await buildSummary(days, restrictToRep);
+  const summary = await buildSummary(from, to, days, restrictToRep);
 
   // Порожній період: модель тут не потрібна, відповідь очевидна.
   if (summary.підсумок.замовлень === 0) {
     return NextResponse.json({
       answer: `За обраний період (${days} дн.) продажів немає — відповідати нема на чому.`,
+      facts: [],
       usedTokens: 0,
     });
   }
@@ -234,14 +368,17 @@ export async function POST(req: Request) {
     usage?: { total_tokens?: number };
   };
 
-  const answer = data.choices?.[0]?.message?.content?.trim();
-  if (!answer) {
+  const raw = data.choices?.[0]?.message?.content?.trim();
+  if (!raw) {
     return NextResponse.json({ error: "Порожня відповідь моделі" }, { status: 502 });
   }
 
+  const { answer, focus, names } = splitFocus(raw);
+
   return NextResponse.json({
     answer,
+    facts: buildFacts(summary, focus, names),
     usedTokens: data.usage?.total_tokens ?? 0,
-    period: days,
+    period: { days, from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
   });
 }

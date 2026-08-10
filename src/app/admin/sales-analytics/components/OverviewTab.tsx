@@ -115,7 +115,7 @@ export function OverviewTab({
         <StatCard label="У середньому за день" value={money(perDay)} unit="грн" accent={CATEGORICAL[3]} />
       </div>
 
-      <AskPanel days={data.period.days} />
+      <AskPanel days={data.period.days} from={data.period.from} to={data.period.to} />
 
       <Card>
         <CardHeader title="Динаміка обороту" hint="За київською добою" />

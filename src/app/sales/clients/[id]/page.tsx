@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { SalesHeader } from "@/components/sales/SalesHeader";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Створено", CONFIRMED: "Підтверджено", PACKING: "На упакуванні",
@@ -37,37 +38,18 @@ export default function ClientDetailPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження...</div>;
   if (!data?.counterparty) return <div className="min-h-screen flex items-center justify-center"><p>Клієнта не знайдено</p></div>;
 
-  const { counterparty: cp, debt, sales, topProducts = [] } = data;
+  const { counterparty: cp, debt, sales, topProducts = [], payments = [] } = data;
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      {/* Header */}
-      <header className="sticky top-0 z-50" style={{
-        background: "linear-gradient(to right, #0A0A0A, #141414, #1A1A1A)",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-      }}>
-        <div style={{ height: "2px", background: "linear-gradient(to right, transparent, #FFD600, transparent)" }} />
-        <div className="max-w-lg mx-auto flex items-center gap-3" style={{ padding: "12px 16px" }}>
-          <Link href="/sales/clients" className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.7)" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-          <div className="flex-1 min-w-0">
-            <h1 style={{ fontSize: "18px", fontWeight: 700, color: "white" }} className="truncate">{cp.name}</h1>
-            {cp.code && <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>ЄДРПОУ: {cp.code}</p>}
-          </div>
-          <Link href={`/sales/new?clientId=${id}`}
-            className="w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #FFD600, #FFA000)" }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#0A0A0A" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-          </Link>
-        </div>
-      </header>
+      <SalesHeader
+        title={cp.name}
+        subtitle={cp.code ? `ЄДРПОУ: ${cp.code}` : undefined}
+        backTo="/sales/clients"
+        sticky
+      />
 
-      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "16px", paddingBottom: "100px" }}>
+      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "16px" }}>
         {/* Contact info */}
         <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
           {cp.phone && (
@@ -124,17 +106,37 @@ export default function ClientDetailPage() {
               {formatPrice(debt.total)}
             </p>
           </div>
-          {debt.invoices.length > 0 && (
-            <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(220,38,38,0.15)" }}>
-              {debt.invoices.map((inv: any) => (
-                <div key={inv.id} className="flex items-center justify-between py-1.5" style={{ fontSize: "13px" }}>
-                  <span style={{ color: "#6B7280" }}>{inv.number}</span>
-                  <span style={{ fontWeight: 600, color: "#DC2626" }}>
-                    {formatPrice(inv.totalAmount - inv.paidAmount)}
-                  </span>
-                </div>
-              ))}
+          <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px" }}>
+            {debt.syncedAt ? `За даними 1С, оновлено ${formatDate(debt.syncedAt)}` : "За даними 1С"}
+          </p>
+        </div>
+
+        {/* Payments — ПКО з 1С, які зменшують борг вище */}
+        <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F0FDF4" }}>
+              <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#16A34A" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
+            <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Останні оплати</p>
+          </div>
+          {payments.length === 0 ? (
+            <p style={{ fontSize: "13px", color: "#9CA3AF" }}>Оплат поки не зафіксовано</p>
+          ) : (
+            payments.map((p: any) => (
+              <div key={p.id} className="flex items-center justify-between py-2" style={{ borderTop: "1px solid #F3F4F6" }}>
+                <div className="min-w-0">
+                  <p style={{ fontSize: "13px", fontWeight: 500, color: "#0A0A0A" }}>
+                    {formatDate(p.paidAt || p.createdAt)}
+                  </p>
+                  <p style={{ fontSize: "11px", color: "#9CA3AF" }} className="truncate">
+                    {p.notes || (p.method === "cash" ? "Готівка" : "Безготівково")}
+                  </p>
+                </div>
+                <p style={{ fontSize: "15px", fontWeight: 700, color: "#16A34A" }}>{formatPrice(p.amount)}</p>
+              </div>
+            ))
           )}
         </div>
 
@@ -240,20 +242,11 @@ export default function ClientDetailPage() {
           )}
         </div>
 
-        {/* Action button */}
-        <Link href={`/sales/new?clientId=${id}`}
-          className="flex items-center justify-center gap-2 w-full"
-          style={{
-            background: "linear-gradient(135deg, #FFD600 0%, #FFA000 100%)",
-            color: "#0A0A0A", padding: "14px", borderRadius: "14px",
-            fontWeight: 700, fontSize: "16px", textDecoration: "none",
-            boxShadow: "0 4px 16px rgba(255,214,0,0.3)",
-          }}>
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Нове замовлення
-        </Link>
+        {/*
+          Кнопка «Нове замовлення» прибрана разом з рештою входів у
+          /sales/new: торгові поки не оформлюють замовлення через
+          застосунок. Сторінка на місці — повернути можна одним комітом.
+        */}
       </div>
     </div>
   );

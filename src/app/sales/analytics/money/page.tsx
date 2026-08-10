@@ -65,7 +65,7 @@ function MoneyDrill() {
         subtitle={row?.repName}
         month={summary.data?.month}
         period={period}
-        backTo={withPeriod("/sales/analytics", period)}
+        backTo={withPeriod("/sales", period)}
         showFrames={false}
       />
 

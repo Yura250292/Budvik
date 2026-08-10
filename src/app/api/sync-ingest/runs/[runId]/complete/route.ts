@@ -13,6 +13,7 @@ import { setSyncState } from "@/lib/sync-ingest/context";
 import {
   alertMassPriceChange,
   alertMissingEntities,
+  alertQueryFailed,
   alertRunFailed,
   MISSING_ALERT_THRESHOLD,
   PRICE_CHANGE_ALERT_RATIO,
@@ -91,6 +92,16 @@ export async function POST(
   }
 
   // --- Сповіщення ---
+  // Пропущені best-effort запити перевіряємо незалежно від статусу: прогін,
+  // у якому впав лише запит боргу чи оплат, вважається успішним, і саме тому
+  // без окремого сповіщення про нього ніхто не дізнається.
+  if (body.counts?.debtFailed) {
+    await alertQueryFailed(runId, "дебіторка", String(body.counts.debtFailed));
+  }
+  if (body.counts?.paymentsFailed) {
+    await alertQueryFailed(runId, "оплати (ПКО)", String(body.counts.paymentsFailed));
+  }
+
   if (status === "failed") {
     await alertRunFailed(runId, body.error || "без деталей");
   } else {

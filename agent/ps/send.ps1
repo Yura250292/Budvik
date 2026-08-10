@@ -267,9 +267,14 @@ catch {
     Log ("FAILED: " + $sendError)
 }
 
+# The manifest counts travel to the server so it can alert on best-effort
+# queries that were skipped. debtFailed and paymentsFailed are the point: the
+# extract swallows those failures to save the rest of the run, the watermark
+# moves past the window anyway, and without this the loss is invisible.
 $complete = PostSigned ("/api/sync-ingest/runs/" + $runId + "/complete") ([ordered]@{
     status = $(if ($sendError) { "failed" } else { "completed" })
     error  = $sendError
+    counts = $manifest.counts
 })
 
 Log "----------------------------------------"

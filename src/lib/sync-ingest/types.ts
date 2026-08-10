@@ -284,6 +284,18 @@ export interface CompleteRunRequest {
   status: "completed" | "failed";
   /** Повідомлення про помилку, якщо агент завершив прогін аварійно. */
   error?: string;
+  /**
+   * Лічильники з manifest.json агента. Опційне: старіші версії агента їх не
+   * надсилають, і прогін від цього не має падати.
+   *
+   * Запити боргу й оплат у 1С — best-effort: якщо котрийсь упав, агент
+   * записує сюди причину, але прогін завершується успішно і вотермарк
+   * рухається далі. Без сповіщення таке вікно зникає безслідно.
+   */
+  counts?: Record<string, unknown> & {
+    debtFailed?: string;
+    paymentsFailed?: string;
+  };
 }
 
 export interface CompleteRunResponse {

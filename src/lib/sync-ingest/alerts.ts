@@ -52,6 +52,28 @@ export async function alertMissingEntities(runId: string, missing: number): Prom
   );
 }
 
+/**
+ * Запит у 1С упав, але прогін завершився успішно.
+ *
+ * Борг і оплати читаються в кінці циклу як best-effort: помилка запиту не
+ * зупиняє прогін, щоб не втратити вже прочитані документи. Ціна цього —
+ * вотермарк просувається повз вікно, яке ніхто не прочитав, і повторного
+ * читання не буде. Тому про кожен такий випадок треба знати одразу.
+ */
+export async function alertQueryFailed(
+  runId: string,
+  entity: string,
+  message: string
+): Promise<void> {
+  await alert(
+    `⚠️ <b>Запит «${entity}» пропущено</b>\n` +
+      `Прогін: <code>${runId}</code> (завершився успішно)\n` +
+      `Причина: ${message.slice(0, 300)}\n\n` +
+      `Дані за це вікно не прочитані, вотермарк уже просунувся — ` +
+      `повторно вони самі не підтягнуться.`
+  );
+}
+
 export async function alertAgentSilent(lastSeen: Date, hours: number): Promise<void> {
   await alert(
     `🔕 <b>Агент 1С мовчить</b>\n` +

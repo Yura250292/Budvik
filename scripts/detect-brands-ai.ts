@@ -45,6 +45,8 @@ const SYSTEM_PROMPT = `Ти визначаєш ВИРОБНИКА (бренд) �
    "Ключ ріжковий", "Нержавійка", "125мм", "синій" -> це не бренди.
 4. Абревіатури й моделі теж не бренди: "HSS", "SDS-plus", "Cr-V", "P80".
 5. Пиши бренд рівно так, як він у назві (регістр зберігай).
+6. Бренд не починається з числа і не є номером позиції: "12 Atelie",
+   "3 ІНШІ" -> null. Якщо сумніваєшся — null.
 
 Приклади:
   "SIGMA Коронка біметалева Ø18мм" -> "SIGMA"
@@ -55,6 +57,36 @@ const SYSTEM_PROMPT = `Ти визначаєш ВИРОБНИКА (бренд) �
 
 Відповідай ВИКЛЮЧНО JSON-масивом, без пояснень:
 [{"index":1,"brand":"SIGMA"},{"index":2,"brand":null}]`;
+
+/**
+ * Ключ для об'єднання варіантів написання одного бренду.
+ *
+ * Проба показала три способи роздвоїти статистику:
+ *   «Syper Oil» і «SyperOil»   — пробіл;
+ *   «СИЛА» і «CИЛА»            — латинська C замість кириличної С;
+ *   «Sigma» і «SIGMA»          — регістр.
+ * Усі троє в реальних назвах цієї бази трапляються.
+ */
+function brandKey(name: string): string {
+  const stripped = name.toLowerCase().replace(/[\s\-_.]+/g, "");
+
+  // Латиницю зводимо до кирилиці ЛИШЕ у змішаних написаннях на кшталт
+  // «CИЛА» (латинська C + кирилиця). Чисто латинські бренди чіпати не можна:
+  // «Bosch» після такої заміни став би кирилицею і зіллявся б із випадковим
+  // сусідом.
+  const hasCyrillic = /[а-яіїєґ]/.test(stripped);
+  const hasLatin = /[a-z]/.test(stripped);
+  if (!hasCyrillic || !hasLatin) return stripped;
+
+  const lookalikes: Record<string, string> = {
+    c: "с", e: "е", o: "о", p: "р", a: "а", x: "х", y: "у",
+    k: "к", b: "в", h: "н", t: "т", m: "м", i: "і",
+  };
+  return stripped
+    .split("")
+    .map((ch) => lookalikes[ch] ?? ch)
+    .join("");
+}
 
 function slugify(name: string): string {
   const map: Record<string, string> = {
@@ -137,7 +169,8 @@ async function main() {
   console.log(`Пачками по ${CHUNK}, запитів: ${Math.ceil(products.length / CHUNK)}`);
   console.log("");
 
-  const found = new Map<string, string[]>(); // бренд -> product ids
+  // нормалізований ключ -> { як показувати, які товари }
+  const found = new Map<string, { display: string; ids: string[] }>();
   let processed = 0;
 
   for (let i = 0; i < products.length; i += CHUNK) {
@@ -151,9 +184,12 @@ async function main() {
     }
 
     for (const [idx, brand] of detected) {
-      const list = found.get(brand);
-      if (list) list.push(chunk[idx].id);
-      else found.set(brand, [chunk[idx].id]);
+      // Групуємо за нормалізованим ключем, а показуємо перше зустрінуте
+      // написання: інакше «Syper Oil» і «SyperOil» стали б двома брендами.
+      const key = brandKey(brand);
+      const entry = found.get(key);
+      if (entry) entry.ids.push(chunk[idx].id);
+      else found.set(key, { display: brand, ids: [chunk[idx].id] });
     }
 
     processed += chunk.length;
@@ -162,11 +198,11 @@ async function main() {
 
   console.log("\n");
   console.log("── Знайдені бренди ──");
-  const sorted = [...found.entries()].sort((a, b) => b[1].length - a[1].length);
-  for (const [brand, ids] of sorted) {
-    console.log(`  ${brand.padEnd(20)} ${ids.length}`);
+  const sorted = [...found.values()].sort((a, b) => b.ids.length - a.ids.length);
+  for (const b of sorted) {
+    console.log(`  ${b.display.padEnd(22)} ${b.ids.length}`);
   }
-  const totalMatched = [...found.values()].reduce((s, v) => s + v.length, 0);
+  const totalMatched = sorted.reduce((s, v) => s + v.ids.length, 0);
   console.log("");
   console.log(`  розпізнано:    ${totalMatched}`);
   console.log(`  без бренду:    ${products.length - totalMatched}`);
@@ -181,15 +217,15 @@ async function main() {
   // що збіглося. Заводити їх у довідник означає засмітити його сотнями
   // одноразових записів.
   const MIN_PRODUCTS = 3;
-  const worthKeeping = sorted.filter(([, ids]) => ids.length >= MIN_PRODUCTS);
+  const worthKeeping = sorted.filter((b) => b.ids.length >= MIN_PRODUCTS);
   console.log(`Заводжу бренди з ${MIN_PRODUCTS}+ товарами: ${worthKeeping.length}`);
 
-  for (const [brandName, ids] of worthKeeping) {
+  for (const { display: brandName, ids } of worthKeeping) {
     const brand = await prisma.brand.upsert({
       where: { name: brandName },
       create: {
         name: brandName,
-        slug: slugify(brandName) || `brand-${Date.now()}`,
+        slug: slugify(brandName) || `brand-${brandKey(brandName)}`,
         matchPatterns: [brandName.toLowerCase()],
       },
       update: {},

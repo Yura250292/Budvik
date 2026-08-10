@@ -86,6 +86,18 @@ function Num($value) {
     try { return [double]$value } catch { return 0 }
 }
 
+<#
+  ISO 8601 with offset, as the contract requires.
+
+  Formatted explicitly rather than via ToString("o"): the server parses these
+  and a locale-dependent format on a Ukrainian Windows would arrive as
+  dd.MM.yyyy and be silently misread.
+#>
+function IsoDate($value) {
+    if ($null -eq $value) { return $null }
+    try { return ([datetime]$value).ToString("yyyy-MM-ddTHH:mm:ssK") } catch { return $null }
+}
+
 # Streams records as NDJSON: one JSON object per line. Keeps memory flat on
 # 20k+ row catalogs and lets the sender chunk without re-parsing everything.
 function NewWriter($path) {
@@ -181,6 +193,9 @@ $filesThisScope = @("price.ndjson", "stock.ndjson")
 if ($doCatalogs) {
     $filesThisScope += @("category.ndjson", "product.ndjson", "warehouse.ndjson")
 }
+if ($config.scope.documents) {
+    $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "debt.ndjson", "payment.ndjson")
+}
 foreach ($f in $filesThisScope) {
     Remove-Item (Join-Path $OutDir $f) -Force -EA 0
 }
@@ -207,6 +222,42 @@ function RunQuery($text) {
     $sel = $res.Choose()
     if ($null -eq $sel) { throw "Choose() returned null" }
     return $sel
+}
+
+<#
+  Line items of a document type, grouped by owner document.
+
+  One flat query for the whole window, grouped here, rather than a query per
+  document: thousands of round trips to 1C would dominate the cycle time.
+
+  Returns a hashtable: document externalId -> List of item objects.
+#>
+function ReadDocumentItems($ib, $queryText, $paramName, $fromDate) {
+    $result = @{}
+    $q = $ib.NewObject("Query")
+    $q.Text = [string]$queryText
+    $q.SetParameter([string]$paramName, $fromDate)
+    $rs = $q.Execute()
+    if ($null -eq $rs) { throw "Execute() returned null on document items query" }
+    $r = $rs.Choose()
+
+    while ($r.Next()) {
+        $docId = RefId $ib $r.Get(0)
+        $prodId = RefId $ib $r.Get(1)
+        # A line without a product is a service or a comment row: it carries no
+        # analytics value and the server would reject it anyway.
+        if (-not $docId -or -not $prodId) { continue }
+
+        if (-not $result.ContainsKey($docId)) {
+            $result[$docId] = New-Object Collections.Generic.List[object]
+        }
+        $result[$docId].Add([ordered]@{
+            productExternalId = $prodId
+            quantity          = Num $r.Get(2)
+            price             = Num $r.Get(3)
+        })
+    }
+    return $result
 }
 
 try {
@@ -517,6 +568,135 @@ try {
         if ($zeroed -gt 0) { $stats.stockZeroed = $zeroed }
         if ($skipUnchanged -gt 0) { $stats.stockUnchanged = $skipUnchanged }
         Log ("stock: {0}  (zeroed {1}, unchanged {2})" -f $n, $zeroed, $skipUnchanged)
+    }
+
+    # --- documents: the sales-analytics half of the sync ---------------------
+    #
+    # Only posted documents. An unposted order has not gone to the warehouse
+    # and must not count towards anyone's KPI.
+    #
+    # Documents are always read by date window, never in full: 13 years of
+    # orders is far more than the site needs, and the interesting question is
+    # always "what happened recently".
+    if ($config.scope.documents) {
+        $docsFrom = $since
+        if (-not $docsFrom) {
+            $days = 90
+            if ($config.documents -and $config.documents.initialDays) {
+                $days = [int]$config.documents.initialDays
+            }
+            $docsFrom = (Get-Date).AddDays(-$days)
+            Log ("documents: no watermark, reading last {0} days" -f $days)
+        }
+
+        # --- counterparties ---
+        # Read in full: the catalogue is small and has no change date, and a
+        # document referencing an unknown customer would be dropped by the
+        # server.
+        Log "reading counterparties..."
+        $w = NewWriter (Join-Path $OutDir "counterparty.ndjson")
+        $n = 0
+        $r = RunQuery $queries.counterparties
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            if (-not $id) { continue }
+            $rec = [ordered]@{ externalId = $id; name = Str $r.Get(1) }
+            $code = Str $r.Get(2)
+            if ($code) { $rec.code = $code }
+            if ($r.Get(3)) { $rec.type = "CUSTOMER" }
+            if ($r.Get(4)) { $rec.deleted = $true }
+            WriteRecord $w $rec
+            $n++
+        }
+        $w.Close()
+        $stats.counterparties = $n
+        Log "counterparties: $n"
+
+        # --- orders, with their line items ---
+        #
+        # Items come as one flat result set keyed by owner document, and are
+        # grouped here. Reading them per-document would mean thousands of
+        # round trips to 1C.
+        Log ("reading orders since {0:yyyy-MM-dd}..." -f $docsFrom)
+        $itemsByDoc = ReadDocumentItems $ib $queries.orderItemsSince $queries.paramFrom $docsFrom
+        Log ("  order items: {0} documents" -f $itemsByDoc.Count)
+
+        $w = NewWriter (Join-Path $OutDir "sales_doc.ndjson")
+        $n = 0
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.ordersSince
+        $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on orders query" }
+        $r = $rs.Choose()
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            if (-not $id) { continue }
+            $rec = [ordered]@{
+                externalId = $id
+                number     = Str $r.Get(1)
+                date       = IsoDate $r.Get(2)
+                posted     = $true
+            }
+            $cp = RefId $ib $r.Get(3)
+            if ($cp) { $rec.counterpartyExternalId = $cp }
+            $rec.totalAmount = Num $r.Get(4)
+
+            $repId = RefId $ib $r.Get(5)
+            if ($repId) { $rec.salesRepExternalId = $repId }
+            $repName = Str $r.Get(6)
+            if ($repName) { $rec.salesRepName = $repName }
+
+            if ($itemsByDoc.ContainsKey($id)) { $rec.items = $itemsByDoc[$id].ToArray() }
+            WriteRecord $w $rec
+            $n++
+        }
+        $w.Close()
+        $stats.orders = $n
+        Log "orders: $n"
+
+        # --- debt balances ---
+        Log "reading debt..."
+        $w = NewWriter (Join-Path $OutDir "debt.ndjson")
+        $n = 0
+        $r = RunQuery $queries.debt
+        while ($r.Next()) {
+            $cp = RefId $ib $r.Get(0)
+            if (-not $cp) { continue }
+            WriteRecord $w ([ordered]@{ externalId = $cp; balance = Num $r.Get(1) })
+            $n++
+        }
+        $w.Close()
+        $stats.debt = $n
+        Log "debt: $n"
+
+        # --- cash payments ---
+        Log "reading payments..."
+        $w = NewWriter (Join-Path $OutDir "payment.ndjson")
+        $n = 0
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.paymentsSince
+        $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on payments query" }
+        $r = $rs.Choose()
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            $cp = RefId $ib $r.Get(3)
+            if (-not $id -or -not $cp) { continue }
+            WriteRecord $w ([ordered]@{
+                externalId              = $id
+                counterpartyExternalId  = $cp
+                number                  = Str $r.Get(1)
+                date                    = IsoDate $r.Get(2)
+                amount                  = Num $r.Get(4)
+                method                  = "cash"
+            })
+            $n++
+        }
+        $w.Close()
+        $stats.payments = $n
+        Log "payments: $n"
     }
 
     # Manifest doubles as the success marker: the sender refuses to run

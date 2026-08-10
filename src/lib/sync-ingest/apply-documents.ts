@@ -110,6 +110,26 @@ export async function applySalesDocuments(
       : [];
   const counterpartyByExternalId = new Map(counterparties.map((c) => [c.externalId!, c.id]));
 
+  // Торговий, за яким рахується документ.
+  //
+  // У 1С це реквізит «Ответственный» — там 39 живих прізвищ, і саме на ньому
+  // тримається вся аналітика «хто скільки продав». Зіставляємо з наявними
+  // користувачами сайту за іменем; ненайдених НЕ створюємо — фіктивний
+  // користувач зіпсував би і звіти, і розрахунок комісії. Замість цього
+  // пишемо розбіжність, щоб адміністратор завів людину вручну.
+  const repNames = [
+    ...new Set(records.map((r) => r.salesRepName?.trim()).filter((n): n is string => !!n)),
+  ];
+  const repUsers =
+    repNames.length > 0
+      ? await prisma.user.findMany({
+          where: { name: { in: repNames, mode: "insensitive" } },
+          select: { id: true, name: true },
+        })
+      : [];
+  const repIdByName = new Map(repUsers.map((u) => [u.name?.toLowerCase() ?? "", u.id]));
+  const reportedMissingReps = new Set<string>();
+
   for (const rec of records) {
     if (ctx.isPreview) {
       byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
@@ -119,6 +139,20 @@ export async function applySalesDocuments(
     const counterpartyId = rec.counterpartyExternalId
       ? counterpartyByExternalId.get(rec.counterpartyExternalId) ?? null
       : null;
+
+    const repName = rec.salesRepName?.trim();
+    const salesRepId = repName ? repIdByName.get(repName.toLowerCase()) ?? null : null;
+    if (repName && !salesRepId && !reportedMissingReps.has(repName.toLowerCase())) {
+      reportedMissingReps.add(repName.toLowerCase());
+      ctx.discrepancy({
+        entityType: "document",
+        entityRef: rec.number,
+        entityName: repName,
+        field: "UNMATCHED_SALES_REP",
+        value1C: repName,
+        valueBudvik: "користувача з таким іменем немає на сайті",
+      });
+    }
     const items = await resolveItems(rec.items ?? [], ctx, rec.number);
     const totalAmount =
       rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
@@ -133,6 +167,7 @@ export async function applySalesDocuments(
             externalId: rec.externalId,
             number: rec.number,
             counterpartyId,
+            salesRepId,
             status: rec.posted ? "CONFIRMED" : "DRAFT",
             totalAmount,
             createdById,
@@ -158,6 +193,9 @@ export async function applySalesDocuments(
             data: {
               number: rec.number,
               counterpartyId,
+              // Лише коли зіставили: null затер би вручну проставленого
+              // торгового, якщо ім'я в 1С тимчасово не збіглося.
+              ...(salesRepId ? { salesRepId } : {}),
               status: rec.posted ? "CONFIRMED" : "DRAFT",
               totalAmount,
               items: {

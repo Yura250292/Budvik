@@ -140,12 +140,18 @@ Log ("run started, syncJobId={0}" -f $start.syncJobId)
 
 # Order matters: categories before products (a product's category must exist),
 # warehouses before stock, products before prices and stock.
+# Counterparties precede documents for the same reason categories precede
+# products: a document referencing an unknown customer would be skipped.
 $plan = @(
-    @{ file = "category.ndjson";  entity = "category"  },
-    @{ file = "product.ndjson";   entity = "product"   },
-    @{ file = "warehouse.ndjson"; entity = "warehouse" },
-    @{ file = "price.ndjson";     entity = "price"     },
-    @{ file = "stock.ndjson";     entity = "stock"     }
+    @{ file = "category.ndjson";     entity = "category"     },
+    @{ file = "product.ndjson";      entity = "product"      },
+    @{ file = "warehouse.ndjson";    entity = "warehouse"    },
+    @{ file = "price.ndjson";        entity = "price"        },
+    @{ file = "stock.ndjson";        entity = "stock"        },
+    @{ file = "counterparty.ndjson"; entity = "counterparty" },
+    @{ file = "sales_doc.ndjson";    entity = "sales_doc"    },
+    @{ file = "debt.ndjson";         entity = "debt"         },
+    @{ file = "payment.ndjson";      entity = "payment"      }
 )
 
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }
@@ -171,6 +177,12 @@ try {
             continue
         }
 
+        # Documents carry their line items inline, so a batch of 500 orders can
+        # be tens of thousands of rows of JSON. Smaller batches keep each
+        # request well inside the server's body limit.
+        $stepBatch = $batchSize
+        if ($step.entity -eq "sales_doc") { $stepBatch = [Math]::Min($batchSize, 100) }
+
         # Snapshot ids for the whole entity type, used by "full" runs to flag
         # records that vanished from 1C. Collected as we stream, sent with the
         # last batch of this type.
@@ -184,9 +196,12 @@ try {
                 if ([string]::IsNullOrWhiteSpace($line)) { continue }
                 $rec = $line | ConvertFrom-Json
                 $buffer.Add($rec)
-                if ($Kind -eq "full" -and $rec.externalId) { $snapshot.Add($rec.externalId) }
+                if ($Kind -eq "full" -and $rec.externalId -and
+                    ($step.entity -in @("category", "product", "warehouse", "counterparty"))) {
+                    $snapshot.Add($rec.externalId)
+                }
 
-                if ($buffer.Count -ge $batchSize) {
+                if ($buffer.Count -ge $stepBatch) {
                     $seq++
                     $resp = PostSigned "/api/sync-ingest/batch" ([ordered]@{
                         runId      = $runId
@@ -222,7 +237,11 @@ try {
             entityType = $step.entity
             records    = $buffer.ToArray()
         }
-        if ($Kind -eq "full" -and $snapshot.Count -gt 0) {
+        # Snapshots only for catalogues. Documents are always read as a date
+        # window, never in full, so a snapshot of them would tell the server
+        # that every order older than the window has vanished from 1C.
+        $snapshotable = @("category", "product", "warehouse", "counterparty")
+        if ($Kind -eq "full" -and $snapshot.Count -gt 0 -and ($step.entity -in $snapshotable)) {
             $payload.fullSnapshotIds = $snapshot.ToArray()
         }
         $resp = PostSigned "/api/sync-ingest/batch" $payload

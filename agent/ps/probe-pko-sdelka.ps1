@@ -65,6 +65,14 @@ $VIDOP  = C 1042,1080,1076,1054,1087,1077,1088,1072,1094,1080,1080  # VidOperaci
 $VIDY   = C 1042,1080,1076,1099,1054,1087,1077,1088,1072,1094,1080,1081,1055,1050,1054  # VidyOperaciiPKO
 $OPLATA = C 1054,1087,1083,1072,1090,1072,1055,1086,1082,1091,1087,1072,1090,1077,1083,1103  # OplataPokupatelya
 $PARAM  = C 1044,1072,1090,1072,1057                               # DataS
+$VYBOR  = C 1042,1067,1041,1054,1056                               # VYBOR
+$KOGDA  = C 1050,1054,1043,1044,1040                               # KOGDA
+$TOGDA  = C 1058,1054,1043,1044,1040                               # TOGDA
+$INACHE = C 1048,1053,1040,1063,1045                               # INACHE
+$KONEC  = C 1050,1054,1053,1045,1062                               # KONEC
+$SSYLKA = C 1057,1057,1067,1051,1050,1040                          # SSYLKA (type test)
+$REAL   = C 1056,1077,1072,1083,1080,1079,1072,1094,1080,1103,1058,1086,1074,1072,1088,1086,1074,1059,1089,1083,1091,1075  # RealizaciyaTovarovUslug
+$ZAKAZ  = C 1047,1072,1082,1072,1079,1055,1086,1082,1091,1087,1072,1090,1077,1083,1103  # ZakazPokupatelya
 
 $since = (Get-Date).AddMonths(-$Months)
 
@@ -86,7 +94,12 @@ try {
     $q = $ib.NewObject("Query")
     # The filter reaches the header through the owner reference: the tabular
     # section itself carries neither the date nor the operation kind.
+    # SSYLKA is 1C's own type test ("Sdelka SSYLKA Dokument.X"), used instead
+    # of reading the type off the COM object: Metadata().Name came back empty
+    # on this build, which is what left the first run's type column blank.
     $q.Text = "$SELECT T.$SDELKA, T.$SUMPL" +
+              ", $VYBOR $KOGDA T.$SDELKA $SSYLKA $DOC.$REAL $TOGDA 1 $INACHE 0 $KONEC" +
+              ", $VYBOR $KOGDA T.$SDELKA $SSYLKA $DOC.$ZAKAZ $TOGDA 1 $INACHE 0 $KONEC" +
               " $FROM $DOC.$PKO.$RASCH $AS T" +
               " $WHERE T.$LINK.$POSTED $AND T.$LINK.$DATE >= &$PARAM" +
               " $AND T.$LINK.$VIDOP = $VALUE($ENUM.$VIDY.$OPLATA)"
@@ -100,11 +113,13 @@ try {
         $sd = $r.Get(0)
         $type = "<empty>"
         if ($null -ne $sd) {
-            try {
-                $meta = $sd.Metadata()
-                $type = [string]$meta.Name
-                $filled++
-            } catch { $type = "<unreadable>" }
+            $filled++
+            # Metadata() through COM returned an empty name on this build, so
+            # the type is resolved by asking 1C itself (see the TYPE columns
+            # added to the query) rather than by reading it off the object.
+            if ($r.Get(2)) { $type = "RealizaciyaTovarovUslug" }
+            elseif ($r.Get(3)) { $type = "ZakazPokupatelya" }
+            else { $type = "<other type>" }
         }
         $amt = $r.Get(1)
         if (-not $types.ContainsKey($type)) { $types[$type] = @{ n = 0; sum = 0.0 } }

@@ -9,6 +9,7 @@ import { CardSkeleton, StatCardSkeleton, Skeleton } from "@/components/ui/Skelet
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 import { AskPanel } from "./AskPanel";
+import { CATEGORICAL, NEUTRAL, STATUS, categoricalColor } from "@/lib/analytics/colors";
 
 const TimelineChart = dynamic(() => import("./Charts").then((m) => m.TimelineChart), {
   ssr: false,
@@ -24,7 +25,7 @@ type AnalyticsResponse = {
   scope: "all" | "single" | "own";
   totals: { docs: number; amount: number; average: number };
   byRep: Array<{ id: string; name: string; docs: number; amount: number }>;
-  byBrand: Array<{ brand: string; qty: number; amount: number; docs: number }>;
+  byBrand: Array<{ brand: string; color: string | null; qty: number; amount: number; docs: number }>;
   timeline: Array<{ day: string; docs: number; amount: number }>;
   topProducts: Array<{ name: string; sku: string; qty: number; amount: number }>;
   topClients: Array<{ name: string; docs: number; amount: number }>;
@@ -65,7 +66,6 @@ export function OverviewTab({
 
   if (!data) return null;
 
-  const maxBrand = Math.max(1, ...data.byBrand.map((b) => b.amount));
   const maxClient = Math.max(1, ...data.topClients.map((c) => c.amount));
   const maxProduct = Math.max(1, ...data.topProducts.map((p) => p.amount));
   const perDay = data.period.days > 0 ? data.totals.amount / data.period.days : 0;
@@ -103,10 +103,16 @@ export function OverviewTab({
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Оборот" value={money(data.totals.amount)} unit="грн" hint={`${data.period.days} дн.`} />
-        <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених із 1С" />
-        <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" />
-        <StatCard label="У середньому за день" value={money(perDay)} unit="грн" />
+        <StatCard
+          label="Оборот"
+          value={money(data.totals.amount)}
+          unit="грн"
+          hint={`${data.period.days} дн.`}
+          accent={CATEGORICAL[0]}
+        />
+        <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених із 1С" accent={CATEGORICAL[1]} />
+        <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
+        <StatCard label="У середньому за день" value={money(perDay)} unit="грн" accent={CATEGORICAL[3]} />
       </div>
 
       <AskPanel days={data.period.days} />
@@ -128,7 +134,11 @@ export function OverviewTab({
           />
           {data.byBrand.length > 0 ? (
             <RankingChart
-              data={data.byBrand.slice(0, 12).map((b) => ({ name: b.brand, value: b.amount }))}
+              data={data.byBrand.slice(0, 12).map((b) => ({
+                name: b.brand,
+                value: b.amount,
+                color: b.brand === "Без бренду" ? NEUTRAL : b.color,
+              }))}
               height={Math.max(200, Math.min(12, data.byBrand.length) * 28 + 40)}
             />
           ) : (
@@ -140,7 +150,7 @@ export function OverviewTab({
           <CardHeader title="Торгові" hint="Клік — повний профіль" />
           {data.byRep.length > 0 ? (
             <div className="space-y-0.5">
-              {data.byRep.map((r) => (
+              {data.byRep.map((r, i) => (
                 <Link
                   key={r.id}
                   href={`/admin/sales-analytics/${r.id}?from=${period.from}&to=${period.to}`}
@@ -151,6 +161,7 @@ export function OverviewTab({
                     value={r.amount}
                     max={Math.max(1, ...data.byRep.map((x) => x.amount))}
                     suffix={`${r.docs} док.`}
+                    color={categoricalColor(i)}
                   />
                 </Link>
               ))}
@@ -170,7 +181,14 @@ export function OverviewTab({
           {data.topClients.length > 0 ? (
             <div className="space-y-0.5">
               {data.topClients.map((c, i) => (
-                <RankBar key={i} label={c.name} value={c.amount} max={maxClient} suffix={`${c.docs} док.`} />
+                <RankBar
+                  key={i}
+                  label={c.name}
+                  value={c.amount}
+                  max={maxClient}
+                  suffix={`${c.docs} док.`}
+                  color={NEUTRAL}
+                />
               ))}
             </div>
           ) : (
@@ -189,6 +207,7 @@ export function OverviewTab({
                   value={p.amount}
                   max={maxProduct}
                   suffix={`${num(p.qty)} шт.`}
+                  color={NEUTRAL}
                 />
               ))}
             </div>
@@ -198,11 +217,53 @@ export function OverviewTab({
         </Card>
       </div>
 
-      {maxBrand > 0 && data.byBrand.some((b) => b.brand === "Без бренду") && (
-        <p className="text-xs text-g500">
-          «Без бренду» — товари, яким ще не призначено бренд. Це не окрема фірма, а прогалина в довіднику.
-        </p>
-      )}
+      <Card>
+        <CardHeader title="Як читати кольори" hint="Одне значення — один сенс, скрізь однаково" />
+        <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex shrink-0 gap-0.5">
+              {CATEGORICAL.slice(0, 4).map((c) => (
+                <span key={c} className="h-3 w-1.5 rounded-sm" style={{ backgroundColor: c }} />
+              ))}
+            </span>
+            <span className="text-g600">
+              <b className="font-semibold text-bk">Фірми й торгові.</b> Колір закріплений за конкретним брендом і
+              не змінюється від фільтрів.
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex shrink-0 gap-0.5">
+              <span className="h-3 w-1.5 rounded-sm" style={{ backgroundColor: STATUS.good.mark }} />
+              <span className="h-3 w-1.5 rounded-sm" style={{ backgroundColor: STATUS.info.mark }} />
+              <span className="h-3 w-1.5 rounded-sm" style={{ backgroundColor: STATUS.warn.mark }} />
+              <span className="h-3 w-1.5 rounded-sm" style={{ backgroundColor: STATUS.bad.mark }} />
+            </span>
+            <span className="text-g600">
+              <b className="font-semibold text-bk">Виконання плану.</b> Зелений — від 100%, синій — від 85%,
+              жовтий — від 60%, червоний — нижче.
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 h-3 w-1.5 shrink-0 rounded-sm" style={{ backgroundColor: NEUTRAL }} />
+            <span className="text-g600">
+              <b className="font-semibold text-bk">Сірий.</b> Немає плану, немає бренду або показник поза топом —
+              нейтральний стан, не проблема.
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 h-3 w-1.5 shrink-0 rounded-sm bg-primary" />
+            <span className="text-g600">
+              <b className="font-semibold text-bk">Жовтий Budvik.</b> Тільки кнопки й активна вкладка — у даних не
+              використовується, бо надто світлий для тонких смуг.
+            </span>
+          </div>
+        </div>
+        {data.byBrand.some((b) => b.brand === "Без бренду") && (
+          <p className="mt-3 border-t border-g100 pt-3 text-xs text-g500">
+            «Без бренду» — товари, яким ще не призначено бренд. Це не окрема фірма, а прогалина в довіднику.
+          </p>
+        )}
+      </Card>
     </div>
   );
 }

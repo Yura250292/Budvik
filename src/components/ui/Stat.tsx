@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { STATUS, attainmentStatus, type StatusKey } from "@/lib/analytics/colors";
 
 /** Форматування грошей: без копійок — на дашборді вони лише шум. */
 export function money(value: number): string {
@@ -14,6 +15,13 @@ export function num(value: number, digits = 0): string {
   }).format(value || 0);
 }
 
+/**
+ * Картка показника.
+ *
+ * `accent` — тонка смужка зліва: вона розділяє групи показників (гроші,
+ * логістика, план) швидше, ніж читання підписів. `tone` фарбує саме число
+ * і застосовується лише там, де значення справді має стан.
+ */
 export function StatCard({
   label,
   value,
@@ -21,29 +29,31 @@ export function StatCard({
   hint,
   icon,
   tone = "default",
+  accent,
 }: {
   label: string;
   value: string | number;
   unit?: string;
   hint?: string;
   icon?: ReactNode;
-  tone?: "default" | "good" | "warn" | "bad";
+  tone?: "default" | StatusKey;
+  accent?: string;
 }) {
-  const toneClass = {
-    default: "text-bk",
-    good: "text-emerald-600",
-    warn: "text-amber-600",
-    bad: "text-red-600",
-  }[tone];
+  const valueColor = tone === "default" || tone === "neutral" ? undefined : STATUS[tone as StatusKey].mark;
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-g200 bg-white p-4 shadow-[var(--shadow-card)]">
+    <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-g200 bg-white p-4 shadow-[var(--shadow-card)]">
+      {accent && (
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: accent }} />
+      )}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-g500">{label}</span>
         {icon && <span className="text-g400">{icon}</span>}
       </div>
-      <div className={`mt-2 flex items-baseline gap-1 ${toneClass}`}>
-        <span className="text-2xl font-semibold tabular-nums tracking-tight">{value}</span>
+      <div className="mt-2 flex items-baseline gap-1" style={valueColor ? { color: valueColor } : undefined}>
+        <span className={`text-2xl font-semibold tabular-nums tracking-tight ${valueColor ? "" : "text-bk"}`}>
+          {value}
+        </span>
         {unit && <span className="text-sm font-medium text-g500">{unit}</span>}
       </div>
       {hint && <p className="mt-1 text-xs text-g500">{hint}</p>}
@@ -72,8 +82,10 @@ export function ProgressBar({
   const safe = Number.isFinite(percent) ? percent : 0;
   const width = Math.max(0, Math.min(100, safe));
 
-  const color =
-    safe >= 100 ? "bg-emerald-500" : safe >= 70 ? "bg-primary" : safe > 0 ? "bg-amber-400" : "bg-g300";
+  // Колір несе стан: виконано / досяжно / відстає / провалено. Відсоток
+  // поруч дублює його текстом — колір ніколи не єдиний носій сенсу.
+  const status = attainmentStatus(safe, safe > 0);
+  const color = STATUS[status].mark;
 
   return (
     <div>
@@ -81,7 +93,10 @@ export function ProgressBar({
         <div className="mb-1 flex items-baseline justify-between gap-2">
           {label && <span className="truncate text-xs text-g600">{label}</span>}
           {showValue && (
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-g600">
+            <span
+              className="shrink-0 text-xs font-semibold tabular-nums"
+              style={{ color: safe > 0 ? STATUS[status].fg : "var(--color-g500)" }}
+            >
               {num(safe)}%
             </span>
           )}
@@ -97,15 +112,21 @@ export function ProgressBar({
         aria-label={label ?? "Виконання плану"}
       >
         <div
-          className={`h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none ${color}`}
-          style={{ width: `${width}%` }}
+          className="h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
+          style={{ width: `${width}%`, backgroundColor: safe > 0 ? color : "var(--color-g300)" }}
         />
       </div>
     </div>
   );
 }
 
-/** Горизонтальна смуга для рейтингів (частка від максимуму). */
+/**
+ * Горизонтальна смуга для рейтингів (частка від максимуму).
+ *
+ * Колір — тотожність ряду, а не його ранг: якщо фільтр змінить склад
+ * списку, «SOMA FIX» лишиться того самого кольору, а не перефарбується
+ * через те, що піднявся на позицію вище.
+ */
 export function RankBar({
   label,
   value,
@@ -120,10 +141,15 @@ export function RankBar({
   color?: string | null;
 }) {
   const width = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
+  const barColor = color || "var(--color-g400)";
+
   return (
     <div className="py-1.5">
       <div className="mb-1 flex items-baseline justify-between gap-3">
-        <span className="truncate text-sm text-bk">{label}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: barColor }} />
+          <span className="truncate text-sm text-bk">{label}</span>
+        </span>
         <span className="shrink-0 text-sm font-semibold tabular-nums text-bk">
           {money(value)}
           {suffix && <span className="ml-1 text-xs font-normal text-g500">{suffix}</span>}
@@ -132,7 +158,7 @@ export function RankBar({
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-g100">
         <div
           className="h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
-          style={{ width: `${width}%`, backgroundColor: color || "var(--color-primary)" }}
+          style={{ width: `${width}%`, backgroundColor: barColor }}
         />
       </div>
     </div>

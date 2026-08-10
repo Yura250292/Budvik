@@ -8,6 +8,8 @@ import { StatCard, num } from "@/components/ui/Stat";
 import { StatCardSkeleton, TableSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { Badge } from "@/components/ui/Badge";
+import { CATEGORICAL, efficiencyStatus, tripStatus } from "@/lib/analytics/colors";
 
 /**
  * Поїздки з Telegram-бота: хто коли виїхав, скільки проїхав, де відмічався.
@@ -194,9 +196,9 @@ export function TripsTab({
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Поїздок" value={num(data.kpis.tripsCount)} hint={`${data.kpis.openCount} відкритих`} />
-        <StatCard label="Пробіг" value={num(data.kpis.totalKm)} unit="км" hint={`особисті: ${num(data.kpis.personalKm)} км`} />
-        <StatCard label="Візитів" value={num(data.kpis.checkpointsCount)} />
+        <StatCard label="Поїздок" value={num(data.kpis.tripsCount)} hint={`${data.kpis.openCount} відкритих`} accent={CATEGORICAL[0]} />
+        <StatCard label="Пробіг" value={num(data.kpis.totalKm)} unit="км" hint={`особисті: ${num(data.kpis.personalKm)} км`} accent={CATEGORICAL[1]} />
+        <StatCard label="Візитів" value={num(data.kpis.checkpointsCount)} accent={CATEGORICAL[2]} />
         <StatCard
           label="Км на точку"
           value={num(data.teamAvg.kmPerCheckpoint, 1)}
@@ -239,13 +241,13 @@ export function TripsTab({
                     <td className="px-4 py-3 font-medium text-bk">
                       {w.name}
                       {w.onTrip && (
-                        <span className="ml-2 rounded-[var(--radius-badge)] bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
-                          у дорозі
+                        <span className="ml-2 inline-block align-middle">
+                          <Badge status="info" dot>у дорозі</Badge>
                         </span>
                       )}
                       {w.suspiciousCount > 0 && (
-                        <span className="ml-2 rounded-[var(--radius-badge)] bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
-                          {w.suspiciousCount} підозрілих
+                        <span className="ml-2 inline-block align-middle">
+                          <Badge status="warn">{w.suspiciousCount} підозрілих</Badge>
                         </span>
                       )}
                     </td>
@@ -254,12 +256,14 @@ export function TripsTab({
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{num(w.totalKm)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-g600">{num(w.kmPerDay, 1)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-g600">{num(w.checkpointsCount)}</td>
-                    <td
-                      className={`px-4 py-3 text-right font-semibold tabular-nums ${
-                        w.kmPerCheckpoint > data.teamAvg.kmPerCheckpoint * 1.5 ? "text-amber-600" : "text-bk"
-                      }`}
-                    >
-                      {num(w.kmPerCheckpoint, 1)}
+                    <td className="px-4 py-3 text-right">
+                      {w.kmPerCheckpoint > 0 ? (
+                        <Badge status={efficiencyStatus(w.kmPerCheckpoint, data.teamAvg.kmPerCheckpoint)}>
+                          {num(w.kmPerCheckpoint, 1)}
+                        </Badge>
+                      ) : (
+                        <span className="text-g400">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -310,17 +314,9 @@ export function TripsTab({
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-g600">{t.checkpointsCount}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`rounded-[var(--radius-badge)] px-2 py-0.5 text-[11px] font-medium ${
-                            t.status === "CLOSED"
-                              ? "bg-g100 text-g600"
-                              : t.status === "OPEN"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-red-50 text-red-700"
-                          }`}
-                        >
+                        <Badge status={tripStatus(t.status)} dot>
                           {t.status === "CLOSED" ? "завершена" : t.status === "OPEN" ? "у дорозі" : "покинута"}
-                        </span>
+                        </Badge>
                       </td>
                     </tr>
                     {expanded === t.id && t.checkpoints.length > 0 && (

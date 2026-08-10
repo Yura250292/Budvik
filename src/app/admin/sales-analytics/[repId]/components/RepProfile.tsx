@@ -9,6 +9,9 @@ import { ProgressBar, StatCard, money, num } from "@/components/ui/Stat";
 import { CardSkeleton, StatCardSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { useApi } from "../../components/useApi";
 import { ErrorBox } from "../../components/ErrorBox";
+import { Badge } from "@/components/ui/Badge";
+import { ColorDot } from "@/components/ui/Badge";
+import { CATEGORICAL, NEUTRAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
 
 /**
  * Профіль торгового: продажі по фірмах, поїздки, паливо і план в одному
@@ -131,19 +134,21 @@ export function RepProfile({
         {data && (
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard label="Оборот" value={money(data.totals.amount)} unit="грн" hint={`${data.totals.docs} док.`} />
-              <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" />
+              <StatCard label="Оборот" value={money(data.totals.amount)} unit="грн" hint={`${data.totals.docs} док.`} accent={CATEGORICAL[0]} />
+              <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
               <StatCard
                 label="Робочі км"
                 value={num(data.trips.workKm)}
                 unit="км"
                 hint={`${data.trips.count} поїзд. / ${data.trips.daysWorked} дн.`}
+                accent={CATEGORICAL[1]}
               />
               <StatCard
                 label="Паливо"
                 value={money(data.fuel.cost)}
                 unit="грн"
                 hint={data.fuel.hasVehicle ? (data.fuel.label ?? "авто заведено") : "норма за замовчуванням"}
+                accent={CATEGORICAL[3]}
               />
             </div>
 
@@ -158,12 +163,10 @@ export function RepProfile({
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <span className="text-2xl font-semibold tabular-nums text-bk">{money(data.plan.actual)}</span>
                     <span className="text-sm text-g500">із {money(data.plan.target)} грн</span>
-                    <span
-                      className={`ml-auto text-sm font-semibold tabular-nums ${
-                        data.plan.attainment >= 100 ? "text-emerald-600" : "text-amber-600"
-                      }`}
-                    >
-                      {Math.round(data.plan.attainment)}%
+                    <span className="ml-auto">
+                      <Badge status={attainmentStatus(data.plan.attainment)} dot>
+                        {Math.round(data.plan.attainment)}%
+                      </Badge>
                     </span>
                   </div>
                   <ProgressBar percent={data.plan.attainment} showValue={false} height={10} />
@@ -219,10 +222,7 @@ export function RepProfile({
                           <tr key={b.brandId ?? "none"} className="hover:bg-g50">
                             <td className="px-4 py-2.5">
                               <span className="inline-flex items-center gap-2">
-                                <span
-                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                  style={{ backgroundColor: b.color ?? "var(--color-g300)" }}
-                                />
+                                <ColorDot color={b.color ?? NEUTRAL} />
                                 <span className="text-bk">{b.brandName}</span>
                               </span>
                             </td>

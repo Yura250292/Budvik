@@ -1,22 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { StatCard, num } from "@/components/ui/Stat";
 import { CardSkeleton, Skeleton } from "@/components/ui/Skeleton";
-import { kyivToday } from "@/components/ui/PeriodPicker";
+import { kyivToday, type Period } from "@/components/ui/PeriodPicker";
+import { colorForRep } from "@/lib/routes/colors";
+import type { OverviewRoute, LegendEntry } from "@/components/map/RoutesOverviewMap";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 
 /**
- * Маршрути: шаблони напрямків, тижневий розклад і мапа дня.
+ * Маршрути: шаблони напрямків, тижневий розклад, оглядова мапа і мапа дня.
  *
  * Пункти вводяться назвами міст і сіл — геокодування робить сервер при
  * збереженні шаблону, тож адміну не треба знати координат.
  */
 
 const RouteDayMap = dynamic(() => import("@/components/map/RouteDayMap"), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[460px] w-full" />,
+});
+
+const RoutesOverviewMap = dynamic(() => import("@/components/map/RoutesOverviewMap"), {
   ssr: false,
   loading: () => <Skeleton className="h-[460px] w-full" />,
 });
@@ -40,13 +47,14 @@ type TemplatesResponse = {
     region: string | null;
     totalDistanceKm: number | null;
     assignmentsCount: number;
+    routeGeometry: { type: string; coordinates: [number, number][] } | null;
     stops: Array<{ id: string; settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
   }>;
 };
 
 type AssignmentsResponse = {
   canEdit: boolean;
-  reps: Array<{ id: string; name: string }>;
+  reps: Array<{ id: string; name: string; color: string | null }>;
   assignments: Array<{
     id: string;
     repId: string;
@@ -87,16 +95,25 @@ type RouteDayResponse = {
   };
 };
 
-export function RoutesTab() {
+/** Що показує оглядова мапа: всі маршрути, маршрути одного торгового, чи один напрямок. */
+type OverviewMode = { kind: "all" } | { kind: "rep"; repId: string } | { kind: "template"; templateId: string };
+
+export function RoutesTab({ period }: { period: Period }) {
   const [day, setDay] = useState(() => kyivToday());
   const [mapRep, setMapRep] = useState("");
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", region: "Львівська", settlements: "" });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [overview, setOverview] = useState<OverviewMode>({ kind: "all" });
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const overviewRef = useRef<HTMLDivElement>(null);
+  const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const templates = useApi<TemplatesResponse>("/api/admin/route-templates");
-  const assignments = useApi<AssignmentsResponse>("/api/admin/route-assignments");
+  const assignments = useApi<AssignmentsResponse>(
+    `/api/admin/route-assignments?from=${period.from}&to=${period.to}`
+  );
   const routeDay = useApi<RouteDayResponse>(
     mapRep ? `/api/admin/sales-analytics/route-day?repId=${mapRep}&date=${day}` : null
   );
@@ -163,6 +180,118 @@ export function RoutesTab() {
     assignments.reload();
   }
 
+  async function renameTemplate() {
+    if (!renaming) return;
+    const name = renaming.value.trim();
+    setRenaming(null);
+    if (!name) return;
+
+    await fetch(`/api/admin/route-templates/${renaming.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    templates.reload();
+    assignments.reload();
+  }
+
+  // Нативний color-picker шле change під час перетягування — без debounce це
+  // десятки PATCH-ів на один вибір кольору.
+  function setRepColor(repId: string, color: string) {
+    if (colorTimer.current) clearTimeout(colorTimer.current);
+    colorTimer.current = setTimeout(async () => {
+      await fetch(`/api/admin/users/${repId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ color }),
+      });
+      assignments.reload();
+    }, 400);
+  }
+
+  // Маршрути для оглядової мапи. useMemo, бо кожен новий масив змушує мапу
+  // перемальовуватись — а ререндер тут трапляється на кожен символ у формі.
+  const { overviewRoutes, overviewLegend } = useMemo<{
+    overviewRoutes: OverviewRoute[];
+    overviewLegend: LegendEntry[];
+  }>(() => {
+    const all = templates.data?.templates ?? [];
+    const byId = new Map(all.map((t) => [t.id, t]));
+    const repList = assignments.data?.reps ?? [];
+    const rows = assignments.data?.assignments ?? [];
+
+    if (overview.kind === "template") {
+      const t = byId.get(overview.templateId);
+      if (!t) return { overviewRoutes: [], overviewLegend: [] };
+      return {
+        overviewRoutes: [
+          {
+            id: t.id,
+            name: t.name,
+            color: t.color ?? "#FFB800",
+            geometry: t.routeGeometry,
+            stops: t.stops,
+            subtitle: t.region,
+          },
+        ],
+        overviewLegend: [],
+      };
+    }
+
+    // Один шаблон може стояти в розкладі торгового кілька разів (Пн і Чт) —
+    // на мапі це один шар, а дні збираємо в підпис.
+    const buildForRep = (rep: { id: string; name: string; color: string | null }): OverviewRoute[] => {
+      const color = colorForRep(rep.id, rep.color);
+      const days = new Map<string, string[]>();
+
+      rows
+        .filter((a) => a.repId === rep.id)
+        .forEach((a) => {
+          const label = a.weekday
+            ? (WEEKDAYS.find((d) => d.value === a.weekday)?.short ?? "")
+            : (a.date ?? "");
+          const list = days.get(a.templateId) ?? [];
+          if (label) list.push(label);
+          days.set(a.templateId, list);
+        });
+
+      return [...days.entries()].flatMap(([templateId, labels]) => {
+        const t = byId.get(templateId);
+        if (!t) return []; // шаблон видалили, призначення ще не перечитали
+        return [
+          {
+            id: `${rep.id}:${templateId}`,
+            name: t.name,
+            color,
+            geometry: t.routeGeometry,
+            stops: t.stops,
+            subtitle: labels.length ? `${rep.name} · ${labels.join(", ")}` : rep.name,
+          },
+        ];
+      });
+    };
+
+    if (overview.kind === "rep") {
+      const rep = repList.find((r) => r.id === overview.repId);
+      if (!rep) return { overviewRoutes: [], overviewLegend: [] };
+      const routes = buildForRep(rep);
+      return {
+        overviewRoutes: routes,
+        overviewLegend: routes.map((r) => ({ label: r.name, color: r.color })),
+      };
+    }
+
+    const routes: OverviewRoute[] = [];
+    const legend: LegendEntry[] = [];
+    repList.forEach((rep) => {
+      const repRoutes = buildForRep(rep);
+      if (repRoutes.length === 0) return; // у легенді лише ті, кого видно на мапі
+      routes.push(...repRoutes);
+      legend.push({ label: rep.name, color: colorForRep(rep.id, rep.color) });
+    });
+    return { overviewRoutes: routes, overviewLegend: legend };
+  }, [overview, templates.data, assignments.data]);
+
   const error = templates.error ?? assignments.error;
   if (error) return <ErrorBox message={error} onRetry={() => { templates.reload(); assignments.reload(); }} />;
   if (templates.loading && !templates.data) return <CardSkeleton rows={4} />;
@@ -197,6 +326,65 @@ export function RoutesTab() {
           {notice}
         </div>
       )}
+
+      {/* --- Оглядова мапа напрямків --- */}
+      <div ref={overviewRef} className="scroll-mt-24">
+        <Card>
+          <CardHeader
+            title="Карта напрямків"
+            hint="Кожен торговий має свій колір — так видно, хто за який напрямок відповідає. Оберіть торгового або окремий напрямок, щоб залишити на карті лише його."
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={overview.kind === "rep" ? overview.repId : ""}
+                  onChange={(e) =>
+                    setOverview(e.target.value ? { kind: "rep", repId: e.target.value } : { kind: "all" })
+                  }
+                  aria-label="Торговий на карті напрямків"
+                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
+                >
+                  <option value="">Всі торгові</option>
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={overview.kind === "template" ? overview.templateId : ""}
+                  onChange={(e) =>
+                    setOverview(
+                      e.target.value ? { kind: "template", templateId: e.target.value } : { kind: "all" }
+                    )
+                  }
+                  aria-label="Напрямок на карті"
+                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
+                >
+                  <option value="">Всі напрямки</option>
+                  {list.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
+          />
+
+          {overviewRoutes.length === 0 ? (
+            <EmptyState
+              title={
+                overview.kind === "all"
+                  ? "Немає призначених маршрутів"
+                  : "У цього вибору немає маршруту з координатами"
+              }
+              hint="Створіть напрямок нижче і призначте його торговому в розкладі — тоді він з'явиться на карті."
+            />
+          ) : (
+            <RoutesOverviewMap routes={overviewRoutes} legend={overviewLegend} />
+          )}
+        </Card>
+      </div>
 
       {/* --- Мапа дня --- */}
       <Card>
@@ -295,7 +483,28 @@ export function RoutesTab() {
               <tbody className="divide-y divide-g100">
                 {reps.map((rep) => (
                   <tr key={rep.id} className="hover:bg-g50">
-                    <td className="sticky left-0 z-10 bg-white px-4 py-2.5 font-medium text-bk">{rep.name}</td>
+                    <td className="sticky left-0 z-10 bg-white px-4 py-2.5 font-medium text-bk">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          defaultValue={colorForRep(rep.id, rep.color)}
+                          onChange={(e) => setRepColor(rep.id, e.target.value)}
+                          aria-label={`Колір торгового ${rep.name} на карті`}
+                          title="Колір на карті напрямків"
+                          className="h-5 w-5 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOverview({ kind: "rep", repId: rep.id });
+                            overviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                          className="cursor-pointer text-left hover:underline"
+                        >
+                          {rep.name}
+                        </button>
+                      </div>
+                    </td>
                     {WEEKDAYS.map((d) => {
                       const current = assignments.data?.assignments.find(
                         (a) => a.repId === rep.id && a.weekday === d.value
@@ -391,36 +600,93 @@ export function RoutesTab() {
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {list.map((t) => (
-              <div key={t.id} className="rounded-[var(--radius-card)] border border-g200 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-bk">{t.name}</p>
-                    <p className="mt-0.5 text-xs text-g500">
-                      {t.region && `${t.region} · `}
-                      {t.stops.length} пунктів
-                      {t.totalDistanceKm != null && ` · ${num(t.totalDistanceKm)} км`}
-                      {t.assignmentsCount > 0 && ` · у розкладі ${t.assignmentsCount}×`}
-                    </p>
+            {list.map((t) => {
+              const selected = overview.kind === "template" && overview.templateId === t.id;
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => {
+                    setOverview({ kind: "template", templateId: t.id });
+                    overviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setOverview({ kind: "template", templateId: t.id });
+                      overviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                  }}
+                  aria-label={`Показати напрямок ${t.name} на карті`}
+                  className={`cursor-pointer rounded-[var(--radius-card)] border p-3 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark ${
+                    selected ? "border-bk bg-g50" : "border-g200 hover:border-g300"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      {renaming?.id === t.id ? (
+                        <input
+                          autoFocus
+                          value={renaming.value}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setRenaming({ id: t.id, value: e.target.value })}
+                          onBlur={renameTemplate}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") renameTemplate();
+                            if (e.key === "Escape") setRenaming(null);
+                          }}
+                          aria-label={`Нова назва напрямку ${t.name}`}
+                          className="w-full rounded-[var(--radius-btn)] border border-g300 px-2 py-1 text-sm font-semibold text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+                        />
+                      ) : (
+                        <p className="truncate text-sm font-semibold text-bk">{t.name}</p>
+                      )}
+                      <p className="mt-0.5 text-xs text-g500">
+                        {t.region && `${t.region} · `}
+                        {t.stops.length} пунктів
+                        {t.totalDistanceKm != null && ` · ${num(t.totalDistanceKm)} км`}
+                        {t.assignmentsCount > 0 && ` · у розкладі ${t.assignmentsCount}×`}
+                      </p>
+                    </div>
+                    {canEdit && (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenaming({ id: t.id, value: t.name });
+                          }}
+                          aria-label={`Перейменувати напрямок ${t.name}`}
+                          className="cursor-pointer rounded-[var(--radius-badge)] p-1 text-g400 transition-colors hover:bg-g100 hover:text-bk"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeTemplate(t.id);
+                          }}
+                          aria-label={`Видалити напрямок ${t.name}`}
+                          className="cursor-pointer rounded-[var(--radius-badge)] p-1 text-g400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => removeTemplate(t.id)}
-                      aria-label={`Видалити напрямок ${t.name}`}
-                      className="shrink-0 cursor-pointer rounded-[var(--radius-badge)] p-1 text-g400 transition-colors hover:bg-red-50 hover:text-red-600"
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
+                  <p className="mt-2 line-clamp-2 text-xs text-g600">
+                    {t.stops.map((s) => s.settlement).join(" → ")}
+                  </p>
                 </div>
-                <p className="mt-2 line-clamp-2 text-xs text-g600">
-                  {t.stops.map((s) => s.settlement).join(" → ")}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>

@@ -151,8 +151,9 @@ export function AnalyticsShell() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-4 pb-10 sm:px-6">
-        {/* Період не потрібен вкладкам КПІ (там свій вибір місяця) і Маршрути (там день) */}
-        {tab !== "plans" && tab !== "routes" && (
+        {/* Період не потрібен вкладці КПІ — там свій вибір місяця. На «Маршрутах»
+            він задає діапазон разових призначень, які потрапляють на карту. */}
+        {tab !== "plans" && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
@@ -161,7 +162,7 @@ export function AnalyticsShell() {
         {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
         {tab === "reps" && <RepsTab period={period} />}
         {tab === "plans" && <PlansTab />}
-        {tab === "routes" && <RoutesTab />}
+        {tab === "routes" && <RoutesTab period={period} />}
         {tab === "fuel" && <FuelTab period={period} />}
         {tab === "trips" && <TripsTab period={period} rep={rep} onRepChange={setRep} />}
       </div>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isHexColor } from "@/lib/routes/colors";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -99,6 +100,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         counterpartyId: true,
         linkedCounterparty: { select: { id: true, name: true, phone: true } },
       },
+    });
+    return NextResponse.json(user);
+  }
+
+  // Колір торгового на мапі напрямків. Некоректне значення скидає до null —
+  // тоді на мапі працює детермінований колір із палітри, а не помилка.
+  if ("color" in body) {
+    const value = isHexColor(body.color) ? String(body.color).trim() : null;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { color: value },
+      select: { id: true, name: true, color: true },
     });
     return NextResponse.json(user);
   }

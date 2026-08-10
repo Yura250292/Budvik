@@ -207,6 +207,30 @@ async function allocate(
     }
   }
 
+  // Третій шлях: торговий з останнього документа цього клієнта.
+  //
+  // Закріплення SalesRepClient заповнюється вручну і на практиці майже
+  // порожнє, тож без цього шляху оплата не діставалася нікого: 2293 ПКО
+  // з 1С дали нуль рознесень, і «скільки зібрано» у мотивації було нулем
+  // при живому потоці грошей.
+  //
+  // Реалізація виграє над замовленням — той самий пріоритет, що і в
+  // receivableRowsByRep: борг і оплата того самого клієнта мають лягати на
+  // одного торгового, інакше в одного росте борг, а в іншого — збори.
+  if (!repId) {
+    const [fromDoc] = await prisma.$queryRaw<Array<{ salesRepId: string }>>`
+      SELECT sd."salesRepId"
+      FROM "SalesDocument" sd
+      WHERE sd."counterpartyId" = ${counterpartyId}
+        AND sd."salesRepId" IS NOT NULL
+      ORDER BY (sd."docType" = 'REALIZATION') DESC, sd."createdAt" DESC
+      LIMIT 1`;
+    if (fromDoc) {
+      repId = fromDoc.salesRepId;
+      source = "CLIENT_DOC";
+    }
+  }
+
   // Нерознесена оплата — не помилка: гроші могли прийти від клієнта
   // без торгового. Вона просто не бере участі в мотивації.
   if (!repId) return;

@@ -16,21 +16,31 @@ export async function GET(
 
   const counterparty = await prisma.counterparty.findUnique({
     where: { id },
-    select: { id: true, name: true, code: true, type: true, phone: true, email: true, address: true, contactPerson: true },
+    select: {
+      id: true, name: true, code: true, type: true, phone: true, email: true, address: true, contactPerson: true,
+      receivableBalance: true, balanceSyncedAt: true,
+    },
   });
 
   if (!counterparty) {
     return NextResponse.json({ error: "Не знайдено" }, { status: 404 });
   }
 
-  // Unpaid invoices (debt)
-  const invoices = await prisma.invoice.findMany({
-    where: { counterpartyId: id, paymentStatus: { in: ["UNPAID", "PARTIAL"] } },
-    select: { id: true, number: true, totalAmount: true, paidAmount: true, paymentStatus: true, dueDate: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
-  });
+  // Борг беремо з балансу взаєморозрахунків 1С, а не з несплачених
+  // рахунків: рахунки тут — контейнери, які apply-payments створює вже
+  // оплаченими, тож їхній залишок завжди ~0 і показував би нульовий борг.
+  // Регістр 1С оновлюється кожним циклом обміну, тому після проведення
+  // ПКО ця сума падає протягом кількох хвилин.
+  const { receivableBalance, balanceSyncedAt, ...counterpartyInfo } = counterparty;
+  const totalDebt = receivableBalance ?? 0;
 
-  const totalDebt = invoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
+  // Оплати клієнта — насамперед ПКО з 1С. Номер ордера лежить у notes.
+  const payments = await prisma.payment.findMany({
+    where: { invoice: { counterpartyId: id } },
+    select: { id: true, amount: true, method: true, notes: true, paidAt: true, source: true, createdAt: true },
+    orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+    take: 10,
+  });
 
   // Recent sales documents
   // docType ORDER: реалізації з 1С лежать у тій самій таблиці, і без фільтра
@@ -98,8 +108,9 @@ export async function GET(
   const totalSalesAmount = confirmedSales.reduce((sum, s) => sum + s.totalAmount, 0);
 
   return NextResponse.json({
-    counterparty,
-    debt: { total: totalDebt, invoices },
+    counterparty: counterpartyInfo,
+    debt: { total: totalDebt, syncedAt: balanceSyncedAt, invoices: [] },
+    payments,
     sales: { items: recentSales, totalAmount: totalSalesAmount, count: confirmedSales.length },
     topProducts: topProductsWithDetails,
   });

@@ -1,0 +1,143 @@
+/**
+ * Факти для аналітики торгових: продажі з 1С, поїздки з бота, паливо.
+ *
+ * Живуть окремо від роутів, бо ті самі числа потрібні в трьох місцях —
+ * виконання планів, профіль торгового і вкладка палива. Дублювати SQL
+ * означало б, що «оборот» у КПІ і в профілі колись розійдеться.
+ *
+ * Фільтр джерела всюди однаковий: документи з 1С (externalId не null) і
+ * лише проведені (CONFIRMED). Той самий, що у /api/admin/sales-analytics.
+ */
+
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+
+/** Дефолти авто, якщо для торгового ще не заведено SalesVehicle. */
+export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
+
+export type RepRevenue = { repId: string; amount: number; docs: number };
+export type RepBrandRevenue = { repId: string; brandId: string | null; brandName: string | null; amount: number; qty: number };
+
+const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'`;
+
+/** Оборот по кожному торговому за період. */
+export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<Array<{ repId: string; amount: number; docs: number }>>`
+    SELECT
+      s."salesRepId" AS "repId",
+      SUM(s."totalAmount")::float AS amount,
+      COUNT(*)::int AS docs
+    FROM "SalesDocument" s
+    WHERE ${SOURCE_FILTER}
+      AND s."salesRepId" IS NOT NULL
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    GROUP BY s."salesRepId"
+  `;
+  return rows;
+}
+
+/**
+ * Оборот у розрізі торговий × бренд.
+ *
+ * Рахується з ПОЗИЦІЙ (quantity * sellingPrice), а не з totalAmount
+ * документа: один документ містить товари різних брендів, розподілити його
+ * підсумок неможливо. Через це сума по брендах не збігається з оборотом
+ * документів на суму знижок — це очікувано.
+ */
+export async function revenueByRepBrand(from: Date, to: Date, repId?: string | null): Promise<RepBrandRevenue[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<RepBrandRevenue[]>`
+    SELECT
+      s."salesRepId" AS "repId",
+      p."brandId"    AS "brandId",
+      b.name         AS "brandName",
+      SUM(i.quantity * i."sellingPrice")::float AS amount,
+      SUM(i.quantity)::float AS qty
+    FROM "SalesDocumentItem" i
+    JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+    JOIN "Product" p ON p.id = i."productId"
+    LEFT JOIN "Brand" b ON b.id = p."brandId"
+    WHERE ${SOURCE_FILTER}
+      AND s."salesRepId" IS NOT NULL
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    GROUP BY s."salesRepId", p."brandId", b.name
+    ORDER BY amount DESC NULLS LAST
+  `;
+}
+
+export type TripFacts = {
+  repId: string;
+  trips: number;
+  totalKm: number;
+  personalKm: number;
+  checkpoints: number;
+  daysWorked: number;
+};
+
+/**
+ * Поїздки з бота за період. Лише CLOSED: у відкритої поїздки ще немає
+ * кінцевого одометра, тож distanceKm порожній і кілометраж рахувати нема з чого.
+ */
+export async function tripFactsByRep(from: Date, to: Date, repId?: string | null): Promise<TripFacts[]> {
+  const repCondition = repId ? Prisma.sql`AND t."userId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<TripFacts[]>`
+    SELECT
+      t."userId" AS "repId",
+      COUNT(*)::int AS trips,
+      COALESCE(SUM(t."distanceKm"), 0)::float AS "totalKm",
+      COALESCE(SUM(t."personalKm"), 0)::float AS "personalKm",
+      COALESCE(SUM(t."checkpointsCount"), 0)::int AS checkpoints,
+      COUNT(DISTINCT date_trunc('day', t."startedAt" AT TIME ZONE 'Europe/Kyiv'))::int AS "daysWorked"
+    FROM "SalesTrip" t
+    WHERE t.status = 'CLOSED'
+      AND t."startedAt" >= ${from} AND t."startedAt" <= ${to}
+      ${repCondition}
+    GROUP BY t."userId"
+  `;
+}
+
+export type FuelCost = {
+  /** Робочі км (без особистих — ті коштом торгового) */
+  workKm: number;
+  liters: number;
+  cost: number;
+  fuelConsumption: number;
+  fuelPricePerL: number;
+  costPerDay: number;
+};
+
+/**
+ * Вартість пального за фактом: км / 100 × норма × ціна.
+ *
+ * Без буфера на затори (на відміну від route-planner) — там план поїздки,
+ * тут уже проїханий одометром кілометраж, накидати на нього нічого.
+ * personalKm віднімаються: особисті км торговий заправляє сам.
+ */
+export function fuelCost(
+  totalKm: number,
+  personalKm: number,
+  vehicle: { fuelConsumption: number; fuelPricePerL: number } | null,
+  daysWorked = 0
+): FuelCost {
+  const consumption = vehicle?.fuelConsumption ?? VEHICLE_DEFAULTS.fuelConsumption;
+  const price = vehicle?.fuelPricePerL ?? VEHICLE_DEFAULTS.fuelPricePerL;
+
+  const workKm = Math.max(0, totalKm - personalKm);
+  const liters = (workKm * consumption) / 100;
+  const cost = liters * price;
+
+  return {
+    workKm,
+    liters,
+    cost,
+    fuelConsumption: consumption,
+    fuelPricePerL: price,
+    costPerDay: daysWorked > 0 ? cost / daysWorked : 0,
+  };
+}

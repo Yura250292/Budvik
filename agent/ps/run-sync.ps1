@@ -62,7 +62,16 @@ if (Test-Path $lockFile) {
 }
 Set-Content -Path $lockFile -Value (Get-Date).ToString("o") -Encoding ASCII
 
+# Hard-coded rather than derived from $PSHOME: this script may itself be
+# running in either bitness, and the COM connector only exists in the 32-bit
+# host. Checked explicitly so a missing host reads as such in the log instead
+# of as a bare "command not found".
 $ps32 = "C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
+if (-not (Test-Path $ps32)) {
+    Write-Log "FAILED: 32-bit PowerShell not found at $ps32"
+    Remove-Item $lockFile -Force -EA 0
+    exit 1
+}
 
 try {
     Write-Log ("=== cycle start (scope=" + $Scope + ") ===")
@@ -86,7 +95,24 @@ try {
     Write-Log "=== cycle complete ==="
 }
 catch {
-    Write-Log ("FAILED: " + $_.Exception.Message)
+    $msg = $_.Exception.Message
+    Write-Log ("FAILED: " + $msg)
+
+    # Also to the Windows event log. A scheduled job that fails silently at
+    # 03:30 is one nobody notices for weeks -- the log file is only read by
+    # someone who already suspects a problem, whereas the event log is where
+    # monitoring and the admin actually look.
+    try {
+        $src = "BudvikSync"
+        if (-not [Diagnostics.EventLog]::SourceExists($src)) {
+            New-EventLog -LogName Application -Source $src -EA Stop
+        }
+        Write-EventLog -LogName Application -Source $src -EntryType Error `
+            -EventId 1001 -Message ("Budvik 1C sync failed (scope=$Scope): " + $msg)
+    } catch {
+        Write-Log ("(could not write to event log: " + $_.Exception.Message + ")")
+    }
+
     exit 1
 }
 finally {

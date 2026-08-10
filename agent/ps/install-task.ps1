@@ -20,8 +20,7 @@
 param(
     [int]    $IntervalMinutes = 5,
     [string] $HourlyAt        = "00:07",
-    [string] $FullSyncAt      = "03:30",
-    [string] $TaskUser        = $env:USERNAME
+    [string] $FullSyncAt      = "03:30"
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,8 +60,17 @@ function Register($name, $trigger, $extraArgs) {
         Write-Host "replaced existing task: $name"
     }
 
+    # Runs as SYSTEM, not as the interactive user.
+    #
+    # A task registered for a normal account without a stored password only
+    # runs while that account is logged on -- so the sync would quietly stop
+    # the first time nobody is connected over RDP, which is most of the time
+    # on this machine. SYSTEM needs no password and survives reboots.
+    #
+    # The 1C credentials live in config.json next to the script, so the task
+    # does not depend on the interactive user's profile.
     Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger `
-        -Settings $settings -User $TaskUser -RunLevel Limited | Out-Null
+        -Settings $settings -User "SYSTEM" -RunLevel Highest | Out-Null
     Write-Host "registered: $name"
 }
 
@@ -89,6 +97,24 @@ $nightly = New-ScheduledTaskTrigger -Daily -At $FullSyncAt
 Register "BudvikSyncFull" $nightly " -Scope full"
 
 Write-Host ""
-Write-Host "Done. Check with:  Get-ScheduledTask BudvikSync*"
-Write-Host "Run now with:      Start-ScheduledTask -TaskName BudvikSyncLight"
-Write-Host "Logs:              $scriptDir\logs\"
+Write-Host "--- registered tasks ---"
+Get-ScheduledTask -TaskName "BudvikSync*" |
+    Select-Object TaskName, State,
+        @{N = "NextRun"; E = { (Get-ScheduledTaskInfo $_.TaskName).NextRunTime } } |
+    Format-Table -AutoSize
+
+# SYSTEM has its own profile, so a path that works interactively can still be
+# unreadable for the task. Fail loudly here rather than at 03:30.
+$cfg = Join-Path $scriptDir "config.json"
+if (-not (Test-Path $cfg)) {
+    Write-Host "WARNING: config.json not found next to run-sync.ps1 -- tasks will fail" -ForegroundColor Yellow
+}
+if ($scriptDir -like "\\*") {
+    Write-Host "WARNING: scripts live on a UNC path; SYSTEM cannot read network shares." -ForegroundColor Yellow
+    Write-Host "         Move them to a local folder such as C:\budvik-agent" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "Run now:   Start-ScheduledTask -TaskName BudvikSyncLight"
+Write-Host "Check:     Get-ScheduledTaskInfo BudvikSyncLight"
+Write-Host "Logs:      $scriptDir\logs\"

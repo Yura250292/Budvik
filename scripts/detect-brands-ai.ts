@@ -15,20 +15,30 @@
  * Тому в промпті жорстке «не знаєш — null», а результат перевіряється:
  * назва бренду мусить дослівно міститися в назві товару, інакше відкидаємо.
  *
- * Запуск:
- *   npx tsx scripts/detect-brands-ai.ts --limit 100     — проба на сотні
- *   npx tsx scripts/detect-brands-ai.ts                 — усі, без запису
- *   npx tsx scripts/detect-brands-ai.ts --apply         — усі, із записом
+ * Запуск (потрібен DEEPSEEK_API_KEY):
+ *   npx tsx scripts/detect-brands-ai.ts --limit 100 --apply  — проба наскрізь
+ *   npx tsx scripts/detect-brands-ai.ts --apply              — усі
+ *   npx tsx scripts/detect-brands-ai.ts --apply --from-cache — лише запис
+ *
+ * Пробу варто ганяти саме з --apply: перший прогін на 30 тисячах товарів
+ * розпізнав усе правильно, але впав на записі в базу, і 515 оплачених
+ * запитів пропали. Перевіряти треба весь ланцюжок, а не лише розпізнавання.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const anthropic = new Anthropic();
 
-const MODEL = "claude-sonnet-5";
+// DeepSeek, а не дорожча модель: задача механічна — знайти назву бренду в
+// рядку. Захист від вигадування (бренд мусить дослівно бути в назві) працює
+// незалежно від моделі, тож ризику від дешевшої тут немає, а різниця в ціні
+// на 500 запитів відчутна.
+const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+const MODEL = "deepseek-chat";
 const CHUNK = 60;
+
+/** Скільки пачок обробляти одночасно. DeepSeek тримає такий темп спокійно. */
+const CONCURRENCY = 4;
 
 type Detected = { index: number; brand: string | null };
 
@@ -107,17 +117,32 @@ function slugify(name: string): string {
 async function detectChunk(names: string[]): Promise<Map<number, string>> {
   const numbered = names.map((n, i) => `${i + 1}. ${n}`).join("\n");
 
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: numbered }],
+  const res = await fetch(DEEPSEEK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 4000,
+      temperature: 0,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: numbered },
+      ],
+    }),
+    signal: AbortSignal.timeout(120_000),
   });
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const text = data.choices?.[0]?.message?.content ?? "";
 
   // Модель іноді обгортає JSON у ```json ... ```
   const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -154,8 +179,8 @@ async function main() {
   const limitArg = process.argv.indexOf("--limit");
   const limit = limitArg !== -1 ? parseInt(process.argv[limitArg + 1], 10) : undefined;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error("Потрібен ANTHROPIC_API_KEY у середовищі.");
+  if (!process.env.DEEPSEEK_API_KEY && !process.argv.includes("--from-cache")) {
+    console.error("Потрібен DEEPSEEK_API_KEY у середовищі.");
     process.exit(1);
   }
 
@@ -185,27 +210,43 @@ async function main() {
     console.log(`Прочитано з кешу: ${cached.length} брендів`);
   } else {
 
+  // Пачки йдуть групами по CONCURRENCY: послідовно 360 запитів тривали б
+  // близько години, паралельно — хвилин десять.
+  const chunks: Array<{ id: string; name: string }[]> = [];
   for (let i = 0; i < products.length; i += CHUNK) {
-    const chunk = products.slice(i, i + CHUNK);
-    let detected: Map<number, string>;
-    try {
-      detected = await detectChunk(chunk.map((p) => p.name));
-    } catch (e) {
-      console.error(`\n  пачка ${i / CHUNK + 1} впала: ${(e as Error).message}`);
-      continue;
-    }
+    chunks.push(products.slice(i, i + CHUNK));
+  }
 
-    for (const [idx, brand] of detected) {
-      // Групуємо за нормалізованим ключем, а показуємо перше зустрінуте
-      // написання: інакше «Syper Oil» і «SyperOil» стали б двома брендами.
-      const key = brandKey(brand);
-      const entry = found.get(key);
-      if (entry) entry.ids.push(chunk[idx].id);
-      else found.set(key, { display: brand, ids: [chunk[idx].id] });
-    }
+  let failedChunks = 0;
+  for (let g = 0; g < chunks.length; g += CONCURRENCY) {
+    const group = chunks.slice(g, g + CONCURRENCY);
+    const results = await Promise.all(
+      group.map(async (chunk, gi) => {
+        try {
+          return { chunk, detected: await detectChunk(chunk.map((p) => p.name)) };
+        } catch (e) {
+          console.error(`\n  пачка ${g + gi + 1} впала: ${(e as Error).message}`);
+          failedChunks++;
+          return { chunk, detected: new Map<number, string>() };
+        }
+      })
+    );
 
-    processed += chunk.length;
+    for (const { chunk, detected } of results) {
+      for (const [idx, brand] of detected) {
+        // Групуємо за нормалізованим ключем, а показуємо перше зустрінуте
+        // написання: інакше «Syper Oil» і «SyperOil» стали б двома брендами.
+        const key = brandKey(brand);
+        const entry = found.get(key);
+        if (entry) entry.ids.push(chunk[idx].id);
+        else found.set(key, { display: brand, ids: [chunk[idx].id] });
+      }
+      processed += chunk.length;
+    }
     process.stdout.write(`\r  оброблено ${processed}/${products.length}`);
+  }
+  if (failedChunks > 0) {
+    console.log(`\n  (пачок з помилкою: ${failedChunks})`);
   }
   }
 

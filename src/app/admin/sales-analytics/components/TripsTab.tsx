@@ -42,6 +42,11 @@ type Trip = {
   durationMinutes: number | null;
   checkpointsCount: number;
   odometerSuspicious: boolean;
+  trackCoverage: number | null;
+  trackDistanceKm: number | null;
+  onRouteRatio: number | null;
+  offRouteKm: number | null;
+  excursionsCount: number;
   checkpoints: Array<{
     id: string;
     seq: number;
@@ -314,14 +319,76 @@ export function TripsTab({
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-g600">{t.checkpointsCount}</td>
                       <td className="px-4 py-3">
-                        <Badge status={tripStatus(t.status)} dot>
-                          {t.status === "CLOSED" ? "завершена" : t.status === "OPEN" ? "у дорозі" : "покинута"}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge status={tripStatus(t.status)} dot>
+                            {t.status === "CLOSED" ? "завершена" : t.status === "OPEN" ? "у дорозі" : "покинута"}
+                          </Badge>
+
+                          {/* Червоне — лише коли є що показати очима. Епізод уже
+                              пройшов пороги (25+ хв і 8+ км поза коридором), тож
+                              корки й об'їзди сюди не потрапляють. */}
+                          {t.excursionsCount > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-200"
+                              title={`Виїздів за межі маршруту: ${t.excursionsCount}. Поза маршрутом ${t.offRouteKm ?? 0} км. Деталі — на мапі дня у вкладці «Маршрути».`}
+                            >
+                              ⚠ поза маршрутом
+                              {t.offRouteKm != null && ` ${num(t.offRouteKm)} км`}
+                            </span>
+                          )}
+
+                          {/* Низьке покриття — не порушення, а «дня майже не
+                              видно». Показуємо лише для довгих поїздок: коротка
+                              й так дає малий відсоток. */}
+                          {t.trackCoverage != null &&
+                            t.trackCoverage < 0.4 &&
+                            (t.durationMinutes ?? 0) >= 120 && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200"
+                                title="Трансляція геолокації працювала меншу частину поїздки — маршрут за цей день майже не записаний."
+                              >
+                                📡 трек {Math.round(t.trackCoverage * 100)}%
+                              </span>
+                            )}
+                        </div>
                       </td>
                     </tr>
-                    {expanded === t.id && t.checkpoints.length > 0 && (
+                    {/* Умова навмисно НЕ вимагає чекпоінтів: поїздка з
+                        відхиленнями, але без жодної відмітки — це рівно той
+                        випадок, заради якого контроль і робився. Сховати його
+                        через порожній масив було б найгіршою поведінкою. */}
+                    {expanded === t.id && (t.checkpoints.length > 0 || t.trackDistanceKm != null) && (
                       <tr key={`${t.id}-details`} className="bg-g50">
                         <td colSpan={6} className="px-4 py-3">
+                          {t.trackDistanceKm != null && (
+                            <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-g600">
+                              <span>
+                                🛰 Трек: <b className="text-bk">{num(t.trackDistanceKm)} км</b>
+                                {t.distanceKm != null && (
+                                  <span className="text-g400"> / одометр {num(t.distanceKm)} км</span>
+                                )}
+                              </span>
+                              {t.onRouteRatio != null && (
+                                <span>
+                                  🧭 На маршруті:{" "}
+                                  <b className={t.onRouteRatio < 0.6 ? "text-red-600" : "text-bk"}>
+                                    {Math.round(t.onRouteRatio * 100)}%
+                                  </b>
+                                </span>
+                              )}
+                              {t.offRouteKm != null && t.offRouteKm > 0 && (
+                                <span className="text-red-600">
+                                  ⚠ Поза маршрутом: <b>{num(t.offRouteKm)} км</b>
+                                  {t.excursionsCount > 0 && ` (${t.excursionsCount} епізод.)`}
+                                </span>
+                              )}
+                              {t.excursionsCount > 0 && (
+                                <span className="text-g400">
+                                  Деталі епізодів — на мапі дня у вкладці «Маршрути»
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <ol className="space-y-1.5">
                             {t.checkpoints.map((c) => (
                               <li key={c.id} className="flex items-baseline gap-2 text-xs">

@@ -301,6 +301,14 @@ export async function GET(req: NextRequest) {
       durationMinutes: t.durationMinutes,
       checkpointsCount: t.checkpoints.length,
       odometerSuspicious: t.odometerSuspicious,
+      // Контроль маршруту: рахувалося при закритті поїздки. У списку
+      // потрібне саме як мітка «є на що подивитися» — деталі епізодів
+      // дивляться на мапі дня, тут лише сумарні числа.
+      trackCoverage: t.trackCoverage,
+      trackDistanceKm: t.trackDistanceKm,
+      onRouteRatio: t.onRouteRatio,
+      offRouteKm: t.offRouteKm,
+      excursionsCount: Array.isArray(t.excursions) ? t.excursions.length : 0,
       checkpoints: t.checkpoints.map((c) => ({
         id: c.id,
         seq: c.seq,

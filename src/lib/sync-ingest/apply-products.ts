@@ -11,6 +11,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
 import crypto from "crypto";
 import type { ProductRecord } from "./types";
@@ -187,6 +188,10 @@ export async function applyProducts(
         categoryId = fallbackCategoryId;
       }
 
+      // takenSlugs бачить лише кандидатів цього батча, а однойменний товар
+      // цілком може лежати в іншому батчі або вже в базі. Тому суфікс із
+      // GUID додається завжди, коли базовий slug зайнятий, а остаточну
+      // унікальність гарантує повтор зі створенням нижче.
       let slug = generateSlug(rec.name) || `product-${rec.externalId.slice(0, 8)}`;
       if (takenSlugs.has(slug)) slug = `${slug}-${rec.externalId.slice(0, 6)}`;
       takenSlugs.add(slug);
@@ -198,23 +203,49 @@ export async function applyProducts(
       if (takenSkus.has(finalSku)) finalSku = `${sku}-${rec.externalId.slice(0, 6)}`;
       takenSkus.add(finalSku);
 
-      try {
-        const createdProduct = await prisma.product.create({
-          data: {
-            externalId: rec.externalId,
-            name: rec.name,
-            slug,
-            sku: finalSku,
-            description: rec.description || "",
-            price: 0, // ціна приїде окремим батчем entityType: "price"
-            stock: 0, // залишок приїде окремим батчем entityType: "stock"
-            categoryId,
-            isActive: true,
-            syncedAt: new Date(),
-            syncSource: "1C",
-          },
-          select: { id: true, externalId: true, sku: true, name: true, slug: true, description: true, categoryId: true },
-        });
+      // Друга спроба з гарантовано унікальними slug/sku, якщо перша впала на
+      // унікальному індексі. Так сталося з 426 товарами: однойменні позиції
+      // з різних батчів претендували на один slug, takenSlugs бачив лише свій
+      // батч, і товари просто не створювались.
+      const createData = {
+        externalId: rec.externalId,
+        name: rec.name,
+        description: rec.description || "",
+        price: 0, // ціна приїде окремим батчем entityType: "price"
+        stock: 0, // залишок приїде окремим батчем entityType: "stock"
+        categoryId,
+        isActive: true,
+        syncedAt: new Date(),
+        syncSource: "1C",
+      };
+      const selectFields = {
+        id: true, externalId: true, sku: true, name: true,
+        slug: true, description: true, categoryId: true,
+      };
+
+      let createdProduct = null;
+      for (const attempt of [0, 1]) {
+        // GUID унікальний за визначенням, тож друга спроба конфліктувати не може.
+        const trySlug = attempt === 0 ? slug : `${slug}-${rec.externalId.slice(0, 8)}`;
+        const trySku = attempt === 0 ? finalSku : `${finalSku}-${rec.externalId.slice(0, 8)}`;
+        try {
+          createdProduct = await prisma.product.create({
+            data: { ...createData, slug: trySlug, sku: trySku },
+            select: selectFields,
+          });
+          finalSku = trySku;
+          break;
+        } catch (e) {
+          const isUniqueConflict =
+            e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+          if (!isUniqueConflict || attempt === 1) {
+            ctx.fail(rec.name, e);
+            break;
+          }
+        }
+      }
+
+      if (createdProduct) {
         // Щоб наступні записи цього ж батча бачили щойно створений товар.
         byExternalId.set(rec.externalId, createdProduct);
         ctx.created++;
@@ -226,8 +257,6 @@ export async function applyProducts(
           value1C: rec.name,
           valueBudvik: "створено",
         });
-      } catch (e) {
-        ctx.fail(rec.name, e);
       }
       continue;
     }

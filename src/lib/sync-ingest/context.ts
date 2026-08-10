@@ -85,6 +85,38 @@ export async function accumulateJobCounters(
       recordsFailed: { increment: ctx.failed },
     },
   });
+
+  // Тексти помилок зберігаємо окремо: раніше recordsFailed рахувався, а самі
+  // повідомлення жили лише у відповіді батча й зникали разом із нею. Прогін
+  // із 225 помилками й порожнім полем errors неможливо діагностувати.
+  //
+  // Перші 50 на прогін: помилки зазвичай однотипні, а необмежене накопичення
+  // роздуло б рядок на великому збої.
+  if (ctx.errors.length === 0) return;
+
+  const job = await prisma.syncJob.findUnique({
+    where: { id: syncJobId },
+    select: { errors: true },
+  });
+
+  const previous: string[] = job?.errors ? safeParseErrors(job.errors) : [];
+  if (previous.length >= 50) return;
+
+  const merged = [...previous, ...ctx.errors].slice(0, 50);
+  await prisma.syncJob.update({
+    where: { id: syncJobId },
+    data: { errors: JSON.stringify(merged) },
+  });
+}
+
+/** Поле errors історично зберігало то JSON-масив, то голий рядок. */
+function safeParseErrors(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+  } catch {
+    return [raw];
+  }
 }
 
 /** Записує значення в SyncState (heartbeat, watermark'и). */

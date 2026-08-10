@@ -31,6 +31,20 @@ type OneCProduct = {
   sku?: string;
 };
 
+/**
+ * Літерал для інлайну в UPDATE ... FROM (VALUES ...).
+ *
+ * Значення сюди приходять із файлу, який згенерував агент, тобто зовні —
+ * тому замість екранування діє білий список: cuid і GUID складаються лише з
+ * латиниці, цифр і дефіса. Усе інше — привід зупинитись, а не «почистити».
+ */
+function sqlLiteral(value: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error(`Неочікуваний символ в ідентифікаторі: ${JSON.stringify(value)}`);
+  }
+  return `'${value}'`;
+}
+
 /** Артикули в 1С і на сайті різняться регістром і пробілами, але не суттю. */
 function normaliseSku(sku: string): string {
   return sku.trim().toLowerCase();
@@ -277,18 +291,29 @@ async function main() {
 
   console.log("Записую externalId...");
   let done = 0;
-  // Пачками: 41 тисяча окремих UPDATE через проксі-з'єднання тривала б довго.
-  const chunkSize = 500;
+
+  // Один UPDATE ... FROM (VALUES ...) на пачку, а не 500 окремих update у
+  // транзакції: через публічний проксі кожен рейс-туди-назад коштує десятки
+  // мілісекунд, і 12 850 запитів не вкладались у десять хвилин. Тут це
+  // 13 запитів.
+  //
+  // Пропускаємо рядки, де externalId уже стоїть: скрипт має бути безпечним
+  // для повторного запуску після обриву.
+  const chunkSize = 1000;
   for (let i = 0; i < toUpdate.length; i += chunkSize) {
     const chunk = toUpdate.slice(i, i + chunkSize);
-    await prisma.$transaction(
-      chunk.map((u) =>
-        prisma.product.update({
-          where: { id: u.id },
-          data: { externalId: u.externalId, syncSource: "1C", syncedAt: new Date() },
-        })
-      )
-    );
+    const values = chunk.map((u) => `(${sqlLiteral(u.id)}, ${sqlLiteral(u.externalId)})`).join(",");
+
+    await prisma.$executeRawUnsafe(`
+      UPDATE "Product" AS p
+         SET "externalId" = v.ext,
+             "syncSource" = '1C',
+             "syncedAt"   = NOW()
+        FROM (VALUES ${values}) AS v(id, ext)
+       WHERE p.id = v.id
+         AND p."externalId" IS NULL
+    `);
+
     done += chunk.length;
     process.stdout.write(`\r  ${done}/${toUpdate.length}`);
   }

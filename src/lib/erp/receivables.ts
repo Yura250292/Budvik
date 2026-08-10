@@ -4,11 +4,17 @@
  * З наради: «Стан загальної дебіторки, стан робочої, стан простроченої.
  * У кого найменше відсоток простроченої — той має премію».
  *
- * Наразі в системі `Invoice.dueDate` використовується лише для червоного
- * кольору тексту у звіті. Тут з нього робиться повноцінне старіння.
+ * Правило одне для всіх: борг старший за GRACE_DAYS вважається
+ * простроченим. Раніше рахувався індивідуальний `Invoice.dueDate`, але
+ * він заповнений не всюди, і рахунки без нього висіли в «робочих»
+ * скільки завгодно — борг піврічної давнини не потрапляв у прострочку
+ * лише тому, що йому колись не проставили строк.
  */
 
 import type { ReceivableBucket } from "@prisma/client";
+
+/** Скільки днів борг вважається робочим. Два тижні від відвантаження. */
+export const GRACE_DAYS = 14;
 
 /** Межі кошиків у днях прострочення. */
 const BUCKET_DAYS: { bucket: ReceivableBucket; maxDays: number | null }[] = [
@@ -19,7 +25,7 @@ const BUCKET_DAYS: { bucket: ReceivableBucket; maxDays: number | null }[] = [
 ];
 
 export const BUCKET_LABELS: Record<ReceivableBucket, string> = {
-  CURRENT: "Робоча",
+  CURRENT: "Робоча (до 14 дн.)",
   OVERDUE_30: "До 30 днів",
   OVERDUE_60: "31–60 днів",
   OVERDUE_90: "61–90 днів",
@@ -37,8 +43,8 @@ export const BUCKET_COLORS: Record<ReceivableBucket, string> = {
 export interface AgingInput {
   /** Непогашений залишок */
   amount: number;
-  /** Строк оплати; null — вважаємо робочою (строк не встановлено) */
-  dueDate: Date | null;
+  /** Дата виставлення рахунка — від неї відлічується вік боргу */
+  issuedAt: Date;
 }
 
 export interface AgingResult {
@@ -50,17 +56,21 @@ export interface AgingResult {
   buckets: Record<ReceivableBucket, number>;
 }
 
+/** Скільки днів борг протермінований: вік мінус два тижні відстрочки. */
+export function overdueDaysFor(issuedAt: Date, now: Date = new Date()): number {
+  const ageDays = Math.floor((now.getTime() - issuedAt.getTime()) / 86_400_000);
+  return Math.max(0, ageDays - GRACE_DAYS);
+}
+
 /**
  * Кошик для одного боргу.
  *
- * dueDate = null означає «строк не домовлений», і такий борг вважається
- * робочим. Позначати його простроченим було б несправедливо: торговий
- * не може закрити те, для чого немає дати.
+ * Перші два тижні борг робочий — це нормальний цикл розрахунків, а не
+ * порушення. Далі кошики рахують саме дні ПОНАД відстрочку: борг віком
+ * 20 днів прострочений на 6, а не на 20.
  */
-export function bucketFor(dueDate: Date | null, now: Date = new Date()): ReceivableBucket {
-  if (!dueDate) return "CURRENT";
-
-  const overdueDays = Math.floor((now.getTime() - dueDate.getTime()) / 86_400_000);
+export function bucketFor(issuedAt: Date, now: Date = new Date()): ReceivableBucket {
+  const overdueDays = overdueDaysFor(issuedAt, now);
   if (overdueDays <= 0) return "CURRENT";
 
   for (const { bucket, maxDays } of BUCKET_DAYS) {
@@ -82,7 +92,7 @@ export function calculateAging(items: AgingInput[], now: Date = new Date()): Agi
   let total = 0;
   for (const item of items) {
     if (item.amount <= 0) continue;
-    buckets[bucketFor(item.dueDate, now)] += item.amount;
+    buckets[bucketFor(item.issuedAt, now)] += item.amount;
     total += item.amount;
   }
 

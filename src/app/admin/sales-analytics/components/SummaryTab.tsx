@@ -87,7 +87,8 @@ type ReceivablesResponse = {
     invoices: Array<{
       id: string;
       number: string;
-      dueDate: string | null;
+      issuedAt: string;
+      ageDays: number;
       debt: number;
       bucket: ReceivableBucket;
       daysOverdue: number;
@@ -140,12 +141,13 @@ function ReceivablesPanel({ repId }: { repId: string }) {
       </div>
 
       <div className="max-h-[320px] overflow-auto rounded-[var(--radius-card)] border border-g200 bg-white">
-        <table className="w-full min-w-[620px] text-xs">
+        <table className="w-full min-w-[700px] text-xs">
           <thead className="sticky top-0 z-10 bg-g50">
             <tr className="border-b border-g200 text-left font-medium text-g500">
               <th className="px-3 py-2">Клієнт</th>
               <th className="px-3 py-2">Рахунок</th>
-              <th className="px-3 py-2">Строк</th>
+              <th className="px-3 py-2">Рахунок від</th>
+              <th className="px-3 py-2 text-right">Вік, дн.</th>
               <th className="px-3 py-2 text-right">Прострочено, дн.</th>
               <th className="px-3 py-2 text-right">Борг, грн</th>
             </tr>
@@ -158,9 +160,8 @@ function ReceivablesPanel({ repId }: { repId: string }) {
                     {i === 0 ? <span className="font-medium text-bk">{client.name}</span> : null}
                   </td>
                   <td className="px-3 py-2 text-g600">{inv.number}</td>
-                  <td className="px-3 py-2 text-g600">
-                    {inv.dueDate ? dateFmt.format(new Date(inv.dueDate)) : "не вказано"}
-                  </td>
+                  <td className="px-3 py-2 text-g600">{dateFmt.format(new Date(inv.issuedAt))}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-g600">{num(inv.ageDays)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {inv.bucket === "CURRENT" ? (
                       <span className="text-g400">—</span>
@@ -212,7 +213,7 @@ export function SummaryTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Зведена по торгових"
-            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — станом на ${asOf}. Клік по рядку відкриває профіль.`}
+            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — станом на ${asOf}, протермінованою вважається старша за 14 днів. Клік по рядку відкриває профіль.`}
           />
         </div>
 

@@ -18,7 +18,7 @@
 
 import { Prisma, type ReceivableBucket } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { calculateAging, bucketFor, type AgingResult } from "@/lib/erp/receivables";
+import { calculateAging, bucketFor, overdueDaysFor, type AgingResult } from "@/lib/erp/receivables";
 
 export type CollectedRow = {
   repId: string;
@@ -90,6 +90,9 @@ export function collectedByBrand(
 export type ReceivableRow = {
   invoiceId: string;
   number: string;
+  /** Дата виставлення — від неї рахується вік боргу і прострочка */
+  issuedAt: Date;
+  /** Узгоджений строк оплати, якщо є. На старіння не впливає — лише довідка */
   dueDate: Date | null;
   debt: number;
   counterpartyId: string;
@@ -116,6 +119,7 @@ export async function receivableRowsByRep(repId?: string | null): Promise<Receiv
     SELECT
       i.id              AS "invoiceId",
       i.number          AS "number",
+      i."createdAt"     AS "issuedAt",
       i."dueDate"       AS "dueDate",
       (i."totalAmount" - i."paidAmount")::float AS debt,
       i."counterpartyId" AS "counterpartyId",
@@ -143,7 +147,7 @@ export async function receivableRowsByRep(repId?: string | null): Promise<Receiv
 
 /** Борги у форматі, який приймає calculateAging. */
 export function toAgingInput(rows: ReceivableRow[]) {
-  return rows.map((r) => ({ amount: r.debt, dueDate: r.dueDate ? new Date(r.dueDate) : null }));
+  return rows.map((r) => ({ amount: r.debt, issuedAt: new Date(r.issuedAt) }));
 }
 
 /** Старіння дебіторки по кожному торговому. */
@@ -177,9 +181,13 @@ export type ReceivableInvoice = {
   number: string;
   client: string;
   counterpartyId: string;
-  dueDate: string | null;
+  /** Дата рахунка — від неї рахується вік */
+  issuedAt: string;
+  /** Скільки днів борг узагалі висить */
+  ageDays: number;
   debt: number;
   bucket: ReceivableBucket;
+  /** Днів понад відстрочку; 0 — борг ще робочий */
   daysOverdue: number;
 };
 
@@ -196,16 +204,17 @@ const BUCKET_SEVERITY: Record<ReceivableBucket, number> = {
 export function toInvoiceList(rows: ReceivableRow[], now: Date = new Date()): ReceivableInvoice[] {
   return rows
     .map((r) => {
-      const due = r.dueDate ? new Date(r.dueDate) : null;
+      const issued = new Date(r.issuedAt);
       return {
         id: r.invoiceId,
         number: r.number,
         client: r.clientName,
         counterpartyId: r.counterpartyId,
-        dueDate: due ? due.toISOString() : null,
+        issuedAt: issued.toISOString(),
+        ageDays: Math.max(0, Math.floor((now.getTime() - issued.getTime()) / 86_400_000)),
         debt: r.debt,
-        bucket: bucketFor(due, now),
-        daysOverdue: due ? Math.max(0, Math.floor((now.getTime() - due.getTime()) / 86_400_000)) : 0,
+        bucket: bucketFor(issued, now),
+        daysOverdue: overdueDaysFor(issued, now),
       };
     })
     .sort((a, b) => BUCKET_SEVERITY[a.bucket] - BUCKET_SEVERITY[b.bucket] || b.debt - a.debt);

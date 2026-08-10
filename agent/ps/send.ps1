@@ -156,6 +156,7 @@ $plan = @(
 )
 
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }
+$realizationsSent = 0
 $seq = 0
 $sendError = $null
 
@@ -257,6 +258,7 @@ try {
         if ($resp.errors -and $resp.errors.Count -gt 0) {
             Log ("  errors: " + ($resp.errors -join "; "))
         }
+        if ($step.entity -eq "realization_doc") { $realizationsSent = $sent }
         Log ("{0}: {1} records sent" -f $step.entity, $sent)
     }
 }
@@ -279,5 +281,36 @@ Log ("failed:        {0}" -f $complete.recordsFailed)
 Log ("discrepancies: {0}" -f $complete.discrepancies)
 if ($complete.missing) { Log ("missing:       {0}" -f $complete.missing) }
 Log "----------------------------------------"
+
+# The realization backfill is finished only once the server has the documents.
+#
+# extract.ps1 deliberately does not stamp this: it writes the file, and the
+# scheduler's next run five minutes later would overwrite that file with an
+# empty one before it was ever shipped. Stamping here, after /complete came
+# back clean, means a failed or half-sent backfill simply repeats next cycle
+# -- upserts are keyed by Ref_Key, so re-sending costs time, not correctness.
+if (-not $sendError -and $realizationsSent -gt 0 -and $complete.status -eq "completed") {
+    $statePath = Join-Path $scriptDir "state.json"
+    try {
+        $state = if (Test-Path $statePath) {
+            [IO.File]::ReadAllText($statePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        } else { $null }
+
+        if ($state -and -not $state.realizationsBackfilledAt) {
+            $obj = [ordered]@{}
+            foreach ($p in $state.PSObject.Properties) { $obj[$p.Name] = $p.Value }
+            $obj.realizationsBackfilledAt = (Get-Date).ToString("o")
+            [IO.File]::WriteAllText(
+                $statePath,
+                ($obj | ConvertTo-Json),
+                (New-Object Text.UTF8Encoding($false))
+            )
+            Log ("realization backfill complete ({0} documents) -- switching to the normal window" -f $realizationsSent)
+        }
+    } catch {
+        # Losing the stamp only means the next run repeats the backfill.
+        Log ("could not stamp realizationsBackfilledAt: " + $_.Exception.Message)
+    }
+}
 
 if ($sendError) { exit 1 }

@@ -28,24 +28,11 @@ export type RepBrandRevenue = { repId: string; brandId: string | null; brandName
  * Обидва типи лежать в одній таблиці, тож без цієї умови кожна партія
  * рахувалася б двічі.
  *
- * Тип вибирається за наявністю даних, а не жорстко. Канал realization_doc
- * лише запускається: поки жодної реалізації не приїхало, жорсткий фільтр
- * показав би порожній дашборд — мовчки, без помилки, що гірше за будь-яку
- * видиму поломку. Тому доки реалізацій немає, показуємо замовлення (як і
- * було досі), а щойно перша приїде — перемикається саме, без правок коду.
- * Підзапит виконується раз на запит і лягає на індекс docType.
- * Коли бекфіл завершиться, гілку ORDER можна прибрати.
- *
  * externalId IS NOT NULL — лише те, що прийшло з 1С: документи, створені
  * вручну на сайті, у звіт торгових не потрапляють.
  * CONFIRMED — лише проведені: непроведений документ ще не відбувся.
  */
-export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" = (
-  SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM "SalesDocument" r
-    WHERE r."docType" = 'REALIZATION' AND r."externalId" IS NOT NULL AND r.status = 'CONFIRMED'
-  ) THEN 'REALIZATION' ELSE 'ORDER' END::"SalesDocType"
-)`;
+export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" = 'REALIZATION'`;
 
 /** Оборот по кожному торговому за період. */
 export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {

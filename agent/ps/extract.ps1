@@ -774,9 +774,18 @@ try {
         $stats.realizations = $n
         Log "realizations: $n"
 
-        # From here the backfill counts as done: the file is written, and the
-        # flag is persisted only if the run reaches the manifest below.
-        $realBackfillRan = $true
+        # The flag is NOT set here on purpose.
+        #
+        # Writing the file is not the same as delivering it. The scheduler runs
+        # every five minutes: if extract marked the backfill done, the next run
+        # would read the normal 15-minute window, find nothing, and overwrite
+        # realization_doc.ndjson with an empty file -- destroying seven months
+        # of history before send.ps1 ever shipped it. That is exactly what
+        # happened on the first live run.
+        #
+        # send.ps1 stamps realizationsBackfilledAt after the server confirms
+        # the batches. Until then every extract re-reads the full backfill,
+        # which is idempotent (upsert by Ref_Key) and merely slow.
 
         # --- debt balances ---
         # Debt is best-effort: several phrasings of this query fail on this
@@ -878,16 +887,14 @@ try {
     # Watermark advances to the moment this run STARTED, not finished: rows
     # written to 1C while we were reading must fall inside the next window.
     #
-    # The realization backfill flag is stamped only here, after the manifest:
-    # a run that dies mid-way leaves it unset and the backfill simply repeats.
+    # realizationsBackfilledAt is only carried forward here, never created:
+    # send.ps1 owns it, because only a delivered backfill is a finished one.
     $newState = [ordered]@{
         lastSuccessAt = $runStart.ToString("o")
         lastScope     = $Scope
     }
     if ($realBackfilledAt) {
         $newState.realizationsBackfilledAt = $realBackfilledAt
-    } elseif ($realBackfillRan) {
-        $newState.realizationsBackfilledAt = $runStart.ToString("o")
     }
     [IO.File]::WriteAllText(
         $statePath,

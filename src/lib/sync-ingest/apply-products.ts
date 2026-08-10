@@ -72,6 +72,47 @@ export async function applyProducts(
   const bySku = new Map(candidates.filter((p) => p.sku).map((p) => [p.sku!, p]));
   const byName = new Map(candidates.map((p) => [p.name.toLowerCase(), p]));
 
+  // Артикули, які в 1С означають не товар, а бренд.
+  //
+  // У цій базі поле "Артикул" подекуди заповнене назвою виробника: POLAX
+  // стоїть у 242 різних товарів, MAGTOOLS — у 25. Шукати товар за таким
+  // артикулом означає звести сотні різних позицій до одного запису на сайті:
+  // сокира, валик і скотч усі "знайшли б" той самий пензель, і кожна
+  // наступна перезаписувала б попередню.
+  //
+  // Тому артикул, що трапляється більше одного разу, як ключ пошуку не
+  // використовуємо — лишаються externalId і назва.
+  //
+  // Перевіряємо і в межах батча, і по вже наявних товарах: 242 POLAX
+  // розкидані по різних батчах, тож лічильник самого батча побачив би в
+  // кожному лише кілька і нічого не запідозрив.
+  const skuOccurrences = new Map<string, number>();
+  for (const r of records) {
+    const s = r.sku?.trim();
+    if (s) skuOccurrences.set(s, (skuOccurrences.get(s) ?? 0) + 1);
+  }
+  const ambiguousSkus = new Set(
+    [...skuOccurrences.entries()].filter(([, n]) => n > 1).map(([s]) => s)
+  );
+
+  // Артикул, під яким на сайті вже лежить товар, прив'язаний до ІНШОГО
+  // запису 1С, теж ненадійний: збіг за ним перезаписав би чужий товар.
+  // Неприв'язані (externalId = null) сюди не входять — саме їх ми й хочемо
+  // знаходити за артикулом.
+  const batchSkus = [...skuOccurrences.keys()];
+  if (batchSkus.length > 0) {
+    const linkedElsewhere = await prisma.product.findMany({
+      where: {
+        sku: { in: batchSkus },
+        externalId: { not: null, notIn: externalIds },
+      },
+      select: { sku: true },
+    });
+    for (const p of linkedElsewhere) {
+      if (p.sku) ambiguousSkus.add(p.sku);
+    }
+  }
+
   // Категорії 1С, на які посилається батч.
   const categoryExternalIds = [
     ...new Set(records.map((r) => r.categoryExternalId).filter((c): c is string => !!c)),
@@ -98,10 +139,12 @@ export async function applyProducts(
       continue;
     }
 
-    const sku = rec.sku?.trim() || generateSKU(rec.name);
+    const recSku = rec.sku?.trim();
+    const skuIsUsable = !!recSku && !ambiguousSkus.has(recSku);
+    const sku = recSku || generateSKU(rec.name);
     const existing =
       byExternalId.get(rec.externalId) ||
-      (rec.sku ? bySku.get(rec.sku.trim()) : undefined) ||
+      (skuIsUsable ? bySku.get(recSku!) : undefined) ||
       byName.get(rec.name.toLowerCase());
 
     // --- Товар помічений на видалення в 1С ---
@@ -110,7 +153,7 @@ export async function applyProducts(
       if (existing) {
         ctx.discrepancy({
           entityType: "product",
-          entityRef: existing.sku || rec.externalId,
+          entityRef: skuIsUsable ? recSku! : rec.externalId,
           entityName: rec.name,
           field: "DELETED_IN_1C",
           value1C: "помічено на видалення",
@@ -148,7 +191,10 @@ export async function applyProducts(
       if (takenSlugs.has(slug)) slug = `${slug}-${rec.externalId.slice(0, 6)}`;
       takenSlugs.add(slug);
 
-      let finalSku = sku;
+      // Артикул-бренд не можна ставити новому товару як є: 242 товари з
+      // артикулом POLAX зіткнулися б на унікальному індексі, і в базу
+      // потрапив би лише перший. Такі одразу отримують похідний артикул.
+      let finalSku = skuIsUsable ? sku : `${sku}-${rec.externalId.slice(0, 6)}`;
       if (takenSkus.has(finalSku)) finalSku = `${sku}-${rec.externalId.slice(0, 6)}`;
       takenSkus.add(finalSku);
 
@@ -200,7 +246,7 @@ export async function applyProducts(
     if (rec.name !== existing.name) {
       ctx.discrepancy({
         entityType: "product",
-        entityRef: existing.sku || rec.externalId,
+        entityRef: skuIsUsable ? recSku! : rec.externalId,
         entityName: rec.name,
         field: "name",
         value1C: rec.name,

@@ -20,6 +20,21 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Міграції бази
+
+Білд на Vercel виконує лише `prisma generate`, **міграції він не накочує**. Тобто
+після мерджу зміни схеми в main прод отримає новий код, але стару базу — і
+запити впадуть з `P2022 The column ... does not exist`.
+
+Після кожної зміни `prisma/schema.prisma` накотіть міграцію вручну:
+
+```bash
+npm run db:migrate:prod
+```
+
+Скрипт тягне продакшн-змінні з Vercel у `.env` (він у `.gitignore`) і виконує
+`prisma migrate deploy`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

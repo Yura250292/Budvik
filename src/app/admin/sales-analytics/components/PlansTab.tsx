@@ -7,6 +7,8 @@ import { TableSkeleton } from "@/components/ui/Skeleton";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { ColorDot } from "@/components/ui/Badge";
+import { CATEGORICAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
 
 /**
  * КПІ: місячні плани обороту, торговий × фірма (бренд).
@@ -153,12 +155,12 @@ export function PlansTab() {
 
       {totals && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="План команди" value={money(totals.target)} unit="грн" />
-          <StatCard label="Факт" value={money(totals.actual)} unit="грн" />
+          <StatCard label="План команди" value={money(totals.target)} unit="грн" accent="var(--color-g300)" />
+          <StatCard label="Факт" value={money(totals.actual)} unit="грн" accent={CATEGORICAL[0]} />
           <StatCard
             label="Виконання"
             value={`${Math.round(totals.attainment)}%`}
-            tone={totals.attainment >= 100 ? "good" : totals.attainment >= 70 ? "warn" : "bad"}
+            tone={attainmentStatus(totals.attainment, totals.target > 0)}
           />
           <StatCard label="Залишилось" value={money(Math.max(0, totals.target - totals.actual))} unit="грн" />
         </div>
@@ -197,7 +199,10 @@ export function PlansTab() {
                 <th className="px-3 py-2.5 text-right">Загальний</th>
                 {brands.map((b) => (
                   <th key={b.id} className="px-3 py-2.5 text-right whitespace-nowrap">
-                    {b.name}
+                    <span className="inline-flex items-center gap-1.5">
+                      <ColorDot color={b.color ?? "var(--color-g300)"} size={8} />
+                      {b.name}
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -227,8 +232,18 @@ export function PlansTab() {
                           />
                         ) : (
                           <div className="min-w-[7rem]">
-                            <div className="text-xs tabular-nums text-bk">
-                              {money(fact?.actual ?? 0)}
+                            <div className="text-xs tabular-nums">
+                              <span
+                                className="font-semibold"
+                                style={{
+                                  color:
+                                    target > 0
+                                      ? STATUS[attainmentStatus(fact?.attainment ?? 0)].fg
+                                      : "var(--color-bk)",
+                                }}
+                              >
+                                {money(fact?.actual ?? 0)}
+                              </span>
                               {target > 0 && <span className="text-g400"> / {money(target)}</span>}
                             </div>
                             {target > 0 ? (

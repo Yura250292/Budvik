@@ -74,9 +74,10 @@ export async function GET(req: Request) {
     // --- по брендах ---
     // Підсумок береться з ПОЗИЦІЙ, а не документів: один документ містить
     // товари різних брендів, тож totalAmount документа розподілити не можна.
-    prisma.$queryRaw<Array<{ brand: string | null; qty: number; amount: number; docs: number }>>`
+    prisma.$queryRaw<Array<{ brand: string | null; color: string | null; qty: number; amount: number; docs: number }>>`
       SELECT
         b.name AS brand,
+        b.color AS color,
         SUM(i.quantity)::float AS qty,
         SUM(i.quantity * i."sellingPrice")::float AS amount,
         COUNT(DISTINCT s.id)::int AS docs
@@ -88,7 +89,7 @@ export async function GET(req: Request) {
         AND s.status = 'CONFIRMED'
         ${periodCondition}
         ${repCondition}
-      GROUP BY b.name
+      GROUP BY b.name, b.color
       ORDER BY amount DESC NULLS LAST
       LIMIT 25
     `,
@@ -188,6 +189,7 @@ export async function GET(req: Request) {
       .sort((a, b) => b.amount - a.amount),
     byBrand: byBrand.map((b) => ({
       brand: b.brand ?? "Без бренду",
+      color: b.color,
       qty: b.qty,
       amount: b.amount,
       docs: b.docs,

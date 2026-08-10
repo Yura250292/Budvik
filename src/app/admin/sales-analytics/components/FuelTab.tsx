@@ -7,6 +7,8 @@ import { StatCard, money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { Badge } from "@/components/ui/Badge";
+import { CATEGORICAL } from "@/lib/analytics/colors";
 
 /**
  * Логістика: кілометраж із бота × норма авто × ціна пального.
@@ -87,9 +89,9 @@ export function FuelTab({ period }: { period: Period }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Робочі км" value={num(data.totals.workKm)} unit="км" hint="без особистих" />
-        <StatCard label="Пальне" value={num(data.totals.liters)} unit="л" />
-        <StatCard label="Вартість" value={money(data.totals.cost)} unit="грн" />
+        <StatCard label="Робочі км" value={num(data.totals.workKm)} unit="км" hint="без особистих" accent={CATEGORICAL[1]} />
+        <StatCard label="Пальне" value={num(data.totals.liters)} unit="л" accent={CATEGORICAL[2]} />
+        <StatCard label="Вартість" value={money(data.totals.cost)} unit="грн" accent={CATEGORICAL[0]} />
         <StatCard
           label="У середньому"
           value={money(data.totals.workKm > 0 ? data.totals.cost / data.totals.workKm : 0)}
@@ -179,7 +181,11 @@ export function FuelTab({ period }: { period: Period }) {
                         <td className="px-4 py-3 text-right tabular-nums text-g600">
                           {num(r.fuelConsumption, 1)}
                           <span className="ml-1 text-xs text-g400">л</span>
-                          {!r.hasVehicle && <span className="ml-1 text-[11px] text-amber-600">за замовч.</span>}
+                          {!r.hasVehicle && (
+                            <span className="ml-1.5 inline-block align-middle">
+                              <Badge status="warn">за замовч.</Badge>
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.fuelPricePerL, 2)}</td>
                       </>

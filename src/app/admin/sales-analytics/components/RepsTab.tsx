@@ -8,6 +8,8 @@ import { ProgressBar, money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { Badge } from "@/components/ui/Badge";
+import { categoricalColor } from "@/lib/analytics/colors";
 
 /**
  * Рейтинг торгових: продажі, кілометраж і виконання плану в одному рядку.
@@ -101,6 +103,15 @@ export function RepsTab({ period }: { period: Period }) {
     return Array.from(byId.values()).sort((a, b) => b.amount - a.amount);
   }, [sales.data, fuel.data, plans.data]);
 
+  // Медіана, а не середнє: один торговий із величезним оборотом на малому
+  // пробігу зсунув би середнє так, що «нижче середнього» опинилися б усі.
+  const medianPerKm = useMemo(() => {
+    const values = rows.filter((r) => r.km > 0 && r.amount > 0).map((r) => r.amount / r.km).sort((a, b) => a - b);
+    if (values.length === 0) return 0;
+    const mid = Math.floor(values.length / 2);
+    return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+  }, [rows]);
+
   const error = sales.error ?? fuel.error ?? plans.error;
   if (error) {
     return <ErrorBox message={error} onRetry={() => { sales.reload(); fuel.reload(); plans.reload(); }} />;
@@ -142,13 +153,18 @@ export function RepsTab({ period }: { period: Period }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-g100">
-            {rows.map((r) => (
+            {rows.map((r, i) => (
               <tr
                 key={r.id}
                 onClick={() => router.push(`/admin/sales-analytics/${r.id}?from=${period.from}&to=${period.to}`)}
                 className="cursor-pointer transition-colors hover:bg-g50"
               >
                 <td className="px-4 py-3">
+                  <span
+                    aria-hidden
+                    className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full align-middle"
+                    style={{ backgroundColor: categoricalColor(i) }}
+                  />
                   <span className="font-medium text-bk">{r.name}</span>
                   {r.trips > 0 && (
                     <span className="ml-2 text-xs text-g400">
@@ -160,9 +176,15 @@ export function RepsTab({ period }: { period: Period }) {
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.docs)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.km)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.fuelCost)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-g600">
+                <td className="px-4 py-3 text-right">
                   {/* Оборот на кілометр: скільки виручки приносить кожен проїханий км */}
-                  {r.km > 0 ? money(r.amount / r.km) : "—"}
+                  {r.km > 0 ? (
+                    <Badge status={r.amount / r.km >= medianPerKm ? "good" : "warn"}>
+                      {money(r.amount / r.km)}
+                    </Badge>
+                  ) : (
+                    <span className="text-g400">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {r.target > 0 ? (

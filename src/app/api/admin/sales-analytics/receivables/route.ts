@@ -9,8 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { calculateAging } from "@/lib/erp/receivables";
-import { receivableRowsByRep, toInvoiceList, toAgingInput } from "@/lib/analytics/money-facts";
+import { receivableRowsByRep, toDebtorList, sumAging } from "@/lib/analytics/money-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -37,35 +36,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Потрібен repId" }, { status: 400 });
   }
 
-  const now = new Date();
   const rows = await receivableRowsByRep(repId);
-  const invoices = toInvoiceList(rows, now);
-  const aging = calculateAging(toAgingInput(rows), now);
 
-  // Групування по клієнтах: розмова з торговим ведеться про клієнта
-  // («Петренко винен 40 тисяч»), а не про номер рахунка.
-  const byClient = new Map<
-    string,
-    { counterpartyId: string; name: string; total: number; overdue: number; invoices: typeof invoices }
-  >();
+  // Групувати нема чого: 1С віддає сальдо одним числом на клієнта, тож
+  // рядок = клієнт. Дат окремих накладних у нас немає взагалі.
+  const clients = toDebtorList(rows);
+  const aging = sumAging(rows);
 
-  for (const inv of invoices) {
-    const entry = byClient.get(inv.counterpartyId) ?? {
-      counterpartyId: inv.counterpartyId,
-      name: inv.client,
-      total: 0,
-      overdue: 0,
-      invoices: [],
-    };
-    entry.total += inv.debt;
-    if (inv.bucket !== "CURRENT") entry.overdue += inv.debt;
-    entry.invoices.push(inv);
-    byClient.set(inv.counterpartyId, entry);
-  }
-
-  const clients = Array.from(byClient.values()).sort(
-    (a, b) => b.overdue - a.overdue || b.total - a.total
-  );
-
-  return NextResponse.json({ repId, asOf: now.toISOString(), aging, clients });
+  return NextResponse.json({
+    repId,
+    // Актуальність даних задає 1С, а не момент запиту
+    syncedAt: rows.reduce<string | null>((latest, r) => {
+      const t = r.syncedAt ? new Date(r.syncedAt).toISOString() : null;
+      return t && (!latest || t > latest) ? t : latest;
+    }, null),
+    aging,
+    clients,
+  });
 }

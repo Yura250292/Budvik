@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import type { CounterpartyType } from "@prisma/client";
 import type { CounterpartyRecord, DebtRecord } from "./types";
 import { ApplyContext } from "./context";
+import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 
 export async function applyCounterparties(
   records: CounterpartyRecord[],
@@ -168,8 +169,11 @@ export async function applyDebts(records: DebtRecord[], ctx: ApplyContext): Prom
     }
 
     const balance = Number.isFinite(rec.balance) ? rec.balance : 0;
+    const aging = normalizeAging(rec, balance, cp.name, ctx);
 
-    if (Math.abs((cp.receivableBalance ?? 0) - balance) < 0.01) {
+    // Розбивка приходить не завжди, тож пропускати запис лише через
+    // незмінне сальдо не можна: борг той самий, а строки могли поїхати.
+    if (!aging && Math.abs((cp.receivableBalance ?? 0) - balance) < 0.01) {
       ctx.skipped++;
       continue;
     }
@@ -191,11 +195,103 @@ export async function applyDebts(records: DebtRecord[], ctx: ApplyContext): Prom
     try {
       await prisma.counterparty.update({
         where: { id: cp.id },
-        data: { receivableBalance: balance, balanceSyncedAt: new Date() },
+        data: {
+          receivableBalance: balance,
+          balanceSyncedAt: new Date(),
+          ...(aging
+            ? {
+                debtCurrent: aging.current,
+                debtOverdue30: aging.overdue30,
+                debtOverdue60: aging.overdue60,
+                debtOverdue90: aging.overdue90,
+                debtOverdue90Plus: aging.overdue90plus,
+                debtAgingSyncedAt: new Date(),
+              }
+            : {}),
+        },
       });
+
+      // Знімок на добу: без історії сальдо не порахувати приріст боргу за
+      // місяць, а на ньому будується зарплата. Обмін іде раз на день, тож
+      // повторний прогін просто перезаписує сьогоднішній рядок.
+      const day = kyivDayStart(kyivDate(new Date()));
+      await prisma.debtSnapshot.upsert({
+        where: { counterpartyId_day: { counterpartyId: cp.id, day } },
+        create: {
+          counterpartyId: cp.id,
+          day,
+          balance,
+          current: aging?.current ?? null,
+          overdue30: aging?.overdue30 ?? null,
+          overdue60: aging?.overdue60 ?? null,
+          overdue90: aging?.overdue90 ?? null,
+          overdue90Plus: aging?.overdue90plus ?? null,
+        },
+        update: {
+          balance,
+          ...(aging
+            ? {
+                current: aging.current,
+                overdue30: aging.overdue30,
+                overdue60: aging.overdue60,
+                overdue90: aging.overdue90,
+                overdue90Plus: aging.overdue90plus,
+              }
+            : {}),
+        },
+      });
+
       ctx.updated++;
     } catch (e) {
       ctx.fail(cp.name, e);
     }
   }
+}
+
+type NormalizedAging = {
+  current: number;
+  overdue30: number;
+  overdue60: number;
+  overdue90: number;
+  overdue90plus: number;
+};
+
+/**
+ * Розбивка боргу за строками, якщо 1С її прислала.
+ *
+ * Сума розбивки має сходитися із сальдо. Коли не сходиться — довіряємо
+ * сальдо (це головне число, воно приходить з іншого регістру) і пишемо
+ * розбіжність у журнал: мовчки підганяти цифри не можна, бо на них
+ * рахується зарплата.
+ */
+function normalizeAging(
+  rec: DebtRecord,
+  balance: number,
+  cpName: string,
+  ctx: ApplyContext
+): NormalizedAging | null {
+  if (!rec.aging) return null;
+
+  const n = (v: number | undefined) => (Number.isFinite(v) ? (v as number) : 0);
+  const aging: NormalizedAging = {
+    current: n(rec.aging.current),
+    overdue30: n(rec.aging.overdue30),
+    overdue60: n(rec.aging.overdue60),
+    overdue90: n(rec.aging.overdue90),
+    overdue90plus: n(rec.aging.overdue90plus),
+  };
+
+  const sum = Object.values(aging).reduce((s, v) => s + v, 0);
+  if (Math.abs(sum - balance) > 1) {
+    ctx.discrepancy({
+      entityType: "counterparty",
+      entityRef: rec.externalId,
+      entityName: cpName,
+      field: "debtAging",
+      value1C: `розбивка ${sum.toFixed(2)}`,
+      valueBudvik: `сальдо ${balance.toFixed(2)}`,
+    });
+  }
+
+  return aging;
 }

@@ -24,6 +24,7 @@ import {
   collectedByBrand,
   receivableRowsByRep,
   agingByRep,
+  debtDeltaByRep,
   type CollectedRow,
   type ReceivableRow,
 } from "@/lib/analytics/money-facts";
@@ -198,20 +199,48 @@ export async function buildPeriodFacts(
     ? collected
     : await collectedByRepBrand(monthRange.from, monthRange.to);
 
-  const [aging, attainment] = await Promise.all([
-    Promise.resolve(agingByRep(receivables)),
+  const [attainment, revenue, debtDelta] = await Promise.all([
     planAttainmentByRep(month, repIds, collectedInMonth),
+    revenueByRep(period.from, period.to),
+    debtDeltaByRep(period.from, period.to),
   ]);
 
+  const aging = agingByRep(receivables);
   const totals = collectedTotals(collected);
+  const revenueByRepId = new Map(revenue.map((r) => [r.repId, r]));
 
   const result = new Map<string, PeriodFacts>();
   for (const repId of repIds) {
     const money = totals.get(repId) ?? { amount: 0, profit: 0 };
     const debt = aging.get(repId);
+    const rev = revenueByRepId.get(repId);
+    const delta = debtDelta.get(repId);
+
+    // База нарахування — гроші, які реально зайшли.
+    //
+    // Ідеальне джерело — рознесені оплати (PaymentAllocation): там точно
+    // видно, хто скільки забрав. Але 1С поки не віддає прив'язку оплат до
+    // торгового, і таблиця порожня. Поки її немає, рахуємо непрямо:
+    // відвантажив на 100 тис., борг його клієнтів виріс на 30 — реально
+    // приніс 70. Якщо борг зменшився, торговий ще й старе позбирав, і
+    // база виходить більшою за оборот — це чесно.
+    const useCollected = money.amount > 0;
+    const revenueAmount = rev?.amount ?? 0;
+    const effective = useCollected
+      ? money
+      : {
+          amount: Math.max(0, revenueAmount - (delta?.delta ?? 0)),
+          // Прибуток масштабуємо в тій же пропорції: маржа по зібраному
+          // вважається такою ж, як по відвантаженому.
+          profit:
+            revenueAmount > 0
+              ? (rev?.profit ?? 0) * (Math.max(0, revenueAmount - (delta?.delta ?? 0)) / revenueAmount)
+              : 0,
+        };
+
     result.set(repId, {
-      collectedAmount: money.amount,
-      collectedProfit: money.profit,
+      collectedAmount: effective.amount,
+      collectedProfit: effective.profit,
       byBrand: collectedByBrand(collected, repId),
       receivableTotal: debt?.total ?? 0,
       receivableOverdue: debt?.overdue ?? 0,

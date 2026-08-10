@@ -65,21 +65,21 @@ type RepResponse = {
   };
   collected: { amount: number; profit: number; ratio: number };
   receivables: {
-    asOf: string;
+    syncedAt: string | null;
     total: number;
     current: number;
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
-    invoices: Array<{
-      id: string;
-      number: string;
-      client: string;
-      issuedAt: string;
-      ageDays: number;
+    unknown: number;
+    clients: Array<{
+      counterpartyId: string;
+      name: string;
+      code: string | null;
       debt: number;
-      bucket: ReceivableBucket;
-      daysOverdue: number;
+      overdue: number | null;
+      current: number | null;
+      lastDocAt: string | null;
     }>;
   };
   earnings: null | {
@@ -225,7 +225,11 @@ export function RepProfile({
                 <div className="p-4 sm:p-5">
                   <CardHeader
                     title="Дебіторка"
-                    hint={`Непогашені рахунки станом на ${formatDate(data.receivables.asOf)} — залишок, а не оборот за період. Борг старший за 14 днів вважається протермінованим.`}
+                    hint={
+                      data.receivables.syncedAt
+                        ? `Сальдо з 1С станом на ${formatDate(data.receivables.syncedAt)} — залишок, а не оборот за період.`
+                        : "Сальдо з 1С — залишок, а не оборот за період."
+                    }
                   />
 
                   {data.receivables.total > 0 ? (
@@ -236,11 +240,17 @@ export function RepProfile({
                         </span>
                         <span className="text-sm text-g500">грн</span>
                         <span className="ml-auto">
-                          <Badge status={data.receivables.overdue > 0 ? "bad" : "good"} dot>
-                            {data.receivables.overdue > 0
-                              ? `прострочено ${money(data.receivables.overdue)} (${num(data.receivables.overdueRatio)}%)`
-                              : "простроченої немає"}
-                          </Badge>
+                          {data.receivables.unknown >= data.receivables.total ? (
+                            <Badge status="neutral" dot>
+                              строки невідомі
+                            </Badge>
+                          ) : (
+                            <Badge status={data.receivables.overdue > 0 ? "bad" : "good"} dot>
+                              {data.receivables.overdue > 0
+                                ? `прострочено ${money(data.receivables.overdue)} (${num(data.receivables.overdueRatio)}%)`
+                                : "простроченої немає"}
+                            </Badge>
+                          )}
                         </span>
                       </div>
 
@@ -260,43 +270,55 @@ export function RepProfile({
                             </span>
                           ))}
                       </div>
+
+                      {data.receivables.unknown > 0 && (
+                        <p className="text-xs text-g500">
+                          Для {money(data.receivables.unknown)} грн 1С ще не передала розбивку за
+                          строками — цей борг не віднесено ні до робочого, ні до простроченого.
+                        </p>
+                      )}
                     </div>
                   ) : (
-                    <EmptyState title="Дебіторки немає" hint="Усі виставлені рахунки оплачені." />
+                    <EmptyState title="Дебіторки немає" hint="За даними 1С клієнти нічого не винні." />
                   )}
                 </div>
 
-                {data.receivables.invoices.length > 0 && (
+                {data.receivables.clients.length > 0 && (
                   <div className="max-h-[320px] overflow-auto border-t border-g100">
                     <table className="w-full min-w-[480px] text-sm">
                       <thead className="sticky top-0">
                         <tr className="border-b border-g200 bg-g50 text-left text-xs font-medium text-g500">
                           <th className="px-4 py-2.5">Клієнт</th>
-                          <th className="px-4 py-2.5">Рахунок від</th>
+                          <th className="px-4 py-2.5 text-right">Прострочено</th>
                           <th className="px-4 py-2.5 text-right">Борг</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-g100">
-                        {data.receivables.invoices.map((inv) => (
-                          <tr key={inv.id} className="hover:bg-g50">
+                        {data.receivables.clients.map((client) => (
+                          <tr key={client.counterpartyId} className="hover:bg-g50">
                             <td className="px-4 py-2.5">
-                              <span className="inline-flex items-center gap-2">
-                                <ColorDot color={BUCKET_COLORS[inv.bucket]} size={8} />
-                                <span className="text-bk">{inv.client}</span>
-                              </span>
-                              <span className="ml-4 block font-mono text-xs text-g400">{inv.number}</span>
-                            </td>
-                            <td className="px-4 py-2.5 text-xs text-g600">
-                              {formatDate(inv.issuedAt)}
-                              <span className="block text-g400">{num(inv.ageDays)} дн. тому</span>
-                              {inv.daysOverdue > 0 && (
-                                <span className="block" style={{ color: BUCKET_COLORS[inv.bucket] }}>
-                                  прострочено {num(inv.daysOverdue)} дн.
+                              <span className="text-bk">{client.name}</span>
+                              {client.lastDocAt && (
+                                <span className="block text-xs text-g400">
+                                  остання відвантажка {formatDate(client.lastDocAt)}
                                 </span>
                               )}
                             </td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                              {client.overdue === null ? (
+                                <span className="text-g400" title="1С не передала розбивку за строками">
+                                  ?
+                                </span>
+                              ) : client.overdue > 0 ? (
+                                <span className="font-semibold" style={{ color: STATUS.bad.fg }}>
+                                  {money(client.overdue)}
+                                </span>
+                              ) : (
+                                <span className="text-g400">—</span>
+                              )}
+                            </td>
                             <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-bk">
-                              {money(inv.debt)}
+                              {money(client.debt)}
                             </td>
                           </tr>
                         ))}

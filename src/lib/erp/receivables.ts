@@ -13,16 +13,13 @@
 
 import type { ReceivableBucket } from "@prisma/client";
 
-/** Скільки днів борг вважається робочим. Два тижні від відвантаження. */
+/**
+ * Скільки днів борг вважається робочим — два тижні від відвантаження.
+ *
+ * Саме цю межу має застосовувати звіт 1С, коли формує розбивку: у нас
+ * дат окремих накладних немає, тож перевірити її на своєму боці нічим.
+ */
 export const GRACE_DAYS = 14;
-
-/** Межі кошиків у днях прострочення. */
-const BUCKET_DAYS: { bucket: ReceivableBucket; maxDays: number | null }[] = [
-  { bucket: "OVERDUE_30", maxDays: 30 },
-  { bucket: "OVERDUE_60", maxDays: 60 },
-  { bucket: "OVERDUE_90", maxDays: 90 },
-  { bucket: "OVERDUE_90_PLUS", maxDays: null },
-];
 
 export const BUCKET_LABELS: Record<ReceivableBucket, string> = {
   CURRENT: "Робоча (до 14 дн.)",
@@ -40,70 +37,32 @@ export const BUCKET_COLORS: Record<ReceivableBucket, string> = {
   OVERDUE_90_PLUS: "#7F1D1D",
 };
 
-export interface AgingInput {
-  /** Непогашений залишок */
-  amount: number;
-  /** Дата виставлення рахунка — від неї відлічується вік боргу */
-  issuedAt: Date;
-}
-
 export interface AgingResult {
   total: number;
   current: number;
   overdue: number;
-  /** Частка простроченої, 0..100 */
+  /** Частка простроченої серед боргу з відомими строками, 0..100 */
   overdueRatio: number;
   buckets: Record<ReceivableBucket, number>;
-}
-
-/** Скільки днів борг протермінований: вік мінус два тижні відстрочки. */
-export function overdueDaysFor(issuedAt: Date, now: Date = new Date()): number {
-  const ageDays = Math.floor((now.getTime() - issuedAt.getTime()) / 86_400_000);
-  return Math.max(0, ageDays - GRACE_DAYS);
+  /**
+   * Борг, для якого 1С ще не дала розбивку за строками. Не «робочий» і не
+   * «прострочений» — просто невідомий, і саме так його треба показувати.
+   */
+  unknown: number;
 }
 
 /**
- * Кошик для одного боргу.
+ * Порожнє старіння — для торгового без дебіторки.
  *
- * Перші два тижні борг робочий — це нормальний цикл розрахунків, а не
- * порушення. Далі кошики рахують саме дні ПОНАД відстрочку: борг віком
- * 20 днів прострочений на 6, а не на 20.
+ * Розбивку рахує 1С, а не ми: у базі є лише підсумкове сальдо по
+ * клієнту, дат окремих накладних немає. Зведення готових кошиків —
+ * `sumAging` у src/lib/analytics/money-facts.ts.
  */
-export function bucketFor(issuedAt: Date, now: Date = new Date()): ReceivableBucket {
-  const overdueDays = overdueDaysFor(issuedAt, now);
-  if (overdueDays <= 0) return "CURRENT";
-
-  for (const { bucket, maxDays } of BUCKET_DAYS) {
-    if (maxDays == null || overdueDays <= maxDays) return bucket;
-  }
-  return "OVERDUE_90_PLUS";
-}
-
-/** Зводить перелік боргів у структуру старіння. */
-export function calculateAging(items: AgingInput[], now: Date = new Date()): AgingResult {
-  const buckets: Record<ReceivableBucket, number> = {
-    CURRENT: 0,
-    OVERDUE_30: 0,
-    OVERDUE_60: 0,
-    OVERDUE_90: 0,
-    OVERDUE_90_PLUS: 0,
-  };
-
-  let total = 0;
-  for (const item of items) {
-    if (item.amount <= 0) continue;
-    buckets[bucketFor(item.issuedAt, now)] += item.amount;
-    total += item.amount;
-  }
-
-  const current = buckets.CURRENT;
-  const overdue = total - current;
-
-  return {
-    total,
-    current,
-    overdue,
-    overdueRatio: total > 0 ? (overdue / total) * 100 : 0,
-    buckets,
-  };
-}
+export const EMPTY_AGING: AgingResult = {
+  total: 0,
+  current: 0,
+  overdue: 0,
+  overdueRatio: 0,
+  buckets: { CURRENT: 0, OVERDUE_30: 0, OVERDUE_60: 0, OVERDUE_90: 0, OVERDUE_90_PLUS: 0 },
+  unknown: 0,
+};

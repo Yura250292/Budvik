@@ -42,6 +42,7 @@ type SummaryRow = {
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
+    unknown: number;
   };
   earnings: null | { total: number; gross: number; penalties: number; schemeName: string };
   net: number;
@@ -63,6 +64,7 @@ type SummaryResponse = {
     collected: number;
     receivableTotal: number;
     receivableOverdue: number;
+    receivableUnknown: number;
     earnings: number;
     earningsCovered: number;
     net: number;
@@ -71,28 +73,24 @@ type SummaryResponse = {
 };
 
 type ReceivablesResponse = {
-  asOf: string;
+  syncedAt: string | null;
   aging: {
     total: number;
     current: number;
     overdue: number;
     overdueRatio: number;
     buckets: Record<ReceivableBucket, number>;
+    unknown: number;
   };
   clients: Array<{
     counterpartyId: string;
     name: string;
-    total: number;
-    overdue: number;
-    invoices: Array<{
-      id: string;
-      number: string;
-      issuedAt: string;
-      ageDays: number;
-      debt: number;
-      bucket: ReceivableBucket;
-      daysOverdue: number;
-    }>;
+    code: string | null;
+    debt: number;
+    overdue: number | null;
+    current: number | null;
+    buckets: Record<ReceivableBucket, number> | null;
+    lastDocAt: string | null;
   }>;
 };
 
@@ -114,7 +112,7 @@ function ReceivablesPanel({ repId }: { repId: string }) {
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (loading && !data) return <div className="px-4 py-3 text-xs text-g500">Завантаження…</div>;
   if (!data || data.clients.length === 0) {
-    return <div className="px-4 py-3 text-xs text-g500">Непогашених рахунків немає.</div>;
+    return <div className="px-4 py-3 text-xs text-g500">Боргів немає.</div>;
   }
 
   const buckets = (Object.keys(BUCKET_LABELS) as ReceivableBucket[]).filter(
@@ -123,58 +121,74 @@ function ReceivablesPanel({ repId }: { repId: string }) {
 
   return (
     <div className="space-y-3 border-l-2 border-g200 bg-g50 px-4 py-3">
-      <div className="flex flex-wrap gap-2">
-        {buckets.map((b) => (
-          <span
-            key={b}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 bg-white px-2 py-1 text-xs"
-          >
+      {buckets.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {buckets.map((b) => (
             <span
-              aria-hidden
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: BUCKET_COLORS[b] }}
-            />
-            <span className="text-g600">{BUCKET_LABELS[b]}</span>
-            <span className="font-semibold tabular-nums text-bk">{money(data.aging.buckets[b])}</span>
-          </span>
-        ))}
-      </div>
+              key={b}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 bg-white px-2 py-1 text-xs"
+            >
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: BUCKET_COLORS[b] }}
+              />
+              <span className="text-g600">{BUCKET_LABELS[b]}</span>
+              <span className="font-semibold tabular-nums text-bk">{money(data.aging.buckets[b])}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {data.aging.unknown > 0 && (
+        <p className="text-xs text-g500">
+          Для {money(data.aging.unknown)} грн 1С ще не передала розбивку за строками — цей борг не
+          віднесено ні до робочого, ні до простроченого.
+        </p>
+      )}
 
       <div className="max-h-[320px] overflow-auto rounded-[var(--radius-card)] border border-g200 bg-white">
-        <table className="w-full min-w-[700px] text-xs">
+        <table className="w-full min-w-[640px] text-xs">
           <thead className="sticky top-0 z-10 bg-g50">
             <tr className="border-b border-g200 text-left font-medium text-g500">
               <th className="px-3 py-2">Клієнт</th>
-              <th className="px-3 py-2">Рахунок</th>
-              <th className="px-3 py-2">Рахунок від</th>
-              <th className="px-3 py-2 text-right">Вік, дн.</th>
-              <th className="px-3 py-2 text-right">Прострочено, дн.</th>
+              <th className="px-3 py-2">Остання відвантажка</th>
+              <th className="px-3 py-2 text-right">Робоча</th>
+              <th className="px-3 py-2 text-right">Прострочено</th>
               <th className="px-3 py-2 text-right">Борг, грн</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-g100">
-            {data.clients.flatMap((client) =>
-              client.invoices.map((inv, i) => (
-                <tr key={inv.id}>
-                  <td className="px-3 py-2 text-g600">
-                    {i === 0 ? <span className="font-medium text-bk">{client.name}</span> : null}
-                  </td>
-                  <td className="px-3 py-2 text-g600">{inv.number}</td>
-                  <td className="px-3 py-2 text-g600">{dateFmt.format(new Date(inv.issuedAt))}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-g600">{num(inv.ageDays)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {inv.bucket === "CURRENT" ? (
-                      <span className="text-g400">—</span>
-                    ) : (
-                      <span style={{ color: BUCKET_COLORS[inv.bucket] }}>{num(inv.daysOverdue)}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-bk">
-                    {money(inv.debt)}
-                  </td>
-                </tr>
-              ))
-            )}
+            {data.clients.map((client) => (
+              <tr key={client.counterpartyId}>
+                <td className="px-3 py-2">
+                  <span className="font-medium text-bk">{client.name}</span>
+                  {client.code && <span className="ml-2 font-mono text-g400">{client.code}</span>}
+                </td>
+                <td className="px-3 py-2 text-g600">
+                  {client.lastDocAt ? dateFmt.format(new Date(client.lastDocAt)) : "—"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-g600">
+                  {client.current === null ? <span className="text-g400">?</span> : money(client.current)}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {client.overdue === null ? (
+                    <span className="text-g400" title="1С не передала розбивку за строками">
+                      ?
+                    </span>
+                  ) : client.overdue > 0 ? (
+                    <span className="font-semibold" style={{ color: STATUS.bad.fg }}>
+                      {money(client.overdue)}
+                    </span>
+                  ) : (
+                    <span className="text-g400">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-bk">
+                  {money(client.debt)}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -213,7 +227,7 @@ export function SummaryTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Зведена по торгових"
-            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — станом на ${asOf}, протермінованою вважається старша за 14 днів. Клік по рядку відкриває профіль.`}
+            hint={`Оборот, паливо і зібрані кошти — за обраний період. Виконання плану — за місяць ${data.month}. Дебіторка — сальдо з 1С станом на ${asOf}, не залежить від періоду. Клік по рядку відкриває профіль.`}
           />
         </div>
 

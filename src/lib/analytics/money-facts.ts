@@ -18,7 +18,7 @@
 
 import { Prisma, type ReceivableBucket } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { calculateAging, bucketFor, overdueDaysFor, type AgingResult } from "@/lib/erp/receivables";
+import type { AgingResult } from "@/lib/erp/receivables";
 
 export type CollectedRow = {
   repId: string;
@@ -88,70 +88,140 @@ export function collectedByBrand(
 }
 
 export type ReceivableRow = {
-  invoiceId: string;
-  number: string;
-  /** Дата виставлення — від неї рахується вік боргу і прострочка */
-  issuedAt: Date;
-  /** Узгоджений строк оплати, якщо є. На старіння не впливає — лише довідка */
-  dueDate: Date | null;
-  debt: number;
   counterpartyId: string;
   clientName: string;
-  /** null — рахунок не вдалося віднести до жодного торгового */
+  clientCode: string | null;
+  /** Загальний борг клієнта за даними 1С */
+  debt: number;
+  /** Розбивка за строками; null — 1С її ще не вивантажує */
+  current: number | null;
+  overdue30: number | null;
+  overdue60: number | null;
+  overdue90: number | null;
+  overdue90plus: number | null;
+  /** Коли 1С востаннє оновила сальдо */
+  syncedAt: Date | null;
+  /** Дата останнього відвантаження — довідково, «коли востаннє брали товар» */
+  lastDocAt: Date | null;
+  /** null — борг не вдалося віднести до жодного торгового */
   repId: string | null;
 };
 
 /**
- * Непогашені рахунки з прив'язкою до торгового.
+ * Дебіторка по клієнтах із прив'язкою до торгового.
  *
- * Прив'язка двоступенева: спершу торговий із документа продажу, і лише
- * якщо його немає — торговий, за яким закріплений клієнт. Той самий
- * порядок, що й у рознесенні оплат, інакше «зібрав» і «винні» рахувалися
- * б по різних людях.
+ * Джерело — `Counterparty.receivableBalance`, тобто сальдо з 1С, а не
+ * наші `Invoice`. Причина: рахунки в базі створює синхронізація оплат уже
+ * закритими (сума = оплачено), непогашених там немає взагалі й не буде.
+ * Реальний борг живе тільки в 1С.
  *
- * LATERAL спрацьовує тільки коли в документі торгового немає, тож один
- * рахунок ніколи не потрапляє до двох торгових. ORDER BY id LIMIT 1 —
- * бо клієнт може бути закріплений за кількома: беремо детерміновано
- * першого, як робить apply-payments.
+ * Прив'язка двоступенева: спершу закріплення клієнта за торговим, потім —
+ * торговий з останнього документа продажу цьому клієнту. Порядок саме
+ * такий, бо закріплення це рішення керівника, а документ — лише слід
+ * того, хто возив востаннє.
+ *
+ * Обидва LATERAL повертають максимум один рядок, тож борг клієнта не
+ * задвоюється між торговими.
  */
 export async function receivableRowsByRep(repId?: string | null): Promise<ReceivableRow[]> {
   const rows = await prisma.$queryRaw<ReceivableRow[]>`
     SELECT
-      i.id              AS "invoiceId",
-      i.number          AS "number",
-      i."createdAt"     AS "issuedAt",
-      i."dueDate"       AS "dueDate",
-      (i."totalAmount" - i."paidAmount")::float AS debt,
-      i."counterpartyId" AS "counterpartyId",
-      c.name            AS "clientName",
-      COALESCE(s."salesRepId", src."salesRepId") AS "repId"
-    FROM "Invoice" i
-    JOIN "Counterparty" c ON c.id = i."counterpartyId"
-    LEFT JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      c.id                  AS "counterpartyId",
+      c.name                AS "clientName",
+      c.code                AS "clientCode",
+      c."receivableBalance"::float AS debt,
+      c."debtCurrent"::float       AS current,
+      c."debtOverdue30"::float     AS overdue30,
+      c."debtOverdue60"::float     AS overdue60,
+      c."debtOverdue90"::float     AS overdue90,
+      c."debtOverdue90Plus"::float AS overdue90plus,
+      c."balanceSyncedAt"    AS "syncedAt",
+      sd."createdAt"         AS "lastDocAt",
+      COALESCE(rc."salesRepId", sd."salesRepId") AS "repId"
+    FROM "Counterparty" c
     LEFT JOIN LATERAL (
-      SELECT rc."salesRepId"
-      FROM "SalesRepClient" rc
-      WHERE rc."counterpartyId" = i."counterpartyId"
-      ORDER BY rc.id
+      SELECT "salesRepId" FROM "SalesRepClient"
+      WHERE "counterpartyId" = c.id
+      ORDER BY id
       LIMIT 1
-    ) src ON s."salesRepId" IS NULL
-    WHERE i."paymentStatus" IN ('UNPAID', 'PARTIAL')
-      AND i.status <> 'CANCELLED'
-      AND (i."totalAmount" - i."paidAmount") > 0.01
+    ) rc ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT "salesRepId", "createdAt" FROM "SalesDocument"
+      WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    ) sd ON TRUE
+    WHERE c."receivableBalance" > 0.01
   `;
 
   // Фільтр по торговому — у JS, а не в SQL: запит однаковий для зведеної
-  // таблиці і для drill-down, а «нічийні» рахунки потрібні окремо.
+  // таблиці і для drill-down, а «нічийні» борги потрібні окремо.
   return repId ? rows.filter((r) => r.repId === repId) : rows;
 }
 
-/** Борги у форматі, який приймає calculateAging. */
-export function toAgingInput(rows: ReceivableRow[]) {
-  return rows.map((r) => ({ amount: r.debt, issuedAt: new Date(r.issuedAt) }));
+/**
+ * Зводить борги в структуру старіння.
+ *
+ * Розбивку не рахуємо самі — беремо ту, що дала 1С: у нас немає дат
+ * окремих накладних, лише підсумкове сальдо по клієнту. Клієнти без
+ * розбивки потрапляють у `unknown`: показати їх борг як «робочий» було б
+ * брехнею, бо ми просто не знаємо його віку.
+ */
+export function sumAging(rows: ReceivableRow[]): AgingResult {
+  const buckets: AgingResult["buckets"] = {
+    CURRENT: 0,
+    OVERDUE_30: 0,
+    OVERDUE_60: 0,
+    OVERDUE_90: 0,
+    OVERDUE_90_PLUS: 0,
+  };
+
+  let total = 0;
+  let unknown = 0;
+
+  for (const row of rows) {
+    total += row.debt;
+
+    if (!hasAging(row)) {
+      unknown += row.debt;
+      continue;
+    }
+
+    buckets.CURRENT += row.current ?? 0;
+    buckets.OVERDUE_30 += row.overdue30 ?? 0;
+    buckets.OVERDUE_60 += row.overdue60 ?? 0;
+    buckets.OVERDUE_90 += row.overdue90 ?? 0;
+    buckets.OVERDUE_90_PLUS += row.overdue90plus ?? 0;
+  }
+
+  const overdue = buckets.OVERDUE_30 + buckets.OVERDUE_60 + buckets.OVERDUE_90 + buckets.OVERDUE_90_PLUS;
+  const known = total - unknown;
+
+  return {
+    total,
+    current: buckets.CURRENT,
+    overdue,
+    // Відсоток рахуємо від боргу з відомими строками: ділити на весь
+    // борг означало б занижувати прострочку там, де 1С ще не віддала розбивку.
+    overdueRatio: known > 0 ? (overdue / known) * 100 : 0,
+    buckets,
+    unknown,
+  };
+}
+
+/** Чи прийшла для клієнта розбивка за строками. */
+export function hasAging(row: ReceivableRow): boolean {
+  return (
+    row.current !== null ||
+    row.overdue30 !== null ||
+    row.overdue60 !== null ||
+    row.overdue90 !== null ||
+    row.overdue90plus !== null
+  );
 }
 
 /** Старіння дебіторки по кожному торговому. */
-export function agingByRep(rows: ReceivableRow[], now: Date = new Date()): Map<string, AgingResult> {
+export function agingByRep(rows: ReceivableRow[]): Map<string, AgingResult> {
   const byRep = new Map<string, ReceivableRow[]>();
   for (const row of rows) {
     if (!row.repId) continue;
@@ -162,60 +232,131 @@ export function agingByRep(rows: ReceivableRow[], now: Date = new Date()): Map<s
 
   const result = new Map<string, AgingResult>();
   for (const [rep, list] of byRep) {
-    result.set(rep, calculateAging(toAgingInput(list), now));
+    result.set(rep, sumAging(list));
   }
   return result;
 }
 
-/** Порожнє старіння — для торгового, у якого дебіторки немає. */
-export const EMPTY_AGING: AgingResult = {
-  total: 0,
-  current: 0,
-  overdue: 0,
-  overdueRatio: 0,
-  buckets: { CURRENT: 0, OVERDUE_30: 0, OVERDUE_60: 0, OVERDUE_90: 0, OVERDUE_90_PLUS: 0 },
-};
-
-export type ReceivableInvoice = {
-  id: string;
-  number: string;
-  client: string;
+export type DebtorClient = {
   counterpartyId: string;
-  /** Дата рахунка — від неї рахується вік */
-  issuedAt: string;
-  /** Скільки днів борг узагалі висить */
-  ageDays: number;
+  name: string;
+  code: string | null;
   debt: number;
-  bucket: ReceivableBucket;
-  /** Днів понад відстрочку; 0 — борг ще робочий */
-  daysOverdue: number;
+  /** Прострочена частина; null — 1С не дала розбивку для цього клієнта */
+  overdue: number | null;
+  current: number | null;
+  buckets: Record<ReceivableBucket, number> | null;
+  /** Коли клієнт востаннє щось брав — підказка, чи борг «живий» */
+  lastDocAt: string | null;
 };
 
-/** Кошики за тяжкістю — для сортування списку рахунків. */
-const BUCKET_SEVERITY: Record<ReceivableBucket, number> = {
-  OVERDUE_90_PLUS: 0,
-  OVERDUE_90: 1,
-  OVERDUE_60: 2,
-  OVERDUE_30: 3,
-  CURRENT: 4,
+export type DebtDelta = {
+  repId: string;
+  /** Сальдо на початок періоду */
+  opening: number;
+  /** Сальдо на кінець періоду */
+  closing: number;
+  /** closing − opening: додатне означає, що борг виріс */
+  delta: number;
+  /** Чи є знімок на початок періоду; без нього приріст рахувати нема від чого */
+  hasOpening: boolean;
 };
 
-/** Рахунки у вигляді для UI: з кошиком, днями прострочки, від найгіршого. */
-export function toInvoiceList(rows: ReceivableRow[], now: Date = new Date()): ReceivableInvoice[] {
+/**
+ * Наскільки за період виріс борг клієнтів кожного торгового.
+ *
+ * Це різниця двох знімків, а не сума операцій: 1С віддає сальдо, а не
+ * рух по ньому. Знімок на початок беремо останній ПЕРЕД періодом —
+ * обмін іде раз на день і в потрібну дату може не потрапити.
+ *
+ * Прив'язка клієнта до торгового — поточна, не історична: якщо клієнта
+ * передали іншому торговому, весь його борг поїде за ним. Так і має
+ * бути — відповідає той, хто веде клієнта зараз.
+ */
+export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, DebtDelta>> {
+  const rows = await prisma.$queryRaw<
+    Array<{ repId: string; opening: number; closing: number; withOpening: number }>
+  >`
+    WITH client_rep AS (
+      SELECT c.id AS "counterpartyId",
+             COALESCE(rc."salesRepId", sd."salesRepId") AS "repId"
+      FROM "Counterparty" c
+      LEFT JOIN LATERAL (
+        SELECT "salesRepId" FROM "SalesRepClient"
+        WHERE "counterpartyId" = c.id ORDER BY id LIMIT 1
+      ) rc ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT "salesRepId" FROM "SalesDocument"
+        WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
+        ORDER BY "createdAt" DESC LIMIT 1
+      ) sd ON TRUE
+    ),
+    opening AS (
+      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", s.balance
+      FROM "DebtSnapshot" s
+      WHERE s.day < ${from}
+      ORDER BY s."counterpartyId", s.day DESC
+    ),
+    closing AS (
+      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", s.balance
+      FROM "DebtSnapshot" s
+      WHERE s.day <= ${to}
+      ORDER BY s."counterpartyId", s.day DESC
+    )
+    SELECT
+      cr."repId" AS "repId",
+      COALESCE(SUM(o.balance), 0)::float AS opening,
+      COALESCE(SUM(cl.balance), 0)::float AS closing,
+      COUNT(o."counterpartyId")::int AS "withOpening"
+    FROM client_rep cr
+    LEFT JOIN opening o  ON o."counterpartyId"  = cr."counterpartyId"
+    LEFT JOIN closing cl ON cl."counterpartyId" = cr."counterpartyId"
+    WHERE cr."repId" IS NOT NULL
+      AND (o."counterpartyId" IS NOT NULL OR cl."counterpartyId" IS NOT NULL)
+    GROUP BY cr."repId"
+  `;
+
+  return new Map(
+    rows.map((r) => [
+      r.repId,
+      {
+        repId: r.repId,
+        opening: r.opening,
+        closing: r.closing,
+        delta: r.closing - r.opening,
+        hasOpening: r.withOpening > 0,
+      },
+    ])
+  );
+}
+
+/** Боржники для UI: найгірші зверху — спершу за простроченою, потім за сумою. */
+export function toDebtorList(rows: ReceivableRow[]): DebtorClient[] {
   return rows
     .map((r) => {
-      const issued = new Date(r.issuedAt);
+      const known = hasAging(r);
+      const overdue = known
+        ? (r.overdue30 ?? 0) + (r.overdue60 ?? 0) + (r.overdue90 ?? 0) + (r.overdue90plus ?? 0)
+        : null;
+
       return {
-        id: r.invoiceId,
-        number: r.number,
-        client: r.clientName,
         counterpartyId: r.counterpartyId,
-        issuedAt: issued.toISOString(),
-        ageDays: Math.max(0, Math.floor((now.getTime() - issued.getTime()) / 86_400_000)),
+        name: r.clientName,
+        code: r.clientCode,
         debt: r.debt,
-        bucket: bucketFor(issued, now),
-        daysOverdue: overdueDaysFor(issued, now),
+        overdue,
+        current: known ? r.current ?? 0 : null,
+        buckets: known
+          ? {
+              CURRENT: r.current ?? 0,
+              OVERDUE_30: r.overdue30 ?? 0,
+              OVERDUE_60: r.overdue60 ?? 0,
+              OVERDUE_90: r.overdue90 ?? 0,
+              OVERDUE_90_PLUS: r.overdue90plus ?? 0,
+            }
+          : null,
+        lastDocAt: r.lastDocAt ? new Date(r.lastDocAt).toISOString() : null,
       };
     })
-    .sort((a, b) => BUCKET_SEVERITY[a.bucket] - BUCKET_SEVERITY[b.bucket] || b.debt - a.debt);
+    .sort((a, b) => (b.overdue ?? 0) - (a.overdue ?? 0) || b.debt - a.debt);
 }

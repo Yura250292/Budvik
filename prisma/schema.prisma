@@ -216,6 +216,7 @@ model User {
   // Sales rep trips (той самий Telegram бот, роль SALES)
   salesTrips       SalesTrip[]       @relation("salesTripRep")
   salesCheckpoints SalesCheckpoint[] @relation("salesCheckpointRep")
+  salesTrackPoints SalesTrackPoint[] @relation("salesTrackRep")
 
   // Плани та мотивація
   salesPlans            SalesPlan[]            @relation("salesPlanRep")
@@ -481,6 +482,19 @@ model Counterparty {
   externalId        String?   @unique // Ref_Key контрагента в 1С
   receivableBalance Float? // Сальдо дебіторки за даними 1С
   balanceSyncedAt   DateTime?
+
+  /// Розбивка боргу за строками зі звіту 1С «Дебіторська заборгованість
+  /// за строками боргу». Заповнюється, лише якщо агент вивантажує цей
+  /// звіт; інакше видно тільки загальний receivableBalance, бо з одного
+  /// числа протерміновану частину не вивести — у ньому немає дат.
+  debtCurrent       Float? // у межах відстрочки
+  debtOverdue30     Float? // прострочено до 30 днів
+  debtOverdue60     Float? // 31–60
+  debtOverdue90     Float? // 61–90
+  debtOverdue90Plus Float? // понад 90
+  debtAgingSyncedAt DateTime?
+
+  debtSnapshots DebtSnapshot[]
 
   purchaseOrders   PurchaseOrder[]
   salesDocuments   SalesDocument[]
@@ -1127,11 +1141,72 @@ model SalesTrip {
   startPhotoSuspicious Boolean @default(false)
   endPhotoSuspicious   Boolean @default(false)
 
+  // ---- Фонова трансляція геолокації (Telegram live location) ----
+  // Чекпоінти ставить людина, тож їх може не бути зовсім: обдзвонив
+  // клієнтів по телефону, а кнопку не натиснув — і маршрут порожній.
+  // Трек іде сам, без участі торгового, і саме він показує, ДЕ той був.
+
+  /// message_id повідомлення з живою локацією. Оновлення приходять
+  /// як edited_message з тим самим id — інакше їх не зіставити з поїздкою.
+  liveMessageId Int?
+
+  /// Чат, у якому триває трансляція: нагадування про згасання шлемо саме туди.
+  liveChatId String?
+
+  /// Коли трансляція почалася і коли Telegram її обірве (live_period).
+  liveStartedAt DateTime?
+  liveExpiresAt DateTime?
+
+  /// Остання точка треку — щоб не тягнути таблицю заради «чи живий трек».
+  liveLastPointAt DateTime?
+
+  /// Трансляцію вимкнули руками посеред дня. Не порушення саме по собі
+  /// (сів акумулятор, iOS прибив фон), але привід подивитися.
+  liveStoppedAt DateTime?
+
+  /// Довжина треку по точках, км. На відміну від gpsDistanceKm рахується
+  /// не по чекпоінтах, а по фоновим точкам — торговий на неї не впливає.
+  trackDistanceKm Int?
+
+  /// Скільки хвилин трансляція реально працювала протягом поїздки.
+  /// Мала цифра при довгій поїздці = день практично без контролю.
+  trackMinutes Int?
+
+  /// Частка поїздки, покрита треком (0..1). Головна метрика дисципліни:
+  /// саме її має сенс вішати на премію, а не сам факт увімкнення.
+  trackCoverage Float?
+
+  // ---- Відхилення від призначеного маршруту ----
+  // Рахується один раз при закритті поїздки: трек уже не зміниться, а
+  // перераховувати це на кожному відкритті звіту — зайва робота на
+  // сотнях тисяч точок.
+
+  /// Шаблон маршруту, з яким порівнювали (RouteTemplate.id на той день).
+  /// Зберігаємо саме id, а не назву: призначення завтра можуть змінити,
+  /// і тоді вчорашній висновок стосувався б іншого маршруту.
+  routeTemplateId String?
+
+  /// Частка точок треку в межах коридору маршруту (0..1).
+  onRouteRatio Float?
+
+  /// Кілометри, намотані поза коридором. Це не «порушення», а сума
+  /// непояснених планом кілометрів — привід подивитися.
+  offRouteKm Int?
+
+  /// Значущі епізоди виїзду за коридор: [{from,to,minutes,km,lat,lng}].
+  /// JSON, а не окрема таблиця: епізодів одиниці, читаються лише разом
+  /// із поїздкою, і жодних запитів «усі епізоди за місяць» не буде.
+  excursions Json?
+
+  /// Алерт уже надіслано — щоб повторний перерахунок не слав його вдруге.
+  deviationAlertedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user        User              @relation("salesTripRep", fields: [userId], references: [id], onDelete: Cascade)
   checkpoints SalesCheckpoint[]
+  trackPoints SalesTrackPoint[]
 
   @@index([userId, startedAt])
   @@index([status])
@@ -1172,6 +1247,52 @@ model SalesCheckpoint {
   @@unique([tripId, seq])
   @@index([tripId, createdAt])
   @@index([userId, createdAt])
+}
+
+/// Точка фонового треку з живої локації Telegram.
+///
+/// Відрізняється від SalesCheckpoint принципово: чекпоінт ставить людина
+/// («я у клієнта»), а точку треку — телефон, сам, без жодної дії. Тому
+/// чекпоінти показують, де торговий СКАЗАВ, що був, а трек — де він був
+/// насправді. Саме розбіжність між ними і є предметом контролю.
+///
+/// Рядків багато (день ≈ 100–200 точок на людину), тому модель свідомо
+/// вузька: жодних адрес і зворотного геокодування при вставці.
+model SalesTrackPoint {
+  id     String @id @default(cuid())
+  tripId String
+  userId String // денормалізовано: добірка треку по торговому без join
+
+  lat Float
+  lng Float
+
+  /// Радіус похибки GPS у метрах (horizontal_accuracy з Bot API).
+  /// Точка з похибкою 500 м не доводить нічого — без цього поля
+  /// «був за 300 м від клієнта» неможливо інтерпретувати.
+  accuracyM Int?
+
+  /// Курс і швидкість, якщо телефон їх дав. Швидкість тут — миттєва,
+  /// з GPS, а не порахована нами: вона відрізняє «стоїть у клієнта»
+  /// від «проїжджає повз».
+  headingDeg Int?
+  speedKmh   Int?
+
+  /// Час події за Telegram (edit_date), а не час запису в БД: воркер
+  /// міг лежати, і тоді createdAt збрехав би про момент перебування.
+  recordedAt DateTime
+
+  /// Метри й хвилини від попередньої точки треку. Рахуємо при вставці,
+  /// щоб звіти не робили віконних функцій по сотнях тисяч рядків.
+  metersFromPrev  Int?
+  minutesFromPrev Int?
+
+  createdAt DateTime @default(now())
+
+  trip SalesTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User      @relation("salesTrackRep", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tripId, recordedAt])
+  @@index([userId, recordedAt])
 }
 
 // ========== Бренди, плани та мотивація торгових ==========
@@ -1427,4 +1548,35 @@ model SalesVehicle {
   updatedAt DateTime @updatedAt
 
   rep User @relation("salesVehicle", fields: [repId], references: [id], onDelete: Cascade)
+}
+
+/// Знімок дебіторки клієнта на кінець дня.
+///
+/// 1С віддає лише поточне сальдо, і без історії неможливо сказати, чи
+/// борг за місяць виріс, чи торговий його закрив. А саме на прирості
+/// рахується зарплата: відвантажив на 100 тис., борг клієнтів виріс на
+/// 30 — реально приніс 70.
+///
+/// Один рядок на клієнта на добу: частіші знімки нічого не додають, бо
+/// обмін із 1С відбувається раз на день.
+model DebtSnapshot {
+  id             String   @id @default(cuid())
+  counterpartyId String
+  /// Київська дата, на кінець якої зафіксовано сальдо
+  day            DateTime
+  balance        Float
+
+  /// Розбивка за строками на цю дату, якщо 1С її давала
+  current       Float?
+  overdue30     Float?
+  overdue60     Float?
+  overdue90     Float?
+  overdue90Plus Float?
+
+  createdAt DateTime @default(now())
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@unique([counterpartyId, day])
+  @@index([day])
 }

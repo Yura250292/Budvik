@@ -14,13 +14,12 @@ import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
 import { fuelCost, revenueByRepBrand, tripFactsByRep } from "@/lib/analytics/facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
-import { calculateAging } from "@/lib/erp/receivables";
 import {
   collectedByRepBrand,
   collectedTotals,
   receivableRowsByRep,
-  toInvoiceList,
-  toAgingInput,
+  toDebtorList,
+  sumAging,
 } from "@/lib/analytics/money-facts";
 import { earningsByRep } from "@/lib/motivation/period-facts";
 
@@ -62,8 +61,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     salesRepId: repId,
     createdAt: { gte: period.from, lte: period.to },
   };
-
-  const now = new Date();
 
   const [totals, byBrand, trips, vehicle, plans, documents, timeline, brands, collected, receivableRows] = await Promise.all([
     prisma.salesDocument.aggregate({
@@ -121,7 +118,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
   ).get(repId);
 
   const collectedMoney = collectedTotals(collected).get(repId) ?? { amount: 0, profit: 0 };
-  const aging = calculateAging(toAgingInput(receivableRows), now);
+  const aging = sumAging(receivableRows);
 
   const tripFacts = trips[0] ?? { trips: 0, totalKm: 0, personalKm: 0, checkpoints: 0, daysWorked: 0 };
   const fuel = fuelCost(tripFacts.totalKm, tripFacts.personalKm, vehicle, tripFacts.daysWorked);
@@ -203,14 +200,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       ratio: revenue > 0 ? (collectedMoney.amount / revenue) * 100 : 0,
     },
     receivables: {
-      asOf: now.toISOString(),
+      // Актуальність задає 1С, а не момент запиту
+      syncedAt: receivableRows.reduce<string | null>((latest, r) => {
+        const t = r.syncedAt ? new Date(r.syncedAt).toISOString() : null;
+        return t && (!latest || t > latest) ? t : latest;
+      }, null),
       total: aging.total,
       current: aging.current,
       overdue: aging.overdue,
       overdueRatio: aging.overdueRatio,
       buckets: aging.buckets,
-      // Найгірші зверху; сотні рахунків на картці все одно не читають
-      invoices: toInvoiceList(receivableRows, now).slice(0, 100),
+      unknown: aging.unknown,
+      // Найгірші зверху; сотні клієнтів на картці все одно не читають
+      clients: toDebtorList(receivableRows).slice(0, 100),
     },
     earnings: earnings
       ? {

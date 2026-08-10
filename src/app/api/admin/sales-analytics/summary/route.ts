@@ -19,13 +19,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
 import { fuelCost, revenueByRep, tripFactsByRep } from "@/lib/analytics/facts";
-import {
-  collectedByRepBrand,
-  collectedTotals,
-  receivableRowsByRep,
-  agingByRep,
-  EMPTY_AGING,
-} from "@/lib/analytics/money-facts";
+import { collectedByRepBrand, collectedTotals, receivableRowsByRep, agingByRep } from "@/lib/analytics/money-facts";
+import { EMPTY_AGING } from "@/lib/erp/receivables";
 import { earningsByRep } from "@/lib/motivation/period-facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
 
@@ -103,7 +98,7 @@ export async function GET(req: NextRequest) {
   const tripsByRepId = new Map(trips.map((t) => [t.repId, t]));
   const vehicleByRepId = new Map(vehicles.map((v) => [v.repId, v]));
   const collectedByRepId = collectedTotals(collected);
-  const aging = agingByRep(receivableRows, now);
+  const aging = agingByRep(receivableRows);
   const planByRepId = new Map(plans.map((p) => [p.repId ?? "", p.targetValue]));
 
   const rows = reps.map((rep) => {
@@ -141,6 +136,8 @@ export async function GET(req: NextRequest) {
         overdue: debt.overdue,
         overdueRatio: debt.overdueRatio,
         buckets: debt.buckets,
+        /** Борг, для якого 1С ще не дала строки — не «робочий», а невідомий */
+        unknown: debt.unknown,
       },
       earnings: earned
         ? {
@@ -189,6 +186,7 @@ export async function GET(req: NextRequest) {
       collected: sum((r) => r.collected),
       receivableTotal: sum((r) => r.receivables.total),
       receivableOverdue: sum((r) => r.receivables.overdue),
+      receivableUnknown: sum((r) => r.receivables.unknown),
       earnings: sum((r) => r.earnings?.total ?? 0),
       /** Скільком торговим узагалі є за чим рахувати заробіток */
       earningsCovered: rows.filter((r) => r.earnings).length,

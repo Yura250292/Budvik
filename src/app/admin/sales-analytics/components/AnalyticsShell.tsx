@@ -13,26 +13,30 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPicker";
+import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
 import { FuelTab } from "./FuelTab";
 import { TripsTab } from "./TripsTab";
+import { MotivationTab } from "./MotivationTab";
 
 const TABS = [
+  { key: "summary", label: "Зведена" },
   { key: "overview", label: "Огляд" },
   { key: "reps", label: "Торгові" },
   { key: "plans", label: "КПІ та плани" },
   { key: "routes", label: "Маршрути" },
   { key: "fuel", label: "Паливо" },
   { key: "trips", label: "Поїздки" },
+  { key: "motivation", label: "Мотивація" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
 /** Вкладки, доступні лише керівництву: там видно всю команду. */
-const MANAGER_ONLY: TabKey[] = ["plans", "routes", "fuel", "trips"];
+const MANAGER_ONLY: TabKey[] = ["plans", "routes", "fuel", "trips", "motivation"];
 
 function defaultPeriod(): Period {
   const today = kyivToday();
@@ -48,7 +52,7 @@ export function AnalyticsShell() {
   const isManager = role === "ADMIN" || role === "MANAGER";
 
   const urlTab = searchParams.get("tab") as TabKey | null;
-  const [tab, setTab] = useState<TabKey>(urlTab && TABS.some((t) => t.key === urlTab) ? urlTab : "overview");
+  const [tab, setTab] = useState<TabKey>(urlTab && TABS.some((t) => t.key === urlTab) ? urlTab : "summary");
   const [period, setPeriod] = useState<Period>(() => {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
@@ -61,16 +65,16 @@ export function AnalyticsShell() {
     [isManager]
   );
 
-  // Торговий, що потрапив на менеджерську вкладку через URL, повертається на огляд.
+  // Торговий, що потрапив на менеджерську вкладку через URL, повертається на зведену.
   useEffect(() => {
-    if (!isManager && MANAGER_ONLY.includes(tab)) setTab("overview");
+    if (!isManager && MANAGER_ONLY.includes(tab)) setTab("summary");
   }, [isManager, tab]);
 
   // Стан у querystring: replace, а не push — інакше кожна зміна фільтра
   // додавала б запис в історію і «Назад» гортало б власні кліки.
   useEffect(() => {
     const params = new URLSearchParams();
-    if (tab !== "overview") params.set("tab", tab);
+    if (tab !== "summary") params.set("tab", tab);
     params.set("from", period.from);
     params.set("to", period.to);
     if (rep) params.set("rep", rep);
@@ -153,18 +157,20 @@ export function AnalyticsShell() {
       <div className="mx-auto max-w-7xl px-4 pt-4 pb-10 sm:px-6">
         {/* Період не потрібен вкладці КПІ — там свій вибір місяця. На «Маршрутах»
             він задає діапазон разових призначень, які потрапляють на карту. */}
-        {tab !== "plans" && (
+        {tab !== "plans" && tab !== "motivation" && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
         )}
 
+        {tab === "summary" && <SummaryTab period={period} />}
         {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
         {tab === "reps" && <RepsTab period={period} />}
         {tab === "plans" && <PlansTab />}
         {tab === "routes" && <RoutesTab period={period} />}
         {tab === "fuel" && <FuelTab period={period} />}
         {tab === "trips" && <TripsTab period={period} rep={rep} onRepChange={setRep} />}
+        {tab === "motivation" && <MotivationTab />}
       </div>
     </div>
   );

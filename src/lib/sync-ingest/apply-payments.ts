@@ -193,8 +193,12 @@ async function allocate(
 
   // Запасний шлях: клієнт закріплений за торговим
   if (!repId) {
+    // orderBy обов'язковий: клієнт може бути закріплений за кількома
+    // торговими, і без сортування Postgres віддає довільного. Тоді оплата
+    // пішла б одному, а борг того самого клієнта в аналітиці — іншому.
     const link = await prisma.salesRepClient.findFirst({
       where: { counterpartyId },
+      orderBy: { id: "asc" },
       select: { salesRepId: true },
     });
     if (link) {

@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 /** Дефолти авто, якщо для торгового ще не заведено SalesVehicle. */
 export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
 
-export type RepRevenue = { repId: string; amount: number; docs: number };
+export type RepRevenue = { repId: string; amount: number; docs: number; clients: number; profit: number };
 export type RepBrandRevenue = { repId: string; brandId: string | null; brandName: string | null; amount: number; qty: number };
 
 const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'`;
@@ -24,11 +24,13 @@ const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONF
 export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
 
-  const rows = await prisma.$queryRaw<Array<{ repId: string; amount: number; docs: number }>>`
+  const rows = await prisma.$queryRaw<RepRevenue[]>`
     SELECT
       s."salesRepId" AS "repId",
       SUM(s."totalAmount")::float AS amount,
-      COUNT(*)::int AS docs
+      COUNT(*)::int AS docs,
+      COUNT(DISTINCT s."counterpartyId")::int AS clients,
+      COALESCE(SUM(s."profitAmount"), 0)::float AS profit
     FROM "SalesDocument" s
     WHERE ${SOURCE_FILTER}
       AND s."salesRepId" IS NOT NULL

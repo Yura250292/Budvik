@@ -12,6 +12,8 @@ import { ErrorBox } from "../../components/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { ColorDot } from "@/components/ui/Badge";
 import { CATEGORICAL, NEUTRAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
+import { BUCKET_LABELS, BUCKET_COLORS } from "@/lib/erp/receivables";
+import type { ReceivableBucket } from "@prisma/client";
 
 /**
  * Профіль торгового: продажі по фірмах, поїздки, паливо і план в одному
@@ -61,6 +63,31 @@ type RepResponse = {
     costPerDay: number;
     costPerRevenue: number;
   };
+  collected: { amount: number; profit: number; ratio: number };
+  receivables: {
+    asOf: string;
+    total: number;
+    current: number;
+    overdue: number;
+    overdueRatio: number;
+    buckets: Record<ReceivableBucket, number>;
+    invoices: Array<{
+      id: string;
+      number: string;
+      client: string;
+      dueDate: string | null;
+      debt: number;
+      bucket: ReceivableBucket;
+      daysOverdue: number;
+    }>;
+  };
+  earnings: null | {
+    schemeName: string;
+    total: number;
+    gross: number;
+    penalties: number;
+    lines: Array<{ ruleId: string; label: string; amount: number; explanation: string }>;
+  };
   timeline: Array<{ day: string; docs: number; amount: number }>;
   documents: Array<{ id: string; number: string; date: string; amount: number; client: string }>;
 };
@@ -86,7 +113,7 @@ export function RepProfile({
     `/api/admin/sales-analytics/rep/${repId}?from=${period.from}&to=${period.to}`
   );
 
-  const backHref = `/admin/sales-analytics?tab=reps&from=${period.from}&to=${period.to}`;
+  const backHref = `/admin/sales-analytics?from=${period.from}&to=${period.to}`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -133,8 +160,15 @@ export function RepProfile({
 
         {data && (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
               <StatCard label="Оборот" value={money(data.totals.amount)} unit="грн" hint={`${data.totals.docs} док.`} accent={CATEGORICAL[0]} />
+              <StatCard
+                label="Зібрано коштів"
+                value={money(data.collected.amount)}
+                unit="грн"
+                hint={data.collected.ratio > 0 ? `${num(data.collected.ratio)}% від обороту` : "оплат за період немає"}
+                accent={CATEGORICAL[4]}
+              />
               <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
               <StatCard
                 label="Робочі км"
@@ -183,6 +217,163 @@ export function RepProfile({
                 />
               )}
             </Card>
+
+            {/* --- Дебіторка і заробіток --- */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card padded={false}>
+                <div className="p-4 sm:p-5">
+                  <CardHeader
+                    title="Дебіторка"
+                    hint={`Непогашені рахунки станом на ${formatDate(data.receivables.asOf)} — залишок, а не оборот за період.`}
+                  />
+
+                  {data.receivables.total > 0 ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <span className="text-2xl font-semibold tabular-nums text-bk">
+                          {money(data.receivables.total)}
+                        </span>
+                        <span className="text-sm text-g500">грн</span>
+                        <span className="ml-auto">
+                          <Badge status={data.receivables.overdue > 0 ? "bad" : "good"} dot>
+                            {data.receivables.overdue > 0
+                              ? `прострочено ${money(data.receivables.overdue)} (${num(data.receivables.overdueRatio)}%)`
+                              : "простроченої немає"}
+                          </Badge>
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {(Object.keys(BUCKET_LABELS) as ReceivableBucket[])
+                          .filter((b) => data.receivables.buckets[b] > 0)
+                          .map((b) => (
+                            <span
+                              key={b}
+                              className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs"
+                            >
+                              <ColorDot color={BUCKET_COLORS[b]} size={8} />
+                              <span className="text-g600">{BUCKET_LABELS[b]}</span>
+                              <span className="font-semibold tabular-nums text-bk">
+                                {money(data.receivables.buckets[b])}
+                              </span>
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <EmptyState title="Дебіторки немає" hint="Усі виставлені рахунки оплачені." />
+                  )}
+                </div>
+
+                {data.receivables.invoices.length > 0 && (
+                  <div className="max-h-[320px] overflow-auto border-t border-g100">
+                    <table className="w-full min-w-[480px] text-sm">
+                      <thead className="sticky top-0">
+                        <tr className="border-b border-g200 bg-g50 text-left text-xs font-medium text-g500">
+                          <th className="px-4 py-2.5">Клієнт</th>
+                          <th className="px-4 py-2.5">Строк</th>
+                          <th className="px-4 py-2.5 text-right">Борг</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-g100">
+                        {data.receivables.invoices.map((inv) => (
+                          <tr key={inv.id} className="hover:bg-g50">
+                            <td className="px-4 py-2.5">
+                              <span className="inline-flex items-center gap-2">
+                                <ColorDot color={BUCKET_COLORS[inv.bucket]} size={8} />
+                                <span className="text-bk">{inv.client}</span>
+                              </span>
+                              <span className="ml-4 block font-mono text-xs text-g400">{inv.number}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-g600">
+                              {inv.dueDate ? formatDate(inv.dueDate) : "не вказано"}
+                              {inv.daysOverdue > 0 && (
+                                <span className="block" style={{ color: BUCKET_COLORS[inv.bucket] }}>
+                                  +{num(inv.daysOverdue)} дн.
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-bk">
+                              {money(inv.debt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="Заробіток"
+                  hint={
+                    data.earnings
+                      ? `Схема: ${data.earnings.schemeName}. Рахується зі зібраних коштів, а не з обороту.`
+                      : undefined
+                  }
+                />
+
+                {data.earnings ? (
+                  <div className="space-y-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-semibold tabular-nums text-bk">
+                        {money(data.earnings.total)}
+                      </span>
+                      <span className="text-sm text-g500">грн</span>
+                    </div>
+
+                    {data.earnings.lines.length > 0 ? (
+                      <dl className="divide-y divide-g100 text-sm">
+                        {data.earnings.lines.map((line) => (
+                          <div key={line.ruleId} className="flex items-baseline justify-between gap-3 py-2">
+                            <dt className="min-w-0">
+                              <span className="block text-g600">{line.label}</span>
+                              <span className="block text-xs text-g500">{line.explanation}</span>
+                            </dt>
+                            <dd
+                              className="shrink-0 font-medium tabular-nums"
+                              style={{ color: line.amount < 0 ? STATUS.bad.fg : "var(--color-bk)" }}
+                            >
+                              {line.amount < 0 ? "−" : ""}
+                              {money(Math.abs(line.amount))}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p className="text-xs text-g500">
+                        Жодне правило схеми не спрацювало: за період немає ані зібраних коштів, ані виконаних планів.
+                      </p>
+                    )}
+
+                    <dl className="border-t border-g200 pt-2 text-sm">
+                      <div className="flex items-baseline justify-between gap-3 py-1">
+                        <dt className="text-g600">Нараховано</dt>
+                        <dd className="font-medium tabular-nums text-bk">{money(data.earnings.gross)}</dd>
+                      </div>
+                      {data.earnings.penalties > 0 && (
+                        <div className="flex items-baseline justify-between gap-3 py-1">
+                          <dt className="text-g600">Утримання</dt>
+                          <dd className="font-medium tabular-nums" style={{ color: STATUS.bad.fg }}>
+                            −{money(data.earnings.penalties)}
+                          </dd>
+                        </div>
+                      )}
+                      <div className="flex items-baseline justify-between gap-3 py-1">
+                        <dt className="font-semibold text-bk">До виплати</dt>
+                        <dd className="font-semibold tabular-nums text-bk">{money(data.earnings.total)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Схему мотивації не призначено"
+                    hint="Призначте її на вкладці «Мотивація» — тоді тут з'явиться розрахунок заробітку."
+                  />
+                )}
+              </Card>
+            </div>
 
             <Card>
               <CardHeader title="Динаміка обороту" />

@@ -17,6 +17,45 @@ export const dynamic = "force-dynamic";
 
 const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 
+type Excursion = {
+  from: string;
+  to: string;
+  minutes: number;
+  km: number;
+  maxDistanceM: number;
+  lat: number;
+  lng: number;
+};
+
+/**
+ * Скільки точок треку віддавати на мапу.
+ *
+ * За день їх буває 150–200 на поїздку, а на екрані 4000×2000 різниця між
+ * 200 і 800 точками невидима. Ліміт захищає не мапу, а payload: кілька
+ * поїздок по кілька сотень точок перетворюють відповідь на мегабайти.
+ */
+const MAX_TRACK_POINTS = 400;
+
+/**
+ * Рівномірне проріджування. Перша й остання точки зберігаються завжди —
+ * інакше лінія на мапі починалася б і закінчувалася не там, де поїздка.
+ */
+function thinTrack(points: Array<{ lat: number; lng: number }>) {
+  if (points.length <= MAX_TRACK_POINTS) {
+    return points.map((p) => ({ lat: p.lat, lng: p.lng }));
+  }
+
+  const step = points.length / MAX_TRACK_POINTS;
+  const out: Array<{ lat: number; lng: number }> = [];
+  for (let i = 0; i < MAX_TRACK_POINTS; i++) {
+    const p = points[Math.floor(i * step)];
+    out.push({ lat: p.lat, lng: p.lng });
+  }
+  const last = points[points.length - 1];
+  out.push({ lat: last.lat, lng: last.lng });
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -49,7 +88,15 @@ export async function GET(req: NextRequest) {
         userId: repId,
         startedAt: { gte: kyivDayStart(day), lte: kyivDayEnd(day) },
       },
-      include: { checkpoints: { orderBy: { seq: "asc" } } },
+      include: {
+        checkpoints: { orderBy: { seq: "asc" } },
+        // Точок за день сотні. Тягнемо лише координати й час: адреси тут
+        // не потрібні, а accuracy потрібна аналізу, не мапі.
+        trackPoints: {
+          orderBy: { recordedAt: "asc" },
+          select: { lat: true, lng: true, recordedAt: true },
+        },
+      },
       orderBy: { startedAt: "asc" },
     }),
     prisma.user.findUnique({ where: { id: repId }, select: { id: true, name: true } }),
@@ -64,6 +111,20 @@ export async function GET(req: NextRequest) {
     endTime: t.endedAt ? kyivTime(t.endedAt) : null,
     distanceKm: t.distanceKm,
     durationMinutes: t.durationMinutes,
+    // Контроль маршруту: рахувалося при закритті поїздки, тут лише віддаємо
+    trackDistanceKm: t.trackDistanceKm,
+    trackMinutes: t.trackMinutes,
+    trackCoverage: t.trackCoverage,
+    onRouteRatio: t.onRouteRatio,
+    offRouteKm: t.offRouteKm,
+    // Час епізодів форматуємо тут: kyivTime живе на сервері, і тягнути
+    // таймзонні перетворення в клієнт заради двох підписів немає сенсу.
+    excursions: ((t.excursions as Excursion[] | null) ?? []).map((e) => ({
+      ...e,
+      fromTime: kyivTime(new Date(e.from)),
+      toTime: kyivTime(new Date(e.to)),
+    })),
+    track: thinTrack(t.trackPoints),
     start: t.startLat != null && t.startLng != null
       ? { lat: t.startLat, lng: t.startLng, address: t.startAddress }
       : null,
@@ -92,6 +153,14 @@ export async function GET(req: NextRequest) {
       distanceKm: actual.reduce((s, t) => s + (t.distanceKm ?? 0), 0),
       plannedStops: planned?.stops.length ?? 0,
       plannedKm: planned?.totalDistanceKm ?? null,
+      trackKm: actual.reduce((s, t) => s + (t.trackDistanceKm ?? 0), 0),
+      offRouteKm: actual.reduce((s, t) => s + (t.offRouteKm ?? 0), 0),
+      excursionsCount: actual.reduce((s, t) => s + t.excursions.length, 0),
+      /// Найгірше покриття за день: одна поїздка без треку знецінює решту
+      minCoverage: actual.reduce<number | null>((min, t) => {
+        if (t.trackCoverage == null) return min;
+        return min == null ? t.trackCoverage : Math.min(min, t.trackCoverage);
+      }, null),
     },
   });
 }

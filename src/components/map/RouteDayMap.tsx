@@ -31,6 +31,21 @@ export type ActualPoint = {
   seq?: number;
 };
 
+/** Точка фонового треку. Їх сотні, тому лише координати — без підписів. */
+export type TrackPoint = { lat: number; lng: number };
+
+/** Епізод виїзду за коридор маршруту — те, заради чого мапу й відкривають. */
+export type Excursion = {
+  /** Готові "HH:MM" — форматує сервер, де живе київська таймзона */
+  fromTime: string;
+  toTime: string;
+  minutes: number;
+  km: number;
+  maxDistanceM: number;
+  lat: number;
+  lng: number;
+};
+
 const ACTUAL_COLORS = { start: "#16A34A", checkpoint: "#2563EB", end: "#DC2626" } as const;
 
 function escapeHtml(value: string): string {
@@ -86,6 +101,8 @@ export default function RouteDayMap({
   plannedGeometry = null,
   plannedColor = "#FFB800",
   actual = [],
+  trackSegments = [],
+  excursions = [],
   height = "460px",
 }: {
   plannedStops?: PlannedStop[];
@@ -93,6 +110,13 @@ export default function RouteDayMap({
   plannedGeometry?: { type: string; coordinates: [number, number][] } | null;
   plannedColor?: string;
   actual?: ActualPoint[];
+  /**
+   * Фоновий трек із живої локації — реальний шлях, а не відмітки.
+   * Саме СЕГМЕНТИ, а не один масив: за день буває кілька поїздок, і
+   * суцільна лінія намалювала б переїзд, якого не було.
+   */
+  trackSegments?: TrackPoint[][];
+  excursions?: Excursion[];
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -115,7 +139,15 @@ export default function RouteDayMap({
 
     const map = mapRef.current;
     map.eachLayer((layer) => {
-      if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer);
+      // L.Circle — підклас L.Path, але НЕ L.Polyline, тож без явної згадки
+      // кола епізодів накопичувалися б із кожним перемальовуванням.
+      if (
+        layer instanceof L.Marker ||
+        layer instanceof L.Polyline ||
+        layer instanceof L.Circle
+      ) {
+        map.removeLayer(layer);
+      }
     });
 
     const bounds = L.latLngBounds([]);
@@ -146,15 +178,56 @@ export default function RouteDayMap({
       bounds.extend([stop.lat, stop.lng]);
     });
 
+    // --- Шар фонового треку ---
+    // Малюється ПЕРШИМ, під усім іншим: це підкладка, що показує реальний
+    // шлях. Лінія між чекпоінтами нижче — лише «як людина відмітилась», і
+    // накладена зверху вона одразу видає розбіжність між заявленим і
+    // фактичним. Саме заради цього порівняння мапу й відкривають.
+    trackSegments.forEach((segment) => {
+      if (segment.length < 2) return;
+      L.polyline(
+        segment.map((p) => [p.lat, p.lng] as [number, number]),
+        { color: "#0EA5E9", weight: 4, opacity: 0.85 }
+      ).addTo(map);
+      segment.forEach((p) => bounds.extend([p.lat, p.lng]));
+    });
+
+    // --- Епізоди відхилення ---
+    // Коло, а не маркер: епізод — це область і тривалість, а не точка.
+    excursions.forEach((e, i) => {
+      L.circle([e.lat, e.lng], {
+        radius: Math.max(600, Math.min(e.maxDistanceM, 15000)),
+        color: "#DC2626",
+        fillColor: "#DC2626",
+        fillOpacity: 0.12,
+        weight: 2,
+        dashArray: "6 4",
+      })
+        .addTo(map)
+        .bindPopup(
+          `<div style="font-family:system-ui;font-size:13px;min-width:200px">
+            <strong style="color:#DC2626">Відхилення №${i + 1}</strong><br/>
+            <span style="color:#6B7280">${escapeHtml(e.fromTime)} — ${escapeHtml(e.toTime)}</span><br/>
+            Тривалість: <strong>${e.minutes} хв</strong><br/>
+            Поза маршрутом: <strong>${e.km} км</strong><br/>
+            Найдалі від маршруту: ${Math.round(e.maxDistanceM / 1000)} км
+          </div>`
+        );
+      bounds.extend([e.lat, e.lng]);
+    });
+
     // --- Фактичний шар ---
     const route = actual
       .filter((p) => p.type !== "end")
       .concat(actual.filter((p) => p.type === "end"));
 
     if (route.length >= 2) {
+      // Пунктир: це не шлях, а послідовність відміток. Суцільною її
+      // сплутали б із треком, хоча між двома чекпоінтами торговий міг
+      // проїхати як завгодно.
       L.polyline(
         route.map((p) => [p.lat, p.lng] as [number, number]),
-        { color: "#2563EB", weight: 3, opacity: 0.7 }
+        { color: "#2563EB", weight: 2, opacity: 0.6, dashArray: "6 5" }
       ).addTo(map);
     }
 
@@ -173,7 +246,7 @@ export default function RouteDayMap({
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  }, [plannedStops, plannedGeometry, plannedColor, actual]);
+  }, [plannedStops, plannedGeometry, plannedColor, actual, trackSegments, excursions]);
 
   useEffect(() => {
     return () => {

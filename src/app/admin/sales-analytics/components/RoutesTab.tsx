@@ -85,6 +85,22 @@ type RouteDayResponse = {
     start: { lat: number; lng: number; address: string | null } | null;
     end: { lat: number; lng: number; address: string | null } | null;
     checkpoints: Array<{ id: string; lat: number; lng: number; address: string | null; seq: number; time: string }>;
+    trackCoverage: number | null;
+    onRouteRatio: number | null;
+    offRouteKm: number | null;
+    trackDistanceKm: number | null;
+    track: Array<{ lat: number; lng: number }>;
+    excursions: Array<{
+      from: string;
+      to: string;
+      fromTime: string;
+      toTime: string;
+      minutes: number;
+      km: number;
+      maxDistanceM: number;
+      lat: number;
+      lng: number;
+    }>;
   }>;
   summary: {
     tripsCount: number;
@@ -92,6 +108,10 @@ type RouteDayResponse = {
     distanceKm: number;
     plannedStops: number;
     plannedKm: number | null;
+    trackKm: number;
+    offRouteKm: number;
+    excursionsCount: number;
+    minCoverage: number | null;
   };
 };
 
@@ -324,6 +344,14 @@ export function RoutesTab({ period }: { period: Period }) {
       : []),
   ]);
 
+  // Трек і епізоди з усіх поїздок дня. Поїздок за день зазвичай одна, але
+  // якщо їх кілька — треки не змішуємо в одну лінію: між поїздками був
+  // розрив, і суцільна лінія намалювала б неіснуючий переїзд.
+  const trackSegments = (routeDay.data?.trips ?? [])
+    .map((t) => t.track)
+    .filter((t) => t.length >= 2);
+  const dayExcursions = (routeDay.data?.trips ?? []).flatMap((t) => t.excursions);
+
   return (
     <div className="space-y-4">
       {notice && (
@@ -372,7 +400,7 @@ export function RoutesTab({ period }: { period: Period }) {
           <Skeleton className="h-[460px] w-full" />
         ) : (
           <>
-            <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-5">
               <StatCard
                 label="За планом"
                 value={routeDay.data?.summary.plannedStops ?? 0}
@@ -380,13 +408,60 @@ export function RoutesTab({ period }: { period: Period }) {
                 hint={routeDay.data?.planned?.name ?? "маршрут не призначено"}
               />
               <StatCard label="Фактичні точки" value={routeDay.data?.summary.checkpointsCount ?? 0} />
-              <StatCard label="Проїхав" value={num(routeDay.data?.summary.distanceKm ?? 0)} unit="км" />
               <StatCard
-                label="Планові км"
-                value={routeDay.data?.summary.plannedKm != null ? num(routeDay.data.summary.plannedKm) : "—"}
+                label="Проїхав"
+                value={num(routeDay.data?.summary.distanceKm ?? 0)}
                 unit="км"
+                hint={
+                  routeDay.data?.summary.plannedKm != null
+                    ? `за планом ${num(routeDay.data.summary.plannedKm)} км`
+                    : undefined
+                }
+              />
+              <StatCard
+                label="Під наглядом"
+                value={
+                  routeDay.data?.summary.minCoverage != null
+                    ? `${Math.round(routeDay.data.summary.minCoverage * 100)}%`
+                    : "—"
+                }
+                hint={
+                  routeDay.data?.summary.minCoverage == null
+                    ? "трек не працював"
+                    : "частка часу з треком"
+                }
+              />
+              <StatCard
+                label="Поза маршрутом"
+                value={num(routeDay.data?.summary.offRouteKm ?? 0)}
+                unit="км"
+                hint={
+                  (routeDay.data?.summary.excursionsCount ?? 0) > 0
+                    ? `${routeDay.data?.summary.excursionsCount} епізод(ів)`
+                    : "відхилень немає"
+                }
               />
             </div>
+
+            {dayExcursions.length > 0 && (
+              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                <div className="mb-1.5 text-sm font-semibold text-red-800">
+                  Виїзди за межі маршруту
+                </div>
+                <ul className="space-y-1 text-xs text-red-700">
+                  {dayExcursions.map((e, i) => (
+                    <li key={`${e.from}-${i}`}>
+                      {e.fromTime}–{e.toTime} — {e.minutes} хв, {e.km} км,
+                      найдалі {Math.round(e.maxDistanceM / 1000)} км від маршруту
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 text-[11px] text-red-600">
+                  Корки й короткі об&apos;їзди сюди не потрапляють. Це привід уточнити
+                  в торгового, а не готовий висновок.
+                </div>
+              </div>
+            )}
 
             {(routeDay.data?.planned?.stops.length ?? 0) === 0 && actualPoints.length === 0 ? (
               <EmptyState
@@ -394,12 +469,40 @@ export function RoutesTab({ period }: { period: Period }) {
                 hint="Призначте маршрут у розкладі нижче або оберіть інший день."
               />
             ) : (
-              <RouteDayMap
-                plannedStops={routeDay.data?.planned?.stops ?? []}
-                plannedGeometry={routeDay.data?.planned?.routeGeometry ?? null}
-                plannedColor={routeDay.data?.planned?.color ?? "#FFB800"}
-                actual={actualPoints}
-              />
+              <>
+                <RouteDayMap
+                  plannedStops={routeDay.data?.planned?.stops ?? []}
+                  plannedGeometry={routeDay.data?.planned?.routeGeometry ?? null}
+                  plannedColor={routeDay.data?.planned?.color ?? "#FFB800"}
+                  actual={actualPoints}
+                  trackSegments={trackSegments}
+                  excursions={dayExcursions}
+                />
+
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-g500">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-0.5 w-5 rounded" style={{ background: "#0EA5E9" }} />
+                    Реальний трек
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-0.5 w-5 rounded border-t-2 border-dashed" style={{ borderColor: "#2563EB" }} />
+                    Відмітки торгового
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-0.5 w-5 rounded"
+                      style={{ background: routeDay.data?.planned?.color ?? "#FFB800" }}
+                    />
+                    Призначений маршрут
+                  </span>
+                  {dayExcursions.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-red-600">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-red-600" />
+                      Відхилення ({dayExcursions.length})
+                    </span>
+                  )}
+                </div>
+              </>
             )}
           </>
         )}

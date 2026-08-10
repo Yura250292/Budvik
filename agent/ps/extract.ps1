@@ -224,41 +224,11 @@ function RunQuery($text) {
     return $sel
 }
 
-<#
-  Line items of a document type, grouped by owner document.
-
-  One flat query for the whole window, grouped here, rather than a query per
-  document: thousands of round trips to 1C would dominate the cycle time.
-
-  Returns a hashtable: document externalId -> List of item objects.
-#>
-function ReadDocumentItems($ib, $queryText, $paramName, $fromDate) {
-    $result = @{}
-    $q = $ib.NewObject("Query")
-    $q.Text = [string]$queryText
-    $q.SetParameter([string]$paramName, $fromDate)
-    $rs = $q.Execute()
-    if ($null -eq $rs) { throw "Execute() returned null on document items query" }
-    $r = $rs.Choose()
-
-    while ($r.Next()) {
-        $docId = RefId $ib $r.Get(0)
-        $prodId = RefId $ib $r.Get(1)
-        # A line without a product is a service or a comment row: it carries no
-        # analytics value and the server would reject it anyway.
-        if (-not $docId -or -not $prodId) { continue }
-
-        if (-not $result.ContainsKey($docId)) {
-            $result[$docId] = New-Object Collections.Generic.List[object]
-        }
-        $result[$docId].Add([ordered]@{
-            productExternalId = $prodId
-            quantity          = Num $r.Get(2)
-            price             = Num $r.Get(3)
-        })
-    }
-    return $result
-}
+# Document line items are read INLINE at the call site, not in a helper.
+#
+# A function that builds a parameterised query and returns a hashtable comes
+# back null on this 1C build -- the same failure that forced the price query
+# to be inlined earlier. The identical code inline works.
 
 try {
     # --- categories (product groups) ---
@@ -618,8 +588,36 @@ try {
         # grouped here. Reading them per-document would mean thousands of
         # round trips to 1C.
         Log ("reading orders since {0:yyyy-MM-dd}..." -f $docsFrom)
-        $itemsByDoc = ReadDocumentItems $ib $queries.orderItemsSince $queries.paramFrom $docsFrom
-        Log ("  order items: {0} documents" -f $itemsByDoc.Count)
+
+        # Inline, not a helper -- see the note above RunQuery. One flat query
+        # for the whole window, grouped here by owner document: a query per
+        # document would mean thousands of round trips to 1C.
+        $itemsByDoc = @{}
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.orderItemsSince
+        $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on order items query" }
+        $r = $rs.Choose()
+        $itemRows = 0
+        while ($r.Next()) {
+            $docId  = RefId $ib $r.Get(0)
+            $prodId = RefId $ib $r.Get(1)
+            # A line without a product is a service or comment row: no
+            # analytics value, and the server would reject it anyway.
+            if (-not $docId -or -not $prodId) { continue }
+
+            if (-not $itemsByDoc.ContainsKey($docId)) {
+                $itemsByDoc[$docId] = New-Object Collections.Generic.List[object]
+            }
+            [void]$itemsByDoc[$docId].Add([ordered]@{
+                productExternalId = $prodId
+                quantity          = Num $r.Get(2)
+                price             = Num $r.Get(3)
+            })
+            $itemRows++
+        }
+        Log ("  order items: {0} rows in {1} documents" -f $itemRows, $itemsByDoc.Count)
 
         $w = NewWriter (Join-Path $OutDir "sales_doc.ndjson")
         $n = 0
@@ -647,7 +645,12 @@ try {
             $repName = Str $r.Get(6)
             if ($repName) { $rec.salesRepName = $repName }
 
-            if ($itemsByDoc.ContainsKey($id)) { $rec.items = $itemsByDoc[$id].ToArray() }
+            # Guarded: a document with no matched lines is still worth having
+            # -- the header carries the rep, the customer and the total, which
+            # is most of what the KPI needs.
+            if ($null -ne $itemsByDoc -and $itemsByDoc.ContainsKey($id)) {
+                $rec.items = $itemsByDoc[$id].ToArray()
+            }
             WriteRecord $w $rec
             $n++
         }

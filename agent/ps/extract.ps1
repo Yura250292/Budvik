@@ -228,13 +228,18 @@ $stats = [ordered]@{}
 # --- retry window ---------------------------------------------------------
 #
 # 1C drops user sessions around 20:00 for roughly half an hour while it runs
-# its scheduled maintenance. A run that starts just before that loses the
-# connection either on Connect() or midway through reading, and without a
-# retry the nightly full extract would simply not happen that day -- the
-# five-minute scopes recover on their own, the nightly one has no second
-# chance until tomorrow.
+# its scheduled maintenance, and a run caught in that window loses the
+# connection either on Connect() or midway through reading.
 #
-# Retrying is safe precisely because of how the run ends: the manifest is the
+# Only the "full" scope retries, and that is a deliberate restriction rather
+# than caution. The light (5 min) and hourly schedules already have a second
+# chance built in -- the next cycle. Worse, run-sync.ps1 treats a lock older
+# than 25 minutes as a crashed run, so a scope that sat here sleeping through
+# three attempts would first stall the 5-minute schedule and then have its
+# lock declared stale, letting a second run into the same out/ directory.
+# Sleeping is only safe for a scope that runs once a day.
+#
+# Retrying at all is safe because of how a run ends: the manifest is the
 # success marker and is written last, and the watermark advances only after
 # it, so an aborted attempt leaves nothing behind for the next one to trip on.
 $retryAttempts = 3
@@ -244,6 +249,19 @@ if ($config.retry) {
     if ($config.retry.delayMinutes) { $retryDelayMin = [int]$config.retry.delayMinutes }
 }
 if ($retryAttempts -lt 1) { $retryAttempts = 1 }
+
+# The short scopes fail fast and let the schedule recover, exactly as before.
+if ($Scope -ne "full") { $retryAttempts = 1 }
+
+# Total sleep must still fit the caller's stale-lock threshold, or a retrying
+# full run gets its own lock declared stale and a light run joins it in out/.
+# Clamped rather than merely warned about: a misconfigured retry that quietly
+# corrupts a nightly run is worse than one that gives up early.
+$maxSleepMin = 20
+if ($retryAttempts -gt 1 -and (($retryAttempts - 1) * $retryDelayMin) -gt $maxSleepMin) {
+    $retryDelayMin = [Math]::Max(1, [int][Math]::Floor($maxSleepMin / ($retryAttempts - 1)))
+    Log ("retry delay clamped to {0} min to stay inside the stale-lock window" -f $retryDelayMin)
+}
 
 # ------------------------------------------------------------------- run ----
 

@@ -51,16 +51,35 @@ Get-ChildItem $logDir -Filter "sync-*.log" -EA 0 |
 # 25 minutes: a full cycle measured ~100 s, so anything older than this is a
 # crash, not a slow run -- and a 5-minute schedule must not stay wedged for an
 # hour because one run was killed.
+#
+# The grace period depends on WHOSE lock it is, not on who is looking. The
+# full scope needs a longer one because extract.ps1 retries a lost connection
+# there (1C drops sessions around 20:00) and SLEEPS between attempts -- up to
+# ~20 minutes on top of the ~100 s of actual work. The lock is stamped once at
+# start and never refreshed, so it ages through that sleep.
+#
+# Judging by the reader's own scope would break the pair that matters: a light
+# run arriving at 03:50 would apply its own 25-minute threshold to the nightly
+# run's lock, declare it stale and walk into the same out/ directory. So the
+# lock file carries the scope that wrote it.
 $lockFile = Join-Path $scriptDir ".sync.lock"
 if (Test-Path $lockFile) {
     $age = (Get-Date) - (Get-Item $lockFile).LastWriteTime
-    if ($age.TotalMinutes -lt 25) {
+
+    # Locks written by the previous version hold a bare timestamp and no
+    # scope; treat those as the old 25-minute kind.
+    $holder = ""
+    try { $holder = ([string](Get-Content $lockFile -Raw -EA 0)).Trim() } catch { }
+    $staleAfterMin = 25
+    if ($holder -match "(?i)\bfull\b") { $staleAfterMin = 50 }
+
+    if ($age.TotalMinutes -lt $staleAfterMin) {
         Write-Log ("skipped: another run started {0:N0} min ago" -f $age.TotalMinutes)
         exit 0
     }
     Write-Log ("stale lock ({0:N0} min old) ignored" -f $age.TotalMinutes)
 }
-Set-Content -Path $lockFile -Value (Get-Date).ToString("o") -Encoding ASCII
+Set-Content -Path $lockFile -Value ((Get-Date).ToString("o") + " " + $Scope) -Encoding ASCII
 
 # Hard-coded rather than derived from $PSHOME: this script may itself be
 # running in either bitness, and the COM connector only exists in the 32-bit

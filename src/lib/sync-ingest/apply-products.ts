@@ -64,6 +64,7 @@ export async function applyProducts(
       slug: true,
       description: true,
       categoryId: true,
+      brandId: true,
     },
   });
 
@@ -128,6 +129,32 @@ export async function applyProducts(
   const categoryByExternalId = new Map(categories.map((c) => [c.externalId!, c.id]));
 
   let fallbackCategoryId: string | null = null;
+
+  // Бренди для автопривʼязки нових товарів.
+  //
+  // Без цього кожен новий товар із 1С приїжджав би без бренду — навіть коли
+  // в назві написано «SIGMA», — і аналітика по брендах поступово гнила б:
+  // старі товари з брендом, нові без. matchPatterns саме для цього й
+  // задумані в моделі Brand.
+  //
+  // Довші патерни перевіряються першими: «DNIPRO-M» має виграти в «DNIPRO».
+  const brands = await prisma.brand.findMany({
+    where: { isActive: true },
+    select: { id: true, matchPatterns: true },
+  });
+  const brandPatterns = brands
+    .flatMap((b) => b.matchPatterns.map((p) => ({ id: b.id, pattern: p.toLowerCase().trim() })))
+    .filter((p) => p.pattern.length >= 2)
+    .sort((a, b) => b.pattern.length - a.pattern.length);
+
+  /** Бренд за назвою товару; null, якщо жоден патерн не збігся. */
+  function detectBrandId(name: string): string | null {
+    const lower = name.toLowerCase();
+    for (const { id, pattern } of brandPatterns) {
+      if (lower.includes(pattern)) return id;
+    }
+    return null;
+  }
 
   // Резервуємо slug/sku в межах батча, щоб два нових товари з однаковою
   // назвою не зіштовхнулися на унікальному індексі.
@@ -214,13 +241,14 @@ export async function applyProducts(
         price: 0, // ціна приїде окремим батчем entityType: "price"
         stock: 0, // залишок приїде окремим батчем entityType: "stock"
         categoryId,
+        brandId: detectBrandId(rec.name),
         isActive: true,
         syncedAt: new Date(),
         syncSource: "1C",
       };
       const selectFields = {
         id: true, externalId: true, sku: true, name: true,
-        slug: true, description: true, categoryId: true,
+        slug: true, description: true, categoryId: true, brandId: true,
       };
 
       let createdProduct = null;
@@ -287,6 +315,17 @@ export async function applyProducts(
     // Опис заповнюємо лише якщо на сайті порожньо.
     if (!existing.description?.trim() && rec.description?.trim()) {
       updates.description = rec.description.trim();
+    }
+
+    // Бренд дозаповнюємо, але НІКОЛИ не перезаписуємо.
+    //
+    // Так новий бренд у довіднику підхоплює вже наявні товари: додали
+    // «Bosch» із патерном — і наступний цикл проставить його всім, де це
+    // слово є в назві. А проставлений вручну бренд лишається недоторканим:
+    // людина знає краще за пошук по рядку.
+    if (!existing.brandId) {
+      const detected = detectBrandId(rec.name);
+      if (detected) updates.brandId = detected;
     }
 
     if (Object.keys(updates).length === 0) {

@@ -178,6 +178,9 @@ model User {
   /// Колір торгового на мапі напрямків (#RRGGBB); null — детермінований fallback з палітри
   color String?
 
+  /// Фото профілю (URL у R2); null — показуємо ініціал на кольоровому кружечку
+  avatarUrl String?
+
   // Telegram (бот складу Budvik_Sklad)
   telegramId       String? @unique // Telegram user id як рядок — ID перевищують 2^31
   telegramUsername String? // @username на момент прив'язки, довідково
@@ -236,6 +239,20 @@ model User {
   routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
   routeAssignments      RouteAssignment[] @relation("routeAssignmentRep")
   salesVehicle          SalesVehicle?     @relation("salesVehicle")
+
+  dashboardLayout UserDashboardLayout?
+}
+
+/// Розкладка віджетів дашборду адмінки. Окрема модель, а не поле в User:
+/// її можна скинути одним рядком, не чіпаючи гарячу таблицю користувачів.
+model UserDashboardLayout {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// { version: 1, widgets: [{ id, type, size, order }] }
+  layout    Json
+  updatedAt DateTime @updatedAt
 }
 
 model Category {

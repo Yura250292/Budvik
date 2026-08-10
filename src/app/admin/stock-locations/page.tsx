@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 export default function StockLocationsPage() {
   const { data: session } = useSession();
@@ -276,7 +277,7 @@ export default function StockLocationsPage() {
             ) : stocks.length === 0 ? (
               <div className="text-center py-8"><p style={{ color: "#9CA3AF", fontSize: "14px" }}>Товарів не знайдено</p></div>
             ) : (
-              <div>
+              <TableScroll minWidth={620}>
                 <table style={{ width: "100%", fontSize: "14px" }}>
                   <thead>
                     <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>
@@ -312,7 +313,7 @@ export default function StockLocationsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
             )}
           </div>
         )}

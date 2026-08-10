@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 export default function ClientFolderDetailPage() {
   const { data: session } = useSession();
@@ -173,6 +174,7 @@ export default function ClientFolderDetailPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #EFEFEF" }}>
+            <TableScroll minWidth={600}>
             <table style={{ width: "100%", fontSize: "14px" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>
@@ -203,6 +205,7 @@ export default function ClientFolderDetailPage() {
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           </div>
         )}
       </div>

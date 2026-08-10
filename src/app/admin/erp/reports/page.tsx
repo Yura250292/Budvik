@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -183,6 +184,7 @@ export default function ReportsPage() {
                 <p style={{ fontSize: "13px", color: "#9CA3AF", marginBottom: "12px" }}>
                   За даними 1С (взаєморозрахунки з контрагентами), топ-50 боржників
                 </p>
+                <TableScroll minWidth={480}>
                 <table className="w-full">
                   <thead>
                     <tr style={{ borderBottom: "1px solid #EFEFEF" }}>
@@ -207,6 +209,7 @@ export default function ReportsPage() {
                     ))}
                   </tbody>
                 </table>
+                </TableScroll>
               </div>
             )}
           </>

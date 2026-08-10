@@ -276,6 +276,27 @@ html {
   to { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
 }
 
+/* Широкі таблиці: на друці скрол і мінімальна ширина ні до чого —
+   аркуш має вмістити таблицю цілком, а не обрізати її по краю. */
+@media print {
+  .table-scroll {
+    overflow: visible !important;
+  }
+  .table-scroll-inner {
+    min-width: 0 !important;
+  }
+}
+
+/* Мобільний drawer адмінки: підкладка і виїзд панелі */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
 /* Marquee animation */
 @keyframes marquee {
   0% { transform: translateX(0); }

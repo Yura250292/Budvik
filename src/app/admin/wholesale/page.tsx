@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 const BUSINESS_TYPE_LABELS: Record<string, string> = {
   PRODUCTION: "Виробництво",
@@ -369,6 +370,7 @@ export default function AdminWholesalePage() {
             </div>
           ) : (
             <div className="bg-white border rounded-xl overflow-hidden">
+              <TableScroll minWidth={560}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-g50 border-b">
@@ -409,6 +411,7 @@ export default function AdminWholesalePage() {
                   ))}
                 </tbody>
               </table>
+              </TableScroll>
             </div>
           )}
         </div>

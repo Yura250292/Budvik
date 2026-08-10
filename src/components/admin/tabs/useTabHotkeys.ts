@@ -47,7 +47,7 @@ export default function useTabHotkeys() {
         }
         if (key === "t") {
           e.preventDefault();
-          openTab("/admin");
+          openTab("/admin", { force: true });
           return;
         }
       }

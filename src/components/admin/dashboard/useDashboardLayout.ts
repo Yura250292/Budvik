@@ -51,11 +51,24 @@ export function useDashboardLayout(userId: string | undefined, role: AdminRole) 
   useEffect(() => {
     let alive = true;
 
+    /**
+     * Збережена розкладка приймається, лише якщо після чистки від
+     * невідомих типів від неї лишилася більшість віджетів. Інакше це
+     * розкладка з попереднього набору віджетів: показати від неї
+     * випадковий огризок гірше, ніж дати актуальний дефолт.
+     */
+    const usable = (stored: unknown): WidgetInstance[] | null => {
+      const before = Array.isArray(stored) ? stored.length : 0;
+      const after = sanitize(stored, role);
+      if (!after.length) return null;
+      return after.length * 2 >= before ? after : null;
+    };
+
     try {
       const raw = localStorage.getItem(cacheKey(userId));
       if (raw) {
-        const cached = sanitize((JSON.parse(raw) as DashboardLayout)?.widgets, role);
-        if (cached.length) setWidgets(cached);
+        const cached = usable((JSON.parse(raw) as DashboardLayout)?.widgets);
+        if (cached) setWidgets(cached);
       }
     } catch {
       /* зіпсований кеш — ігноруємо */
@@ -65,8 +78,8 @@ export function useDashboardLayout(userId: string | undefined, role: AdminRole) 
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!alive || !data?.layout) return;
-        const server = sanitize(data.layout.widgets, role);
-        if (server.length) setWidgets(server);
+        const server = usable(data.layout.widgets);
+        if (server) setWidgets(server);
       })
       .catch(() => {
         /* офлайн — лишаємо локальний стан */

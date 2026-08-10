@@ -9,13 +9,28 @@ export const WIDGET_SIZES = ["1x1", "2x1", "2x2", "3x1", "4x1", "4x2"] as const;
 export type WidgetSize = (typeof WIDGET_SIZES)[number];
 
 export type WidgetType =
+  // Аналітика торгових — «Зведена»
+  | "sales-totals"
+  | "plan-attainment"
+  | "money"
+  | "top-reps"
+  | "overdue-reps"
+  // Аналітика торгових — «Огляд»
+  | "revenue-timeline"
+  | "brands"
+  | "top-clients"
+  | "top-products"
+  // Звіти зі складу
+  | "warehouse-totals"
+  | "warehouse-shifts"
+  | "warehouse-productivity"
+  | "warehouse-nomenclature"
+  // Магазин (сайт)
   | "stat-orders"
   | "stat-products"
   | "stat-clients"
   | "stat-wholesale"
-  | "recent-orders"
-  | "sales-summary"
-  | "revenue-chart";
+  | "recent-orders";
 
 export type WidgetInstance = {
   id: string;
@@ -49,31 +64,40 @@ export function sizeToClass(size: WidgetSize): string {
   return `${mobileClass} ${colClass} ${rowClass}`;
 }
 
+/**
+ * Дефолтні розкладки.
+ *
+ * Порядок — за тим, як на цифри дивляться в житті: спершу гроші періоду
+ * («скільки продали, скільки зібрали, що з планом»), потім хто саме тягне
+ * і де горить дебіторка, далі динаміка й асортимент, наприкінці склад.
+ * Замовлення з сайту — внизу: їх мало, і це не щоденна робота.
+ */
+const MANAGER_LAYOUT: WidgetInstance[] = [
+  { id: "w-sales", type: "sales-totals", size: "4x1", order: 0 },
+  { id: "w-plan", type: "plan-attainment", size: "2x1", order: 1 },
+  { id: "w-money", type: "money", size: "2x1", order: 2 },
+  { id: "w-reps", type: "top-reps", size: "2x2", order: 3 },
+  { id: "w-overdue", type: "overdue-reps", size: "2x2", order: 4 },
+  { id: "w-timeline", type: "revenue-timeline", size: "4x2", order: 5 },
+  { id: "w-brands", type: "brands", size: "2x2", order: 6 },
+  { id: "w-clients", type: "top-clients", size: "2x2", order: 7 },
+  { id: "w-wh-totals", type: "warehouse-totals", size: "4x1", order: 8 },
+  { id: "w-wh-shifts", type: "warehouse-shifts", size: "2x1", order: 9 },
+  { id: "w-wh-prod", type: "warehouse-productivity", size: "2x2", order: 10 },
+];
+
 export const DEFAULT_LAYOUTS: Record<AdminRole, WidgetInstance[]> = {
-  ADMIN: [
-    { id: "w-orders", type: "stat-orders", size: "1x1", order: 0 },
-    { id: "w-products", type: "stat-products", size: "1x1", order: 1 },
-    { id: "w-clients", type: "stat-clients", size: "1x1", order: 2 },
-    { id: "w-wholesale", type: "stat-wholesale", size: "1x1", order: 3 },
-    { id: "w-summary", type: "sales-summary", size: "2x1", order: 4 },
-    { id: "w-recent", type: "recent-orders", size: "2x2", order: 5 },
-    { id: "w-revenue", type: "revenue-chart", size: "4x1", order: 6 },
-  ],
-  MANAGER: [
-    { id: "w-orders", type: "stat-orders", size: "1x1", order: 0 },
-    { id: "w-products", type: "stat-products", size: "1x1", order: 1 },
-    { id: "w-clients", type: "stat-clients", size: "1x1", order: 2 },
-    { id: "w-wholesale", type: "stat-wholesale", size: "1x1", order: 3 },
-    { id: "w-summary", type: "sales-summary", size: "2x1", order: 4 },
-    { id: "w-recent", type: "recent-orders", size: "2x2", order: 5 },
-    { id: "w-revenue", type: "revenue-chart", size: "4x1", order: 6 },
-  ],
-  // Торговому не даємо «Товари»: /admin/products для нього закритий
-  // middleware, і плитка вела б у редирект.
+  ADMIN: MANAGER_LAYOUT,
+  MANAGER: MANAGER_LAYOUT,
+  // Торговий бачить лише власні дані (API сам скоупить його до scope: "own"),
+  // тож рейтинги колег і склад сюди не потрапляють.
   SALES: [
-    { id: "w-orders", type: "stat-orders", size: "1x1", order: 0 },
-    { id: "w-summary", type: "sales-summary", size: "2x1", order: 1 },
-    { id: "w-recent", type: "recent-orders", size: "2x2", order: 2 },
+    { id: "w-sales", type: "sales-totals", size: "4x1", order: 0 },
+    { id: "w-plan", type: "plan-attainment", size: "2x1", order: 1 },
+    { id: "w-money", type: "money", size: "2x1", order: 2 },
+    { id: "w-timeline", type: "revenue-timeline", size: "4x2", order: 3 },
+    { id: "w-clients", type: "top-clients", size: "2x2", order: 4 },
+    { id: "w-products", type: "top-products", size: "2x2", order: 5 },
   ],
 };
 

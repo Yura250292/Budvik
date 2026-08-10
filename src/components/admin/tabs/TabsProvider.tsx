@@ -15,7 +15,7 @@ type TabsContextValue = TabsState & {
    * перемикання — стан сторінки не зберігається.
    */
   keepAlive: boolean;
-  openTab: (path: string, opts?: { background?: boolean }) => void;
+  openTab: (path: string, opts?: { background?: boolean; force?: boolean }) => void;
   closeTab: (id: string) => void;
   closeOthers: (id: string) => void;
   closeRight: (id: string) => void;
@@ -115,12 +115,19 @@ export default function TabsProvider({
   }, [state, userId]);
 
   /**
-   * Слідкуємо за URL: будь-яка навігація (клік у сайдбарі, назад/вперед,
-   * прямий перехід) або активує наявну вкладку, або створює нову.
+   * Слідкуємо за URL.
+   *
+   * Поводимося як браузер: звичайний перехід НЕ плодить вкладку, а
+   * замінює вміст поточної — так само, як клік по посиланню змінює
+   * сторінку у відкритій вкладці. Нова вкладка з'являється лише коли
+   * її попросили явно: кнопкою «+», Ctrl/Cmd-кліком або середньою
+   * кнопкою (див. openTab і LinkInterceptor).
+   *
+   * Виняток — закріплена вкладка: її вміст не підміняємо, бо закріплення
+   * і означає «хай ця сторінка лишається на місці», тож перехід із неї
+   * відкриває сусідню вкладку.
    */
   useEffect(() => {
-    // Як і в openTab: id генерується поза апдейтером, бо React може
-    // виконати апдейтер повторно й дати вкладці інший id.
     const now = Date.now();
     const created = newTab(pathname, now);
 
@@ -128,11 +135,24 @@ export default function TabsProvider({
       const active = prev.tabs.find((t) => t.id === prev.activeTabId);
       if (active?.path === pathname) return prev;
 
+      // Такий шлях уже відкрито в іншій вкладці — переходимо в неї,
+      // замість другої копії тієї самої сторінки.
       const match = prev.tabs.find((t) => t.path === pathname);
       if (match) {
         return {
           tabs: prev.tabs.map((t) => (t.id === match.id ? { ...t, lastActiveAt: now } : t)),
           activeTabId: match.id,
+        };
+      }
+
+      if (active && !active.pinned) {
+        return {
+          tabs: prev.tabs.map((t) =>
+            t.id === active.id
+              ? { ...t, path: pathname, title: titleForPath(pathname), iconKey: iconForPath(pathname), lastActiveAt: now }
+              : t
+          ),
+          activeTabId: active.id,
         };
       }
 
@@ -164,7 +184,7 @@ export default function TabsProvider({
   );
 
   const openTab = useCallback(
-    (path: string, opts?: { background?: boolean }) => {
+    (path: string, opts?: { background?: boolean; force?: boolean }) => {
       if (!canAccess(path, role)) return;
       // Вкладку створюємо ДО setState: newTab() використовує Math.random(),
       // а апдейтер React може виконати двічі — тоді id щоразу різні й
@@ -173,7 +193,9 @@ export default function TabsProvider({
       const created = newTab(path, opts?.background ? now - 1 : now);
 
       setState((prev) => {
-        const existing = prev.tabs.find((t) => t.path === path);
+        // force — кнопка «+»: вона має дати саме НОВУ вкладку, навіть якщо
+        // такий шлях уже відкрито. Решта викликів дублів не плодить.
+        const existing = opts?.force ? undefined : prev.tabs.find((t) => t.path === path);
         if (existing) {
           if (opts?.background) return prev;
           router.push(path);

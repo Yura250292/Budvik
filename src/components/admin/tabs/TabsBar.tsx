@@ -157,8 +157,8 @@ export default function TabsBar() {
 
       <button
         type="button"
-        onClick={() => openTab("/admin")}
-        title="Новий дашборд (Alt+T)"
+        onClick={() => openTab("/admin", { force: true })}
+        title="Нова вкладка (Alt+T)"
         aria-label="Нова вкладка"
         className="flex w-9 flex-shrink-0 items-center justify-center border-l border-g200 text-g400 transition-colors hover:bg-white hover:text-bk"
       >

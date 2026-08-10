@@ -12,13 +12,24 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import type { AdminRole } from "@/lib/admin-nav";
+import { PeriodPicker } from "@/components/ui/PeriodPicker";
 import WidgetFrame from "./WidgetFrame";
-import { widgetsForRole } from "./widget-registry";
+import { widgetsForRole, type WidgetGroup } from "./widget-registry";
 import { useDashboardLayout } from "./useDashboardLayout";
+import { DashboardDataProvider, useDashboardData } from "./DashboardData";
 import type { WidgetType } from "./layout-schema";
 
 export default function DashboardGrid({ userId, role }: { userId: string | undefined; role: AdminRole }) {
+  return (
+    <DashboardDataProvider role={role}>
+      <DashboardInner userId={userId} role={role} />
+    </DashboardDataProvider>
+  );
+}
+
+function DashboardInner({ userId, role }: { userId: string | undefined; role: AdminRole }) {
   const { widgets, loaded, update, addWidget, removeWidget, cycleSize, move, reset } = useDashboardLayout(userId, role);
+  const { period, setPeriod } = useDashboardData();
   const [editing, setEditing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -42,7 +53,7 @@ export default function DashboardGrid({ userId, role }: { userId: string | undef
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-lg font-bold leading-tight text-bk">Дашборд</h1>
           <p className="text-[12px] text-g400">
@@ -84,25 +95,42 @@ export default function DashboardGrid({ userId, role }: { userId: string | undef
         </div>
       </div>
 
+      {/* Період керує всіма віджетами одразу — окремий пікер у кожному
+          означав би різні цифри в сусідніх картках. */}
+      <div className="mb-4">
+        <PeriodPicker value={period} onChange={setPeriod} />
+      </div>
+
       {pickerOpen && editing && (
         <div className="mb-4 rounded-[var(--radius-card)] border border-g200 bg-white p-3">
           {available.length === 0 ? (
             <p className="py-2 text-center text-[13px] text-g400">Усі доступні віджети вже на дашборді</p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {available.map((def) => (
-                <button
-                  key={def.type}
-                  type="button"
-                  onClick={() => {
-                    addWidget(def.type as WidgetType);
-                    setPickerOpen(false);
-                  }}
-                  className="rounded-[var(--radius-btn)] border border-g200 px-3 py-1.5 text-[13px] font-medium text-bk transition-colors hover:border-g300 hover:bg-g50"
-                >
-                  + {def.title}
-                </button>
-              ))}
+            <div className="flex flex-col gap-3">
+              {(["Аналітика торгових", "Склад", "Магазин"] as WidgetGroup[]).map((group) => {
+                const items = available.filter((d) => d.group === group);
+                if (!items.length) return null;
+                return (
+                  <div key={group}>
+                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-g400">{group}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {items.map((def) => (
+                        <button
+                          key={def.type}
+                          type="button"
+                          onClick={() => {
+                            addWidget(def.type as WidgetType);
+                            setPickerOpen(false);
+                          }}
+                          className="rounded-[var(--radius-btn)] border border-g200 px-3 py-1.5 text-[13px] font-medium text-bk transition-colors hover:border-g300 hover:bg-g50"
+                        >
+                          + {def.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

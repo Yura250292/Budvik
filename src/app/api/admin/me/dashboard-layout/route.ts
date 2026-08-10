@@ -15,20 +15,43 @@ export const dynamic = "force-dynamic";
 
 const ADMIN_ROLES = ["ADMIN", "MANAGER", "SALES"];
 const SIZES = ["1x1", "2x1", "2x2", "3x1", "4x1", "4x2"];
+/** Перелік має збігатися з WidgetType у layout-schema.ts. */
 const TYPES = [
+  "sales-totals",
+  "plan-attainment",
+  "money",
+  "top-reps",
+  "overdue-reps",
+  "revenue-timeline",
+  "brands",
+  "top-clients",
+  "top-products",
+  "warehouse-totals",
+  "warehouse-shifts",
+  "warehouse-productivity",
+  "warehouse-nomenclature",
   "stat-orders",
   "stat-products",
   "stat-clients",
   "stat-wholesale",
   "recent-orders",
-  "sales-summary",
-  "revenue-chart",
 ];
 /**
- * Віджети, недоступні торговому: чужі клієнти, оптовики, зведення по всіх.
- * Перелік має збігатися з roles у widget-registry.tsx.
+ * Віджети, недоступні торговому: рейтинги колег, склад (його блокує
+ * middleware) і картки чужих клієнтів. Перелік має збігатися з roles
+ * у widget-registry.tsx.
  */
-const SALES_BLOCKED = ["stat-clients", "stat-wholesale", "revenue-chart", "stat-products"];
+const SALES_BLOCKED = [
+  "top-reps",
+  "overdue-reps",
+  "warehouse-totals",
+  "warehouse-shifts",
+  "warehouse-productivity",
+  "warehouse-nomenclature",
+  "stat-clients",
+  "stat-wholesale",
+  "stat-products",
+];
 const MAX_WIDGETS = 20;
 
 export async function GET() {

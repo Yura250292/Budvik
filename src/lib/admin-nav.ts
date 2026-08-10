@@ -31,9 +31,8 @@ export const TOP_ITEMS: NavItem[] = [
   { href: "/admin", title: "Дашборд", iconKey: "dashboard", roles: ALL },
   { href: "/admin/orders", title: "Замовлення", desc: "Усі замовлення", iconKey: "orders", roles: ALL },
   { href: "/admin/products", title: "Товари", desc: "Каталог", iconKey: "products", roles: AM },
-  { href: "/admin/users", title: "Клієнти", desc: "База клієнтів", iconKey: "clients", roles: AM },
+  { href: "/admin/users", title: "Користувачі", desc: "Ролі, доступи, Telegram", iconKey: "clients", roles: AM },
   { href: "/admin/wholesale", title: "Оптовики", desc: "Заявки та акаунти", iconKey: "wholesale", roles: AM },
-  { href: "/admin/sales", title: "Торгові", desc: "Акаунти торгових", iconKey: "sales", roles: AM },
 ];
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -75,7 +74,8 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "team",
     title: "Команда",
     items: [
-      { href: "/admin/sales-reps", title: "Торгові представники", desc: "Регіони, клієнти, категорії", iconKey: "team", roles: AM },
+      // Робочий профіль торгового. Ролі й доступи — у «Користувачах».
+      { href: "/admin/sales-reps", title: "Торгові представники", desc: "Регіони, клієнти, категорії, плани", iconKey: "team", roles: AM },
       { href: "/admin/erp/commissions", title: "Мотивація", desc: "Комісії менеджерів", iconKey: "star", roles: AM },
       { href: "/admin/erp/commissions/rates", title: "Ставки комісій", desc: "Налаштування відсотків", iconKey: "star", roles: AM },
     ],

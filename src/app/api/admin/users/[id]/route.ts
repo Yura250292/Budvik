@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isHexColor } from "@/lib/routes/colors";
+import { ASSIGNABLE_ROLES } from "@/lib/roles";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -129,13 +130,43 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  if (!role || !["CLIENT", "MANAGER", "SALES", "WAREHOUSE", "WHOLESALE"].includes(role)) {
+  // ADMIN свідомо поза списком: роздача адмінських прав через випадаючий
+  // список — шлях ескалації. DRIVER, навпаки, доданий — його очікують
+  // /admin/erp/delivery-routes і /manager/routes, а завести водія з адмінки
+  // досі було неможливо.
+  if (!role || !(ASSIGNABLE_ROLES as string[]).includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
   // Prevent changing own role
   if (id === session.user.id) {
     return NextResponse.json({ error: "Cannot change own role" }, { status: 400 });
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { role: true, name: true },
+  });
+  if (!target) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  // Права ADMIN не знімаються через список ролей, а MANAGER роздає лише
+  // адмін — інакше двоє менеджерів по черзі зняли б один одного.
+  if (target.role === "ADMIN") {
+    return NextResponse.json(
+      { error: "Роль адміністратора змінюють лише вручну в базі" },
+      { status: 403 }
+    );
+  }
+  if (
+    (role === "MANAGER" || target.role === "MANAGER") &&
+    session.user.role !== "ADMIN"
+  ) {
+    return NextResponse.json(
+      { error: "Призначати та знімати менеджера може лише адміністратор" },
+      { status: 403 }
+    );
   }
 
   const user = await prisma.user.update({

@@ -8,7 +8,7 @@ import DynamicShiftMap from "@/components/map/DynamicShiftMap";
 import type { ShiftPoint } from "@/components/map/ShiftMap";
 
 type PeriodPreset = "today" | "week" | "month" | "quarter" | "year" | "all";
-type Tab = "overview" | "productivity" | "workers" | "reports" | "nomenclature" | "shifts";
+type Tab = "overview" | "productivity" | "reports" | "nomenclature" | "shifts";
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "В черзі",
@@ -196,13 +196,6 @@ export default function WarehouseReportsPage() {
   const [reportDetails, setReportDetails] = useState<Record<string, any>>({});
   const [lightbox, setLightbox] = useState<string | null>(null);
 
-  // Складовщики та запити на прив'язку
-  const [workersData, setWorkersData] = useState<any>(null);
-  const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
-  // Роль визначає, які кнопки людина побачить у боті. Обирається ПЕРШОЮ,
-  // бо фільтрує список кандидатів нижче.
-  const [linkRole, setLinkRole] = useState<Record<string, string>>({});
-  const [newWorker, setNewWorker] = useState<Record<string, { name: string; email: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -224,22 +217,9 @@ export default function WarehouseReportsPage() {
     setLoading(false);
   }, [period, fromDate, toDate, workerFilter, statusFilter]);
 
-  const fetchWorkers = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/warehouse-workers");
-      if (res.ok) setWorkersData(await res.json());
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
   useEffect(() => {
     if (["ADMIN", "MANAGER"].includes(role)) fetchData();
   }, [role, fetchData]);
-
-  useEffect(() => {
-    if (["ADMIN", "MANAGER"].includes(role)) fetchWorkers();
-  }, [role, fetchWorkers]);
 
   const loadDetails = async (id: string) => {
     if (reportDetails[id]) return;
@@ -302,49 +282,6 @@ export default function WarehouseReportsPage() {
     setBusy(null);
   };
 
-  const approveRequest = async (requestId: string) => {
-    const userId = linkTarget[requestId];
-    const draft = newWorker[requestId];
-    const role = linkRole[requestId] || "WAREHOUSE";
-
-    const body: any = { requestId, role };
-    if (userId && userId !== "NEW") {
-      body.userId = userId;
-    } else {
-      if (!draft?.name || !draft?.email) {
-        alert(`Вкажіть ім'я та email нового ${role === "SALES" ? "торгового" : "складовщика"}`);
-        return;
-      }
-      body.name = draft.name;
-      body.email = draft.email;
-    }
-
-    setBusy(requestId);
-    const res = await fetch("/api/admin/warehouse-workers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) alert(json.error || "Помилка");
-    else {
-      await fetchWorkers();
-      await fetchData();
-    }
-    setBusy(null);
-  };
-
-  const unlinkWorker = async (userId: string, name: string) => {
-    if (!confirm(`Відв'язати Telegram від ${name}?`)) return;
-    setBusy(userId);
-    const res = await fetch(`/api/admin/warehouse-workers?userId=${userId}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) alert("Помилка");
-    else await fetchWorkers();
-    setBusy(null);
-  };
-
   /**
    * Точки для карти: по дві на зміну (відкриття + закриття).
    * useMemo стоїть ДО раннього return, інакше порушується порядок хуків.
@@ -389,14 +326,6 @@ export default function WarehouseReportsPage() {
   const kpis = data?.kpis;
   const workers = data?.workers || [];
 
-  // API прив'язки віддає працівників обох ролей — цей розділ про склад,
-  // тож торгових звідси відфільтровуємо (їхні звіти в /admin/sales-reports).
-  const warehouseOnly = (workersData?.workers || []).filter(
-    (w: any) => w.role !== "SALES"
-  );
-  const salesCount = (workersData?.workers || []).filter(
-    (w: any) => w.role === "SALES"
-  ).length;
   // Тип документа й пошук фільтруються на клієнті — дані вже завантажені,
   // тож зайвий запит на сервер не потрібен
   const reports = (data?.reports || []).filter((r: any) => {
@@ -455,7 +384,6 @@ export default function WarehouseReportsPage() {
               [
                 ["overview", "Огляд"],
                 ["productivity", "Продуктивність"],
-                ["workers", "Складовщики"],
                 ["reports", "Накладні"],
                 ["nomenclature", "Номенклатура"],
                 ["shifts", "Зміни"],
@@ -611,6 +539,36 @@ export default function WarehouseReportsPage() {
             {/* ---------- ОГЛЯД ---------- */}
             {activeTab === "overview" && (
               <>
+                {/* Вкладка «Складовщики» переїхала: вона роздавала ролі обом
+                    типам працівників бота, тож її місце — у «Користувачах»,
+                    поруч з рештою керування доступами, а не у звітах складу. */}
+                <div
+                  style={{
+                    ...CARD,
+                    padding: "12px 16px",
+                    marginBottom: "16px",
+                    background: "#EFF6FF",
+                    borderColor: "#BFDBFE",
+                  }}
+                >
+                  <p style={{ fontSize: "13px", color: "#1E40AF" }}>
+                    Список працівників, підключення до бота та заявки —{" "}
+                    <Link
+                      href="/admin/users?tab=warehouse"
+                      style={{ textDecoration: "underline", fontWeight: 600 }}
+                    >
+                      Користувачі → Складовщики
+                    </Link>{" "}
+                    ·{" "}
+                    <Link
+                      href="/admin/users?tab=requests"
+                      style={{ textDecoration: "underline", fontWeight: 600 }}
+                    >
+                      Заявки з бота
+                    </Link>
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
                   {[
                     { label: "Накладних", value: kpis.totalReports },
@@ -871,260 +829,6 @@ export default function WarehouseReportsPage() {
             )}
 
 
-            {/* ---------- СКЛАДОВЩИКИ ---------- */}
-            {activeTab === "workers" && (
-              <>
-                {/* API віддає працівників обох ролей — тут показуємо лише
-                    складовщиків, торгові живуть у своєму розділі звітів */}
-                {salesCount > 0 && (
-                  <div
-                    style={{
-                      ...CARD,
-                      padding: "12px 16px",
-                      marginBottom: "16px",
-                      background: "#EFF6FF",
-                      borderColor: "#BFDBFE",
-                    }}
-                  >
-                    <p style={{ fontSize: "13px", color: "#1E40AF" }}>
-                      Торгових представників у боті: <strong>{salesCount}</strong>. Їхні поїздки та
-                      пробіг —{" "}
-                      <Link href="/admin/sales-reports" style={{ textDecoration: "underline", fontWeight: 600 }}>
-                        у розділі «Звіти торгових»
-                      </Link>
-                      .
-                    </p>
-                  </div>
-                )}
-
-                {workersData?.requests?.length > 0 && (
-                  <div style={{ ...CARD, padding: "16px", marginBottom: "16px" }}>
-                    <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>
-                      Запити на підключення
-                    </h2>
-                    <p style={{ fontSize: "13px", color: "#6B7280", marginBottom: "12px" }}>
-                      Складовщик надіслав /start боту та отримав код. Звіріть код і підтвердьте.
-                    </p>
-                    {workersData.requests.map((r: any) => (
-                      <div
-                        key={r.id}
-                        style={{ padding: "12px 0", borderTop: "1px solid #F3F4F6" }}
-                      >
-                        <div className="flex flex-wrap items-center gap-3 mb-2">
-                          <span
-                            style={{
-                              fontFamily: "monospace",
-                              fontSize: "18px",
-                              fontWeight: 700,
-                              background: "#FFF8E1",
-                              padding: "4px 10px",
-                              borderRadius: "6px",
-                            }}
-                          >
-                            {r.code}
-                          </span>
-                          <span style={{ fontWeight: 600, fontSize: "14px" }}>
-                            {r.telegramName || "Без імені"}
-                          </span>
-                          {r.telegramUsername && (
-                            <span style={{ fontSize: "13px", color: "#6B7280" }}>
-                              @{r.telegramUsername}
-                            </span>
-                          )}
-                          <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                            {formatDateTime(r.createdAt)}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 items-center">
-                          {/* Роль першою: від неї залежать кнопки в боті
-                              і вона фільтрує список кандидатів */}
-                          <select
-                            value={linkRole[r.id] || "WAREHOUSE"}
-                            onChange={(e) => {
-                              setLinkRole((p) => ({ ...p, [r.id]: e.target.value }));
-                              setLinkTarget((p) => ({ ...p, [r.id]: "" }));
-                            }}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: "8px",
-                              border: "1px solid #E5E7EB",
-                              fontSize: "13px",
-                              fontWeight: 600,
-                              background: "white",
-                            }}
-                          >
-                            <option value="WAREHOUSE">Складовщик</option>
-                            <option value="SALES">Торговий</option>
-                          </select>
-
-                          <select
-                            value={linkTarget[r.id] || ""}
-                            onChange={(e) =>
-                              setLinkTarget((p) => ({ ...p, [r.id]: e.target.value }))
-                            }
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: "8px",
-                              border: "1px solid #E5E7EB",
-                              fontSize: "13px",
-                              background: "white",
-                            }}
-                          >
-                            <option value="">
-                              — Оберіть {(linkRole[r.id] || "WAREHOUSE") === "SALES" ? "торгового" : "складовщика"} —
-                            </option>
-                            {(workersData.workers || [])
-                              .filter(
-                                (w: any) =>
-                                  !w.telegramId && w.role === (linkRole[r.id] || "WAREHOUSE")
-                              )
-                              .map((w: any) => (
-                                <option key={w.id} value={w.id}>
-                                  {w.name} ({w.email})
-                                </option>
-                              ))}
-                            <option value="NEW">+ Створити нового</option>
-                          </select>
-
-                          {linkTarget[r.id] === "NEW" && (
-                            <>
-                              <input
-                                placeholder="Ім'я"
-                                value={newWorker[r.id]?.name || ""}
-                                onChange={(e) =>
-                                  setNewWorker((p) => ({
-                                    ...p,
-                                    [r.id]: { ...(p[r.id] || { name: "", email: "" }), name: e.target.value },
-                                  }))
-                                }
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: "8px",
-                                  border: "1px solid #E5E7EB",
-                                  fontSize: "13px",
-                                }}
-                              />
-                              <input
-                                placeholder="Email"
-                                value={newWorker[r.id]?.email || ""}
-                                onChange={(e) =>
-                                  setNewWorker((p) => ({
-                                    ...p,
-                                    [r.id]: { ...(p[r.id] || { name: "", email: "" }), email: e.target.value },
-                                  }))
-                                }
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: "8px",
-                                  border: "1px solid #E5E7EB",
-                                  fontSize: "13px",
-                                }}
-                              />
-                            </>
-                          )}
-
-                          <button
-                            onClick={() => approveRequest(r.id)}
-                            disabled={busy === r.id || !linkTarget[r.id]}
-                            style={{
-                              padding: "6px 14px",
-                              borderRadius: "8px",
-                              fontWeight: 600,
-                              fontSize: "13px",
-                              background: linkTarget[r.id] ? "#FFD600" : "#F3F4F6",
-                              color: linkTarget[r.id] ? "#0A0A0A" : "#9CA3AF",
-                            }}
-                          >
-                            {busy === r.id ? "..." : "Підтвердити"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{ ...CARD, padding: "16px" }}>
-                  <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px" }}>
-                    Складовщики ({warehouseOnly.length})
-                  </h2>
-                  {warehouseOnly.length === 0 && (
-                    <p style={{ color: "#6B7280", fontSize: "14px" }}>
-                      Немає складовщиків. Створіть користувача з роллю «Складовщик» або підтвердьте
-                      запит із бота.
-                    </p>
-                  )}
-                  {warehouseOnly.map((w: any) => {
-                    const agg = workers.find((x: any) => x.id === w.id);
-                    return (
-                      <div
-                        key={w.id}
-                        style={{ padding: "12px 0", borderTop: "1px solid #F3F4F6" }}
-                        className="flex flex-wrap items-center justify-between gap-2"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            {agg?.openShift && (
-                              <span
-                                style={{
-                                  width: "8px",
-                                  height: "8px",
-                                  borderRadius: "50%",
-                                  background: "#16A34A",
-                                  display: "inline-block",
-                                }}
-                              />
-                            )}
-                            <span style={{ fontWeight: 600, fontSize: "14px" }}>{w.name}</span>
-                            {w.telegramUsername && (
-                              <span style={{ fontSize: "13px", color: "#6B7280" }}>
-                                @{w.telegramUsername}
-                              </span>
-                            )}
-                          </div>
-                          <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>
-                            {w.email}
-                            {agg
-                              ? ` · ${agg.shiftsCount} змін · ${agg.reportsCount} накладних · ${formatPrice(agg.totalAmount)}`
-                              : " · немає активності за період"}
-                          </p>
-                          {agg?.openShift && (
-                            <p style={{ fontSize: "12px", color: "#16A34A", marginTop: "2px" }}>
-                              На зміні з {formatTime(agg.openShift.openedAt)}
-                              {agg.openShift.openAddress ? ` · ${agg.openShift.openAddress}` : ""}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span
-                            style={{
-                              fontSize: "12px",
-                              padding: "3px 8px",
-                              borderRadius: "6px",
-                              background: w.telegramId ? "#F0FDF4" : "#FEF3C7",
-                              color: w.telegramId ? "#16A34A" : "#D97706",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {w.telegramId ? "Telegram підключено" : "Не підключено"}
-                          </span>
-                          {w.telegramId && (
-                            <button
-                              onClick={() => unlinkWorker(w.id, w.name)}
-                              disabled={busy === w.id}
-                              style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}
-                            >
-                              Відв'язати
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
 
             {/* ---------- НАКЛАДНІ ---------- */}
             {activeTab === "reports" && (

@@ -11,6 +11,8 @@ export default withAuth(
       if (token?.role !== "ADMIN" && token?.role !== "MANAGER" && token?.role !== "SALES") {
         return NextResponse.redirect(new URL("/dashboard", req.url));
       }
+      // /admin/users тепер не просто список клієнтів, а місце, де роздають
+      // ролі й паролі — блокування для SALES тут критичніше, ніж було.
       // Увага: /admin/reports і /admin/sales-reports обов'язково тут —
       // SALES пускається в /admin, і без цього торговий бачив би
       // статистику всіх колег.

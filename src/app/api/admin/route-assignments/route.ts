@@ -38,11 +38,24 @@ export async function GET(req: NextRequest) {
     include: { template: { select: { id: true, name: true, color: true, totalDistanceKm: true } } },
   });
 
-  const reps = await prisma.user.findMany({
-    where: { role: "SALES", ...(repFilter ? { id: repFilter } : {}) },
-    select: { id: true, name: true, color: true },
-    orderBy: { name: "asc" },
-  });
+  // User.color з'явився пізніше за код, який його читає: якщо міграцію ще не
+  // накотили на цю базу, вкладка має працювати на кольорах із палітри, а не
+  // падати з 500. P2022 — «колонки не існує».
+  const reps = await prisma.user
+    .findMany({
+      where: { role: "SALES", ...(repFilter ? { id: repFilter } : {}) },
+      select: { id: true, name: true, color: true },
+      orderBy: { name: "asc" },
+    })
+    .catch(async (e: unknown) => {
+      if ((e as { code?: string })?.code !== "P2022") throw e;
+      const rows = await prisma.user.findMany({
+        where: { role: "SALES", ...(repFilter ? { id: repFilter } : {}) },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+      return rows.map((r) => ({ ...r, color: null as string | null }));
+    });
 
   return NextResponse.json({
     canEdit,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import type { Period } from "@/components/ui/PeriodPicker";
@@ -9,6 +10,7 @@ import { CardSkeleton, StatCardSkeleton, Skeleton } from "@/components/ui/Skelet
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 import { AskPanel } from "./AskPanel";
+import { SkuDrilldown } from "./SkuDrilldown";
 import { CATEGORICAL, NEUTRAL, STATUS, categoricalColor } from "@/lib/analytics/colors";
 
 const TimelineChart = dynamic(() => import("./Charts").then((m) => m.TimelineChart), {
@@ -44,6 +46,7 @@ export function OverviewTab({
 }) {
   const url = `/api/admin/sales-analytics?from=${period.from}&to=${period.to}${rep ? `&rep=${rep}` : ""}`;
   const { data, loading, error, reload } = useApi<AnalyticsResponse>(url);
+  const [skuOpen, setSkuOpen] = useState(false);
 
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
@@ -113,17 +116,29 @@ export function OverviewTab({
         <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених із 1С" accent={CATEGORICAL[1]} />
         <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
         <StatCard label="У середньому за день" value={money(perDay)} unit="грн" accent={CATEGORICAL[3]} />
-        <StatCard
-          label="SKU"
-          value={num(data.totals.sku)}
-          hint={
-            data.totals.linesPerDoc > 0
-              ? `різних товарів · ≈${num(data.totals.linesPerDoc, 1)} поз./док.`
-              : "різних товарів у продажах"
-          }
-          accent={CATEGORICAL[4]}
-        />
+        {/* Кнопка, а не div: картка провалюється в розбивку по клієнтах */}
+        <button
+          type="button"
+          onClick={() => setSkuOpen((v) => !v)}
+          aria-expanded={skuOpen}
+          className={`cursor-pointer rounded-[var(--radius-card)] text-left transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
+            skuOpen ? "ring-2 ring-bk" : "hover:shadow-md"
+          }`}
+        >
+          <StatCard
+            label="SKU"
+            value={num(data.totals.sku)}
+            hint={
+              data.totals.linesPerDoc > 0
+                ? `≈${num(data.totals.linesPerDoc, 1)} поз./док. · клік — по клієнтах`
+                : "різних товарів · клік — по клієнтах"
+            }
+            accent={CATEGORICAL[4]}
+          />
+        </button>
       </div>
+
+      {skuOpen && <SkuDrilldown period={period} rep={rep} />}
 
       <AskPanel days={data.period.days} from={data.period.from} to={data.period.to} />
 

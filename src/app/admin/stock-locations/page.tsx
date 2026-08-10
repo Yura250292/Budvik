@@ -11,6 +11,8 @@ export default function StockLocationsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
+  const [newLat, setNewLat] = useState("");
+  const [newLng, setNewLng] = useState("");
   const [newDefault, setNewDefault] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -63,9 +65,17 @@ export default function StockLocationsPage() {
     await fetch("/api/admin/stock-locations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim(), address: newAddress.trim(), isDefault: newDefault }),
+      body: JSON.stringify({
+        name: newName.trim(),
+        address: newAddress.trim(),
+        // Порожнє поле або нечислове значення — шлемо undefined, щоб не
+        // записати NaN у координати.
+        lat: Number.isFinite(parseFloat(newLat)) ? parseFloat(newLat) : undefined,
+        lng: Number.isFinite(parseFloat(newLng)) ? parseFloat(newLng) : undefined,
+        isDefault: newDefault,
+      }),
     });
-    setNewName(""); setNewAddress(""); setNewDefault(false); setShowAdd(false);
+    setNewName(""); setNewAddress(""); setNewLat(""); setNewLng(""); setNewDefault(false); setShowAdd(false);
     setSaving(false);
     fetchLocations();
   };
@@ -139,7 +149,7 @@ export default function StockLocationsPage() {
         {/* Add location form */}
         {showAdd && (
           <div className="bg-white rounded-xl p-5 mb-6" style={{ border: "1px solid #EFEFEF" }}>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label style={{ fontSize: "13px", fontWeight: 600, color: "#374151" }}>Назва складу *</label>
                 <input value={newName} onChange={(e) => setNewName(e.target.value)}
@@ -151,6 +161,20 @@ export default function StockLocationsPage() {
                 <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)}
                   placeholder="м. Вінниця, вул...." style={{ width: "100%", padding: "8px 12px", borderRadius: "8px",
                     border: "1px solid #D1D5DB", fontSize: "14px", marginTop: "4px" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: "13px", fontWeight: 600, color: "#374151" }}>Координати (для карти)</label>
+                <div className="flex gap-2" style={{ marginTop: "4px" }}>
+                  <input value={newLat} onChange={(e) => setNewLat(e.target.value)}
+                    placeholder="49.2331" inputMode="decimal" style={{ width: "50%", padding: "8px 12px", borderRadius: "8px",
+                      border: "1px solid #D1D5DB", fontSize: "14px" }} />
+                  <input value={newLng} onChange={(e) => setNewLng(e.target.value)}
+                    placeholder="28.4682" inputMode="decimal" style={{ width: "50%", padding: "8px 12px", borderRadius: "8px",
+                      border: "1px solid #D1D5DB", fontSize: "14px" }} />
+                </div>
+                <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
+                  Без координат склад не буде видно на карті планувальника
+                </p>
               </div>
               <div className="flex items-end gap-3">
                 <label className="flex items-center gap-2" style={{ fontSize: "14px", color: "#374151" }}>

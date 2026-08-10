@@ -5,7 +5,14 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
-type Tab = "regions" | "clients" | "categories";
+type Tab = "regions" | "clients" | "categories" | "access";
+
+type Credentials = {
+  email: string;
+  hasPassword: boolean;
+  hasTelegram: boolean;
+  isPlaceholderEmail: boolean;
+};
 
 export default function SalesRepDetailPage() {
   const { data: session } = useSession();
@@ -30,6 +37,15 @@ export default function SalesRepDetailPage() {
   const [allCategories, setAllCategories] = useState<any[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [catSaving, setCatSaving] = useState(false);
+
+  // Access (логін і пароль)
+  const [creds, setCreds] = useState<Credentials | null>(null);
+  const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [accessDone, setAccessDone] = useState<string | null>(null);
 
   // Folders (for bulk assignment)
   const [folders, setFolders] = useState<any[]>([]);
@@ -81,12 +97,22 @@ export default function SalesRepDetailPage() {
     setSelectedCategoryIds(Array.isArray(access) ? access.map((a: any) => a.categoryId) : []);
   }, [userId]);
 
+  const loadAccess = useCallback(async () => {
+    const res = await fetch(`/api/admin/sales-reps/${userId}/credentials`);
+    if (!res.ok) return;
+    const data: Credentials = await res.json();
+    setCreds(data);
+    // Технічну пошту в поле не підставляємо: її треба замінити, а не правити.
+    setEmailInput(data.isPlaceholderEmail ? "" : data.email);
+  }, [userId]);
+
   useEffect(() => {
     if (!["ADMIN", "MANAGER"].includes(role)) return;
     if (tab === "regions") loadRegions();
     if (tab === "clients") loadClients();
     if (tab === "categories") loadCategories();
-  }, [tab, role, loadRegions, loadClients, loadCategories]);
+    if (tab === "access") loadAccess();
+  }, [tab, role, loadRegions, loadClients, loadCategories, loadAccess]);
 
   // Actions
   const addRegion = async () => {
@@ -148,6 +174,51 @@ export default function SalesRepDetailPage() {
     );
   };
 
+  const saveAccess = async () => {
+    setAccessSaving(true);
+    setAccessError(null);
+    setAccessDone(null);
+
+    // Надсилаємо лише те, що адмін дійсно змінив: порожнє поле пароля має
+    // означати «не чіпати», а не «стерти».
+    const payload: { email?: string; password?: string } = {};
+    if (emailInput.trim() && emailInput.trim().toLowerCase() !== creds?.email.toLowerCase()) {
+      payload.email = emailInput.trim();
+    }
+    if (passwordInput) payload.password = passwordInput;
+
+    if (Object.keys(payload).length === 0) {
+      setAccessError("Змініть email або введіть новий пароль");
+      setAccessSaving(false);
+      return;
+    }
+
+    const res = await fetch(`/api/admin/sales-reps/${userId}/credentials`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    setAccessSaving(false);
+
+    if (!res.ok) {
+      setAccessError(data.error || "Не вдалося зберегти");
+      return;
+    }
+
+    setPasswordInput("");
+    setShowPassword(false);
+    setAccessDone(
+      payload.password
+        ? `Готово. ${data.name} заходить на /login: ${data.email}`
+        : `Email змінено на ${data.email}`
+    );
+    await loadAccess();
+    // Шапка сторінки бере email із /api/admin/users — оновлюємо, щоб там
+    // не лишалась стара адреса.
+    setUser((prev: any) => (prev ? { ...prev, email: data.email } : prev));
+  };
+
   const saveCategories = async () => {
     setCatSaving(true);
     await fetch(`/api/admin/sales-reps/${userId}/categories`, {
@@ -173,6 +244,7 @@ export default function SalesRepDetailPage() {
     { key: "regions" as Tab, label: "Регіони", icon: "M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" },
     { key: "clients" as Tab, label: "Клієнти", icon: "M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" },
     { key: "categories" as Tab, label: "Категорії товарів", icon: "M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" },
+    { key: "access" as Tab, label: "Доступ", icon: "M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" },
   ];
 
   return (
@@ -430,6 +502,100 @@ export default function SalesRepDetailPage() {
                     <span style={{ fontSize: "13px", color: "#16A34A" }}>Доступ до всіх категорій</span>
                   )}
                 </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* === ACCESS TAB === */}
+        {tab === "access" && (
+          <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>Вхід на сайт</h2>
+            <p style={{ fontSize: "13px", color: "#9CA3AF", marginBottom: "16px" }}>
+              Email і пароль, якими торговий заходить на /login
+            </p>
+
+            {!creds ? (
+              <p style={{ color: "#9CA3AF", fontSize: "14px" }}>Завантаження...</p>
+            ) : (
+              <>
+                {/* Поточний стан: без пароля або з технічною поштою вхід неможливий */}
+                {(!creds.hasPassword || creds.isPlaceholderEmail) && (
+                  <div className="rounded-lg p-4 mb-4" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
+                    <p style={{ fontSize: "14px", fontWeight: 600, color: "#92400E" }}>
+                      Зараз увійти неможливо
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#B45309", marginTop: "4px" }}>
+                      {creds.isPlaceholderEmail && !creds.hasPassword
+                        ? `Технічна пошта (${creds.email}) і пароль не заданий. Вкажіть справжній email і пароль.`
+                        : creds.isPlaceholderEmail
+                          ? `Пошта технічна (${creds.email}) — на неї нічого не надсилається. Вкажіть справжню.`
+                          : "Пароль не заданий — задайте його нижче."}
+                      {creds.hasTelegram && " Telegram-бот при цьому працює."}
+                    </p>
+                  </div>
+                )}
+
+                {creds.hasPassword && !creds.isPlaceholderEmail && (
+                  <div className="rounded-lg p-4 mb-4" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+                    <p style={{ fontSize: "14px", fontWeight: 600, color: "#166534" }}>
+                      Доступ налаштований
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#15803D", marginTop: "4px" }}>
+                      Заходить як {creds.email}. Пароль можна лише замінити — побачити наявний не можна.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-4" style={{ maxWidth: "440px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+                      Email для входу
+                    </label>
+                    <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder={creds.isPlaceholderEmail ? "ivan@example.com" : creds.email}
+                      autoComplete="off"
+                      style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+                      {creds.hasPassword ? "Новий пароль" : "Пароль"}
+                    </label>
+                    <div className="flex gap-2">
+                      <input type={showPassword ? "text" : "password"} value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        placeholder={creds.hasPassword ? "залиште порожнім, щоб не міняти" : "мінімум 6 символів"}
+                        autoComplete="new-password"
+                        onKeyDown={(e) => e.key === "Enter" && saveAccess()}
+                        style={{ flex: 1, padding: "10px 14px", borderRadius: "10px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                      <button type="button" onClick={() => setShowPassword((v) => !v)}
+                        style={{ padding: "10px 14px", borderRadius: "10px", border: "1px solid #E5E7EB", background: "white", fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>
+                        {showPassword ? "Сховати" : "Показати"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {accessError && (
+                    <p style={{ fontSize: "13px", color: "#DC2626", fontWeight: 500 }}>{accessError}</p>
+                  )}
+                  {accessDone && (
+                    <p style={{ fontSize: "13px", color: "#16A34A", fontWeight: 500 }}>{accessDone}</p>
+                  )}
+
+                  <button onClick={saveAccess} disabled={accessSaving}
+                    style={{
+                      padding: "10px 24px", borderRadius: "10px", fontWeight: 700, fontSize: "14px",
+                      background: "#FFD600", color: "#0A0A0A", border: "none", opacity: accessSaving ? 0.5 : 1,
+                    }}>
+                    {accessSaving ? "Зберігаю..." : "Зберегти доступ"}
+                  </button>
+                </div>
+
+                <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "20px", lineHeight: 1.6, maxWidth: "560px" }}>
+                  Ім'я «{user.name}» не редагується тут навмисно: за ним синхронізація прив'язує
+                  документи з 1С. Зміна email на прив'язку продажів не впливає.
+                </p>
               </>
             )}
           </div>

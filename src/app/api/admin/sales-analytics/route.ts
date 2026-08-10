@@ -62,7 +62,7 @@ export async function GET(req: Request) {
   // Спільна умова періоду для сирих запитів — щоб межі не розʼїхалися між ними.
   const periodCondition = Prisma.sql`AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}`;
 
-  const [byRep, byBrand, totals, timeline, topProducts, topClients] = await Promise.all([
+  const [byRep, byBrand, totals, timeline, topProducts, topClients, skuTotals, skuByRep] = await Promise.all([
     // --- по торгових ---
     prisma.salesDocument.groupBy({
       by: ["salesRepId"],
@@ -154,6 +154,37 @@ export async function GET(req: Request) {
       ORDER BY amount DESC
       LIMIT 20
     `,
+
+    // --- SKU: скільки різних товарів продано за період ---
+    // Показник пропрацювання асортименту: оборот можна зробити й на трьох
+    // позиціях, а SKU показує, наскільки широко торговий продає каталог.
+    prisma.$queryRaw<Array<{ sku: number; linesPerDoc: number }>>`
+      SELECT
+        COUNT(DISTINCT i."productId")::int AS sku,
+        COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.id), 0), 0) AS "linesPerDoc"
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."externalId" IS NOT NULL
+        AND s.status = 'CONFIRMED'
+        ${periodCondition}
+        ${repCondition}
+    `,
+
+    // --- SKU по торгових ---
+    // Окремим запитом, бо COUNT(DISTINCT) по торгових не складається в
+    // загальний підсумок: той самий товар продають кілька торгових.
+    prisma.$queryRaw<Array<{ repId: string | null; sku: number }>>`
+      SELECT
+        s."salesRepId" AS "repId",
+        COUNT(DISTINCT i."productId")::int AS sku
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."externalId" IS NOT NULL
+        AND s.status = 'CONFIRMED'
+        ${periodCondition}
+        ${repCondition}
+      GROUP BY s."salesRepId"
+    `,
   ]);
 
   // Імена торгових окремим запитом: groupBy не вміє join.
@@ -165,6 +196,7 @@ export async function GET(req: Request) {
       })
     : [];
   const repNameById = new Map(reps.map((r) => [r.id, r.name]));
+  const skuByRepId = new Map(skuByRep.filter((r) => r.repId).map((r) => [r.repId!, r.sku]));
 
   return NextResponse.json({
     period: {
@@ -177,6 +209,8 @@ export async function GET(req: Request) {
       docs: totals._count.id,
       amount: totals._sum.totalAmount ?? 0,
       average: totals._avg.totalAmount ?? 0,
+      sku: skuTotals[0]?.sku ?? 0,
+      linesPerDoc: skuTotals[0]?.linesPerDoc ?? 0,
     },
     byRep: byRep
       .filter((r) => r.salesRepId)
@@ -185,6 +219,7 @@ export async function GET(req: Request) {
         name: repNameById.get(r.salesRepId!) ?? "—",
         docs: r._count.id,
         amount: r._sum.totalAmount ?? 0,
+        sku: skuByRepId.get(r.salesRepId!) ?? 0,
       }))
       .sort((a, b) => b.amount - a.amount),
     byBrand: byBrand.map((b) => ({

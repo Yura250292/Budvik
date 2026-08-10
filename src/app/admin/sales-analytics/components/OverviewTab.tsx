@@ -23,8 +23,8 @@ const RankingChart = dynamic(() => import("./Charts").then((m) => m.RankingChart
 type AnalyticsResponse = {
   period: { days: number; from: string; to: string };
   scope: "all" | "single" | "own";
-  totals: { docs: number; amount: number; average: number };
-  byRep: Array<{ id: string; name: string; docs: number; amount: number }>;
+  totals: { docs: number; amount: number; average: number; sku: number; linesPerDoc: number };
+  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number }>;
   byBrand: Array<{ brand: string; color: string | null; qty: number; amount: number; docs: number }>;
   timeline: Array<{ day: string; docs: number; amount: number }>;
   topProducts: Array<{ name: string; sku: string; qty: number; amount: number }>;
@@ -50,8 +50,8 @@ export function OverviewTab({
   if (loading && !data) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
             <StatCardSkeleton key={i} />
           ))}
         </div>
@@ -102,7 +102,7 @@ export function OverviewTab({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Оборот"
           value={money(data.totals.amount)}
@@ -113,6 +113,16 @@ export function OverviewTab({
         <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених із 1С" accent={CATEGORICAL[1]} />
         <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
         <StatCard label="У середньому за день" value={money(perDay)} unit="грн" accent={CATEGORICAL[3]} />
+        <StatCard
+          label="SKU"
+          value={num(data.totals.sku)}
+          hint={
+            data.totals.linesPerDoc > 0
+              ? `різних товарів · ≈${num(data.totals.linesPerDoc, 1)} поз./док.`
+              : "різних товарів у продажах"
+          }
+          accent={CATEGORICAL[4]}
+        />
       </div>
 
       <AskPanel days={data.period.days} from={data.period.from} to={data.period.to} />

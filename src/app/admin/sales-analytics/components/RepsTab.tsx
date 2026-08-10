@@ -19,7 +19,7 @@ import { categoricalColor } from "@/lib/analytics/colors";
  */
 
 type AnalyticsResponse = {
-  byRep: Array<{ id: string; name: string; docs: number; amount: number }>;
+  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number }>;
 };
 
 type FuelResponse = {
@@ -49,7 +49,7 @@ export function RepsTab({ period }: { period: Period }) {
   const rows = useMemo(() => {
     const byId = new Map<
       string,
-      { id: string; name: string; amount: number; docs: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
+      { id: string; name: string; amount: number; docs: number; sku: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
     >();
 
     for (const r of sales.data?.byRep ?? []) {
@@ -58,6 +58,7 @@ export function RepsTab({ period }: { period: Period }) {
         name: r.name,
         amount: r.amount,
         docs: r.docs,
+        sku: r.sku ?? 0,
         km: 0,
         trips: 0,
         days: 0,
@@ -81,6 +82,7 @@ export function RepsTab({ period }: { period: Period }) {
           name: f.repName,
           amount: 0,
           docs: 0,
+          sku: 0,
           km: f.workKm,
           trips: f.trips,
           days: f.daysWorked,
@@ -140,12 +142,13 @@ export function RepsTab({ period }: { period: Period }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[780px] text-sm">
           <thead>
             <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
               <th className="px-4 py-2.5">Торговий</th>
               <th className="px-4 py-2.5 text-right">Оборот, грн</th>
               <th className="px-4 py-2.5 text-right">Док.</th>
+              <th className="px-4 py-2.5 text-right">SKU</th>
               <th className="px-4 py-2.5 text-right">Робочі км</th>
               <th className="px-4 py-2.5 text-right">Паливо, грн</th>
               <th className="px-4 py-2.5 text-right">грн/км</th>
@@ -174,6 +177,7 @@ export function RepsTab({ period }: { period: Period }) {
                 </td>
                 <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{money(r.amount)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.docs)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-g600">{r.sku > 0 ? num(r.sku) : "—"}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.km)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.fuelCost)}</td>
                 <td className="px-4 py-3 text-right">

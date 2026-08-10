@@ -22,7 +22,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const anthropic = new Anthropic();
@@ -173,6 +173,18 @@ async function main() {
   const found = new Map<string, { display: string; ids: string[] }>();
   let processed = 0;
 
+  // --from-cache пропускає запити до моделі й бере попередній результат.
+  // Потрібно, коли розпізнавання відпрацювало, а запис у базу впав: платити
+  // за ті самі 515 запитів удруге безглуздо.
+  if (process.argv.includes("--from-cache")) {
+    const { readFileSync } = await import("node:fs");
+    const cached: Array<{ key: string; display: string; ids: string[] }> = JSON.parse(
+      readFileSync("/tmp/budvik-brands-detected.json", "utf8")
+    );
+    for (const c of cached) found.set(c.key, { display: c.display, ids: c.ids });
+    console.log(`Прочитано з кешу: ${cached.length} брендів`);
+  } else {
+
   for (let i = 0; i < products.length; i += CHUNK) {
     const chunk = products.slice(i, i + CHUNK);
     let detected: Map<number, string>;
@@ -194,6 +206,22 @@ async function main() {
 
     processed += chunk.length;
     process.stdout.write(`\r  оброблено ${processed}/${products.length}`);
+  }
+  }
+
+  // Результат розпізнавання — найдорожче в цьому скрипті (сотні запитів до
+  // моделі). Зберігаємо на диск ДО запису в базу: якщо запис упаде, повторний
+  // прогін піде з файлу замість того, щоб платити вдруге.
+  const cachePath = "/tmp/budvik-brands-detected.json";
+  try {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      cachePath,
+      JSON.stringify([...found.entries()].map(([k, v]) => ({ key: k, ...v })), null, 2)
+    );
+    console.log(`\n(результат збережено: ${cachePath})`);
+  } catch {
+    // Кеш — зручність, а не вимога: не зміг записати, працюємо далі.
   }
 
   console.log("\n");
@@ -220,17 +248,44 @@ async function main() {
   const worthKeeping = sorted.filter((b) => b.ids.length >= MIN_PRODUCTS);
   console.log(`Заводжу бренди з ${MIN_PRODUCTS}+ товарами: ${worthKeeping.length}`);
 
+  let written = 0;
   for (const { display: brandName, ids } of worthKeeping) {
-    const brand = await prisma.brand.upsert({
-      where: { name: brandName },
-      create: {
-        name: brandName,
-        slug: slugify(brandName) || `brand-${brandKey(brandName)}`,
-        matchPatterns: [brandName.toLowerCase()],
-      },
-      update: {},
-      select: { id: true },
+    // upsert шукає за name, але впасти може на slug: «B+D» і «B D» дають
+    // однаковий slug, хоча це різні назви. Тому спершу шукаємо наявний
+    // бренд і за назвою, і за слугом, а при створенні тримаємо напоготові
+    // запасний slug.
+    const baseSlug = slugify(brandName) || `brand-${brandKey(brandName)}`;
+
+    let brand = await prisma.brand.findFirst({
+      where: { OR: [{ name: brandName }, { slug: baseSlug }] },
+      select: { id: true, name: true },
     });
+
+    if (!brand) {
+      for (const attempt of [0, 1]) {
+        const trySlug = attempt === 0 ? baseSlug : `${baseSlug}-${brandKey(brandName).slice(0, 6)}`;
+        try {
+          brand = await prisma.brand.create({
+            data: {
+              name: brandName,
+              slug: trySlug,
+              matchPatterns: [brandName.toLowerCase()],
+            },
+            select: { id: true, name: true },
+          });
+          break;
+        } catch (e) {
+          const conflict =
+            e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+          if (!conflict || attempt === 1) {
+            console.error(`  ! ${brandName}: ${(e as Error).message.split("\n").pop()}`);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!brand) continue;
 
     for (let i = 0; i < ids.length; i += 5000) {
       await prisma.product.updateMany({
@@ -238,9 +293,10 @@ async function main() {
         data: { brandId: brand.id },
       });
     }
+    written += ids.length;
     console.log(`  ${brandName}: ${ids.length}`);
   }
-  console.log("\nГотово.");
+  console.log(`\nГотово. Прив'язано товарів: ${written}`);
 }
 
 main()

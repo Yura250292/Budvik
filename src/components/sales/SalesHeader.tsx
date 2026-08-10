@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import SalesProfileMenu from "./SalesProfileMenu";
 
 /**
  * Спільна шапка кабінету торгового.
@@ -25,7 +26,8 @@ export function SalesHeader({
   subtitle,
   backTo,
   right,
-  sticky = false,
+  sticky = true,
+  showProfile = true,
 }: {
   title: string;
   /** Дрібний рядок над заголовком (роль, ім'я, кількість). */
@@ -34,8 +36,15 @@ export function SalesHeader({
   backTo?: string;
   /** Слот під кнопки справа: дзвіночок, «Вийти», лічильник. */
   right?: React.ReactNode;
-  /** Головна прокручується разом із шапкою, списки — ні. */
+  /**
+   * Шапка липне до верху на всіх екранах секції. Профіль і «Назад» —
+   * єдиний вихід зі сторінки, а списки клієнтів і документів довгі:
+   * коли шапка їхала вгору разом зі списком, повертатися доводилось
+   * прокруткою на початок.
+   */
   sticky?: boolean;
+  /** Сама сторінка профілю аватарку в шапці не дублює. */
+  showProfile?: boolean;
 }) {
   return (
     <header
@@ -96,7 +105,10 @@ export function SalesHeader({
           </h1>
         </div>
 
-        {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+        <div className="flex shrink-0 items-center gap-2">
+          {right}
+          {showProfile && <SalesProfileMenu />}
+        </div>
       </div>
     </header>
   );

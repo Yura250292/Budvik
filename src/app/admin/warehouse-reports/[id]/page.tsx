@@ -393,8 +393,10 @@ export default function WarehouseReportDetailPage() {
                     Позицій не розпізнано
                   </p>
                 ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+                  <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", overscrollBehaviorX: "contain" }}>
+                    {/* 7 колонок: без minWidth на телефоні вони стискаються
+                        в нечитабельні стовпчики по одному символу. */}
+                    <table style={{ width: "100%", minWidth: "760px", fontSize: "13px", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: "#FAFAFA", textAlign: "left" }}>
                           {["№", "Товар", "Артикул", "Од.", "Кількість", "Ціна", "Сума"].map((h) => (

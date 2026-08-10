@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 const PAYMENT_LABELS: Record<string, string> = { UNPAID: "Не оплачено", PARTIAL: "Частково", PAID: "Оплачено" };
 const PAYMENT_COLORS: Record<string, string> = { UNPAID: "bg-red-50 text-red-700", PARTIAL: "bg-primary/10 text-primary-dark", PAID: "bg-green-50 text-green-700" };
@@ -122,7 +123,8 @@ export default function InvoiceDetailPage() {
 
           {/* Items from linked sales document */}
           {invoice.salesDocument?.items && (
-            <table className="w-full mb-6">
+            <TableScroll minWidth={560} className="mb-6">
+            <table className="w-full">
               <thead>
                 <tr style={{ borderBottom: "2px solid #0A0A0A" }}>
                   <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px" }}>N</th>
@@ -147,6 +149,7 @@ export default function InvoiceDetailPage() {
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           )}
 
           <div className="flex justify-end">
@@ -172,6 +175,7 @@ export default function InvoiceDetailPage() {
           </div>
 
           {invoice.payments?.length > 0 ? (
+            <TableScroll minWidth={480}>
             <table className="w-full">
               <thead>
                 <tr style={{ borderBottom: "1px solid #EFEFEF" }}>
@@ -192,6 +196,7 @@ export default function InvoiceDetailPage() {
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           ) : (
             <p style={{ color: "#9CA3AF", fontSize: "14px" }}>Оплат поки немає</p>
           )}

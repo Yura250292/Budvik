@@ -332,65 +332,6 @@ export function RoutesTab({ period }: { period: Period }) {
         </div>
       )}
 
-      {/* --- Оглядова мапа напрямків --- */}
-      <div ref={overviewRef} className="scroll-mt-24">
-        <Card>
-          <CardHeader
-            title="Карта напрямків"
-            hint="Кожен торговий має свій колір — так видно, хто за який напрямок відповідає. Оберіть торгового або окремий напрямок, щоб залишити на карті лише його."
-            action={
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={overview.kind === "rep" ? overview.repId : ""}
-                  onChange={(e) =>
-                    setOverview(e.target.value ? { kind: "rep", repId: e.target.value } : { kind: "all" })
-                  }
-                  aria-label="Торговий на карті напрямків"
-                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
-                >
-                  <option value="">Всі торгові</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={overview.kind === "template" ? overview.templateId : ""}
-                  onChange={(e) =>
-                    setOverview(
-                      e.target.value ? { kind: "template", templateId: e.target.value } : { kind: "all" }
-                    )
-                  }
-                  aria-label="Напрямок на карті"
-                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
-                >
-                  <option value="">Всі напрямки</option>
-                  {list.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            }
-          />
-
-          {overviewRoutes.length === 0 ? (
-            <EmptyState
-              title={
-                overview.kind === "all"
-                  ? "Немає призначених маршрутів"
-                  : "У цього вибору немає маршруту з координатами"
-              }
-              hint="Створіть напрямок нижче і призначте його торговому в розкладі — тоді він з'явиться на карті."
-            />
-          ) : (
-            <RoutesOverviewMap routes={overviewRoutes} legend={overviewLegend} />
-          )}
-        </Card>
-      </div>
-
       {/* --- Мапа дня --- */}
       <Card>
         <CardHeader
@@ -695,6 +636,65 @@ export function RoutesTab({ period }: { period: Period }) {
           </div>
         )}
       </Card>
+
+      {/* --- Оглядова мапа напрямків --- */}
+      <div ref={overviewRef} className="scroll-mt-24">
+        <Card>
+          <CardHeader
+            title="Карта напрямків"
+            hint="Кожен торговий має свій колір — так видно, хто за який напрямок відповідає. Оберіть торгового або окремий напрямок, щоб залишити на карті лише його."
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={overview.kind === "rep" ? overview.repId : ""}
+                  onChange={(e) =>
+                    setOverview(e.target.value ? { kind: "rep", repId: e.target.value } : { kind: "all" })
+                  }
+                  aria-label="Торговий на карті напрямків"
+                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
+                >
+                  <option value="">Всі торгові</option>
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={overview.kind === "template" ? overview.templateId : ""}
+                  onChange={(e) =>
+                    setOverview(
+                      e.target.value ? { kind: "template", templateId: e.target.value } : { kind: "all" }
+                    )
+                  }
+                  aria-label="Напрямок на карті"
+                  className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk transition-colors hover:border-g300"
+                >
+                  <option value="">Всі напрямки</option>
+                  {list.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
+          />
+
+          {overviewRoutes.length === 0 ? (
+            <EmptyState
+              title={
+                overview.kind === "all"
+                  ? "Немає призначених маршрутів"
+                  : "У цього вибору немає маршруту з координатами"
+              }
+              hint="Створіть напрямок вище і призначте його торговому в розкладі — тоді він з'явиться на карті."
+            />
+          ) : (
+            <RoutesOverviewMap routes={overviewRoutes} legend={overviewLegend} />
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

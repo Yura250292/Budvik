@@ -14,10 +14,17 @@ export default withAuth(
       // Увага: /admin/reports і /admin/sales-reports обов'язково тут —
       // SALES пускається в /admin, і без цього торговий бачив би
       // статистику всіх колег.
+      // Виняток — /admin/sales-analytics: API сам скоупить SALES до
+      // власних даних (scope: "own"), тож широкий префікс "/admin/sales"
+      // тут замінено на явний перелік, інакше торговий не бачив би
+      // навіть свою аналітику.
       if (
         (pathname.startsWith("/admin/products") ||
          pathname.startsWith("/admin/users") ||
-         pathname.startsWith("/admin/sales") ||
+         pathname === "/admin/sales" ||
+         pathname.startsWith("/admin/sales/") ||
+         pathname.startsWith("/admin/sales-reports") ||
+         pathname.startsWith("/admin/sales-reps") ||
          pathname.startsWith("/admin/reports") ||
          pathname.startsWith("/admin/warehouse-reports") ||
          pathname.startsWith("/admin/integration")) &&

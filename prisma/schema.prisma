@@ -219,6 +219,11 @@ model User {
   salesPlansCreated     SalesPlan[]            @relation("salesPlanAuthor")
   motivationAssignments MotivationAssignment[] @relation("motivationRep")
   paymentAllocations    PaymentAllocation[]    @relation("paymentAllocations")
+
+  // Маршрути торгових і авто
+  routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
+  routeAssignments      RouteAssignment[] @relation("routeAssignmentRep")
+  salesVehicle          SalesVehicle?     @relation("salesVehicle")
 }
 
 model Category {
@@ -1328,4 +1333,95 @@ model PaymentAllocation {
 
   @@index([repId, createdAt])
   @@index([paymentId])
+}
+
+/// Шаблон маршруту: іменований набір населених пунктів («Радехівський
+/// напрямок»). Окремо від SavedRoute, бо той будується від складу під
+/// конкретну доставку, а цей — сталий напрямок торгового на день тижня.
+model RouteTemplate {
+  id       String  @id @default(cuid())
+  name     String
+  /// Колір полілінії на мапі (#RRGGBB)
+  color    String?
+  isActive Boolean @default(true)
+
+  /// Область для геокодування («Львівська»). Без неї Nominatim знаходить
+  /// однойменні села в інших областях: «Лопатин» — у Вінницькій,
+  /// «Витків» — у Рівненській, і маршрут виходить у 5 разів довший.
+  region String?
+
+  /// GeoJSON LineString від OSRM. Кешується при створенні/зміні стопів:
+  /// інакше кожен перегляд мапи смикав би зовнішній сервіс.
+  routeGeometry   Json?
+  totalDistanceKm Float?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User                @relation("routeTemplateAuthor", fields: [createdById], references: [id])
+  stops       RouteTemplateStop[]
+  assignments RouteAssignment[]
+
+  @@index([isActive])
+}
+
+/// Зупинка шаблону. settlement — те, що ввів адмін («Радехів»),
+/// displayName — що знайшов Nominatim: видно, чи влучило геокодування.
+model RouteTemplateStop {
+  id          String  @id @default(cuid())
+  templateId  String
+  settlement  String
+  displayName String?
+  lat         Float
+  lng         Float
+  seq         Int     @default(0)
+
+  template RouteTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, seq])
+}
+
+/// Призначення маршруту торговому: АБО на конкретну дату (разове),
+/// АБО на день тижня (повторюване). Дата має пріоритет над weekday —
+/// так разова заміна не ламає постійний розклад.
+model RouteAssignment {
+  id         String @id @default(cuid())
+  repId      String
+  templateId String
+
+  /// Початок київської доби; null — це weekday-правило
+  date    DateTime?
+  /// 1..7 (ISO: 1 = понеділок); null — це разове призначення
+  weekday Int?
+
+  createdAt DateTime @default(now())
+
+  rep      User          @relation("routeAssignmentRep", fields: [repId], references: [id], onDelete: Cascade)
+  template RouteTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // Postgres NULLS DISTINCT: weekday-рядки не заважають date-рядкам і навпаки.
+  // XOR date/weekday перевіряється в API — Prisma такого констрейнта не виражає.
+  @@unique([repId, date])
+  @@unique([repId, weekday])
+  @@index([date])
+}
+
+/// Авто торгового для розрахунку палива. Окрема таблиця, а не поля на
+/// User: ціна пального різна (дизель/газ/бензин), тож зберігається
+/// разом з нормою, а не глобально.
+model SalesVehicle {
+  id    String  @id @default(cuid())
+  repId String  @unique
+  label String? // «Renault Kangoo AC1234BC»
+
+  /// л/100 км
+  fuelConsumption Float @default(10)
+  /// грн за літр
+  fuelPricePerL   Float @default(56)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rep User @relation("salesVehicle", fields: [repId], references: [id], onDelete: Cascade)
 }

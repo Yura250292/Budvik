@@ -38,9 +38,10 @@ export async function GET(req: NextRequest) {
     include: { template: { select: { id: true, name: true, color: true, totalDistanceKm: true } } },
   });
 
-  // User.color з'явився пізніше за код, який його читає: якщо міграцію ще не
-  // накотили на цю базу, вкладка має працювати на кольорах із палітри, а не
-  // падати з 500. P2022 — «колонки не існує».
+  // На проді колонка вже є, але міграції тут накочують окремим кроком, не на
+  // білді, — тож база без User.color лишається можливою (preview, свіжа копія).
+  // Тоді вкладка має працювати на кольорах із палітри, а не падати з 500.
+  // P2022 — «колонки не існує».
   const reps = await prisma.user
     .findMany({
       where: { role: "SALES", ...(repFilter ? { id: repFilter } : {}) },

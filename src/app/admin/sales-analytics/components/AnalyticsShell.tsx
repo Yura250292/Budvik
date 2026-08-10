@@ -70,20 +70,38 @@ export function AnalyticsShell() {
     if (!isManager && MANAGER_ONLY.includes(tab)) setTab("summary");
   }, [isManager, tab]);
 
+  // Торговий за старим посиланням потрапляє у власний кабінет: зведена на
+  // 1180px не читається з телефона, а показники там ті самі. Період
+  // переносимо, інакше він мовчки скинувся б на типовий.
+  // replace, а не push — щоб «Назад» не кидало в цикл редіректів.
+  const leavingToCabinet = status === "authenticated" && role === "SALES";
+
+  useEffect(() => {
+    if (leavingToCabinet) {
+      router.replace(`/sales/analytics?from=${period.from}&to=${period.to}`);
+    }
+  }, [leavingToCabinet, period.from, period.to, router]);
+
   // Стан у querystring: replace, а не push — інакше кожна зміна фільтра
   // додавала б запис в історію і «Назад» гортало б власні кліки.
   useEffect(() => {
+    // Для торгового цей ефект не спрацьовує: він переписав би URL назад на
+    // /admin/sales-analytics і переміг редірект у кабінет.
+    if (leavingToCabinet) return;
+
     const params = new URLSearchParams();
     if (tab !== "summary") params.set("tab", tab);
     params.set("from", period.from);
     params.set("to", period.to);
     if (rep) params.set("rep", rep);
     router.replace(`/admin/sales-analytics?${params.toString()}`, { scroll: false });
-  }, [tab, period, rep, router]);
+  }, [tab, period, rep, router, leavingToCabinet]);
 
   const onPeriodChange = useCallback((p: Period) => setPeriod(p), []);
 
-  if (status === "loading") {
+  // Поки редірект у кабінет не відпрацював, показуємо спінер, а не зведену:
+  // інакше торговий на мить бачив би таблицю на 1180px, у яку його не пускають.
+  if (status === "loading" || leavingToCabinet) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-g300 border-t-bk motion-reduce:animate-none" />

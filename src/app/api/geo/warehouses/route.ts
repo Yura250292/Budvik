@@ -6,8 +6,11 @@ import { prisma } from "@/lib/prisma";
 // GET — list warehouses with coordinates
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  // Той самий перелік ролей, що й у /api/admin/stock-locations: адреси складів
+  // не мають бути видні клієнтам, а раніше сюди пускало будь-кого залогіненого.
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!role || !["ADMIN", "MANAGER", "SALES", "WAREHOUSE"].includes(role)) {
+    return NextResponse.json({ error: "Доступ заборонено" }, { status: 403 });
   }
 
   const warehouses = await prisma.stockLocation.findMany({
@@ -40,8 +43,10 @@ export async function POST(req: NextRequest) {
   }
 
   // If setting as default, unset others
+  // where обов'язковий: без нього updateMany переписує ВСІ склади, а не лише
+  // ті, що були дефолтними.
   if (isDefault) {
-    await prisma.stockLocation.updateMany({ data: { isDefault: false } });
+    await prisma.stockLocation.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
   }
 
   const warehouse = await prisma.stockLocation.create({
@@ -67,7 +72,7 @@ export async function PUT(req: NextRequest) {
   }
 
   if (isDefault) {
-    await prisma.stockLocation.updateMany({ data: { isDefault: false } });
+    await prisma.stockLocation.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
   }
 
   const warehouse = await prisma.stockLocation.update({

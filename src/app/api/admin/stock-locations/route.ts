@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { name, address, isDefault } = await req.json();
+  const { name, address, lat, lng, isDefault } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Вкажіть назву" }, { status: 400 });
 
   // If setting as default, unset others
@@ -31,8 +31,16 @@ export async function POST(req: NextRequest) {
     await prisma.stockLocation.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
   }
 
+  // lat/lng приймаються тут теж: без координат склад не видно на карті
+  // планувальника маршрутів. Раніше вони мовчки губилися.
   const location = await prisma.stockLocation.create({
-    data: { name: name.trim(), address: address?.trim() || null, isDefault: !!isDefault },
+    data: {
+      name: name.trim(),
+      address: address?.trim() || null,
+      lat: typeof lat === "number" ? lat : null,
+      lng: typeof lng === "number" ? lng : null,
+      isDefault: !!isDefault,
+    },
   });
   return NextResponse.json(location, { status: 201 });
 }

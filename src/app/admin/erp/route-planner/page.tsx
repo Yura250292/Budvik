@@ -602,6 +602,20 @@ function RoutePlannerContent() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Дзеркало перемикача зі «Списку». Ховаємо, коли планувальник
+                відкритий під конкретний маршрут — там свій контекст і своя
+                кнопка «назад». */}
+            {!linkedDeliveryRoute && (
+              <div className="flex gap-1 mr-1" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
+                <Link href="/admin/erp/delivery-routes"
+                  style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, color: "#6B7280", textDecoration: "none" }}>
+                  Список
+                </Link>
+                <span style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 600, background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+                  Карта
+                </span>
+              </div>
+            )}
             {/* Save to delivery route button */}
             {linkedDeliveryRoute && result && (
               <button

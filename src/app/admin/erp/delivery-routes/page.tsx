@@ -111,10 +111,18 @@ export default function DeliveryRoutesPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/admin/erp/route-planner"
-              style={{ background: "linear-gradient(135deg, #8B5CF6, #6366F1)", color: "white", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", textDecoration: "none" }}>
-              Планувальник маршрутів
-            </Link>
+            {/* Список / Карта — два режими роботи з тими самими маршрутами.
+                «Карта» веде в планувальник: він лишається за своїм URL, бо на
+                нього є глибокі посилання з /manager/routes. */}
+            <div className="flex gap-1" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
+              <span style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 600, background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+                Список
+              </span>
+              <Link href="/admin/erp/route-planner"
+                style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, color: "#6B7280", textDecoration: "none" }}>
+                Карта
+              </Link>
+            </div>
             <button onClick={() => setShowCreate(true)}
               style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "none" }}>
               + Новий маршрут

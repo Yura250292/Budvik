@@ -84,6 +84,16 @@ interface Discrepancy {
   syncJob: { fileName: string; createdAt: string };
 }
 
+/**
+ * Поки Budvik працює як аналітичний центр, істина по товарах, контрагентах і
+ * документах живе в 1С і приходить у Postgres звідти. Ручне внесення з сайту
+ * тимчасово прибране з інтерфейсу, щоб не псувати ці дані.
+ *
+ * Порівняння (dry-run), історія та розбіжності — тільки читання, лишаються.
+ * Щоб повернути запис, достатньо поставити true.
+ */
+const WRITES_ENABLED = false;
+
 type Tab = "sync" | "history" | "discrepancies";
 
 export default function SyncPage() {
@@ -304,7 +314,11 @@ export default function SyncPage() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
         <div className="text-sm text-green-800">
-          <strong>Безпечний режим:</strong> Budvik ніколи не пише назад у 1С. Всі зміни можна переглянути перед застосуванням.
+          {WRITES_ENABLED ? (
+            <><strong>Безпечний режим:</strong> Budvik ніколи не пише назад у 1С. Всі зміни можна переглянути перед застосуванням.</>
+          ) : (
+            <><strong>Тільки читання:</strong> істина по товарах, контрагентах і документах живе в 1С. Тут можна порівняти файл із базою (dry-run), але записувати зміни з сайту вимкнено.</>
+          )}
         </div>
       </div>
 
@@ -408,7 +422,7 @@ export default function SyncPage() {
               >
                 {previewing ? "Аналіз..." : "Порівняти (dry-run)"}
               </button>
-              {preview && hasChanges(preview) && (
+              {WRITES_ENABLED && preview && hasChanges(preview) && (
                 <button
                   onClick={handleApply}
                   disabled={applying}

@@ -13,6 +13,11 @@ export default function PageTransition({ children }: { children: React.ReactNode
     if (!el || prevPathRef.current === pathname) return;
     prevPathRef.current = pathname;
 
+    // В адмінці шелл (сайдбар, шапка, смужка вкладок) статичний, а вміст
+    // вкладок лишається змонтованим — анімація всього піддерева блимала б
+    // інтерфейсом на кожному переході.
+    if (pathname?.startsWith("/admin")) return;
+
     // Only animate on mobile
     if (window.innerWidth >= 768) return;
 

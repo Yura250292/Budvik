@@ -21,6 +21,8 @@ export default function BottomNav() {
   const role = (session?.user as any)?.role;
 
   if (pathname?.startsWith("/sales")) return null;
+  // В адмінці навігацію дає шелл (бургер → drawer), а не таб-бар вітрини.
+  if (pathname?.startsWith("/admin")) return null;
 
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";

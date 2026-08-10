@@ -12,6 +12,8 @@ export default function Footer() {
   const [callbackSent, setCallbackSent] = useState(false);
 
   if (pathname?.startsWith("/sales")) return null;
+  // Адмінка має власний шелл із сайдбаром — футер вітрини там зайвий.
+  if (pathname?.startsWith("/admin")) return null;
 
   return (
     <>

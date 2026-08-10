@@ -4,8 +4,10 @@ import { authOptions } from "@/lib/auth";
 import { getSalesStats, getPurchaseStats } from "@/lib/erp/stats";
 
 export async function GET(req: NextRequest) {
+  // Тільки ADMIN/MANAGER: getSalesStats() не скопить дані по торговому,
+  // тож із роллю SALES блок «По торговим» показував би виручку всіх колег.
   const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
+  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

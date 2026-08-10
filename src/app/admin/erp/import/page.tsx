@@ -10,6 +10,15 @@ type Progress = { current: number; total: number; created: number; skipped: numb
 
 const BATCH_SIZE = 100;
 
+/**
+ * Budvik працює як аналітичний центр: істина по товарах, контрагентах і
+ * документах живе в 1С і надходить у Postgres звідти. Ручний імпорт з сайту
+ * прибраний, щоб не псувати ці дані — сторінка показує пояснення замість майстра.
+ *
+ * Код майстра лишається цілим: щоб повернути імпорт, достатньо поставити true.
+ */
+const WRITES_ENABLED = false;
+
 export default function ImportPage() {
   const { data: session } = useSession();
   const [step, setStep] = useState<Step>("products");
@@ -297,6 +306,27 @@ export default function ImportPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6" style={{ paddingTop: "24px", paddingBottom: "40px" }}>
+        {!WRITES_ENABLED && (
+          <div className="bg-white rounded-xl p-8 text-center" style={{ border: "1px solid #EFEFEF" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>Ручний імпорт вимкнено</h2>
+            <p style={{ fontSize: "14px", color: "#6B7280", maxWidth: "520px", margin: "0 auto 20px" }}>
+              Budvik працює як аналітичний центр: істина по товарах, контрагентах і документах
+              живе в 1С і надходить у базу звідти. Щоб не псувати ці дані, завантаження файлів
+              із сайту тимчасово вимкнено.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Link href="/admin/erp/sync"
+                style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", textDecoration: "none" }}>
+                Порівняти з базою (dry-run)
+              </Link>
+              <Link href="/admin"
+                style={{ background: "white", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "1px solid #E5E7EB", textDecoration: "none" }}>
+                До панелі
+              </Link>
+            </div>
+          </div>
+        )}
+        {WRITES_ENABLED && (<>
         {/* Step indicator */}
         <div className="flex gap-2 mb-8">
           {STEPS.map((s) => (
@@ -626,6 +656,7 @@ export default function ImportPage() {
             </div>
           </div>
         )}
+        </>)}
       </div>
     </div>
   );

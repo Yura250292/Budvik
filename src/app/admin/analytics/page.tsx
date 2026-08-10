@@ -1,9 +1,22 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+
+type Supplier = { id: string; name: string; total: number; docs: number };
+
+type Tab = "overview" | "orders" | "reps" | "payments" | "bolts" | "purchases";
+const TABS: [Tab, string][] = [
+  ["overview", "Огляд"],
+  ["orders", "Замовлення"],
+  ["reps", "Торгові"],
+  ["payments", "Платежі"],
+  ["bolts", "Бонуси"],
+  ["purchases", "Закупівлі"],
+];
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Чернетка", CONFIRMED: "Підтверджено", PACKING: "Пакування",
@@ -62,9 +75,12 @@ function getDateRange(preset: PeriodPreset): { from: string; to: string } {
   return { from, to };
 }
 
-export default function AnalyticsPage() {
+function AnalyticsPageInner() {
   const { data: session } = useSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<any>(null);
+  const [statsData, setStatsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -75,8 +91,18 @@ export default function AnalyticsPage() {
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [searchOrder, setSearchOrder] = useState("");
 
-  // Tabs
-  const [activeTab, setActiveTab] = useState<"overview" | "orders" | "reps" | "payments" | "bolts">("overview");
+  // Вкладка живе в URL (?tab=), щоб на неї можна було послатися ззовні —
+  // саме так сюди веде редірект зі старої сторінки «Статистика».
+  const tabParam = searchParams.get("tab");
+  const activeTab: Tab = TABS.some(([k]) => k === tabParam) ? (tabParam as Tab) : "overview";
+  const setActiveTab = (tab: Tab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "overview") params.delete("tab");
+    else params.set("tab", tab);
+    // replace, а не push: перемикання вкладок не має засмічувати історію,
+    // інакше «назад» ходить по вкладках замість повернення в /admin.
+    router.replace(params.toString() ? `/admin/analytics?${params}` : "/admin/analytics", { scroll: false });
+  };
 
   // Order detail
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -91,9 +117,18 @@ export default function AnalyticsPage() {
     if (range.to) params.set("to", range.to);
     if (selectedRep !== "ALL") params.set("repId", selectedRep);
     if (selectedStatus !== "ALL") params.set("status", selectedStatus);
-    const res = await fetch(`/api/admin/analytics?${params}`);
+    // Закупівлі живуть в окремому ендпоінті — тягнемо паралельно,
+    // щоб перемикання на вкладку «Закупівлі» було миттєвим.
+    const statsParams = new URLSearchParams();
+    if (range.from) statsParams.set("from", range.from);
+    if (range.to) statsParams.set("to", range.to);
+    const [res, statsRes] = await Promise.all([
+      fetch(`/api/admin/analytics?${params}`),
+      fetch(`/api/erp/stats?${statsParams}`),
+    ]);
     const json = await res.json();
     setData(json);
+    setStatsData(statsRes.ok ? await statsRes.json() : null);
     setLoading(false);
   }, [period, fromDate, toDate, selectedRep, selectedStatus]);
 
@@ -136,14 +171,8 @@ export default function AnalyticsPage() {
 
           {/* Tabs */}
           <div className="flex gap-1 overflow-x-auto" style={{ background: "#F3F4F6", borderRadius: "10px", padding: "3px" }}>
-            {([
-              ["overview", "Огляд"],
-              ["orders", "Замовлення"],
-              ["reps", "Торгові"],
-              ["payments", "Платежі"],
-              ["bolts", "Бонуси"],
-            ] as [string, string][]).map(([key, label]) => (
-              <button key={key} onClick={() => setActiveTab(key as any)}
+            {TABS.map(([key, label]) => (
+              <button key={key} onClick={() => setActiveTab(key)}
                 style={{ padding: "8px 16px", borderRadius: "8px", fontSize: "14px", fontWeight: 600, whiteSpace: "nowrap",
                   background: activeTab === key ? "white" : "transparent",
                   color: activeTab === key ? "#0A0A0A" : "#6B7280",
@@ -465,6 +494,59 @@ export default function AnalyticsPage() {
                 {(data?.byRep || []).length === 0 && (
                   <div className="text-center py-16"><p style={{ color: "#9CA3AF" }}>Немає даних по торговим</p></div>
                 )}
+                <div className="mt-4 text-center">
+                  <Link href="/admin/sales-analytics?tab=reps"
+                    style={{ display: "inline-block", background: "white", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "1px solid #E5E7EB", textDecoration: "none" }}>
+                    Детальніше про торгових →
+                  </Link>
+                </div>
+              </>
+            )}
+
+            {/* ===== PURCHASES TAB ===== */}
+            {activeTab === "purchases" && (
+              <>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
+                    <p style={{ fontSize: "13px", color: "#6B7280" }}>Загальні закупівлі</p>
+                    <p style={{ fontSize: "24px", fontWeight: 700 }}>{formatPrice(statsData?.purchases?.totals?.totalPurchases || 0)}</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
+                    <p style={{ fontSize: "13px", color: "#6B7280" }}>Документів</p>
+                    <p style={{ fontSize: "24px", fontWeight: 700 }}>{statsData?.purchases?.totals?.totalDocs || 0}</p>
+                  </div>
+                </div>
+
+                {statsData?.purchases?.bySupplier?.length > 0 ? (
+                  <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
+                    <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px" }}>По постачальниках</h3>
+                    <div className="space-y-3">
+                      {statsData.purchases.bySupplier.map((s: Supplier) => {
+                        const width = statsData.purchases.bySupplier[0].total > 0 ? (s.total / statsData.purchases.bySupplier[0].total) * 100 : 0;
+                        return (
+                          <div key={s.id}>
+                            <div className="flex justify-between items-center mb-1">
+                              <span style={{ fontSize: "14px", fontWeight: 600 }}>{s.name}</span>
+                              <span style={{ fontSize: "13px", color: "#6B7280" }}>{formatPrice(s.total)} | {s.docs} док.</span>
+                            </div>
+                            <div style={{ height: "6px", background: "#F3F4F6", borderRadius: "3px" }}>
+                              <div style={{ height: "6px", width: `${width}%`, background: "#0EA5E9", borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-16"><p style={{ color: "#9CA3AF" }}>Немає даних по закупівлях</p></div>
+                )}
+
+                <div className="mt-4 text-center">
+                  <Link href="/admin/erp/reports"
+                    style={{ display: "inline-block", background: "white", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "1px solid #E5E7EB", textDecoration: "none" }}>
+                    Бухгалтерські звіти →
+                  </Link>
+                </div>
               </>
             )}
 
@@ -585,6 +667,16 @@ export default function AnalyticsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// useSearchParams вимагає Suspense — без нього збірка падає
+// на прередері всієї сторінки.
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження аналітики...</div>}>
+      <AnalyticsPageInner />
+    </Suspense>
   );
 }
 

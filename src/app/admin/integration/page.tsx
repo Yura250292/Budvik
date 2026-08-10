@@ -3,6 +3,15 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
+/**
+ * Budvik працює як аналітичний центр: істина живе в 1С і надходить у Postgres
+ * звідти. Ручне завантаження файлів з сайту прибране, щоб не псувати ці дані.
+ * Історія імпортів та експорт — тільки читання, лишаються.
+ *
+ * Щоб повернути завантаження, достатньо поставити true.
+ */
+const WRITES_ENABLED = false;
+
 interface ImportLog {
   id: string;
   type: string;
@@ -184,7 +193,15 @@ export default function IntegrationPage() {
 
       {activeTab === "import" && (
         <div className="space-y-6">
+          {!WRITES_ENABLED && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
+              <strong>Тільки читання:</strong> істина по товарах і контрагентах живе в 1С і надходить
+              у базу звідти. Завантаження файлів із сайту тимчасово вимкнено, щоб не псувати ці дані.
+              Історія імпортів нижче — доступна.
+            </div>
+          )}
           {/* Import form */}
+          {WRITES_ENABLED && (
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Завантаження даних з 1С</h2>
 
@@ -300,6 +317,7 @@ export default function IntegrationPage() {
               </div>
             )}
           </div>
+          )}
 
           {/* Import history */}
           <div className="bg-white rounded-xl shadow p-6">

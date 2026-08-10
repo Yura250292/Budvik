@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
   // Get all confirmed sales documents with items
   const salesDocs = await prisma.salesDocument.findMany({
     where: {
+      // Лише замовлення: реалізації з 1С лежать у тій самій таблиці й без
+      // цього фільтра задвоїли б оборот кожного торгового.
+      docType: "ORDER",
       status: { in: ["CONFIRMED", "DELIVERED"] },
       ...(from && { confirmedAt: { gte: from } }),
     },

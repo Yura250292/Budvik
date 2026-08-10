@@ -1,5 +1,11 @@
 /**
- * Документи реалізації та надходження з 1С.
+ * Документи продажу (замовлення й реалізації) та надходження з 1С.
+ *
+ * Замовлення (ЗаказПокупателя) і реалізації (РеализацияТоваровУслуг) ідуть
+ * двома окремими потоками — sales_doc і realization_doc — але лягають в одну
+ * таблицю SalesDocument, розрізняючись полем docType. Зіставлення завжди за
+ * externalId: Ref_Key у 1С унікальний незалежно від типу документа, тож
+ * колізії між потоками неможливі.
  *
  * SalesDocument.createdById і PurchaseOrder.createdById обов'язкові у схемі,
  * а в 1С автора документа зіставити ні з ким. Тому документи створюються від
@@ -11,6 +17,7 @@
  * та створити нові, ніж намагатися їх зіставити.
  */
 
+import type { SalesDocType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DocumentRecord, DocumentItemRecord } from "./types";
 import { ApplyContext } from "./context";
@@ -88,9 +95,12 @@ async function resolveItems(
 
 export async function applySalesDocuments(
   records: DocumentRecord[],
-  ctx: ApplyContext
+  ctx: ApplyContext,
+  docType: SalesDocType = "ORDER"
 ): Promise<void> {
   if (records.length === 0) return;
+
+  const docLabel = docType === "REALIZATION" ? "реалізація" : "замовлення";
 
   const existing = await prisma.salesDocument.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
@@ -204,6 +214,7 @@ export async function applySalesDocuments(
           data: {
             externalId: rec.externalId,
             number: rec.number,
+            docType,
             counterpartyId,
             salesRepId,
             status: rec.posted ? "CONFIRMED" : "DRAFT",
@@ -230,6 +241,9 @@ export async function applySalesDocuments(
             where: { id: found.id },
             data: {
               number: rec.number,
+              // Проставляємо і на update: рядки, створені до появи docType,
+              // самі стають на місце при першому ж оновленні з 1С.
+              docType,
               counterpartyId,
               // Лише коли зіставили: null затер би вручну проставленого
               // торгового, якщо ім'я в 1С тимчасово не збіглося.
@@ -250,7 +264,7 @@ export async function applySalesDocuments(
         ctx.updated++;
       }
     } catch (e) {
-      ctx.fail(`реалізація ${rec.number}`, e);
+      ctx.fail(`${docLabel} ${rec.number}`, e);
     }
   }
 }

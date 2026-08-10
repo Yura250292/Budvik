@@ -18,13 +18,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parsePeriod } from "@/lib/analytics/period";
-
-// TODO(realizations): коли пакет docType REALIZATION доїде до проду (міграція
-// + бекфіл обміну з 1С + перевірені ненульові реалізації), замінити на
-// import { SOURCE_FILTER } from "@/lib/analytics/facts" — інакше цей звіт
-// рахуватиме замовлення, а решта аналітики реалізації. Зараз навпаки НЕ можна:
-// реалізацій у базі ще немає, фільтр дав би тихі нулі.
-const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'`;
+import { SOURCE_FILTER } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 

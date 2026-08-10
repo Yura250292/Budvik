@@ -56,6 +56,14 @@ enum DocumentStatus {
   CANCELLED
 }
 
+// Замовлення і реалізація живуть в одній таблиці SalesDocument, бо це той
+// самий набір полів. Розрізняє їх docType: аналітика торгових рахує лише
+// реалізації (фактично відвантажене), ERP працює із замовленнями.
+enum SalesDocType {
+  ORDER // ЗаказПокупателя з 1С або документ, створений на сайті
+  REALIZATION // РеализацияТоваровУслуг — фактичне відвантаження
+}
+
 enum DeliveryMethod {
   DRIVER
   SALES_REP_PICKUP
@@ -552,7 +560,10 @@ model PurchaseOrderItem {
 
 model SalesDocument {
   id             String         @id @default(cuid())
-  number         String         @unique
+  // Не @unique: 1С нумерує замовлення і реалізації незалежними лічильниками,
+  // тож той самий номер може прийти двічі. Унікальність — у @@unique нижче.
+  number         String
+  docType        SalesDocType   @default(ORDER)
   counterpartyId String?
   salesRepId     String?
   status         DocumentStatus @default(DRAFT)
@@ -568,7 +579,7 @@ model SalesDocument {
   deliveryMethod DeliveryMethod?
   deliveryNotes  String?
 
-  externalId String? @unique // Ref_Key документа реалізації в 1С
+  externalId String? @unique // Ref_Key документа в 1С (унікальний незалежно від типу)
 
   counterparty Counterparty?       @relation(fields: [counterpartyId], references: [id])
   salesRep     User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
@@ -578,6 +589,9 @@ model SalesDocument {
   commissions  CommissionRecord[]
   reservations StockReservation[]
   deliveryStop DeliveryStop?
+
+  @@unique([number, docType])
+  @@index([docType, status, createdAt]) // під фільтр аналітики торгових
 }
 
 model SalesDocumentItem {

@@ -12,7 +12,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
-import { fuelCost, revenueByRepBrand, tripFactsByRep } from "@/lib/analytics/facts";
+import { fuelCost, revenueByRepBrand, tripFactsByRep, SOURCE_FILTER } from "@/lib/analytics/facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
 import {
   collectedByRepBrand,
@@ -55,9 +55,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     return NextResponse.json({ error: "Торгового не знайдено" }, { status: 404 });
   }
 
+  // Дзеркало SOURCE_FILTER (src/lib/analytics/facts.ts) для запитів через
+  // модель: рахуємо реалізації, а не замовлення.
   const docWhere = {
     externalId: { not: null },
     status: "CONFIRMED" as const,
+    docType: "REALIZATION" as const,
     salesRepId: repId,
     createdAt: { gte: period.from, lte: period.to },
   };
@@ -97,8 +100,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
         COUNT(*)::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."salesRepId" = ${repId}
         AND s."createdAt" >= ${period.from} AND s."createdAt" <= ${period.to}
       GROUP BY 1
@@ -210,6 +212,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       overdue: aging.overdue,
       overdueRatio: aging.overdueRatio,
       buckets: aging.buckets,
+      stages: aging.stages,
       unknown: aging.unknown,
       // Найгірші зверху; сотні клієнтів на картці все одно не читають
       clients: toDebtorList(receivableRows).slice(0, 100),

@@ -145,6 +145,28 @@ $queries = ReadJsonUtf8 (Join-Path $scriptDir "queries.json")
 $statePath = Join-Path $scriptDir "state.json"
 $runStart  = Get-Date
 
+# Realizations were added to the exchange later than orders, so the shared
+# watermark has long since passed the history the analytics needs. Until the
+# one-off backfill has run, the realization queries ignore the watermark and
+# read from documents.realizationsFrom instead. The flag lives in state.json
+# next to the watermark, so a reinstall that keeps state does not re-read
+# seven months of documents.
+#
+# Read outside the $Scope check below: a full run skips the watermark, but it
+# must still know the backfill is done, or every nightly run would re-read the
+# whole history.
+$realBackfilledAt = $null
+$realBackfillRan  = $false
+if (Test-Path $statePath) {
+    try {
+        $s = ReadJsonUtf8 $statePath
+        if ($s.realizationsBackfilledAt) { $realBackfilledAt = [string]$s.realizationsBackfilledAt }
+    } catch {
+        # Unreadable state means the backfill simply repeats -- upserts by
+        # Ref_Key, so a repeat costs time, not correctness.
+    }
+}
+
 $since = $null
 if ($Scope -ne "full") {
     if (Test-Path $statePath) {
@@ -194,7 +216,8 @@ if ($doCatalogs) {
     $filesThisScope += @("category.ndjson", "product.ndjson", "warehouse.ndjson")
 }
 if ($config.scope.documents) {
-    $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "debt.ndjson", "payment.ndjson")
+    $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "realization_doc.ndjson",
+                         "debt.ndjson", "payment.ndjson")
 }
 foreach ($f in $filesThisScope) {
     Remove-Item (Join-Path $OutDir $f) -Force -EA 0
@@ -204,7 +227,7 @@ $stats = [ordered]@{}
 
 # ------------------------------------------------------------------- run ----
 
-Log ("extract.ps1 v1.9  scope=" + $Scope)
+Log ("extract.ps1 v2.0  scope=" + $Scope)
 Log "connecting to 1C..."
 $connector = New-Object -ComObject V82.COMConnector
 $ib = $connector.Connect($connString)
@@ -658,6 +681,103 @@ try {
         $stats.orders = $n
         Log "orders: $n"
 
+        # --- realizations, with their line items ---
+        #
+        # The document the sales analytics actually runs on: an order is what
+        # the manager promised, a realization is what left the warehouse. Both
+        # streams are kept -- the gap between them is the shortfall report.
+        #
+        # Read from a separate date, not the shared watermark: realizations
+        # joined the exchange later, so the first run has to reach back for
+        # history the watermark has already passed. See $realBackfilledAt.
+        $realFrom = $docsFrom
+        if (-not $realBackfilledAt) {
+            $bf = "2026-01-01"
+            if ($config.documents -and $config.documents.realizationsFrom) {
+                $bf = [string]$config.documents.realizationsFrom
+            }
+            try {
+                $realFrom = [datetime]::ParseExact($bf, "yyyy-MM-dd", $null)
+                Log ("realizations: one-off backfill from {0}" -f $bf)
+            } catch {
+                # A typo in the config must not cost us the whole document run:
+                # fall back to the normal window and say so.
+                Log ("realizations: bad realizationsFrom '" + $bf + "', using normal window")
+                $realFrom = $docsFrom
+            }
+        }
+        Log ("reading realizations since {0:yyyy-MM-dd}..." -f $realFrom)
+
+        # Inline rather than shared with the orders block above -- see the note
+        # above RunQuery: wrapping COM query objects in helpers is what this
+        # build fails on.
+        $realItemsByDoc = @{}
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.salesItemsSince
+        $q.SetParameter([string]$queries.paramFrom, $realFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on realization items query" }
+        $r = $rs.Choose()
+        $itemRows = 0
+        while ($r.Next()) {
+            $docId  = RefId $ib $r.Get(0)
+            $prodId = RefId $ib $r.Get(1)
+            # A line without a product is a service or comment row: no
+            # analytics value, and the server would reject it anyway.
+            if (-not $docId -or -not $prodId) { continue }
+
+            if (-not $realItemsByDoc.ContainsKey($docId)) {
+                $realItemsByDoc[$docId] = New-Object Collections.Generic.List[object]
+            }
+            [void]$realItemsByDoc[$docId].Add([ordered]@{
+                productExternalId = $prodId
+                quantity          = Num $r.Get(2)
+                price             = Num $r.Get(3)
+            })
+            $itemRows++
+        }
+        Log ("  realization items: {0} rows in {1} documents" -f $itemRows, $realItemsByDoc.Count)
+
+        $w = NewWriter (Join-Path $OutDir "realization_doc.ndjson")
+        $n = 0
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.salesSince
+        $q.SetParameter([string]$queries.paramFrom, $realFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on realizations query" }
+        $r = $rs.Choose()
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            if (-not $id) { continue }
+            $rec = [ordered]@{
+                externalId = $id
+                number     = Str $r.Get(1)
+                date       = IsoDate $r.Get(2)
+                posted     = $true
+            }
+            $cp = RefId $ib $r.Get(3)
+            if ($cp) { $rec.counterpartyExternalId = $cp }
+            $rec.totalAmount = Num $r.Get(4)
+
+            $repId = RefId $ib $r.Get(5)
+            if ($repId) { $rec.salesRepExternalId = $repId }
+            $repName = Str $r.Get(6)
+            if ($repName) { $rec.salesRepName = $repName }
+
+            if ($null -ne $realItemsByDoc -and $realItemsByDoc.ContainsKey($id)) {
+                $rec.items = $realItemsByDoc[$id].ToArray()
+            }
+            WriteRecord $w $rec
+            $n++
+        }
+        $w.Close()
+        $stats.realizations = $n
+        Log "realizations: $n"
+
+        # From here the backfill counts as done: the file is written, and the
+        # flag is persisted only if the run reaches the manifest below.
+        $realBackfillRan = $true
+
         # --- debt balances ---
         # Debt is best-effort: several phrasings of this query fail on this
         # build with a bare NullReferenceException, and losing the balances is
@@ -757,12 +877,21 @@ try {
 
     # Watermark advances to the moment this run STARTED, not finished: rows
     # written to 1C while we were reading must fall inside the next window.
+    #
+    # The realization backfill flag is stamped only here, after the manifest:
+    # a run that dies mid-way leaves it unset and the backfill simply repeats.
+    $newState = [ordered]@{
+        lastSuccessAt = $runStart.ToString("o")
+        lastScope     = $Scope
+    }
+    if ($realBackfilledAt) {
+        $newState.realizationsBackfilledAt = $realBackfilledAt
+    } elseif ($realBackfillRan) {
+        $newState.realizationsBackfilledAt = $runStart.ToString("o")
+    }
     [IO.File]::WriteAllText(
         $statePath,
-        ([ordered]@{
-            lastSuccessAt = $runStart.ToString("o")
-            lastScope     = $Scope
-        } | ConvertTo-Json),
+        ($newState | ConvertTo-Json),
         (New-Object Text.UTF8Encoding($false))
     )
 

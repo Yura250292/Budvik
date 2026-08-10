@@ -29,7 +29,9 @@ export async function GET(req: NextRequest) {
 
   // 1. All sales documents with details
   const salesDocs: any[] = await prisma.salesDocument.findMany({
-    where: { ...dateFilter, ...statusFilter, ...repFilter } as any,
+    // docType ORDER: реалізації з 1С живуть у цій самій таблиці й без
+    // фільтра задвоїли б кожну відвантажену партію.
+    where: { docType: "ORDER", ...dateFilter, ...statusFilter, ...repFilter } as any,
     include: {
       salesRep: { select: { id: true, name: true } },
       counterparty: { select: { id: true, name: true } },

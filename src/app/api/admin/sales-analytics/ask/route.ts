@@ -18,6 +18,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { SOURCE_FILTER } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -29,9 +30,10 @@ const MODEL = "deepseek-chat";
 
 const SYSTEM_PROMPT = `Ти аналітик відділу продажів будівельної компанії Budvik.
 
-Тобі дають ГОТОВІ цифри з бази (продажі з 1С за період) і питання від
-керівника або торгового. Твоя робота — пояснити, порівняти, знайти
-закономірність.
+Тобі дають ГОТОВІ цифри з бази і питання від керівника або торгового.
+Цифри — це РЕАЛІЗАЦІЇ з 1С за період, тобто фактично відвантажений товар,
+а не замовлення. Так і називай їх: реалізації, відвантаження, продажі.
+Твоя робота — пояснити, порівняти, знайти закономірність.
 
 ПРАВИЛА:
 1. Використовуй ЛИШЕ надані цифри. Не вигадуй і не оцінюй "приблизно".
@@ -81,7 +83,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
       SELECT u.name AS rep, COUNT(*)::int AS docs, SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       JOIN "User" u ON u.id = s."salesRepId"
-      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY u.name ORDER BY amount DESC
     `,
@@ -93,7 +95,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       JOIN "Product" p ON p.id = i."productId"
       LEFT JOIN "Brand" b ON b.id = p."brandId"
-      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY b.name ORDER BY amount DESC NULLS LAST LIMIT 20
     `,
@@ -103,7 +105,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
              AVG(s."totalAmount")::float AS avg,
              COUNT(DISTINCT s."counterpartyId")::int AS clients
       FROM "SalesDocument" s
-      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
     `,
     // Тижнями, а не днями: 90 днів по днях — це 90 рядків шуму, з яких
@@ -112,7 +114,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
       SELECT date_trunc('week', s."createdAt") AS week,
              COUNT(*)::int AS docs, SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
-      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY 1 ORDER BY 1
     `,
@@ -120,7 +122,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
       SELECT c.name AS client, SUM(s."totalAmount")::float AS amount, COUNT(*)::int AS docs
       FROM "SalesDocument" s
       JOIN "Counterparty" c ON c.id = s."counterpartyId"
-      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY c.name ORDER BY amount DESC LIMIT 15
     `,
@@ -132,14 +134,14 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
     період_днів: days,
     підсумок: {
       сума: round(totals[0]?.amount),
-      замовлень: totals[0]?.docs ?? 0,
+      реалізацій: totals[0]?.docs ?? 0,
       середній_чек: round(totals[0]?.avg),
       унікальних_клієнтів: totals[0]?.clients ?? 0,
     },
     торгові: byRep.map((r) => ({
       імя: r.rep,
       сума: round(r.amount),
-      замовлень: r.docs,
+      реалізацій: r.docs,
       середній_чек: r.docs > 0 ? round(r.amount / r.docs) : 0,
     })),
     бренди: byBrand.map((b) => ({
@@ -150,12 +152,12 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
     по_тижнях: weekly.map((w) => ({
       тиждень: w.week.toISOString().slice(0, 10),
       сума: round(w.amount),
-      замовлень: w.docs,
+      реалізацій: w.docs,
     })),
     топ_клієнтів: topClients.map((c) => ({
       клієнт: c.client,
       сума: round(c.amount),
-      замовлень: c.docs,
+      реалізацій: c.docs,
     })),
   };
 }
@@ -225,7 +227,7 @@ function buildFacts(
       ? summary.торгові.map((r) => ({
           name: r.імя,
           amount: r.сума,
-          docs: r.замовлень,
+          docs: r.реалізацій,
           average: r.середній_чек,
           share: 0,
         }))
@@ -240,8 +242,8 @@ function buildFacts(
         : summary.топ_клієнтів.map((c) => ({
             name: c.клієнт,
             amount: c.сума,
-            docs: c.замовлень,
-            average: c.замовлень > 0 ? Math.round(c.сума / c.замовлень) : 0,
+            docs: c.реалізацій,
+            average: c.реалізацій > 0 ? Math.round(c.сума / c.реалізацій) : 0,
             share: 0,
           }));
 
@@ -313,7 +315,7 @@ export async function POST(req: Request) {
   const summary = await buildSummary(from, to, days, restrictToRep);
 
   // Порожній період: модель тут не потрібна, відповідь очевидна.
-  if (summary.підсумок.замовлень === 0) {
+  if (summary.підсумок.реалізацій === 0) {
     return NextResponse.json({
       answer: `За обраний період (${days} дн.) продажів немає — відповідати нема на чому.`,
       facts: [],

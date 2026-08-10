@@ -48,8 +48,12 @@ export async function getSalesStats(from?: string, to?: string) {
     };
   }
 
+  // docType ORDER: у SalesDocument лежать і замовлення, і реалізації з 1С.
+  // Без фільтра одна відвантажена партія рахувалася б двічі — як замовлення
+  // і як реалізація. ERP оперує замовленнями, аналітика торгових —
+  // реалізаціями (див. src/lib/analytics/facts.ts).
   const docs = await prisma.salesDocument.findMany({
-    where: { status: "CONFIRMED", ...dateFilter },
+    where: { docType: "ORDER", status: "CONFIRMED", ...dateFilter },
     include: {
       items: {
         include: { product: { select: { name: true, categoryId: true, category: { select: { name: true } } } } },
@@ -198,7 +202,8 @@ export async function getFinancialReport(from?: string, to?: string) {
 
   // Revenue (confirmed sales)
   const sales = await prisma.salesDocument.aggregate({
-    where: { status: "CONFIRMED", ...dateFilter("confirmedAt") },
+    // Лише замовлення — інакше задвоєння з реалізаціями, див. коментар вище.
+    where: { docType: "ORDER", status: "CONFIRMED", ...dateFilter("confirmedAt") },
     _sum: { totalAmount: true, profitAmount: true },
     _count: true,
   });

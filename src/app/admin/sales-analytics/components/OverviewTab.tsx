@@ -113,7 +113,7 @@ export function OverviewTab({
           hint={`${data.period.days} дн.`}
           accent={CATEGORICAL[0]}
         />
-        <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених із 1С" accent={CATEGORICAL[1]} />
+        <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених реалізацій із 1С" accent={CATEGORICAL[1]} />
         <StatCard label="Середній чек" value={money(data.totals.average)} unit="грн" accent={CATEGORICAL[2]} />
         <StatCard label="У середньому за день" value={money(perDay)} unit="грн" accent={CATEGORICAL[3]} />
         {/* Кнопка, а не div: картка провалюється в розбивку по клієнтах */}

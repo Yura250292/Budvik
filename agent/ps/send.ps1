@@ -150,6 +150,7 @@ $plan = @(
     @{ file = "stock.ndjson";        entity = "stock"        },
     @{ file = "counterparty.ndjson"; entity = "counterparty" },
     @{ file = "sales_doc.ndjson";    entity = "sales_doc"    },
+    @{ file = "realization_doc.ndjson"; entity = "realization_doc" },
     @{ file = "debt.ndjson";         entity = "debt"         },
     @{ file = "payment.ndjson";      entity = "payment"      }
 )
@@ -181,7 +182,9 @@ try {
         # be tens of thousands of rows of JSON. Smaller batches keep each
         # request well inside the server's body limit.
         $stepBatch = $batchSize
-        if ($step.entity -eq "sales_doc") { $stepBatch = [Math]::Min($batchSize, 100) }
+        if ($step.entity -in @("sales_doc", "realization_doc")) {
+            $stepBatch = [Math]::Min($batchSize, 100)
+        }
 
         # Snapshot ids for the whole entity type, used by "full" runs to flag
         # records that vanished from 1C. Collected as we stream, sent with the

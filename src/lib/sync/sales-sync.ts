@@ -137,8 +137,10 @@ export async function previewSalesDocSync(
     const total1C = doc.items.reduce((sum, i) => sum + i.sellingPrice * i.quantity, 0);
 
     // Try to find in Budvik by document number
+    // docType ORDER: у 1С номери замовлень і реалізацій незалежні, тож пошук
+    // лише за номером міг би підняти чужий документ.
     const existing = await prisma.salesDocument.findFirst({
-      where: { number: doc.number },
+      where: { number: doc.number, docType: "ORDER" },
       include: { items: true, counterparty: true },
     });
 
@@ -243,7 +245,7 @@ export async function applySalesDocSync(
       const total1C = doc.items.reduce((sum, i) => sum + i.sellingPrice * i.quantity, 0);
 
       const existing = await prisma.salesDocument.findFirst({
-        where: { number: doc.number },
+        where: { number: doc.number, docType: "ORDER" },
         include: { items: true },
       });
 

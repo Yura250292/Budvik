@@ -20,6 +20,7 @@ export type SyncEntityType =
   | "stock"
   | "counterparty"
   | "sales_doc"
+  | "realization_doc"
   | "purchase_doc"
   | "debt"
   | "payment";
@@ -217,6 +218,7 @@ export interface SyncRecordMap {
   stock: StockRecord;
   counterparty: CounterpartyRecord;
   sales_doc: DocumentRecord;
+  realization_doc: DocumentRecord;
   purchase_doc: DocumentRecord;
   debt: DebtRecord;
   payment: PaymentRecord;

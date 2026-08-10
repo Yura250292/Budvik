@@ -6,9 +6,9 @@
  * базі — просити її в моделі означало б платити за кожен перегляд і отримати
  * правдоподібне число замість правильного.
  *
- * Джерело — SalesDocument із externalId (тобто прийшли з 1С; документи,
- * створені вручну на сайті, у звіт не потрапляють) і лише проведені
- * (status CONFIRMED): непроведене замовлення ще не пішло на склад.
+ * Джерело — РЕАЛІЗАЦІЇ з 1С (docType REALIZATION): фактично відвантажене, а
+ * не замовлене. Точні умови й чому саме такі — у SOURCE_FILTER
+ * (src/lib/analytics/facts.ts), звідки вони й беруться.
  */
 
 import { NextResponse } from "next/server";
@@ -17,6 +17,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parsePeriod } from "@/lib/analytics/period";
+import { SOURCE_FILTER } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +53,11 @@ export async function GET(req: Request) {
     ? Prisma.sql`AND s."salesRepId" = ${restrictToRep}`
     : Prisma.empty;
 
+  // Дзеркало SOURCE_FILTER для запитів через Prisma-модель.
   const where = {
     externalId: { not: null },
     status: "CONFIRMED" as const,
+    docType: "REALIZATION" as const,
     createdAt: { gte: from, lte: to },
     ...(restrictToRep ? { salesRepId: restrictToRep } : {}),
   };
@@ -85,8 +88,7 @@ export async function GET(req: Request) {
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       JOIN "Product" p ON p.id = i."productId"
       LEFT JOIN "Brand" b ON b.id = p."brandId"
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
       GROUP BY b.name, b.color
@@ -111,8 +113,7 @@ export async function GET(req: Request) {
         COUNT(*)::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
       GROUP BY 1
@@ -129,8 +130,7 @@ export async function GET(req: Request) {
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       JOIN "Product" p ON p.id = i."productId"
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
       GROUP BY p.id, p.name, p.sku
@@ -146,8 +146,7 @@ export async function GET(req: Request) {
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       JOIN "Counterparty" c ON c.id = s."counterpartyId"
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
       GROUP BY c.id, c.name
@@ -164,8 +163,7 @@ export async function GET(req: Request) {
         COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.id), 0), 0) AS "linesPerDoc"
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
     `,
@@ -179,8 +177,7 @@ export async function GET(req: Request) {
         COUNT(DISTINCT i."productId")::int AS sku
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
-      WHERE s."externalId" IS NOT NULL
-        AND s.status = 'CONFIRMED'
+      WHERE ${SOURCE_FILTER}
         ${periodCondition}
         ${repCondition}
       GROUP BY s."salesRepId"

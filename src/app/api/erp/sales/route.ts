@@ -15,7 +15,10 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status");
   const salesRepId = searchParams.get("salesRepId");
 
-  const where: Record<string, unknown> = {};
+  // Список ERP — це замовлення: саме їх збирають, комплектують і везуть.
+  // Реалізації з 1С лежать у тій самій таблиці, але в роботі складу й водія
+  // не беруть участі (це вже факт відвантаження).
+  const where: Record<string, unknown> = { docType: "ORDER" };
   if (status) where.status = status;
   if (salesRepId) where.salesRepId = salesRepId;
 

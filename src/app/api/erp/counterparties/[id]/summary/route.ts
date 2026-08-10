@@ -33,7 +33,9 @@ export async function GET(
   const totalDebt = invoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
 
   // Recent sales documents
-  const whereDoc: Record<string, unknown> = { counterpartyId: id };
+  // docType ORDER: реалізації з 1С лежать у тій самій таблиці, і без фільтра
+  // клієнт бачив би кожну свою покупку двічі.
+  const whereDoc: Record<string, unknown> = { counterpartyId: id, docType: "ORDER" };
   if (session.user.role === "SALES") {
     whereDoc.salesRepId = session.user.id;
   }
@@ -63,6 +65,7 @@ export async function GET(
     where: {
       salesDocument: {
         counterpartyId: id,
+        docType: "ORDER",
         status: "CONFIRMED",
         ...(session.user.role === "SALES" ? { salesRepId: session.user.id } : {}),
       },

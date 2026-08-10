@@ -5,8 +5,7 @@
  * виконання планів, профіль торгового і вкладка палива. Дублювати SQL
  * означало б, що «оборот» у КПІ і в профілі колись розійдеться.
  *
- * Фільтр джерела всюди однаковий: документи з 1С (externalId не null) і
- * лише проведені (CONFIRMED). Той самий, що у /api/admin/sales-analytics.
+ * Фільтр джерела всюди однаковий — див. SOURCE_FILTER нижче.
  */
 
 import { Prisma } from "@prisma/client";
@@ -18,7 +17,22 @@ export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
 export type RepRevenue = { repId: string; amount: number; docs: number; clients: number; profit: number };
 export type RepBrandRevenue = { repId: string; brandId: string | null; brandName: string | null; amount: number; qty: number };
 
-const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'`;
+/**
+ * Що вважається продажем торгового. Експортується, щоб той самий фільтр стояв
+ * у сирих запитах роутів аналітики: колись дубльовані копії неминуче
+ * розійшлися б, і «оборот» у КПІ перестав би збігатися з оборотом в огляді.
+ *
+ * docType REALIZATION — головне: рахуємо РЕАЛІЗАЦІЮ (фактично відвантажене),
+ * а не замовлення. Замовлення — це намір, який може бути скасований, урізаний
+ * складом або так і не поїхати; премію торговому платять за відвантажене.
+ * Обидва типи лежать в одній таблиці, тож без цієї умови кожна партія
+ * рахувалася б двічі.
+ *
+ * externalId IS NOT NULL — лише те, що прийшло з 1С: документи, створені
+ * вручну на сайті, у звіт торгових не потрапляють.
+ * CONFIRMED — лише проведені: непроведений документ ще не відбувся.
+ */
+export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" = 'REALIZATION'`;
 
 /** Оборот по кожному торговому за період. */
 export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {

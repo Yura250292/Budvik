@@ -156,7 +156,12 @@ async function handleSalesImport(text: string, mode: string | null, userId: stri
 
   for (const doc of parsed) {
     try {
-      const existing = await prisma.salesDocument.findFirst({ where: { number: doc.number } });
+      // docType ORDER: номери замовлень і реалізацій у 1С нумеруються
+      // незалежно, тож без фільтра імпорт міг би прийняти реалізацію з тим
+      // самим номером за вже наявне замовлення і мовчки пропустити документ.
+      const existing = await prisma.salesDocument.findFirst({
+        where: { number: doc.number, docType: "ORDER" },
+      });
       if (existing) { skipped++; continue; }
 
       let customer = doc.customerCode

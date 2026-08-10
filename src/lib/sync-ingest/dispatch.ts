@@ -50,7 +50,10 @@ export async function dispatchBatch(
       await applyCounterparties(batch.records as CounterpartyRecord[], ctx);
       break;
     case "sales_doc":
-      await applySalesDocuments(batch.records as DocumentRecord[], ctx);
+      await applySalesDocuments(batch.records as DocumentRecord[], ctx, "ORDER");
+      break;
+    case "realization_doc":
+      await applySalesDocuments(batch.records as DocumentRecord[], ctx, "REALIZATION");
       break;
     case "purchase_doc":
       await applyPurchaseDocuments(batch.records as DocumentRecord[], ctx);

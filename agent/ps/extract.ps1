@@ -659,47 +659,76 @@ try {
         Log "orders: $n"
 
         # --- debt balances ---
+        # Debt is best-effort: several phrasings of this query fail on this
+        # build with a bare NullReferenceException, and losing the balances is
+        # far better than losing the orders that were already read. Whatever
+        # the cause, it must not abort the cycle.
         Log "reading debt..."
-        $w = NewWriter (Join-Path $OutDir "debt.ndjson")
-        $n = 0
-        $r = RunQuery $queries.debt
-        while ($r.Next()) {
-            $cp = RefId $ib $r.Get(0)
-            if (-not $cp) { continue }
-            WriteRecord $w ([ordered]@{ externalId = $cp; balance = Num $r.Get(1) })
-            $n++
+        try {
+            $w = NewWriter (Join-Path $OutDir "debt.ndjson")
+            $n = 0
+            $skippedZero = 0
+            $r = RunQuery $queries.debt
+            while ($r.Next()) {
+                $cp = RefId $ib $r.Get(0)
+                if (-not $cp) { continue }
+                $balance = Num $r.Get(1)
+
+                # Filtered here rather than in the query. The one-kopeck
+                # threshold drops rounding dust: this base has plenty of -0.01
+                # balances that are not real debt and would only add noise.
+                if ([Math]::Abs($balance) -lt 0.02) { $skippedZero++; continue }
+
+                WriteRecord $w ([ordered]@{ externalId = $cp; balance = $balance })
+                $n++
+            }
+            $w.Close()
+            $stats.debt = $n
+            Log ("debt: {0}  (skipped {1} zero/dust)" -f $n, $skippedZero)
         }
-        $w.Close()
-        $stats.debt = $n
-        Log "debt: $n"
+        catch {
+            if ($w) { try { $w.Close() } catch { } }
+            Remove-Item (Join-Path $OutDir "debt.ndjson") -Force -EA 0
+            $stats.debtFailed = $_.Exception.Message
+            Log ("debt: SKIPPED -- " + $_.Exception.Message)
+        }
 
         # --- cash payments ---
+        # Best-effort, same reasoning as debt above.
         Log "reading payments..."
-        $w = NewWriter (Join-Path $OutDir "payment.ndjson")
-        $n = 0
-        $q = $ib.NewObject("Query")
-        $q.Text = [string]$queries.paymentsSince
-        $q.SetParameter([string]$queries.paramFrom, $docsFrom)
-        $rs = $q.Execute()
-        if ($null -eq $rs) { throw "Execute() returned null on payments query" }
-        $r = $rs.Choose()
-        while ($r.Next()) {
-            $id = RefId $ib $r.Get(0)
-            $cp = RefId $ib $r.Get(3)
-            if (-not $id -or -not $cp) { continue }
-            WriteRecord $w ([ordered]@{
-                externalId              = $id
-                counterpartyExternalId  = $cp
-                number                  = Str $r.Get(1)
-                date                    = IsoDate $r.Get(2)
-                amount                  = Num $r.Get(4)
-                method                  = "cash"
-            })
-            $n++
+        try {
+            $w = NewWriter (Join-Path $OutDir "payment.ndjson")
+            $n = 0
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.paymentsSince
+            $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on payments query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                $id = RefId $ib $r.Get(0)
+                $cp = RefId $ib $r.Get(3)
+                if (-not $id -or -not $cp) { continue }
+                WriteRecord $w ([ordered]@{
+                    externalId              = $id
+                    counterpartyExternalId  = $cp
+                    number                  = Str $r.Get(1)
+                    date                    = IsoDate $r.Get(2)
+                    amount                  = Num $r.Get(4)
+                    method                  = "cash"
+                })
+                $n++
+            }
+            $w.Close()
+            $stats.payments = $n
+            Log "payments: $n"
         }
-        $w.Close()
-        $stats.payments = $n
-        Log "payments: $n"
+        catch {
+            if ($w) { try { $w.Close() } catch { } }
+            Remove-Item (Join-Path $OutDir "payment.ndjson") -Force -EA 0
+            $stats.paymentsFailed = $_.Exception.Message
+            Log ("payments: SKIPPED -- " + $_.Exception.Message)
+        }
     }
 
     # Manifest doubles as the success marker: the sender refuses to run

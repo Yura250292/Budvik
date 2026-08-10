@@ -120,28 +120,57 @@ export async function applySalesDocuments(
   const repNames = [
     ...new Set(records.map((r) => r.salesRepName?.trim()).filter((n): n is string => !!n)),
   ];
-  const repUsers =
+
+  // Точне зіставлення імен тут не працює: у 1С записані повні імена
+  // («Пац Валентин»), а на сайті часто лише ім'я («Валентин»). Тому беремо
+  // всіх користувачів і зіставляємо за словами.
+  const allUsers =
     repNames.length > 0
       ? await prisma.user.findMany({
-          where: { name: { in: repNames, mode: "insensitive" } },
-          select: { id: true, name: true },
+          select: { id: true, name: true, role: true },
         })
       : [];
-  const repIdByName = new Map(repUsers.map((u) => [u.name?.toLowerCase() ?? "", u.id]));
+
+  /** Слова імені, нормалізовані; порядок і зайві пробіли не мають значення. */
+  const wordsOf = (name: string) =>
+    new Set(
+      name
+        .toLowerCase()
+        .split(/[\s.]+/)
+        .map((w) => w.trim())
+        .filter((w) => w.length >= 3)
+    );
+
+  const userWords = allUsers
+    .filter((u) => !!u.name?.trim())
+    .map((u) => ({ id: u.id, role: u.role, words: wordsOf(u.name!) }));
+
+  const repIdByName = new Map<string, string>();
+  for (const oneCName of repNames) {
+    const target = wordsOf(oneCName);
+    if (target.size === 0) continue;
+
+    // Кандидат — той, чиї слова ПОВНІСТЮ входять в ім'я з 1С. «Валентин»
+    // збігається з «Пац Валентин», але «Дмитро Ковальчук» з «Кулик Дмитро»
+    // не збіжиться, бо «ковальчук» відсутнє.
+    const candidates = userWords.filter(
+      (u) => u.words.size > 0 && [...u.words].every((w) => target.has(w))
+    );
+
+    // Неоднозначність — привід не вгадувати: на сайті двоє «Дмитро», і
+    // приписати чужі продажі гірше, ніж не приписати нікому.
+    if (candidates.length === 1) {
+      repIdByName.set(oneCName.toLowerCase(), candidates[0].id);
+    }
+  }
   const reportedMissingReps = new Set<string>();
 
   for (const rec of records) {
-    if (ctx.isPreview) {
-      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
-      continue;
-    }
-
-    const counterpartyId = rec.counterpartyExternalId
-      ? counterpartyByExternalId.get(rec.counterpartyExternalId) ?? null
-      : null;
-
     const repName = rec.salesRepName?.trim();
     const salesRepId = repName ? repIdByName.get(repName.toLowerCase()) ?? null : null;
+
+    // Звітуємо і в preview: інакше про незаведених торгових стало б відомо
+    // лише після вмикання бойового режиму, тобто запізно.
     if (repName && !salesRepId && !reportedMissingReps.has(repName.toLowerCase())) {
       reportedMissingReps.add(repName.toLowerCase());
       ctx.discrepancy({
@@ -153,6 +182,15 @@ export async function applySalesDocuments(
         valueBudvik: "користувача з таким іменем немає на сайті",
       });
     }
+
+    if (ctx.isPreview) {
+      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
+      continue;
+    }
+
+    const counterpartyId = rec.counterpartyExternalId
+      ? counterpartyByExternalId.get(rec.counterpartyExternalId) ?? null
+      : null;
     const items = await resolveItems(rec.items ?? [], ctx, rec.number);
     const totalAmount =
       rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);

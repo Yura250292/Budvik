@@ -179,32 +179,29 @@ export default function ReportsPage() {
             {/* Receivables detail */}
             {report.receivables?.items?.length > 0 && (
               <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
-                <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px" }}>Дебіторська заборгованість</h3>
+                <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Дебіторська заборгованість</h3>
+                <p style={{ fontSize: "13px", color: "#9CA3AF", marginBottom: "12px" }}>
+                  За даними 1С (взаєморозрахунки з контрагентами), топ-50 боржників
+                </p>
                 <table className="w-full">
                   <thead>
                     <tr style={{ borderBottom: "1px solid #EFEFEF" }}>
-                      <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Накладна</th>
                       <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Контрагент</th>
-                      <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Сума</th>
-                      <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Оплачено</th>
                       <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Борг</th>
-                      <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Термін</th>
+                      <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Дані 1С від</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.receivables.items.map((inv: any) => (
-                      <tr key={inv.id} style={{ borderBottom: "1px solid #F3F4F6" }}>
-                        <td style={{ padding: "10px 0" }}>
-                          <Link href={`/admin/erp/invoices/${inv.id}`} className="text-blue-600 hover:text-blue-800 text-sm font-semibold">
-                            {inv.number}
+                    {report.receivables.items.map((row: any) => (
+                      <tr key={row.id} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                        <td style={{ padding: "10px 0", fontSize: "14px" }}>
+                          <Link href={`/admin/erp/counterparties/${row.id}`} className="text-blue-600 hover:text-blue-800 font-semibold">
+                            {row.counterparty}
                           </Link>
                         </td>
-                        <td style={{ padding: "10px 0", fontSize: "14px" }}>{inv.counterparty}</td>
-                        <td style={{ padding: "10px 0", textAlign: "right", fontSize: "14px" }}>{formatPrice(inv.total)}</td>
-                        <td style={{ padding: "10px 0", textAlign: "right", fontSize: "14px", color: "#16A34A" }}>{formatPrice(inv.paid)}</td>
-                        <td style={{ padding: "10px 0", textAlign: "right", fontSize: "14px", fontWeight: 700, color: "#DC2626" }}>{formatPrice(inv.remaining)}</td>
-                        <td style={{ padding: "10px 0", fontSize: "13px", color: inv.dueDate && new Date(inv.dueDate) < new Date() ? "#DC2626" : "#6B7280" }}>
-                          {inv.dueDate ? formatDate(inv.dueDate) : "—"}
+                        <td style={{ padding: "10px 0", textAlign: "right", fontSize: "14px", fontWeight: 700, color: "#DC2626" }}>{formatPrice(row.balance)}</td>
+                        <td style={{ padding: "10px 0", fontSize: "13px", color: "#6B7280" }}>
+                          {row.syncedAt ? formatDate(row.syncedAt) : "—"}
                         </td>
                       </tr>
                     ))}

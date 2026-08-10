@@ -2,13 +2,33 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import AiSupportChat from "@/components/ai/AiSupportChat";
 
 export default function DashboardPage() {
   const { data: session } = useSession();
+  const router = useRouter();
   const [stats, setStats] = useState({ orders: 0, totalSpent: 0, bolts: 0 });
+
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  /**
+   * Торгового відправляємо в його кабінет.
+   *
+   * Гейт саме тут, а не лише в /login: сюди ведуть кілька шляхів повз
+   * форму входу — Google-вхід (callbackUrl: "/dashboard" у login і
+   * register), встановлений PWA зі start_url: "/" і просто збережене
+   * посилання. Лікувати кожен окремо означало б забути наступний;
+   * /dashboard — спільна для них точка.
+   *
+   * У manifest.json start_url не чіпаємо: він один на всіх, і кабінет
+   * торгового відкривався б покупцям.
+   */
+  useEffect(() => {
+    if (role === "SALES") router.replace("/sales");
+  }, [role, router]);
 
   useEffect(() => {
     if (!session) return;
@@ -41,8 +61,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  const role = (session.user as any).role;
 
   const menuItems = [
     {

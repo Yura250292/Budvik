@@ -215,14 +215,20 @@ export async function getFinancialReport(from?: string, to?: string) {
     _count: true,
   });
 
-  // Receivables (unpaid/partial invoices)
-  const receivables = await prisma.invoice.findMany({
-    where: { paymentStatus: { in: ["UNPAID", "PARTIAL"] } },
-    include: { counterparty: { select: { name: true } } },
-    orderBy: { createdAt: "desc" },
+  // Дебіторка — баланс взаєморозрахунків з 1С, а не залишок несплачених
+  // рахунків: рахунки з обміну створюються вже оплаченими (їх закриває ПКО),
+  // тож їхній залишок завжди ~0 і звіт показував би нульовий борг.
+  const debtors = await prisma.counterparty.findMany({
+    where: { receivableBalance: { gt: 0.01 } },
+    select: { id: true, name: true, receivableBalance: true, balanceSyncedAt: true },
+    orderBy: { receivableBalance: "desc" },
+    take: 50,
   });
 
-  const totalReceivable = receivables.reduce((s, inv) => s + (inv.totalAmount - inv.paidAmount), 0);
+  const totalReceivable = await prisma.counterparty.aggregate({
+    where: { receivableBalance: { gt: 0.01 } },
+    _sum: { receivableBalance: true },
+  });
 
   // Inventory value
   const supplierProducts = await prisma.supplierProduct.findMany({
@@ -258,15 +264,12 @@ export async function getFinancialReport(from?: string, to?: string) {
     purchases: purchases._sum.totalAmount || 0,
     purchasesCount: purchases._count,
     receivables: {
-      total: totalReceivable,
-      items: receivables.map((inv) => ({
-        id: inv.id,
-        number: inv.number,
-        counterparty: inv.counterparty.name,
-        total: inv.totalAmount,
-        paid: inv.paidAmount,
-        remaining: inv.totalAmount - inv.paidAmount,
-        dueDate: inv.dueDate,
+      total: totalReceivable._sum.receivableBalance || 0,
+      items: debtors.map((cp) => ({
+        id: cp.id,
+        counterparty: cp.name,
+        balance: cp.receivableBalance || 0,
+        syncedAt: cp.balanceSyncedAt,
       })),
     },
     inventoryValue,

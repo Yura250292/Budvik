@@ -109,12 +109,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if ("color" in body) {
     const value = isHexColor(body.color) ? String(body.color).trim() : null;
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: { color: value },
-      select: { id: true, name: true, color: true },
-    });
-    return NextResponse.json(user);
+    try {
+      const user = await prisma.user.update({
+        where: { id },
+        data: { color: value },
+        select: { id: true, name: true, color: true },
+      });
+      return NextResponse.json(user);
+    } catch (e) {
+      // Міграцію user_color ще не накотили на цю базу — кажемо це прямо,
+      // замість глухого 500.
+      if ((e as { code?: string })?.code === "P2022") {
+        return NextResponse.json(
+          { error: "Колір поки не зберігається: у базі бракує колонки User.color (міграція user_color)" },
+          { status: 503 }
+        );
+      }
+      throw e;
+    }
   }
 
   if (!role || !["CLIENT", "MANAGER", "SALES", "WAREHOUSE", "WHOLESALE"].includes(role)) {

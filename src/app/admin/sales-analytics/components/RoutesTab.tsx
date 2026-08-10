@@ -200,11 +200,16 @@ export function RoutesTab({ period }: { period: Period }) {
   function setRepColor(repId: string, color: string) {
     if (colorTimer.current) clearTimeout(colorTimer.current);
     colorTimer.current = setTimeout(async () => {
-      await fetch(`/api/admin/users/${repId}`, {
+      const res = await fetch(`/api/admin/users/${repId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ color }),
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        setNotice(json?.error ?? "Не вдалося зберегти колір");
+        return;
+      }
       assignments.reload();
     }, 400);
   }

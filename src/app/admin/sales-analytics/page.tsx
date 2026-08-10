@@ -66,6 +66,37 @@ export default function SalesAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // --- АІ-помічник ---
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  const ask = useCallback(
+    async (q: string) => {
+      const text = q.trim();
+      if (!text || asking) return;
+      setAsking(true);
+      setAskError(null);
+      setAnswer(null);
+      try {
+        const res = await fetch("/api/admin/sales-analytics/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: text, days }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? `Помилка ${res.status}`);
+        setAnswer(body.answer);
+      } catch (e) {
+        setAskError((e as Error).message);
+      } finally {
+        setAsking(false);
+      }
+    },
+    [days, asking]
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -186,6 +217,101 @@ export default function SalesAnalyticsPage() {
               <div style={{ color: "#6B7280", fontSize: 13 }}>Середній чек</div>
               <div style={{ fontSize: 28, fontWeight: 700 }}>{money(data.totals.average)} ₴</div>
             </div>
+          </div>
+
+          {/* --- АІ-помічник --- */}
+          <div style={{ ...CARD, marginBottom: 20 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
+              Запитати про цифри
+            </h2>
+            <p style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>
+              Відповідь рахується з даних за обраний період
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <input
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void ask(question);
+                }}
+                placeholder="Наприклад: хто найкраще продає SIGMA?"
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #E5E7EB",
+                  fontSize: 14,
+                }}
+              />
+              <button
+                onClick={() => void ask(question)}
+                disabled={asking || !question.trim()}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: asking || !question.trim() ? "#D1D5DB" : "#2563EB",
+                  color: "white",
+                  fontWeight: 500,
+                  cursor: asking || !question.trim() ? "default" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {asking ? "…" : "Спитати"}
+              </button>
+            </div>
+
+            {/* Готові питання: найкоротший шлях зрозуміти, що воно вміє. */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[
+                "Підсумуй період",
+                "Хто відстає і чому",
+                "Які бренди тягнуть виторг",
+                "Помітні аномалії?",
+              ].map((q) => (
+                <button
+                  key={q}
+                  onClick={() => {
+                    setQuestion(q);
+                    void ask(q);
+                  }}
+                  disabled={asking}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 16,
+                    border: "1px solid #E5E7EB",
+                    background: "white",
+                    color: "#374151",
+                    fontSize: 13,
+                    cursor: asking ? "default" : "pointer",
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+
+            {askError && (
+              <div style={{ marginTop: 12, color: "#B91C1C", fontSize: 14 }}>{askError}</div>
+            )}
+
+            {answer && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: 14,
+                  background: "#F9FAFB",
+                  borderRadius: 8,
+                  border: "1px solid #F3F4F6",
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {answer}
+              </div>
+            )}
           </div>
 
           {/* --- динаміка --- */}

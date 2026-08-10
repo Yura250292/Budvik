@@ -1,9 +1,10 @@
 /**
- * Профіль торгового: продажі по брендах, поїздки, паливо і виконання плану
- * в одній відповіді.
+ * Профіль торгового: продажі по брендах, поїздки, паливо, виконання плану,
+ * дебіторка і заробіток в одній відповіді.
  *
  * Один payload, а не чотири запити з фронту: усі числа мають бути за той самий
  * період, інакше «оборот» і «км» на одній картці рахувалися б по-різному.
+ * Виняток — дебіторка: це залишок станом на зараз, а не потік за період.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +14,15 @@ import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
 import { fuelCost, revenueByRepBrand, tripFactsByRep } from "@/lib/analytics/facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
+import { calculateAging } from "@/lib/erp/receivables";
+import {
+  collectedByRepBrand,
+  collectedTotals,
+  receivableRowsByRep,
+  toInvoiceList,
+  toAgingInput,
+} from "@/lib/analytics/money-facts";
+import { earningsByRep } from "@/lib/motivation/period-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +63,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     createdAt: { gte: period.from, lte: period.to },
   };
 
-  const [totals, byBrand, trips, vehicle, plans, documents, timeline, brands] = await Promise.all([
+  const now = new Date();
+
+  const [totals, byBrand, trips, vehicle, plans, documents, timeline, brands, collected, receivableRows] = await Promise.all([
     prisma.salesDocument.aggregate({
       where: docWhere,
       _count: { id: true },
@@ -99,7 +111,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       where: { isActive: true },
       select: { id: true, name: true, color: true },
     }),
+    collectedByRepBrand(period.from, period.to, repId),
+    receivableRowsByRep(repId),
   ]);
+
+  // Заробіток рахується після: рушію потрібні вже завантажені зібране й борги.
+  const earnings = (
+    await earningsByRep([repId], period, month, { collected, receivables: receivableRows })
+  ).get(repId);
+
+  const collectedMoney = collectedTotals(collected).get(repId) ?? { amount: 0, profit: 0 };
+  const aging = calculateAging(toAgingInput(receivableRows), now);
 
   const tripFacts = trips[0] ?? { trips: 0, totalKm: 0, personalKm: 0, checkpoints: 0, daysWorked: 0 };
   const fuel = fuelCost(tripFacts.totalKm, tripFacts.personalKm, vehicle, tripFacts.daysWorked);
@@ -174,6 +196,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       /** Скільки пального «коштує» гривня обороту — видно неефективні напрямки */
       costPerRevenue: revenue > 0 ? fuel.cost / revenue : 0,
     },
+    collected: {
+      amount: collectedMoney.amount,
+      profit: collectedMoney.profit,
+      /** Яка частка проданого вже оплачена — головне питання до дебіторки */
+      ratio: revenue > 0 ? (collectedMoney.amount / revenue) * 100 : 0,
+    },
+    receivables: {
+      asOf: now.toISOString(),
+      total: aging.total,
+      current: aging.current,
+      overdue: aging.overdue,
+      overdueRatio: aging.overdueRatio,
+      buckets: aging.buckets,
+      // Найгірші зверху; сотні рахунків на картці все одно не читають
+      invoices: toInvoiceList(receivableRows, now).slice(0, 100),
+    },
+    earnings: earnings
+      ? {
+          schemeName: earnings.schemeName,
+          total: earnings.total,
+          gross: earnings.gross,
+          penalties: earnings.penalties,
+          lines: earnings.lines,
+        }
+      : null,
     timeline,
     documents: documents.map((d) => ({
       id: d.id,

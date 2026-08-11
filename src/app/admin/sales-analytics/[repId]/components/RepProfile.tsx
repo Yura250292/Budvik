@@ -202,6 +202,7 @@ export function RepProfile({
               endpoint={`/api/admin/sales-analytics/insights/rep/${repId}?from=${period.from}&to=${period.to}`}
               title="АІ-аналіз по торговому"
               hint="Динаміка, портфель клієнтів і дебіторка за період. Числа пораховані з бази — модель лише пояснює, що вони означають."
+              saveContext={{ kind: "rep", repId, fromDay: period.from, toDay: period.to }}
             />
 
             {/* --- Темп і портфель клієнтів --- */}

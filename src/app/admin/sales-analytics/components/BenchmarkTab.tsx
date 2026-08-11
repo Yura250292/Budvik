@@ -113,6 +113,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
         endpoint={`/api/admin/sales-analytics/insights/team?from=${period.from}&to=${period.to}`}
         title="АІ-аналіз команди"
         hint="Хто витягує команду, хто провисає і в чому саме. Порівняння за перцентилями, числа пораховані з бази."
+        saveContext={{ kind: "team", fromDay: period.from, toDay: period.to }}
       />
 
       <Card padded={false}>

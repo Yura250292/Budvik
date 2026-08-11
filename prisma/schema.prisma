@@ -207,6 +207,8 @@ model User {
   commissionRates       CommissionRate[]   @relation("commissionRates")
   commissionRecords     CommissionRecord[] @relation("commissionRecords")
   aiInsightReports      AiInsightReport[]  @relation("aiInsightRep")
+  savedAiReports        SavedAiReport[]    @relation("savedAiReportRep")
+  savedAiReportsAuthored SavedAiReport[]   @relation("savedAiReportAuthor")
 
   // Delivery relations
   driverRoutes  DeliveryRoute[] @relation("driverRoutes")
@@ -1664,5 +1666,48 @@ model AiInsightReport {
   rep User? @relation("aiInsightRep", fields: [repId], references: [id], onDelete: Cascade)
 
   @@unique([kind, repId, fromDay, toDay])
+  @@index([createdAt])
+}
+
+/// Збережений АІ-звіт — архів, який керівник відклав навмисно.
+///
+/// Окрема модель, а не прапорець на AiInsightReport, бо в них різне життя.
+/// Кеш — це «останній звіт за цей період», його щоразу перезаписує наступна
+/// генерація, і ключ у нього (вид, торговий, період). Архів — знімок на
+/// момент збереження: той самий період можна відкласти двічі з різницею в
+/// місяць і потім порівняти, що змінилося. Прапорцем таке не виражається.
+///
+/// insights і facts копіюються значеннями, а не посиланням на кеш: сенс
+/// архіву в тому, що він не змінюється, коли цифри в базі поїхали далі.
+model SavedAiReport {
+  id String @id @default(cuid())
+
+  /// "rep" — по одному торговому, "team" — по команді
+  kind String
+  /// null для командного звіту
+  repId   String?
+  fromDay String
+  toDay   String
+
+  /// Назва від керівника; якщо не ввів — складається з виду й періоду
+  title String
+  /// Нащо відклали: «перед розмовою з Дмитром», «база для порівняння»
+  note String?
+
+  /// Копії на момент збереження (див. src/lib/ai/insights.ts)
+  insights Json
+  facts    Json
+
+  model  String
+  tokens Int    @default(0)
+
+  /// Хто відклав — у списку архіву видно автора
+  savedById String
+  createdAt DateTime @default(now())
+
+  rep     User? @relation("savedAiReportRep", fields: [repId], references: [id], onDelete: Cascade)
+  savedBy User  @relation("savedAiReportAuthor", fields: [savedById], references: [id])
+
+  @@index([kind, repId, createdAt])
   @@index([createdAt])
 }

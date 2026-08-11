@@ -5,7 +5,8 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { money, num } from "@/components/ui/Stat";
 import { STATUS, type StatusKey } from "@/lib/analytics/colors";
-import type { Insight, InsightSeverity, InsightUnit } from "@/lib/ai/insights";
+import type { Insight } from "@/lib/ai/insights";
+import { InsightCard, sortInsights } from "./InsightCard";
 
 /**
  * Картка АІ-інсайтів — спільна для профілю торгового і зрізу команди.
@@ -21,10 +22,23 @@ import type { Insight, InsightSeverity, InsightUnit } from "@/lib/ai/insights";
 
 type Report = {
   insights: Insight[];
+  /** Зведення, на якому згенеровано — копіюється в архів разом зі звітом */
+  facts?: unknown;
   model: string;
   tokens: number;
   generatedAt: string;
   fresh: boolean;
+};
+
+/**
+ * Що саме зберігати в архів. Панель сама не знає, чий це звіт і за який
+ * період — endpoint їй передають рядком, розбирати його було б крихко.
+ */
+export type SaveContext = {
+  kind: "rep" | "team";
+  repId?: string | null;
+  fromDay: string;
+  toDay: string;
 };
 
 type ApiResponse = {
@@ -34,23 +48,6 @@ type ApiResponse = {
   rejected?: number;
   error?: string;
 };
-
-const SEVERITY_META: Record<InsightSeverity, { label: string; status: StatusKey }> = {
-  critical: { label: "Критично", status: "bad" },
-  warning: { label: "Увага", status: "warn" },
-  info: { label: "До відома", status: "info" },
-  positive: { label: "Добре", status: "good" },
-};
-
-/** Найгостріші зверху — керівник читає згори вниз і не мусить шукати. */
-const SEVERITY_ORDER: InsightSeverity[] = ["critical", "warning", "info", "positive"];
-
-function formatValue(value: number, unit: InsightUnit): string {
-  if (unit === "uah") return `${money(value)} ₴`;
-  if (unit === "pct") return `${num(Math.round(value))}%`;
-  if (unit === "days") return `${num(value)} дн.`;
-  return num(value);
-}
 
 function formatWhen(iso: string): string {
   return new Intl.DateTimeFormat("uk-UA", {
@@ -66,12 +63,19 @@ export function InsightsPanel({
   endpoint,
   title = "АІ-аналіз",
   hint,
+  saveContext,
 }: {
   /** Роут із GET (кеш) і POST (генерація) */
   endpoint: string;
   title?: string;
   hint?: string;
+  /** Без нього кнопки «Зберегти» немає — панель не знає, що відкладати */
+  saveContext?: SaveContext;
 }) {
+  const [saveState, setSaveState] = useState<"idle" | "form" | "saving" | "done">("idle");
+  const [saveTitle, setSaveTitle] = useState("");
+  const [saveNote, setSaveNote] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -122,9 +126,48 @@ export function InsightsPanel({
 
   const report = data?.report ?? null;
   const insights = report?.insights ?? [];
-  const sorted = [...insights].sort(
-    (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
-  );
+  const sorted = sortInsights(insights);
+
+  // Нова генерація робить попереднє збереження неактуальним: керівник
+  // дивиться вже на інші числа, і позначка «збережено» вводила б в оману.
+  useEffect(() => {
+    setSaveState("idle");
+    setSaveError(null);
+  }, [report?.generatedAt]);
+
+  const save = useCallback(async () => {
+    if (!saveContext || !report) return;
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/admin/sales-analytics/insights/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: saveContext.kind,
+          repId: saveContext.repId ?? null,
+          fromDay: saveContext.fromDay,
+          toDay: saveContext.toDay,
+          title: saveTitle,
+          note: saveNote,
+          insights: report.insights,
+          facts: report.facts ?? {},
+          model: report.model,
+          tokens: report.tokens,
+        }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Помилка ${res.status}`);
+      setSaveState("done");
+      setSaveTitle("");
+      setSaveNote("");
+    } catch (e) {
+      setSaveError((e as Error).message);
+      setSaveState("form");
+    }
+  }, [saveContext, report, saveTitle, saveNote]);
+
+  const canSave = !!saveContext && sorted.length > 0 && !generating;
 
   return (
     <Card>
@@ -138,12 +181,30 @@ export function InsightsPanel({
             }
           />
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {report && (
             <span className="text-xs text-g400">
               {report.fresh ? "" : "застаріло · "}
               {formatWhen(report.generatedAt)}
             </span>
+          )}
+          {saveContext && (
+            <a
+              href="/admin/sales-analytics/saved"
+              className="cursor-pointer text-[13px] text-g500 underline underline-offset-2 hover:text-bk"
+            >
+              Архів
+            </a>
+          )}
+          {canSave && saveState !== "form" && (
+            <button
+              type="button"
+              onClick={() => setSaveState("form")}
+              disabled={saveState === "saving"}
+              className="cursor-pointer rounded-[var(--radius-btn)] border border-g300 px-3 py-2 text-[13px] font-medium text-g600 transition-colors hover:border-g400 hover:text-bk disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saveState === "done" ? "Збережено ✓" : saveState === "saving" ? "Зберігаю…" : "Зберегти"}
+            </button>
           )}
           <button
             type="button"
@@ -155,6 +216,62 @@ export function InsightsPanel({
           </button>
         </div>
       </div>
+
+      {/* Форма збереження: назва й нотатка «нащо відклали». Обидві
+          необов'язкові — без назви підпис складеться з виду й періоду. */}
+      {saveState === "form" && (
+        <div className="mt-3 rounded-[var(--radius-card)] border border-g200 bg-g50 p-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              type="text"
+              value={saveTitle}
+              onChange={(e) => setSaveTitle(e.target.value)}
+              placeholder="Назва (необов'язково)"
+              maxLength={120}
+              className="rounded-[var(--radius-btn)] border border-g300 bg-white px-3 py-2 text-sm text-bk outline-none focus:border-g400"
+            />
+            <input
+              type="text"
+              value={saveNote}
+              onChange={(e) => setSaveNote(e.target.value)}
+              placeholder="Нащо відкладаєте — напр. «до розмови в понеділок»"
+              maxLength={500}
+              className="rounded-[var(--radius-btn)] border border-g300 bg-white px-3 py-2 text-sm text-bk outline-none focus:border-g400"
+            />
+          </div>
+          {saveError && (
+            <p className="mt-2 text-xs" style={{ color: STATUS.bad.fg }}>
+              {saveError}
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={saveState !== "form"}
+              className="cursor-pointer rounded-[var(--radius-btn)] bg-bk px-3.5 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              Зберегти в архів
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSaveState("idle");
+                setSaveError(null);
+              }}
+              className="cursor-pointer text-[13px] text-g500 underline underline-offset-2 hover:text-bk"
+            >
+              Скасувати
+            </button>
+            <a
+              href="/admin/sales-analytics/saved"
+              className="ml-auto cursor-pointer text-[13px] text-g500 underline underline-offset-2 hover:text-bk"
+            >
+              Архів звітів
+            </a>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div
@@ -216,51 +333,9 @@ export function InsightsPanel({
 
       {!generating && sorted.length > 0 && (
         <ul className="mt-3 space-y-2.5">
-          {sorted.map((insight, i) => {
-            const meta = SEVERITY_META[insight.severity] ?? SEVERITY_META.info;
-            const tone = STATUS[meta.status];
-            return (
-              <li
-                key={`${insight.title}-${i}`}
-                className="rounded-[var(--radius-card)] border p-3"
-                style={{ borderColor: tone.border, backgroundColor: tone.bg }}
-              >
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <span
-                    className="rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[11px] font-semibold"
-                    style={{ backgroundColor: tone.mark, color: "#fff" }}
-                  >
-                    {meta.label}
-                  </span>
-                  <span className="font-semibold text-bk">{insight.title}</span>
-                </div>
-
-                <p className="mt-1.5 text-sm text-g600">{insight.detail}</p>
-
-                {insight.evidence.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {insight.evidence.map((e, j) => (
-                      <span
-                        key={`${e.label}-${j}`}
-                        className="inline-flex items-baseline gap-1.5 rounded-[var(--radius-badge)] border border-white/60 bg-white/70 px-2 py-1 text-xs"
-                      >
-                        <span className="text-g600">{e.label}</span>
-                        <span className="font-semibold tabular-nums text-bk">
-                          {formatValue(e.value, e.unit)}
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {insight.action && (
-                  <p className="mt-2 text-sm font-medium" style={{ color: tone.fg }}>
-                    → {insight.action}
-                  </p>
-                )}
-              </li>
-            );
-          })}
+          {sorted.map((insight, i) => (
+            <InsightCard key={`${insight.title}-${i}`} insight={insight} />
+          ))}
         </ul>
       )}
 

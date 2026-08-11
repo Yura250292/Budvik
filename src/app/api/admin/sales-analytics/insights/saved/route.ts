@@ -1,0 +1,176 @@
+/**
+ * Архів АІ-звітів: список і збереження.
+ *
+ * GET  — що вже відкладено (з фільтром за видом і торговим).
+ * POST — відкласти звіт, який зараз на екрані.
+ *
+ * Лише для керівництва. Торговий не зберігає звіти й не бачить чужих: архів
+ * — це матеріал до розмови з людиною, а не зворотний зв'язок для неї.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import type { Insight } from "@/lib/ai/insights";
+
+export const dynamic = "force-dynamic";
+
+const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
+
+/** Скільки звітів віддавати списком. Більше на одному екрані не читають. */
+const LIST_LIMIT = 100;
+
+const MAX_TITLE = 120;
+const MAX_NOTE = 500;
+
+function guard(role: string | undefined) {
+  if (!role) return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  if (!FULL_ACCESS_ROLES.includes(role)) {
+    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
+  }
+  return null;
+}
+
+/** Підпис за замовчуванням, якщо керівник не ввів свій. */
+function defaultTitle(kind: string, repName: string | null, fromDay: string, toDay: string): string {
+  const who = kind === "team" ? "Команда" : (repName ?? "Торговий");
+  return `${who}, ${fromDay} — ${toDay}`;
+}
+
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const denied = guard(session?.user?.role);
+  if (denied) return denied;
+
+  const { searchParams } = new URL(req.url);
+  const kind = searchParams.get("kind");
+  const repId = searchParams.get("repId");
+
+  const rows = await prisma.savedAiReport.findMany({
+    where: {
+      ...(kind === "rep" || kind === "team" ? { kind } : {}),
+      ...(repId ? { repId } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: LIST_LIMIT,
+    select: {
+      id: true,
+      kind: true,
+      repId: true,
+      fromDay: true,
+      toDay: true,
+      title: true,
+      note: true,
+      model: true,
+      tokens: true,
+      createdAt: true,
+      // Без insights/facts: у списку потрібен лише лічильник, а звіти важкі
+      insights: true,
+      rep: { select: { name: true } },
+      savedBy: { select: { name: true } },
+    },
+  });
+
+  return NextResponse.json({
+    reports: rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      repId: r.repId,
+      repName: r.rep?.name ?? null,
+      fromDay: r.fromDay,
+      toDay: r.toDay,
+      title: r.title,
+      note: r.note,
+      model: r.model,
+      tokens: r.tokens,
+      savedBy: r.savedBy?.name ?? "—",
+      createdAt: r.createdAt.toISOString(),
+      insightsCount: Array.isArray(r.insights) ? (r.insights as unknown[]).length : 0,
+    })),
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const denied = guard(session?.user?.role);
+  if (denied) return denied;
+
+  let body: {
+    kind?: string;
+    repId?: string | null;
+    fromDay?: string;
+    toDay?: string;
+    title?: string;
+    note?: string;
+    insights?: Insight[];
+    facts?: unknown;
+    model?: string;
+    tokens?: number;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Некоректний запит" }, { status: 400 });
+  }
+
+  const kind = body.kind === "team" ? "team" : body.kind === "rep" ? "rep" : null;
+  if (!kind) {
+    return NextResponse.json({ error: "Невідомий вид звіту" }, { status: 400 });
+  }
+  if (!body.fromDay || !body.toDay) {
+    return NextResponse.json({ error: "Не вказано період" }, { status: 400 });
+  }
+  if (!Array.isArray(body.insights) || body.insights.length === 0) {
+    // Порожній звіт відкладати нема сенсу — і найчастіше це слід збою,
+    // а не «все спокійно».
+    return NextResponse.json(
+      { error: "Немає що зберігати: у звіті жодного інсайту" },
+      { status: 400 }
+    );
+  }
+
+  // repId має бути реальним торговим: інакше зовнішній ключ впаде вже в базі,
+  // а користувач побачить 500 замість зрозумілого тексту.
+  let repName: string | null = null;
+  if (kind === "rep") {
+    if (!body.repId) {
+      return NextResponse.json({ error: "Не вказано торгового" }, { status: 400 });
+    }
+    const rep = await prisma.user.findUnique({
+      where: { id: body.repId },
+      select: { name: true },
+    });
+    if (!rep) {
+      return NextResponse.json({ error: "Торгового не знайдено" }, { status: 404 });
+    }
+    repName = rep.name;
+  }
+
+  const title =
+    body.title?.trim().slice(0, MAX_TITLE) ||
+    defaultTitle(kind, repName, body.fromDay, body.toDay);
+
+  const saved = await prisma.savedAiReport.create({
+    data: {
+      kind,
+      repId: kind === "rep" ? body.repId! : null,
+      fromDay: body.fromDay,
+      toDay: body.toDay,
+      title,
+      note: body.note?.trim().slice(0, MAX_NOTE) || null,
+      insights: body.insights as unknown as object,
+      facts: (body.facts ?? {}) as object,
+      model: body.model ?? "",
+      tokens: body.tokens ?? 0,
+      savedById: session!.user.id,
+    },
+    select: { id: true, title: true, createdAt: true },
+  });
+
+  return NextResponse.json({
+    id: saved.id,
+    title: saved.title,
+    createdAt: saved.createdAt.toISOString(),
+  });
+}

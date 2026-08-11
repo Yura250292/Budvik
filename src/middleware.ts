@@ -27,6 +27,10 @@ export default withAuth(
          pathname.startsWith("/admin/sales/") ||
          pathname.startsWith("/admin/sales-reports") ||
          pathname.startsWith("/admin/sales-reps") ||
+         // Архів АІ-звітів — виняток із винятку: сама /admin/sales-analytics
+         // відкрита торговому, але збережені звіти лежать упереміш по всій
+         // команді, і скоупити їх нічим.
+         pathname.startsWith("/admin/sales-analytics/saved") ||
          pathname.startsWith("/admin/reports") ||
          pathname.startsWith("/admin/erp/reports") ||
          pathname.startsWith("/admin/erp/stats") ||

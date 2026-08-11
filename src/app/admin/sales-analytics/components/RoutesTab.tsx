@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { StatCard, num } from "@/components/ui/Stat";
@@ -118,9 +118,23 @@ type RouteDayResponse = {
 /** Що показує оглядова мапа: всі маршрути, маршрути одного торгового, чи один напрямок. */
 type OverviewMode = { kind: "all" } | { kind: "rep"; repId: string } | { kind: "template"; templateId: string };
 
-export function RoutesTab({ period }: { period: Period }) {
-  const [day, setDay] = useState(() => kyivToday());
-  const [mapRep, setMapRep] = useState("");
+export function RoutesTab({
+  period,
+  focus,
+}: {
+  period: Period;
+  /** Прийшов із «Поїздок» кліком «поза маршрутом»: мапа дня одразу на цій поїздці. */
+  focus?: { repId: string; date: string } | null;
+}) {
+  const [day, setDay] = useState(() => focus?.date ?? kyivToday());
+  const [mapRep, setMapRep] = useState(focus?.repId ?? "");
+
+  useEffect(() => {
+    if (focus) {
+      setMapRep(focus.repId);
+      setDay(focus.date);
+    }
+  }, [focus]);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", region: "Львівська", settlements: "" });
   const [busy, setBusy] = useState(false);

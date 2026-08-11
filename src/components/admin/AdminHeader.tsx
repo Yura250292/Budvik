@@ -144,7 +144,7 @@ export default function AdminHeader({
                 </div>
 
                 <Link
-                  href="/sales/profile"
+                  href="/admin/profile"
                   role="menuitem"
                   className="flex min-h-11 items-center gap-2.5 px-3.5 text-[14px] font-medium text-bk transition-colors hover:bg-g50 active:bg-g100"
                   onClick={() => setMenuOpen(false)}
@@ -156,7 +156,7 @@ export default function AdminHeader({
                 </Link>
 
                 <Link
-                  href="/sales/profile#password"
+                  href="/admin/profile#password"
                   role="menuitem"
                   className="flex min-h-11 items-center gap-2.5 border-t border-g200 px-3.5 text-[14px] font-medium text-bk transition-colors hover:bg-g50 active:bg-g100"
                   onClick={() => setMenuOpen(false)}

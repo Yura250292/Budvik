@@ -117,6 +117,9 @@ export const BREADCRUMB_MAP: Record<string, string> = {
   "/admin": "Дашборд",
   ...Object.fromEntries(ALL_NAV_ITEMS.map((i) => [i.href, i.title])),
   "/admin/erp": "ERP",
+  // Профіль доступний із меню в шапці, а не з сайдбару, тож у ALL_NAV_ITEMS
+  // його немає — без цього рядка ланцюжок показав би сирий сегмент.
+  "/admin/profile": "Мій профіль",
 };
 
 export function isAdminRole(role: unknown): role is AdminRole {

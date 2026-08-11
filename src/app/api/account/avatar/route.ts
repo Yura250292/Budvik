@@ -58,14 +58,26 @@ export async function POST(req: NextRequest) {
   // id із сесії, не з формі: інакше можна було б записати файл у чужу теку.
   const key = `avatars/${session.user.id}-${Date.now()}.${ext}`;
 
-  const url = await uploadFile(buffer, key, file.type);
+  // Без catch виняток R2 (немає ключів, бакет недоступний) віддавав би
+  // HTML-500, фронт не міг його розібрати і показував загальне
+  // «Не вдалося завантажити фото» — причину доводилось шукати в логах.
+  try {
+    const url = await uploadFile(buffer, key, file.type);
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { avatarUrl: url },
-  });
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: { avatarUrl: url },
+    });
 
-  return NextResponse.json({ avatarUrl: url });
+    return NextResponse.json({ avatarUrl: url });
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("Avatar upload failed:", detail, e);
+    return NextResponse.json(
+      { error: `Сховище не прийняло файл: ${detail}` },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE() {

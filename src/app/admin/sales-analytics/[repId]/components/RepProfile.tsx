@@ -9,6 +9,8 @@ import { ProgressBar, StatCard, money, num } from "@/components/ui/Stat";
 import { CardSkeleton, StatCardSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { useApi } from "../../components/useApi";
 import { ErrorBox } from "../../components/ErrorBox";
+import { PortfolioSection } from "./PortfolioSection";
+import { InsightsPanel } from "../../components/InsightsPanel";
 import { Badge } from "@/components/ui/Badge";
 import { ColorDot } from "@/components/ui/Badge";
 import { CATEGORICAL, NEUTRAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
@@ -194,6 +196,16 @@ export function RepProfile({
                 accent={CATEGORICAL[3]}
               />
             </div>
+
+            {/* --- АІ-аналіз: угорі, бо це відповідь на «на що дивитися» --- */}
+            <InsightsPanel
+              endpoint={`/api/admin/sales-analytics/insights/rep/${repId}?from=${period.from}&to=${period.to}`}
+              title="АІ-аналіз по торговому"
+              hint="Динаміка, портфель клієнтів і дебіторка за період. Числа пораховані з бази — модель лише пояснює, що вони означають."
+            />
+
+            {/* --- Темп і портфель клієнтів --- */}
+            <PortfolioSection repId={repId} period={period} />
 
             {/* --- План місяця --- */}
             <Card>

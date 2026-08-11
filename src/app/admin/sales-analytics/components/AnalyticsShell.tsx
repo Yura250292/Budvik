@@ -17,6 +17,7 @@ import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPick
 import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
+import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
 import { FuelTab } from "./FuelTab";
@@ -39,6 +40,10 @@ type TabKey = (typeof TABS)[number]["key"];
  * тримати його трьома верхніми вкладками означало губити зв'язок між ними.
  */
 const SUBTABS = {
+  reps: [
+    { key: "list", label: "Показники" },
+    { key: "benchmark", label: "Порівняння" },
+  ],
   kpi: [
     { key: "plans", label: "Плани" },
     { key: "motivation", label: "Мотивація" },
@@ -67,8 +72,15 @@ const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
 /** Вкладки, доступні лише керівництву: там видно всю команду. */
 const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
 
+/**
+ * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
+ * торговому й так не віддасть (403), але показувати вкладку, яка завжди
+ * помиляється, гірше, ніж не показувати зовсім.
+ */
+const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark"];
+
 function subtabsOf(tab: TabKey): ReadonlyArray<{ key: ViewKey; label: string }> | null {
-  return tab === "kpi" || tab === "logistics" ? SUBTABS[tab] : null;
+  return tab === "reps" || tab === "kpi" || tab === "logistics" ? SUBTABS[tab] : null;
 }
 
 /** Розбирає ?tab=&view= з урахуванням старих ключів і невалідних значень. */
@@ -103,10 +115,15 @@ export function AnalyticsShell() {
   );
   // Торговий, що потрапив на менеджерську вкладку через URL, бачить зведену.
   // Похідне значення, а не setState в ефекті: стан лишається, але не рендериться.
-  const { tab, view } =
-    !isManager && MANAGER_ONLY.includes(target.tab)
+  // Те саме для підвкладок: «Порівняння» підміняється на першу доступну,
+  // інакше торговий за посиланням отримав би 403 замість даних.
+  const { tab, view } = !isManager
+    ? MANAGER_ONLY.includes(target.tab)
       ? { tab: "summary" as TabKey, view: null }
-      : target;
+      : target.view && MANAGER_ONLY_VIEWS.includes(target.view)
+        ? { tab: target.tab, view: subtabsOf(target.tab)?.[0].key ?? null }
+        : target
+    : target;
   // Фокус мапи дня: виставляється кліком «поза маршрутом» у поїздках,
   // щоб «Маршрути» відкрилися одразу на потрібному торговому й дні.
   const [dayFocus, setDayFocus] = useState<{ repId: string; date: string } | null>(null);
@@ -242,22 +259,24 @@ export function AnalyticsShell() {
             className="-mx-4 mb-4 flex gap-5 overflow-x-auto border-b border-g200 px-4 sm:mx-0 sm:px-0"
             aria-label="Підрозділи вкладки"
           >
-            {subtabsOf(tab)!.map((v) => (
-              <button
-                key={v.key}
-                type="button"
-                onClick={() => {
-                  setDayFocus(null);
-                  setTarget((prev) => ({ ...prev, view: v.key }));
-                }}
-                aria-current={view === v.key ? "page" : undefined}
-                className={`-mb-px shrink-0 cursor-pointer border-b-2 px-0.5 pb-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
-                  view === v.key ? "border-bk text-bk" : "border-transparent text-g500 hover:text-bk"
-                }`}
-              >
-                {v.label}
-              </button>
-            ))}
+            {subtabsOf(tab)!
+              .filter((v) => isManager || !MANAGER_ONLY_VIEWS.includes(v.key))
+              .map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => {
+                    setDayFocus(null);
+                    setTarget((prev) => ({ ...prev, view: v.key }));
+                  }}
+                  aria-current={view === v.key ? "page" : undefined}
+                  className={`-mb-px shrink-0 cursor-pointer border-b-2 px-0.5 pb-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
+                    view === v.key ? "border-bk text-bk" : "border-transparent text-g500 hover:text-bk"
+                  }`}
+                >
+                  {v.label}
+                </button>
+              ))}
           </nav>
         )}
 
@@ -272,7 +291,8 @@ export function AnalyticsShell() {
 
         {tab === "summary" && <SummaryTab period={period} />}
         {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
-        {tab === "reps" && <RepsTab period={period} />}
+        {tab === "reps" && view === "list" && <RepsTab period={period} />}
+        {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "logistics" && view === "trips" && (

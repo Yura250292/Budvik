@@ -206,6 +206,7 @@ model User {
   invoicesCreated       Invoice[]          @relation("invoiceCreator")
   commissionRates       CommissionRate[]   @relation("commissionRates")
   commissionRecords     CommissionRecord[] @relation("commissionRecords")
+  aiInsightReports      AiInsightReport[]  @relation("aiInsightRep")
 
   // Delivery relations
   driverRoutes  DeliveryRoute[] @relation("driverRoutes")
@@ -241,6 +242,7 @@ model User {
   salesVehicle          SalesVehicle?     @relation("salesVehicle")
 
   dashboardLayout UserDashboardLayout?
+  dashboardNotes  UserDashboardNote[]
 }
 
 /// Розкладка віджетів дашборду адмінки. Окрема модель, а не поле в User:
@@ -253,6 +255,23 @@ model UserDashboardLayout {
   /// { version: 1, widgets: [{ id, type, size, order }] }
   layout    Json
   updatedAt DateTime @updatedAt
+}
+
+/// Особисті нотатки-задачі з віджета дашборду. Рядками, а не одним Json:
+/// так можна позначити зроблене й відсортувати, не переписуючи весь блок.
+model UserDashboardNote {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  text String
+  done Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Віджет завжди читає нотатки одного користувача, свіжі згори.
+  @@index([userId, done, createdAt])
 }
 
 model Category {
@@ -1610,4 +1629,40 @@ model DebtSnapshot {
 
   @@unique([counterpartyId, day])
   @@index([day])
+}
+
+/// Кеш АІ-інсайтів по торговому або по команді.
+///
+/// Інсайти генеруються за кнопкою, а не автоматично, і коштують токенів,
+/// тож перегенерувати їх на кожен перехід між вкладками не можна. Ключ —
+/// (вид, торговий, межі періоду): той самий період має віддавати той
+/// самий висновок, поки керівник свідомо не натисне «оновити».
+///
+/// `facts` зберігається поруч із `insights` навмисно: картка показує
+/// числа з нашого зведення, а не зі слів моделі, і без збереженого
+/// зведення довелося б перераховувати весь SQL заради відображення кешу.
+model AiInsightReport {
+  id String @id @default(cuid())
+
+  /// "rep" — по одному торговому, "team" — по команді
+  kind String
+  /// null для командного звіту
+  repId   String?
+  fromDay String
+  toDay   String
+
+  /// Масив Insight (див. src/lib/ai/insights.ts)
+  insights Json
+  /// Зведення, на якому згенеровано — джерело чисел для карток
+  facts Json
+
+  /// Яка модель відповідала — щоб було видно, чим саме згенеровано старий звіт
+  model     String
+  tokens    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  rep User? @relation("aiInsightRep", fields: [repId], references: [id], onDelete: Cascade)
+
+  @@unique([kind, repId, fromDay, toDay])
+  @@index([createdAt])
 }

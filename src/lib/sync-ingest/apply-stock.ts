@@ -1,15 +1,43 @@
 /**
  * Склади (StockLocation) і залишки по складах (LocationStock).
  *
- * Product.stock — похідна величина: сума залишків по всіх складах. Тому після
- * запису LocationStock ми перераховуємо загальний залишок одним запитом на
- * товар. Це усуває розбіжність, яка була в ручному імпорті: там писався лише
- * Product.stock, а LocationStock лишався порожнім.
+ * Product.stock — похідна величина: сума залишків по складах, з яких МОЖНА
+ * продавати. Тому після запису LocationStock ми перераховуємо загальний
+ * залишок одним запитом на товар. Це усуває розбіжність, яка була в ручному
+ * імпорті: там писався лише Product.stock, а LocationStock лишався порожнім.
  */
 
 import { prisma } from "@/lib/prisma";
 import type { StockRecord, WarehouseRecord } from "./types";
 import { ApplyContext } from "./context";
+
+/**
+ * Чи це склад, з якого не продають: брак, уцінка, майстерня, ремонти.
+ *
+ * У 1С під гарантійний процес заведено окремий ланцюжок складів («Зламані
+ * вироби для передачі на ремонт» → «Ремонти» → «Відремонтовані вироби на
+ * відгрузку»), і товар на них фізично існує. Але це не асортимент: поки він
+ * там, продати його не можна.
+ *
+ * Розпізнаємо за назвою, бо ознаки складу 1С не передає. Перевірено на всіх
+ * 16 складах бази: сім сервісних ловляться, жоден продажний не зачеплений.
+ */
+const SERVICE_PATTERNS = [
+  "РЕМОНТ",
+  "БРАК",
+  "ПЕРЕОЦ",
+  "УЦІНК",
+  "ЗЛАМАН",
+  "МАЙСТЕРН",
+  "СЕРВІС",
+  "СЕРВИС",
+  "НЕКОНДИЦ",
+];
+
+export function isServiceWarehouse(name: string): boolean {
+  const upper = name.toUpperCase();
+  return SERVICE_PATTERNS.some((p) => upper.includes(p));
+}
 
 export async function applyWarehouses(
   records: WarehouseRecord[],
@@ -19,7 +47,7 @@ export async function applyWarehouses(
 
   const existing = await prisma.stockLocation.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
-    select: { id: true, externalId: true, name: true, address: true },
+    select: { id: true, externalId: true, name: true, address: true, isService: true },
   });
   const byExternalId = new Map(existing.map((w) => [w.externalId!, w]));
 
@@ -42,6 +70,7 @@ export async function applyWarehouses(
             externalId: rec.externalId,
             name: rec.name,
             address: rec.address || null,
+            isService: isServiceWarehouse(rec.name),
           },
         });
         ctx.created++;
@@ -53,8 +82,12 @@ export async function applyWarehouses(
 
     const changedName = found.name !== rec.name;
     const changedAddress = !!rec.address && found.address !== rec.address;
+    // Ознака сервісного складу виводиться з назви, тож перейменування в 1С
+    // може перевести склад у сервісні й назад.
+    const service = isServiceWarehouse(rec.name);
+    const changedService = found.isService !== service;
 
-    if (!changedName && !changedAddress) {
+    if (!changedName && !changedAddress && !changedService) {
       ctx.skipped++;
       continue;
     }
@@ -70,6 +103,7 @@ export async function applyWarehouses(
         data: {
           ...(changedName ? { name: rec.name } : {}),
           ...(changedAddress ? { address: rec.address } : {}),
+          ...(changedService ? { isService: service } : {}),
         },
       });
       ctx.updated++;
@@ -163,15 +197,26 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
   // Product.stock — це ВІЛЬНИЙ залишок, а не фізичний: саме він визначає, що
   // можна продати. Фізичний лишається доступним по складах у LocationStock —
   // складу він потрібен, щоб зібрати замовлення.
+  //
+  // Сервісні склади сюди не входять. Товар на «Складі Браку» чи в майстерні
+  // фізично є, але продавати його не можна: доти 43 такі позиції висіли у
+  // вітрині як звичайний товар.
   const totals = await prisma.locationStock.groupBy({
     by: ["productId"],
-    where: { productId: { in: [...touchedProductIds] } },
+    where: {
+      productId: { in: [...touchedProductIds] },
+      stockLocation: { isService: false },
+    },
     _sum: { available: true },
   });
+  const totalByProduct = new Map(totals.map((t) => [t.productId, t._sum.available ?? 0]));
 
-  for (const t of totals) {
-    const total = t._sum.available ?? 0;
-    const product = products.find((p) => p.id === t.productId);
+  // Перебираємо ЗАЧЕПЛЕНІ товари, а не результат groupBy: товар, який лежить
+  // лише на сервісному складі, у вибірку не потрапляє взагалі — і якби ми
+  // йшли по ній, його залишок так і лишився б старим, ненульовим.
+  for (const productId of touchedProductIds) {
+    const total = totalByProduct.get(productId) ?? 0;
+    const product = products.find((p) => p.id === productId);
     if (product && product.stock === total) continue;
 
     if (product) {
@@ -187,11 +232,11 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
 
     try {
       await prisma.product.update({
-        where: { id: t.productId },
+        where: { id: productId },
         data: { stock: total, syncedAt: new Date(), syncSource: "1C" },
       });
     } catch (e) {
-      ctx.fail(`stock:${t.productId}`, e);
+      ctx.fail(`stock:${productId}`, e);
     }
   }
 }

@@ -91,7 +91,11 @@ $patterns = @(
     (C 1057,1045,1056,1042,1030,1057),                # SERVIS (ua, with I)
     (C 1043,1040,1056,1040,1053,1058),                # GARANT
     (C 1059,1062,1030,1053,1050,1040),                # UCINKA (defect, ua)
-    (C 1053,1045,1050,1054,1053,1044,1048,1062)       # NEKONDIC
+    (C 1053,1045,1050,1054,1053,1044,1048,1062),      # NEKONDIC
+    # These two come from the warehouse names actually present on the site:
+    # "Зламані вироби для передачі на ремонт", "Майстерня Липинського".
+    (C 1047,1051,1040,1052,1040,1053),                # ZLAMAN (broken, ua)
+    (C 1052,1040,1049,1057,1058,1045,1056,1053)       # MAISTERN (workshop, ua)
 )
 
 $serviceWarehouses = @{}

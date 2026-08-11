@@ -217,6 +217,11 @@ export default function StockLocationsPage() {
                       <span style={{ fontSize: "11px", fontWeight: 600, padding: "1px 6px", borderRadius: "4px",
                         background: "#FEF3C7", color: "#D97706" }}>Основний</span>
                     )}
+                    {loc.isService && (
+                      <span title="Брак, уцінка, майстерня, ремонти — товар звідси не продається"
+                        style={{ fontSize: "11px", fontWeight: 600, padding: "1px 6px", borderRadius: "4px",
+                          background: "#FEF2F2", color: "#DC2626" }}>Не для продажу</span>
+                    )}
                   </div>
                 </div>
                 {loc.address && <p style={{ fontSize: "13px", color: "#6B7280" }} className="truncate">{loc.address}</p>}
@@ -235,6 +240,12 @@ export default function StockLocationsPage() {
                 <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#0A0A0A" }}>
                   Залишки: {selectedLocation.name}
                 </h2>
+                {selectedLocation.isService && (
+                  <p style={{ fontSize: "13px", color: "#DC2626", marginTop: "2px" }}>
+                    Сервісний склад: товар тут фізично є, але у вітрину не потрапляє
+                    і в наявність не рахується.
+                  </p>
+                )}
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
                 <input value={stockSearch} onChange={(e) => setStockSearch(e.target.value)}

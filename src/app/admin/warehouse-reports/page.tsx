@@ -6,6 +6,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { formatPrice } from "@/lib/utils";
 import DynamicShiftMap from "@/components/map/DynamicShiftMap";
 import type { ShiftPoint } from "@/components/map/ShiftMap";
+import EditWarehouseReportModal from "@/components/admin/EditWarehouseReportModal";
+import EditWarehouseShiftModal from "@/components/admin/EditWarehouseShiftModal";
 
 type PeriodPreset = "today" | "week" | "month" | "quarter" | "year" | "all";
 type Tab = "overview" | "productivity" | "reports" | "nomenclature" | "shifts";
@@ -197,6 +199,9 @@ export default function WarehouseReportsPage() {
   const [lightbox, setLightbox] = useState<string | null>(null);
 
   const [busy, setBusy] = useState<string | null>(null);
+  // Редагування: накладну відкриваємо з повними позиціями, зміну — прямо з рядка
+  const [editingReport, setEditingReport] = useState<any>(null);
+  const [editingShift, setEditingShift] = useState<any>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -277,6 +282,45 @@ export default function WarehouseReportsPage() {
       alert(j.error || "Помилка видалення");
     } else {
       if (expandedReport === r.id) setExpandedReport(null);
+      await fetchData();
+    }
+    setBusy(null);
+  };
+
+  /**
+   * Відкрити редагування накладної. У списку немає позицій — вони
+   * приходять лише з /[id], тож підвантажуємо повний звіт перед модалкою.
+   */
+  const openEditReport = async (r: any) => {
+    setBusy(r.id);
+    const res = await fetch(`/api/admin/warehouse-reports/${r.id}`);
+    if (!res.ok) {
+      alert("Не вдалося завантажити накладну");
+      setBusy(null);
+      return;
+    }
+    setEditingReport(await res.json());
+    setBusy(null);
+  };
+
+  const deleteShift = async (s: any) => {
+    if (
+      !confirm(
+        `Видалити зміну ${s.userName} від ${formatDateOnly(s.openedAt)}?\n\n` +
+          (s.reportsCount
+            ? `${s.reportsCount} накладних цієї зміни залишаться в системі, але стануть «поза зміною».\n\n`
+            : "") +
+          "Дію не можна скасувати."
+      )
+    )
+      return;
+
+    setBusy(s.id);
+    const res = await fetch(`/api/admin/warehouse-shifts/${s.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert(j.error || "Помилка видалення");
+    } else {
       await fetchData();
     }
     setBusy(null);
@@ -926,17 +970,30 @@ export default function WarehouseReportsPage() {
                                     Відкрити ↗
                                   </Link>
                                   {role === "ADMIN" && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteReport(r);
-                                      }}
-                                      disabled={busy === r.id}
-                                      title="Видалити накладну"
-                                      style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}
-                                    >
-                                      {busy === r.id ? "..." : "Видалити"}
-                                    </button>
+                                    <>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openEditReport(r);
+                                        }}
+                                        disabled={busy === r.id}
+                                        title="Редагувати накладну"
+                                        style={{ fontSize: "12px", color: "#0A0A0A", fontWeight: 600 }}
+                                      >
+                                        {busy === r.id ? "..." : "Редагувати"}
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteReport(r);
+                                        }}
+                                        disabled={busy === r.id}
+                                        title="Видалити накладну"
+                                        style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}
+                                      >
+                                        Видалити
+                                      </button>
+                                    </>
                                   )}
                                 </div>
                               </td>
@@ -1256,6 +1313,7 @@ export default function WarehouseReportsPage() {
                               "Місце закриття",
                               "Накладних",
                               "Сума",
+                              ...(role === "ADMIN" ? [""] : []),
                             ].map((h) => (
                               <th
                                 key={h}
@@ -1308,6 +1366,28 @@ export default function WarehouseReportsPage() {
                               <td style={{ padding: "10px 12px", fontWeight: 600 }}>
                                 {formatPrice(s.reportsAmount)}
                               </td>
+                              {role === "ADMIN" && (
+                                <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => setEditingShift(s)}
+                                      disabled={busy === s.id}
+                                      title="Виправити час зміни"
+                                      style={{ fontSize: "12px", color: "#0A0A0A", fontWeight: 600 }}
+                                    >
+                                      Редагувати
+                                    </button>
+                                    <button
+                                      onClick={() => deleteShift(s)}
+                                      disabled={busy === s.id}
+                                      title="Видалити зміну"
+                                      style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}
+                                    >
+                                      {busy === s.id ? "..." : "Видалити"}
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
@@ -1320,6 +1400,35 @@ export default function WarehouseReportsPage() {
           </>
         )}
       </div>
+
+      {editingReport && (
+        <EditWarehouseReportModal
+          report={editingReport}
+          onClose={() => setEditingReport(null)}
+          onSaved={(updated) => {
+            // Скидаємо кеш розгорнутого рядка — інакше під таблицею
+            // лишилися б старі позиції
+            setReportDetails((prev) => {
+              const next = { ...prev };
+              delete next[updated.id];
+              return next;
+            });
+            setEditingReport(null);
+            fetchData();
+          }}
+        />
+      )}
+
+      {editingShift && (
+        <EditWarehouseShiftModal
+          shift={editingShift}
+          onClose={() => setEditingShift(null)}
+          onSaved={() => {
+            setEditingShift(null);
+            fetchData();
+          }}
+        />
+      )}
 
       {/* Лайтбокс фото */}
       {lightbox && (

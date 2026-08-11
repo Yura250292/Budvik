@@ -129,21 +129,21 @@ export function BenchmarkTab({ period }: { period: Period }) {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1100px] border-collapse text-sm">
             <thead>
-              <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
-                <th className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Торговий</th>
+              <tr className="border-y border-g300 bg-g50 text-left text-xs font-medium text-g500">
+                <th className="sticky left-0 z-10 border-r border-g300 bg-g50 px-4 py-2.5">Торговий</th>
                 {COLUMNS.map((key) => (
-                  <th key={key} className="px-3 py-2.5 text-right">
+                  <th key={key} className="border-l border-g300 px-3 py-2.5 text-right">
                     {METRICS[key].label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-g100">
+            <tbody>
               {data.reps.map((rep) => (
-                <tr key={rep.repId} className="hover:bg-g50">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-2.5 hover:bg-g50">
+                <tr key={rep.repId} className="border-b border-g300 hover:bg-g50">
+                  <td className="sticky left-0 z-10 border-r border-g300 bg-white px-4 py-2.5 hover:bg-g50">
                     <Link
                       href={`/admin/sales-analytics/${rep.repId}?from=${period.from}&to=${period.to}`}
                       className="cursor-pointer font-medium text-bk hover:underline"
@@ -155,7 +155,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
                   {COLUMNS.map((key) => (
                     <td
                       key={key}
-                      className="px-3 py-2.5 text-right tabular-nums"
+                      className="border-l border-g300 px-3 py-2.5 text-right tabular-nums"
                       style={cellStyle(rep.ranks[key])}
                     >
                       <span className="font-medium">{formatMetric(key, rep[key])}</span>
@@ -169,12 +169,15 @@ export function BenchmarkTab({ period }: { period: Period }) {
                 </tr>
               ))}
 
-              <tr className="border-t-2 border-g200 bg-g50 text-xs">
-                <td className="sticky left-0 z-10 bg-g50 px-4 py-2.5 font-semibold text-g600">
+              <tr className="border-t-2 border-g400 bg-g50 text-xs">
+                <td className="sticky left-0 z-10 border-r border-g300 bg-g50 px-4 py-2.5 font-semibold text-g600">
                   Медіана команди
                 </td>
                 {COLUMNS.map((key) => (
-                  <td key={key} className="px-3 py-2.5 text-right font-semibold tabular-nums text-g600">
+                  <td
+                    key={key}
+                    className="border-l border-g300 px-3 py-2.5 text-right font-semibold tabular-nums text-g600"
+                  >
                     {formatMetric(key, data.medians[key])}
                   </td>
                 ))}
@@ -257,23 +260,23 @@ export function BenchmarkTab({ period }: { period: Period }) {
         </div>
 
         {showMatrix && gaps.length > 0 && (
-          <div className="overflow-x-auto border-t border-g100">
-            <table className="w-full min-w-[900px] text-sm">
+          <div className="overflow-x-auto border-t border-g300">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-g200 bg-g50 text-left text-xs font-medium text-g500">
-                  <th className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Бренд</th>
-                  <th className="px-3 py-2.5 text-right">Разом</th>
+                <tr className="border-b border-g300 bg-g50 text-left text-xs font-medium text-g500">
+                  <th className="sticky left-0 z-10 border-r border-g300 bg-g50 px-4 py-2.5">Бренд</th>
+                  <th className="border-l border-g300 px-3 py-2.5 text-right">Разом</th>
                   {data.reps.map((r) => (
-                    <th key={r.repId} className="px-3 py-2.5 text-right">
+                    <th key={r.repId} className="border-l border-g300 px-3 py-2.5 text-right">
                       <span className="block max-w-[90px] truncate">{r.name}</span>
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-g100">
+              <tbody>
                 {gaps.map((b, i) => (
-                  <tr key={b.brandId ?? i} className="hover:bg-g50">
-                    <td className="sticky left-0 z-10 bg-white px-4 py-2.5 hover:bg-g50">
+                  <tr key={b.brandId ?? i} className="border-b border-g300 hover:bg-g50">
+                    <td className="sticky left-0 z-10 border-r border-g300 bg-white px-4 py-2.5 hover:bg-g50">
                       <span className="inline-flex items-center gap-2">
                         <span
                           aria-hidden
@@ -286,7 +289,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
                         покриття {Math.round(b.coverage * 100)}%
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-bk">
+                    <td className="border-l border-g300 px-3 py-2.5 text-right font-semibold tabular-nums text-bk">
                       {money(b.total)}
                     </td>
                     {data.reps.map((r) => {
@@ -294,7 +297,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
                       return (
                         <td
                           key={r.repId}
-                          className="px-3 py-2.5 text-right tabular-nums"
+                          className="border-l border-g300 px-3 py-2.5 text-right tabular-nums"
                           style={value <= 0 ? { backgroundColor: STATUS.bad.bg, color: STATUS.bad.fg } : undefined}
                         >
                           {value > 0 ? money(value) : "—"}

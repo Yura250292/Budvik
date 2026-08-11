@@ -17,10 +17,17 @@
  * та створити нові, ніж намагатися їх зіставити.
  */
 
-import type { SalesDocType } from "@prisma/client";
+import { Prisma, type SalesDocType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DocumentRecord, DocumentItemRecord } from "./types";
 import { ApplyContext } from "./context";
+
+/** P2002 саме по парі (number, docType), а не по externalId чи іншому полю. */
+function isNumberCollision(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") return false;
+  const target = (e.meta as { target?: unknown } | undefined)?.target;
+  return Array.isArray(target) && target.includes("number");
+}
 
 const SYNC_USER_EMAIL = "sync-1c@budvik.local";
 
@@ -296,32 +303,54 @@ export async function applySalesDocuments(
         ? sign * Math.abs(rec.totalAmount)
         : items.reduce((sum, i) => sum + i.quantity * i.price, 0);
 
+    // Номер документа 1С унікальний лише В МЕЖАХ РОКУ: з нового року
+    // нумерація починається заново, тож «00000000001» існує в кожному році.
+    // Унікальність (number, docType) на сайті об цe розбилась на першому ж
+    // backfill повернень: 1100 документів створилось, 1462 відбились із
+    // P2002. При конфлікті пробуємо номер, доповнений роком документа —
+    // суфікс детермінований, тому повторний прогін влучає в той самий запис,
+    // а не плодить варіанти. Третій кандидат — страховка на випадок дубля
+    // номера всередині одного року (у 1С не трапляється, але P2002 тоді буде
+    // видимим у журналі, а не мовчазною втратою документа).
+    const numberCandidates = [
+      rec.number,
+      `${rec.number}/${new Date(rec.date).getFullYear()}`,
+      `${rec.number}/${rec.externalId.slice(0, 8)}`,
+    ];
+
     try {
       if (!found) {
         const createdById = await ensureSyncUser();
-        await prisma.salesDocument.create({
-          data: {
-            externalId: rec.externalId,
-            number: rec.number,
-            docType,
-            counterpartyId,
-            salesRepId,
-            // Сюди доходять лише проведені (непроведені нові відсіяні вище).
-            status: "CONFIRMED",
-            totalAmount,
-            createdById,
-            createdAt: new Date(rec.date),
-            confirmedAt: new Date(rec.date),
-            items: {
-              create: items.map((i) => ({
-                productId: i.productId,
-                quantity: i.quantity,
-                sellingPrice: i.price,
-                purchasePrice: 0, // собівартість 1С у цьому обміні не передає
-              })),
-            },
+        const baseData = {
+          externalId: rec.externalId,
+          docType,
+          counterpartyId,
+          salesRepId,
+          // Сюди доходять лише проведені (непроведені нові відсіяні вище).
+          status: "CONFIRMED" as const,
+          totalAmount,
+          createdById,
+          createdAt: new Date(rec.date),
+          confirmedAt: new Date(rec.date),
+          items: {
+            create: items.map((i) => ({
+              productId: i.productId,
+              quantity: i.quantity,
+              sellingPrice: i.price,
+              purchasePrice: 0, // собівартість 1С у цьому обміні не передає
+            })),
           },
-        });
+        };
+        for (let c = 0; c < numberCandidates.length; c++) {
+          try {
+            await prisma.salesDocument.create({
+              data: { ...baseData, number: numberCandidates[c] },
+            });
+            break;
+          } catch (e) {
+            if (!isNumberCollision(e) || c === numberCandidates.length - 1) throw e;
+          }
+        }
         ctx.created++;
       } else {
         // Статус чіпаємо лише в межах «життя документа в 1С». Сайтові стани
@@ -331,38 +360,49 @@ export async function applySalesDocuments(
           found.status === "PACKING" ||
           found.status === "IN_TRANSIT" ||
           found.status === "DELIVERED";
-        const nextStatus = posted ? "CONFIRMED" : "CANCELLED";
+        const nextStatus = posted ? ("CONFIRMED" as const) : ("CANCELLED" as const);
 
         // Табличну частину перезаписуємо цілком (див. коментар угорі файлу).
-        await prisma.$transaction([
-          prisma.salesDocumentItem.deleteMany({ where: { salesDocumentId: found.id } }),
-          prisma.salesDocument.update({
-            where: { id: found.id },
-            data: {
-              number: rec.number,
-              // Проставляємо і на update: рядки, створені до появи docType,
-              // самі стають на місце при першому ж оновленні з 1С.
-              docType,
-              counterpartyId,
-              // Лише коли зіставили: null затер би вручну проставленого
-              // торгового, якщо ім'я в 1С тимчасово не збіглося.
-              ...(salesRepId ? { salesRepId } : {}),
-              // Розпроведення в 1С сильніше за складський стан: якщо документа
-              // більше немає, зібрана чи навіть відвантажена коробка — привід
-              // розібратись, а не показувати її як живий продаж.
-              ...(liveOnSite && posted ? {} : { status: nextStatus }),
-              totalAmount,
-              items: {
-                create: items.map((i) => ({
-                  productId: i.productId,
-                  quantity: i.quantity,
-                  sellingPrice: i.price,
-                  purchasePrice: 0,
-                })),
-              },
-            },
-          }),
-        ]);
+        const baseUpdate = {
+          // Проставляємо і на update: рядки, створені до появи docType,
+          // самі стають на місце при першому ж оновленні з 1С.
+          docType,
+          counterpartyId,
+          // Лише коли зіставили: null затер би вручну проставленого
+          // торгового, якщо ім'я в 1С тимчасово не збіглося.
+          ...(salesRepId ? { salesRepId } : {}),
+          // Розпроведення в 1С сильніше за складський стан: якщо документа
+          // більше немає, зібрана чи навіть відвантажена коробка — привід
+          // розібратись, а не показувати її як живий продаж.
+          ...(liveOnSite && posted ? {} : { status: nextStatus }),
+          totalAmount,
+          items: {
+            create: items.map((i) => ({
+              productId: i.productId,
+              quantity: i.quantity,
+              sellingPrice: i.price,
+              purchasePrice: 0,
+            })),
+          },
+        };
+        // Той самий перебір номерів, що й на create: документ, збережений із
+        // суфіксом року, при оновленні знову спробує сирий номер, впіймає
+        // конфлікт із «власником» цього номера з іншого року і повернеться до
+        // свого суфіксованого — стабільно, без миготіння між варіантами.
+        for (let c = 0; c < numberCandidates.length; c++) {
+          try {
+            await prisma.$transaction([
+              prisma.salesDocumentItem.deleteMany({ where: { salesDocumentId: found.id } }),
+              prisma.salesDocument.update({
+                where: { id: found.id },
+                data: { ...baseUpdate, number: numberCandidates[c] },
+              }),
+            ]);
+            break;
+          } catch (e) {
+            if (!isNumberCollision(e) || c === numberCandidates.length - 1) throw e;
+          }
+        }
         ctx.updated++;
 
         await invalidateCommissions(found, totalAmount, posted, ctx);

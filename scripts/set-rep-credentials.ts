@@ -219,7 +219,7 @@ async function main() {
     const hashed = await bcrypt.hash(cred.password, BCRYPT_COST);
     await prisma.user.update({
       where: { id: user.id },
-      data: { email: cred.email, password: hashed },
+      data: { email: cred.email.trim().toLowerCase(), password: hashed },
     });
     console.log(`  ✓ ${user.name.padEnd(24)} ${cred.email}`);
   }

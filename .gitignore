@@ -49,3 +49,6 @@ scripts/sitemap-products.json
 
 # логіни й паролі торгових для set-rep-credentials.ts
 creds*.txt
+
+# бекапи залишків від zero-stock-not-in-1c.mjs (мегабайти даних, не код)
+scripts/backup-stock-not-in-1c-*.json

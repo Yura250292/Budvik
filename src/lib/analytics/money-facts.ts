@@ -173,6 +173,9 @@ export async function receivableRowsByRep(
     ? Prisma.sql`("docType" = 'REALIZATION') DESC,`
     : Prisma.empty;
 
+  // Повернення не визначає, чий це клієнт.
+  const returnGuard = hasDocType ? Prisma.sql`AND "docType" <> 'RETURN'` : Prisma.empty;
+
   // У списку відвантажень тип має бути ОДИН: замовлення й реалізація на ту
   // саму партію подвоїли б масу документів, і борг виглядав би молодшим.
   // Але поки реалізацій немає, жорсткий фільтр лишив би список порожнім і
@@ -211,8 +214,13 @@ export async function receivableRowsByRep(
       -- Реалізації пріоритетніші за замовлення, але поки їх немає —
       -- беремо будь-який документ, інакше борг лишиться без торгового.
       -- Слід про те, хто веде клієнта, лишає й замовлення.
+      --
+      -- Повернення сюди не рахується: воно теж «останній документ», але
+      -- оформити його міг хто завгодно, і клієнт перекинувся б на чужого
+      -- торгового разом з усім боргом.
       SELECT "salesRepId", "createdAt" FROM "SalesDocument"
       WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
+        ${returnGuard}
       ORDER BY ${realizationFirst} "createdAt" DESC
       LIMIT 1
     ) sd ON TRUE
@@ -387,9 +395,12 @@ export type DebtDelta = {
  * бути — відповідає той, хто веде клієнта зараз.
  */
 export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, DebtDelta>> {
-  const realizationFirst = (await hasDocTypeColumn())
+  const hasDocType = await hasDocTypeColumn();
+  const realizationFirst = hasDocType
     ? Prisma.sql`("docType" = 'REALIZATION') DESC,`
     : Prisma.empty;
+  // Як і в receivableRowsByRep: повернення не робить клієнта чиїмось.
+  const returnGuard = hasDocType ? Prisma.sql`AND "docType" <> 'RETURN'` : Prisma.empty;
 
   const rows = await prisma.$queryRaw<
     Array<{ repId: string; opening: number; closing: number; withOpening: number }>
@@ -405,6 +416,7 @@ export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, 
       LEFT JOIN LATERAL (
         SELECT "salesRepId" FROM "SalesDocument"
         WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
+          ${returnGuard}
         ORDER BY ${realizationFirst} "createdAt" DESC LIMIT 1
       ) sd ON TRUE
     ),

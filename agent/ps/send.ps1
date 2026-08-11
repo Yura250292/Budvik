@@ -151,12 +151,14 @@ $plan = @(
     @{ file = "counterparty.ndjson"; entity = "counterparty" },
     @{ file = "sales_doc.ndjson";    entity = "sales_doc"    },
     @{ file = "realization_doc.ndjson"; entity = "realization_doc" },
+    @{ file = "return_doc.ndjson";   entity = "return_doc"   },
     @{ file = "debt.ndjson";         entity = "debt"         },
     @{ file = "payment.ndjson";      entity = "payment"      }
 )
 
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }
 $realizationsSent = 0
+$returnsSent = 0
 $seq = 0
 $sendError = $null
 
@@ -259,6 +261,7 @@ try {
             Log ("  errors: " + ($resp.errors -join "; "))
         }
         if ($step.entity -eq "realization_doc") { $realizationsSent = $sent }
+        if ($step.entity -eq "return_doc") { $returnsSent = $sent }
         Log ("{0}: {1} records sent" -f $step.entity, $sent)
     }
 }
@@ -287,34 +290,41 @@ Log ("discrepancies: {0}" -f $complete.discrepancies)
 if ($complete.missing) { Log ("missing:       {0}" -f $complete.missing) }
 Log "----------------------------------------"
 
-# The realization backfill is finished only once the server has the documents.
+# A backfill is finished only once the server has the documents.
 #
-# extract.ps1 deliberately does not stamp this: it writes the file, and the
+# extract.ps1 deliberately does not stamp these: it writes the file, and the
 # scheduler's next run five minutes later would overwrite that file with an
 # empty one before it was ever shipped. Stamping here, after /complete came
 # back clean, means a failed or half-sent backfill simply repeats next cycle
 # -- upserts are keyed by Ref_Key, so re-sending costs time, not correctness.
-if (-not $sendError -and $realizationsSent -gt 0 -and $complete.status -eq "completed") {
+if (-not $sendError -and $complete.status -eq "completed") {
     $statePath = Join-Path $scriptDir "state.json"
-    try {
-        $state = if (Test-Path $statePath) {
-            [IO.File]::ReadAllText($statePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
-        } else { $null }
+    $backfills = @(
+        @{ flag = "realizationsBackfilledAt"; sent = $realizationsSent; label = "realization" },
+        @{ flag = "returnsBackfilledAt";      sent = $returnsSent;      label = "returns"     }
+    )
+    foreach ($bf in $backfills) {
+        if ($bf.sent -le 0) { continue }
+        try {
+            $state = if (Test-Path $statePath) {
+                [IO.File]::ReadAllText($statePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            } else { $null }
 
-        if ($state -and -not $state.realizationsBackfilledAt) {
-            $obj = [ordered]@{}
-            foreach ($p in $state.PSObject.Properties) { $obj[$p.Name] = $p.Value }
-            $obj.realizationsBackfilledAt = (Get-Date).ToString("o")
-            [IO.File]::WriteAllText(
-                $statePath,
-                ($obj | ConvertTo-Json),
-                (New-Object Text.UTF8Encoding($false))
-            )
-            Log ("realization backfill complete ({0} documents) -- switching to the normal window" -f $realizationsSent)
+            if ($state -and -not $state.($bf.flag)) {
+                $obj = [ordered]@{}
+                foreach ($p in $state.PSObject.Properties) { $obj[$p.Name] = $p.Value }
+                $obj[$bf.flag] = (Get-Date).ToString("o")
+                [IO.File]::WriteAllText(
+                    $statePath,
+                    ($obj | ConvertTo-Json),
+                    (New-Object Text.UTF8Encoding($false))
+                )
+                Log ("{0} backfill complete ({1} documents) -- switching to the normal window" -f $bf.label, $bf.sent)
+            }
+        } catch {
+            # Losing the stamp only means the next run repeats the backfill.
+            Log ("could not stamp " + $bf.flag + ": " + $_.Exception.Message)
         }
-    } catch {
-        # Losing the stamp only means the next run repeats the backfill.
-        Log ("could not stamp realizationsBackfilledAt: " + $_.Exception.Message)
     }
 }
 

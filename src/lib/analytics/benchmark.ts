@@ -27,7 +27,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { Period } from "@/lib/analytics/period";
-import { revenueByRep, revenueByRepBrand } from "@/lib/analytics/facts";
+import { revenueByRep, revenueByRepBrand, SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 import {
   collectedByRepBrand,
   collectedTotals,
@@ -142,7 +142,13 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-/** Ширина асортименту: скільки різних SKU торговий продав і скільком клієнтам. */
+/**
+ * Ширина асортименту: скільки різних SKU торговий продав і скільком клієнтам.
+ *
+ * Це лічильники, а не гроші, тому повернення сюди не входять зовсім
+ * (SALES_ONLY): повернений товар не робить SKU «пропрацьованим», а клієнта —
+ * охопленим.
+ */
 async function assortmentByRep(period: Period) {
   return prisma.$queryRaw<Array<{ repId: string; skus: number; clients: number }>>`
     SELECT
@@ -151,9 +157,8 @@ async function assortmentByRep(period: Period) {
       COUNT(DISTINCT s."counterpartyId")::int AS clients
     FROM "SalesDocument" s
     JOIN "SalesDocumentItem" i ON i."salesDocumentId" = s.id
-    WHERE s."externalId" IS NOT NULL
-      AND s.status = 'CONFIRMED'
-      AND s."docType" = 'REALIZATION'
+    WHERE ${SOURCE_FILTER}
+      AND ${SALES_ONLY}
       AND s."salesRepId" IS NOT NULL
       AND s."createdAt" >= ${period.from} AND s."createdAt" <= ${period.to}
     GROUP BY 1

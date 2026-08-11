@@ -21,6 +21,7 @@ export type SyncEntityType =
   | "counterparty"
   | "sales_doc"
   | "realization_doc"
+  | "return_doc"
   | "purchase_doc"
   | "debt"
   | "payment";
@@ -113,11 +114,18 @@ export interface CounterpartyRecord {
 export interface DocumentItemRecord {
   /** externalId номенклатури. */
   productExternalId: string;
+  /**
+   * Кількість ЯК У 1С, тобто завжди додатна — і для повернень теж
+   * (перевірено пробою: 200 рядків, жодного від'ємного).
+   *
+   * Мінус для повернень ставить сервер при прийомі: агент лишається
+   * стенограмою 1С, а знак — це вже бізнес-семантика сайту.
+   */
   quantity: number;
   price: number;
 }
 
-/** Документ реалізації / надходження 1С. */
+/** Документ реалізації / надходження / повернення 1С. */
 export interface DocumentRecord {
   externalId: string;
   number: string;
@@ -219,6 +227,7 @@ export interface SyncRecordMap {
   counterparty: CounterpartyRecord;
   sales_doc: DocumentRecord;
   realization_doc: DocumentRecord;
+  return_doc: DocumentRecord;
   purchase_doc: DocumentRecord;
   debt: DebtRecord;
   payment: PaymentRecord;

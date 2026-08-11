@@ -18,7 +18,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parsePeriod } from "@/lib/analytics/period";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
         b.name AS brand,
         SUM(i.quantity)::float AS qty,
         SUM(i.quantity * i."sellingPrice")::float AS amount,
-        COUNT(DISTINCT s.id)::int AS docs
+        COUNT(DISTINCT s.id) FILTER (WHERE ${SALES_ONLY})::int AS docs
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       JOIN "Product" p ON p.id = i."productId"
@@ -88,9 +88,9 @@ export async function GET(req: Request) {
     SELECT
       c.id,
       c.name,
-      COUNT(DISTINCT i."productId")::int AS sku,
-      COUNT(DISTINCT s.id)::int AS docs,
-      COUNT(*)::int AS lines,
+      COUNT(DISTINCT i."productId") FILTER (WHERE ${SALES_ONLY})::int AS sku,
+      COUNT(DISTINCT s.id) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+      COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS lines,
       SUM(i.quantity * i."sellingPrice")::float AS amount,
       mode() WITHIN GROUP (ORDER BY s."salesRepId") AS "repId"
     FROM "SalesDocumentItem" i

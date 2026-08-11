@@ -41,7 +41,7 @@ type RepResponse = {
   period: { from: string; to: string; days: number };
   month: string;
   rep: { id: string; name: string; email: string; phone: string | null; telegramUsername: string | null };
-  totals: { docs: number; amount: number; average: number };
+  totals: { docs: number; amount: number; average: number; returns: number };
   plan: { target: number; actual: number; attainment: number };
   byBrand: Array<{
     brandId: string | null;
@@ -100,7 +100,7 @@ type RepResponse = {
     lines: Array<{ ruleId: string; label: string; amount: number; explanation: string }>;
   };
   timeline: Array<{ day: string; docs: number; amount: number }>;
-  documents: Array<{ id: string; number: string; date: string; amount: number; client: string }>;
+  documents: Array<{ id: string; number: string; date: string; amount: number; client: string; isReturn: boolean }>;
 };
 
 function formatDate(iso: string): string {
@@ -172,7 +172,17 @@ export function RepProfile({
         {data && (
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-              <StatCard label="Оборот" value={money(data.totals.amount)} unit="грн" hint={`${data.totals.docs} док.`} accent={CATEGORICAL[0]} />
+              <StatCard
+                label="Оборот"
+                value={money(data.totals.amount)}
+                unit="грн"
+                hint={
+                  data.totals.returns > 0
+                    ? `${data.totals.docs} док. · мінус повернення ${money(data.totals.returns)} грн`
+                    : `${data.totals.docs} док.`
+                }
+                accent={CATEGORICAL[0]}
+              />
               <StatCard
                 label="Зібрано коштів"
                 value={money(data.collected.amount)}
@@ -595,10 +605,17 @@ export function RepProfile({
                     <tbody className="divide-y divide-g100">
                       {data.documents.map((d) => (
                         <tr key={d.id} className="hover:bg-g50">
-                          <td className="px-4 py-2.5 font-mono text-xs text-g600">{d.number}</td>
+                          <td className="px-4 py-2.5 font-mono text-xs text-g600">
+                            {d.number}
+                            {d.isReturn && (
+                              <span className="ml-1.5 rounded px-1 py-0.5 text-[10px] font-semibold text-red-600 bg-red-50">
+                                повернення
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-2.5 text-g600">{formatDate(d.date)}</td>
                           <td className="px-4 py-2.5 text-bk">{d.client}</td>
-                          <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-bk">
+                          <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${d.isReturn ? "text-red-600" : "text-bk"}`}>
                             {money(d.amount)}
                           </td>
                         </tr>

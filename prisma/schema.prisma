@@ -62,6 +62,7 @@ enum DocumentStatus {
 enum SalesDocType {
   ORDER // ЗаказПокупателя з 1С або документ, створений на сайті
   REALIZATION // РеализацияТоваровУслуг — фактичне відвантаження
+  RETURN // ВозвратТоваровОтПокупателя — повернення від покупця
 }
 
 enum DeliveryMethod {
@@ -605,6 +606,10 @@ model SalesDocument {
   counterpartyId String?
   salesRepId     String?
   status         DocumentStatus @default(DRAFT)
+  // ЗНАК: у документів RETURN totalAmount і quantity рядків ВІД'ЄМНІ.
+  // У 1С вони додатні — мінус ставить сервер при прийомі (apply-documents.ts).
+  // Завдяки цьому будь-який SUM() дає одразу чистий оборот, і жоден
+  // майбутній запит не зможе «забути» відняти повернення.
   totalAmount    Float          @default(0)
   discountAmount Float          @default(0)
   profitAmount   Float          @default(0)

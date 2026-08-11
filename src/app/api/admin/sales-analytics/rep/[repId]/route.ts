@@ -9,10 +9,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import type { SalesDocType } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
-import { fuelCost, revenueByRepBrand, tripFactsByRep, SOURCE_FILTER } from "@/lib/analytics/facts";
+import { fuelCost, revenueByRepBrand, tripFactsByRep, SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
 import {
   collectedByRepBrand,
@@ -56,22 +57,34 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
   }
 
   // Дзеркало SOURCE_FILTER (src/lib/analytics/facts.ts) для запитів через
-  // модель: рахуємо реалізації, а не замовлення.
+  // модель: реалізації разом із поверненнями, а не замовлення. Повернення
+  // мають від'ємні суми, тож оборот виходить нетто; у списку документів вони
+  // теж видно — торговому корисно бачити, що саме до нього повернулось.
   const docWhere = {
     externalId: { not: null },
     status: "CONFIRMED" as const,
-    docType: "REALIZATION" as const,
+    docType: { in: ["REALIZATION", "RETURN"] as SalesDocType[] },
     salesRepId: repId,
     createdAt: { gte: period.from, lte: period.to },
   };
 
   const [totals, byBrand, trips, vehicle, plans, documents, timeline, brands, collected, receivableRows] = await Promise.all([
-    prisma.salesDocument.aggregate({
-      where: docWhere,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-      _avg: { totalAmount: true },
-    }),
+    // Сирий SQL, а не aggregate: Prisma не вміє FILTER, а повернення не має
+    // рахуватися ще одним проданим документом і псувати середній чек.
+    prisma.$queryRaw<Array<{ docs: number; amount: number; average: number; returns: number }>>`
+      SELECT
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+        COALESCE(SUM(s."totalAmount"), 0)::float AS amount,
+        COALESCE(
+          SUM(s."totalAmount") / NULLIF(COUNT(*) FILTER (WHERE ${SALES_ONLY}), 0),
+          0
+        )::float AS average,
+        COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
+      FROM "SalesDocument" s
+      WHERE ${SOURCE_FILTER}
+        AND s."salesRepId" = ${repId}
+        AND s."createdAt" >= ${period.from} AND s."createdAt" <= ${period.to}
+    `,
     revenueByRepBrand(period.from, period.to, repId),
     tripFactsByRep(period.from, period.to, repId),
     prisma.salesVehicle.findUnique({
@@ -87,6 +100,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       select: {
         id: true,
         number: true,
+        docType: true,
         createdAt: true,
         totalAmount: true,
         counterparty: { select: { name: true } },
@@ -97,7 +111,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     prisma.$queryRaw<Array<{ day: string; docs: number; amount: number }>>`
       SELECT
         to_char(date_trunc('day', s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS day,
-        COUNT(*)::int AS docs,
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
@@ -127,7 +141,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
 
   const planByBrand = new Map(plans.map((p) => [p.brandId ?? "", p.targetValue]));
   const brandMeta = new Map(brands.map((b) => [b.id, b]));
-  const revenue = totals._sum.totalAmount ?? 0;
+  const revenue = totals[0]?.amount ?? 0;
   const totalTarget = planByBrand.get("") ?? 0;
 
   // Бренди, де є продажі АБО план: бренд із планом і нулем продажів має бути
@@ -163,9 +177,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     month,
     rep,
     totals: {
-      docs: totals._count.id,
+      docs: totals[0]?.docs ?? 0,
       amount: revenue,
-      average: totals._avg.totalAmount ?? 0,
+      average: totals[0]?.average ?? 0,
+      returns: totals[0]?.returns ?? 0,
     },
     plan: {
       target: totalTarget,
@@ -233,6 +248,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       date: d.createdAt.toISOString(),
       amount: d.totalAmount,
       client: d.counterparty?.name ?? "—",
+      isReturn: d.docType === "RETURN",
     })),
   });
 }

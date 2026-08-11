@@ -14,7 +14,16 @@ import { prisma } from "@/lib/prisma";
 /** Дефолти авто, якщо для торгового ще не заведено SalesVehicle. */
 export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
 
-export type RepRevenue = { repId: string; amount: number; docs: number; clients: number; profit: number };
+export type RepRevenue = {
+  repId: string;
+  /** Оборот НЕТТО: реалізації мінус повернення. */
+  amount: number;
+  docs: number;
+  clients: number;
+  profit: number;
+  /** Сума повернень за період, додатна — щоб показати її окремою колонкою. */
+  returns: number;
+};
 export type RepBrandRevenue = { repId: string; brandId: string | null; brandName: string | null; amount: number; qty: number };
 
 /**
@@ -28,11 +37,26 @@ export type RepBrandRevenue = { repId: string; brandId: string | null; brandName
  * Обидва типи лежать в одній таблиці, тож без цієї умови кожна партія
  * рахувалася б двічі.
  *
+ * RETURN входить сюди разом із реалізацією і робить оборот НЕТТО: суми й
+ * кількості повернень зберігаються від'ємними, тож SUM() віднімає їх сам.
+ * Доти повернень не було в обміні взагалі — 2099 документів на 4,6 млн грн
+ * за три роки, на які оборот і КПІ були завищені.
+ *
  * externalId IS NOT NULL — лише те, що прийшло з 1С: документи, створені
  * вручну на сайті, у звіт торгових не потрапляють.
  * CONFIRMED — лише проведені: непроведений документ ще не відбувся.
  */
-export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" = 'REALIZATION'`;
+export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" IN ('REALIZATION', 'RETURN')`;
+
+/**
+ * Те саме, але тільки продажі — для ЛІЧИЛЬНИКІВ, а не для сум.
+ *
+ * Гроші повернення віднімає, а от кількість документів, клієнтів і
+ * пропрацьованих SKU — ні: повернення не «ще один продаж» і не «ще один
+ * охоплений клієнт». Без цієї умови середній чек попливе, бо знаменник
+ * зросте, а чисельник зменшиться.
+ */
+export const SALES_ONLY = Prisma.sql`s."docType" <> 'RETURN'`;
 
 /** Оборот по кожному торговому за період. */
 export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {
@@ -42,9 +66,10 @@ export async function revenueByRep(from: Date, to: Date, repId?: string | null):
     SELECT
       s."salesRepId" AS "repId",
       SUM(s."totalAmount")::float AS amount,
-      COUNT(*)::int AS docs,
-      COUNT(DISTINCT s."counterpartyId")::int AS clients,
-      COALESCE(SUM(s."profitAmount"), 0)::float AS profit
+      COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+      COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients,
+      COALESCE(SUM(s."profitAmount"), 0)::float AS profit,
+      COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
     FROM "SalesDocument" s
     WHERE ${SOURCE_FILTER}
       AND s."salesRepId" IS NOT NULL

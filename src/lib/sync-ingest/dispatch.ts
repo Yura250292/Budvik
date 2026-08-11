@@ -55,6 +55,9 @@ export async function dispatchBatch(
     case "realization_doc":
       await applySalesDocuments(batch.records as DocumentRecord[], ctx, "REALIZATION");
       break;
+    case "return_doc":
+      await applySalesDocuments(batch.records as DocumentRecord[], ctx, "RETURN");
+      break;
     case "purchase_doc":
       await applyPurchaseDocuments(batch.records as DocumentRecord[], ctx);
       break;

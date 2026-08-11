@@ -110,7 +110,8 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
         s.id,
         s."counterpartyId",
         s."createdAt",
-        s."totalAmount"
+        s."totalAmount",
+        s."docType"
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         AND s."salesRepId" = ${repId}
@@ -119,7 +120,7 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
     period_docs AS (
       SELECT
         d."counterpartyId",
-        COUNT(*)::int AS docs,
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS docs,
         SUM(d."totalAmount")::float AS amount
       FROM docs d
       WHERE d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
@@ -128,17 +129,17 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
     history AS (
       SELECT
         d."counterpartyId",
-        MIN(d."createdAt") AS "firstDocAt",
-        MAX(d."createdAt") AS "lastDocAt",
-        COUNT(*)::int AS "historyDocs"
+        MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
+        MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
       FROM docs d
       GROUP BY 1
     ),
     assortment AS (
       SELECT
         d."counterpartyId",
-        COUNT(DISTINCT i."productId")::int AS "skuCount",
-        COUNT(DISTINCT p."brandId")::int AS "brandCount"
+        COUNT(DISTINCT i."productId") FILTER (WHERE d."docType" <> 'RETURN')::int AS "skuCount",
+        COUNT(DISTINCT p."brandId") FILTER (WHERE d."docType" <> 'RETURN')::int AS "brandCount"
       FROM docs d
       JOIN "SalesDocumentItem" i ON i."salesDocumentId" = d.id
       JOIN "Product" p ON p.id = i."productId"
@@ -277,7 +278,8 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
         s."salesRepId",
         s."counterpartyId",
         s."createdAt",
-        s."totalAmount"
+        s."totalAmount",
+        s."docType"
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         AND s."salesRepId" IS NOT NULL
@@ -285,16 +287,17 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
     ),
     period_docs AS (
       SELECT d."salesRepId", d."counterpartyId",
-             COUNT(*)::int AS docs, SUM(d."totalAmount")::float AS amount
+             COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS docs,
+             SUM(d."totalAmount")::float AS amount
       FROM docs d
       WHERE d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
       GROUP BY 1, 2
     ),
     history AS (
       SELECT d."salesRepId", d."counterpartyId",
-             MIN(d."createdAt") AS "firstDocAt",
-             MAX(d."createdAt") AS "lastDocAt",
-             COUNT(*)::int AS "historyDocs"
+             MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
+             MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
+             COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
       FROM docs d
       GROUP BY 1, 2
     )

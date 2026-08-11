@@ -157,10 +157,14 @@ $runStart  = Get-Date
 # whole history.
 $realBackfilledAt = $null
 $realBackfillRan  = $false
+# Returns joined the exchange later still, and need their own flag: they carry
+# three years of history the watermark passed long ago.
+$returnsBackfilledAt = $null
 if (Test-Path $statePath) {
     try {
         $s = ReadJsonUtf8 $statePath
         if ($s.realizationsBackfilledAt) { $realBackfilledAt = [string]$s.realizationsBackfilledAt }
+        if ($s.returnsBackfilledAt) { $returnsBackfilledAt = [string]$s.returnsBackfilledAt }
     } catch {
         # Unreadable state means the backfill simply repeats -- upserts by
         # Ref_Key, so a repeat costs time, not correctness.
@@ -910,6 +914,100 @@ try {
         # the batches. Until then every extract re-reads the full backfill,
         # which is idempotent (upsert by Ref_Key) and merely slow.
 
+        # --- returns from customers, with their line items ---
+        #
+        # Until this channel existed, every rep's turnover was overstated by
+        # exactly the returned amount -- 2099 documents worth 4.6M UAH over
+        # three years -- while the debt figure, which comes from the settlement
+        # register, already netted them out. Two numbers in one system that
+        # contradicted each other by construction.
+        #
+        # Quantities and totals are sent EXACTLY as 1C holds them, i.e.
+        # positive. The minus is the server's job (apply-documents.ts): the
+        # agent stays a transcript of 1C, and the sign is site semantics.
+        $returnsFrom = $docsFrom
+        if (-not $returnsBackfilledAt) {
+            $bf = "2023-01-01"
+            if ($config.documents -and $config.documents.returnsFrom) {
+                $bf = [string]$config.documents.returnsFrom
+            }
+            try {
+                $returnsFrom = [datetime]::ParseExact($bf, "yyyy-MM-dd", $null)
+                Log ("returns: one-off backfill from {0}" -f $bf)
+            } catch {
+                Log ("returns: bad returnsFrom '" + $bf + "', using normal window")
+                $returnsFrom = $docsFrom
+            }
+        }
+        Log ("reading returns since {0:yyyy-MM-dd}..." -f $returnsFrom)
+
+        $returnItemsByDoc = @{}
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.returnItemsSince
+        $q.SetParameter([string]$queries.paramFrom, $returnsFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on return items query" }
+        $r = $rs.Choose()
+        $itemRows = 0
+        while ($r.Next()) {
+            $docId  = RefId $ib $r.Get(0)
+            $prodId = RefId $ib $r.Get(1)
+            if (-not $docId -or -not $prodId) { continue }
+
+            if (-not $returnItemsByDoc.ContainsKey($docId)) {
+                $returnItemsByDoc[$docId] = New-Object Collections.Generic.List[object]
+            }
+            [void]$returnItemsByDoc[$docId].Add([ordered]@{
+                productExternalId = $prodId
+                quantity          = Num $r.Get(2)
+                price             = Num $r.Get(3)
+            })
+            $itemRows++
+        }
+        Log ("  return items: {0} rows in {1} documents" -f $itemRows, $returnItemsByDoc.Count)
+
+        $w = NewWriter (Join-Path $OutDir "return_doc.ndjson")
+        $n = 0
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.returnsSince
+        $q.SetParameter([string]$queries.paramFrom, $returnsFrom)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on returns query" }
+        $r = $rs.Choose()
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            if (-not $id) { continue }
+            $rec = [ordered]@{
+                externalId = $id
+                number     = Str $r.Get(1)
+                date       = IsoDate $r.Get(2)
+                posted     = [bool]$r.Get(7)
+            }
+            $cp = RefId $ib $r.Get(3)
+            if ($cp) { $rec.counterpartyExternalId = $cp }
+            $rec.totalAmount = Num $r.Get(4)
+
+            # Менеджер, not Ответственный: the probe found 11 distinct people
+            # there against 4 back-office staff in Ответственный, one of whom
+            # signed 40 of 60 documents. Same rule as realizations.
+            $repId = RefId $ib $r.Get(5)
+            if ($repId) { $rec.salesRepExternalId = $repId }
+            $repName = Str $r.Get(6)
+            if ($repName) { $rec.salesRepName = $repName }
+
+            if ($null -ne $returnItemsByDoc -and $returnItemsByDoc.ContainsKey($id)) {
+                $rec.items = $returnItemsByDoc[$id].ToArray()
+            }
+            WriteRecord $w $rec
+            $n++
+        }
+        $w.Close()
+        $stats.returns = $n
+        Log "returns: $n"
+
+        # Same rule as realizations: the flag is stamped by send.ps1 only after
+        # the server confirms the batches, never here.
+
         # --- debt balances ---
         # Debt is best-effort: several phrasings of this query fail on this
         # build with a bare NullReferenceException, and losing the balances is
@@ -1030,6 +1128,9 @@ try {
     }
     if ($realBackfilledAt) {
         $newState.realizationsBackfilledAt = $realBackfilledAt
+    }
+    if ($returnsBackfilledAt) {
+        $newState.returnsBackfilledAt = $returnsBackfilledAt
     }
     [IO.File]::WriteAllText(
         $statePath,

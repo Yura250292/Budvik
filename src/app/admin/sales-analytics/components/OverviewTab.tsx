@@ -25,8 +25,8 @@ const RankingChart = dynamic(() => import("./Charts").then((m) => m.RankingChart
 type AnalyticsResponse = {
   period: { days: number; from: string; to: string };
   scope: "all" | "single" | "own";
-  totals: { docs: number; amount: number; average: number; sku: number; linesPerDoc: number };
-  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number }>;
+  totals: { docs: number; amount: number; average: number; sku: number; linesPerDoc: number; returns: number };
+  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number; returns: number }>;
   byBrand: Array<{ brand: string; color: string | null; qty: number; amount: number; docs: number }>;
   timeline: Array<{ day: string; docs: number; amount: number }>;
   topProducts: Array<{ name: string; sku: string; qty: number; amount: number }>;
@@ -110,7 +110,13 @@ export function OverviewTab({
           label="Оборот"
           value={money(data.totals.amount)}
           unit="грн"
-          hint={`${data.period.days} дн.`}
+          // Оборот нетто: повернення вже відняті. Показуємо, скільки саме,
+          // інакше цифра просто «менша, ніж очікували», і незрозуміло чому.
+          hint={
+            data.totals.returns > 0
+              ? `${data.period.days} дн. · мінус повернення ${money(data.totals.returns)} грн`
+              : `${data.period.days} дн.`
+          }
           accent={CATEGORICAL[0]}
         />
         <StatCard label="Документів" value={num(data.totals.docs)} hint="проведених реалізацій із 1С" accent={CATEGORICAL[1]} />

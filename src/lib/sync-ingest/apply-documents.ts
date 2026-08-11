@@ -52,11 +52,18 @@ async function ensureSyncUser(): Promise<string> {
   return created.id;
 }
 
-/** Зіставляє рядки документа з товарами сайту за externalId. */
+/**
+ * Зіставляє рядки документа з товарами сайту за externalId.
+ *
+ * `sign` = -1 для повернень: у 1С їхні кількості додатні (перевірено пробою),
+ * а на сайті зберігаються від'ємними, щоб будь-який SUM() одразу давав чистий
+ * оборот. Див. коментар про знак у schema.prisma, модель SalesDocument.
+ */
 async function resolveItems(
   items: DocumentItemRecord[],
   ctx: ApplyContext,
-  documentNumber: string
+  documentNumber: string,
+  sign: 1 | -1 = 1
 ): Promise<{ productId: string; quantity: number; price: number }[]> {
   if (items.length === 0) return [];
 
@@ -83,9 +90,13 @@ async function resolveItems(
       });
       continue;
     }
+    // Модуль беремо навмисно: від'ємна кількість у 1С не трапляється
+    // (перевірено пробою), а якби трапилась — знак усе одно задає тип
+    // документа, і подвійне заперечення зробило б з повернення продаж.
+    const magnitude = Math.max(0, Math.round(Math.abs(item.quantity)));
     resolved.push({
       productId,
-      quantity: Math.max(0, Math.round(item.quantity)),
+      quantity: sign * magnitude,
       price: Number.isFinite(item.price) ? item.price : 0,
     });
   }
@@ -150,7 +161,12 @@ export async function applySalesDocuments(
 ): Promise<void> {
   if (records.length === 0) return;
 
-  const docLabel = docType === "REALIZATION" ? "реалізація" : "замовлення";
+  const docLabel =
+    docType === "REALIZATION" ? "реалізація" : docType === "RETURN" ? "повернення" : "замовлення";
+
+  // Повернення зберігаються від'ємними — див. коментар про знак у
+  // schema.prisma (модель SalesDocument).
+  const sign: 1 | -1 = docType === "RETURN" ? -1 : 1;
 
   const existing = await prisma.salesDocument.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
@@ -272,9 +288,13 @@ export async function applySalesDocuments(
     const counterpartyId = rec.counterpartyExternalId
       ? counterpartyByExternalId.get(rec.counterpartyExternalId) ?? null
       : null;
-    const items = await resolveItems(rec.items ?? [], ctx, rec.number);
+    const items = await resolveItems(rec.items ?? [], ctx, rec.number, sign);
+    // Рядки вже несуть знак, тому сума з них виходить від'ємною сама. А от
+    // СуммаДокумента з 1С приходить додатною — їй знак треба поставити.
     const totalAmount =
-      rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
+      rec.totalAmount !== undefined
+        ? sign * Math.abs(rec.totalAmount)
+        : items.reduce((sum, i) => sum + i.quantity * i.price, 0);
 
     try {
       if (!found) {

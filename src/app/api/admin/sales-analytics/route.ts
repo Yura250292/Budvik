@@ -17,7 +17,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parsePeriod } from "@/lib/analytics/period";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 
@@ -53,26 +53,25 @@ export async function GET(req: Request) {
     ? Prisma.sql`AND s."salesRepId" = ${restrictToRep}`
     : Prisma.empty;
 
-  // Дзеркало SOURCE_FILTER для запитів через Prisma-модель.
-  const where = {
-    externalId: { not: null },
-    status: "CONFIRMED" as const,
-    docType: "REALIZATION" as const,
-    createdAt: { gte: from, lte: to },
-    ...(restrictToRep ? { salesRepId: restrictToRep } : {}),
-  };
-
   // Спільна умова періоду для сирих запитів — щоб межі не розʼїхалися між ними.
   const periodCondition = Prisma.sql`AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}`;
 
   const [byRep, byBrand, totals, timeline, topProducts, topClients, skuTotals, skuByRep] = await Promise.all([
     // --- по торгових ---
-    prisma.salesDocument.groupBy({
-      by: ["salesRepId"],
-      where,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-    }),
+    // Сирий SQL, а не groupBy: потрібен FILTER, щоб повернення віднімалися
+    // від суми, але не рахувались як ще один проданий документ.
+    prisma.$queryRaw<Array<{ salesRepId: string | null; docs: number; amount: number; returns: number }>>`
+      SELECT
+        s."salesRepId" AS "salesRepId",
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+        COALESCE(SUM(s."totalAmount"), 0)::float AS amount,
+        COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
+      FROM "SalesDocument" s
+      WHERE ${SOURCE_FILTER}
+        ${periodCondition}
+        ${repCondition}
+      GROUP BY s."salesRepId"
+    `,
 
     // --- по брендах ---
     // Підсумок береться з ПОЗИЦІЙ, а не документів: один документ містить
@@ -83,7 +82,7 @@ export async function GET(req: Request) {
         b.color AS color,
         SUM(i.quantity)::float AS qty,
         SUM(i.quantity * i."sellingPrice")::float AS amount,
-        COUNT(DISTINCT s.id)::int AS docs
+        COUNT(DISTINCT s.id) FILTER (WHERE ${SALES_ONLY})::int AS docs
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       JOIN "Product" p ON p.id = i."productId"
@@ -97,12 +96,22 @@ export async function GET(req: Request) {
     `,
 
     // --- загальні підсумки ---
-    prisma.salesDocument.aggregate({
-      where,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-      _avg: { totalAmount: true },
-    }),
+    // Середній чек рахуємо як нетто-оборот на кількість ПРОДАЖІВ: інакше
+    // повернення потрапило б у знаменник і занизило чек двічі.
+    prisma.$queryRaw<Array<{ docs: number; amount: number; average: number; returns: number }>>`
+      SELECT
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+        COALESCE(SUM(s."totalAmount"), 0)::float AS amount,
+        COALESCE(
+          SUM(s."totalAmount") / NULLIF(COUNT(*) FILTER (WHERE ${SALES_ONLY}), 0),
+          0
+        )::float AS average,
+        COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
+      FROM "SalesDocument" s
+      WHERE ${SOURCE_FILTER}
+        ${periodCondition}
+        ${repCondition}
+    `,
 
     // --- динаміка по днях ---
     // AT TIME ZONE 'Europe/Kyiv' обовʼязково: без нього документ, проведений
@@ -110,7 +119,7 @@ export async function GET(req: Request) {
     prisma.$queryRaw<Array<{ day: string; docs: number; amount: number }>>`
       SELECT
         to_char(date_trunc('day', s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS day,
-        COUNT(*)::int AS docs,
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
@@ -142,7 +151,7 @@ export async function GET(req: Request) {
     prisma.$queryRaw<Array<{ name: string; docs: number; amount: number }>>`
       SELECT
         c.name,
-        COUNT(*)::int AS docs,
+        COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       JOIN "Counterparty" c ON c.id = s."counterpartyId"
@@ -159,8 +168,12 @@ export async function GET(req: Request) {
     // позиціях, а SKU показує, наскільки широко торговий продає каталог.
     prisma.$queryRaw<Array<{ sku: number; linesPerDoc: number }>>`
       SELECT
-        COUNT(DISTINCT i."productId")::int AS sku,
-        COALESCE(COUNT(*)::float / NULLIF(COUNT(DISTINCT s.id), 0), 0) AS "linesPerDoc"
+        COUNT(DISTINCT i."productId") FILTER (WHERE ${SALES_ONLY})::int AS sku,
+        COALESCE(
+          COUNT(*) FILTER (WHERE ${SALES_ONLY})::float
+            / NULLIF(COUNT(DISTINCT s.id) FILTER (WHERE ${SALES_ONLY}), 0),
+          0
+        ) AS "linesPerDoc"
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       WHERE ${SOURCE_FILTER}
@@ -174,7 +187,7 @@ export async function GET(req: Request) {
     prisma.$queryRaw<Array<{ repId: string | null; sku: number }>>`
       SELECT
         s."salesRepId" AS "repId",
-        COUNT(DISTINCT i."productId")::int AS sku
+        COUNT(DISTINCT i."productId") FILTER (WHERE ${SALES_ONLY})::int AS sku
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       WHERE ${SOURCE_FILTER}
@@ -203,9 +216,10 @@ export async function GET(req: Request) {
     },
     scope: isFullAccess ? (repFilter ? "single" : "all") : "own",
     totals: {
-      docs: totals._count.id,
-      amount: totals._sum.totalAmount ?? 0,
-      average: totals._avg.totalAmount ?? 0,
+      docs: totals[0]?.docs ?? 0,
+      amount: totals[0]?.amount ?? 0,
+      average: totals[0]?.average ?? 0,
+      returns: totals[0]?.returns ?? 0,
       sku: skuTotals[0]?.sku ?? 0,
       linesPerDoc: skuTotals[0]?.linesPerDoc ?? 0,
     },
@@ -214,8 +228,9 @@ export async function GET(req: Request) {
       .map((r) => ({
         id: r.salesRepId,
         name: repNameById.get(r.salesRepId!) ?? "—",
-        docs: r._count.id,
-        amount: r._sum.totalAmount ?? 0,
+        docs: r.docs,
+        amount: r.amount,
+        returns: r.returns,
         sku: skuByRepId.get(r.salesRepId!) ?? 0,
       }))
       .sort((a, b) => b.amount - a.amount),

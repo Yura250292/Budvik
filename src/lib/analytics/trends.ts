@@ -13,7 +13,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
 
 /**
@@ -96,8 +96,8 @@ async function bucketsByRep(
       s."salesRepId" AS "repId",
       to_char(date_trunc(${truncUnit}, s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS bucket,
       SUM(s."totalAmount")::float AS amount,
-      COUNT(*)::int AS docs,
-      COUNT(DISTINCT s."counterpartyId")::int AS clients
+      COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+      COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients
     FROM "SalesDocument" s
     WHERE ${SOURCE_FILTER}
       AND s."salesRepId" IS NOT NULL
@@ -149,8 +149,8 @@ async function momentumWindows(
       s."salesRepId" AS "repId",
       CASE WHEN s."createdAt" >= ${recentFrom} THEN 'recent' ELSE 'previous' END AS window,
       SUM(s."totalAmount")::float AS amount,
-      COUNT(*)::int AS docs,
-      COUNT(DISTINCT s."counterpartyId")::int AS clients
+      COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+      COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients
     FROM "SalesDocument" s
     WHERE ${SOURCE_FILTER}
       AND s."salesRepId" IS NOT NULL

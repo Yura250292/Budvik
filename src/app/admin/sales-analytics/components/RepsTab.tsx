@@ -19,7 +19,7 @@ import { categoricalColor } from "@/lib/analytics/colors";
  */
 
 type AnalyticsResponse = {
-  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number }>;
+  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number; returns: number }>;
 };
 
 type FuelResponse = {
@@ -49,7 +49,7 @@ export function RepsTab({ period }: { period: Period }) {
   const rows = useMemo(() => {
     const byId = new Map<
       string,
-      { id: string; name: string; amount: number; docs: number; sku: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
+      { id: string; name: string; amount: number; docs: number; sku: number; returns: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
     >();
 
     for (const r of sales.data?.byRep ?? []) {
@@ -59,6 +59,7 @@ export function RepsTab({ period }: { period: Period }) {
         amount: r.amount,
         docs: r.docs,
         sku: r.sku ?? 0,
+        returns: r.returns ?? 0,
         km: 0,
         trips: 0,
         days: 0,
@@ -83,6 +84,7 @@ export function RepsTab({ period }: { period: Period }) {
           amount: 0,
           docs: 0,
           sku: 0,
+          returns: 0,
           km: f.workKm,
           trips: f.trips,
           days: f.daysWorked,
@@ -180,7 +182,16 @@ export function RepsTab({ period }: { period: Period }) {
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{money(r.amount)}</td>
+                <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">
+                  {money(r.amount)}
+                  {/* Оборот нетто — показуємо, скільки повернень із нього
+                      вирахувано, інакше цифра просто «менша, ніж була». */}
+                  {r.returns > 0 && (
+                    <span className="block text-[11px] font-normal text-red-600">
+                      −{money(r.returns)} поверн.
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.docs)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{r.sku > 0 ? num(r.sku) : "—"}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.km)}</td>

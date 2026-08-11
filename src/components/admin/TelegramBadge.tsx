@@ -55,23 +55,27 @@ export function TelegramBadge({
 
   if (!telegramId) {
     return (
-      <span className="rounded-[var(--radius-btn)] bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-amber-700">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-500" />
         Не підключено
       </span>
     );
   }
 
   return (
-    <span className="flex flex-wrap items-center gap-2">
-      <span className="rounded-[var(--radius-btn)] bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
-        Telegram підключено
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span
+        className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-green-700"
+        title="Telegram підключено"
+      >
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-green-500" />
+        {telegramUsername ? `@${telegramUsername}` : "Підключено"}
       </span>
-      {telegramUsername && <span className="text-xs text-g400">@{telegramUsername}</span>}
       <button
         type="button"
         onClick={unlink}
         disabled={busy}
-        className="cursor-pointer text-xs font-semibold text-red-600 transition-colors hover:text-red-700 disabled:cursor-not-allowed disabled:text-g400"
+        className="cursor-pointer text-[11px] font-medium text-g400 underline-offset-2 transition-colors hover:text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-g400"
       >
         {busy ? "…" : "Відв'язати"}
       </button>

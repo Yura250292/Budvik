@@ -42,7 +42,7 @@ export const NAV_GROUPS: NavGroup[] = [
     //   /admin/sales-reports  → /admin/sales-analytics?tab=trips
     //   /admin/erp/stats      → /admin/analytics?tab=purchases
     items: [
-      { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, оборот, платежі, закупівлі", iconKey: "chart", roles: AM },
+      { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, надходження, борги", iconKey: "chart", roles: AM },
       { href: "/admin/sales-analytics", title: "Аналітика торгових", desc: "Продажі, КПІ та мотивація, логістика", iconKey: "chart", roles: ALL },
       { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Зміни, накладні, продуктивність", iconKey: "report", roles: AM },
       { href: "/admin/erp/reports", title: "Бухгалтерські звіти", desc: "Виручка, маржа, дебіторка, комісії", iconKey: "report", roles: AM },

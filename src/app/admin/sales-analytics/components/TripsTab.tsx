@@ -99,14 +99,27 @@ function kyivTime(iso: string): string {
   }).format(new Date(iso));
 }
 
+function kyivDate(iso: string): string {
+  // en-CA дає рівно YYYY-MM-DD — формат, який очікує route-day і <input type="date">.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Kyiv",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
 export function TripsTab({
   period,
   rep,
   onRepChange,
+  onShowDay,
 }: {
   period: Period;
   rep: string;
   onRepChange: (id: string) => void;
+  /** Відкриває мапу дня в сусідніх «Маршрутах» на цьому торговому й дні. */
+  onShowDay?: (repId: string, date: string) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showMap, setShowMap] = useState(false);
@@ -328,13 +341,18 @@ export function TripsTab({
                               пройшов пороги (25+ хв і 8+ км поза коридором), тож
                               корки й об'їзди сюди не потрапляють. */}
                           {t.excursionsCount > 0 && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-200"
-                              title={`Виїздів за межі маршруту: ${t.excursionsCount}. Поза маршрутом ${t.offRouteKm ?? 0} км. Деталі — на мапі дня у вкладці «Маршрути».`}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onShowDay?.(t.userId, kyivDate(t.startedAt));
+                              }}
+                              className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-200 transition-colors hover:bg-red-100"
+                              title={`Виїздів за межі маршруту: ${t.excursionsCount}. Поза маршрутом ${t.offRouteKm ?? 0} км. Клік — мапа дня цієї поїздки.`}
                             >
                               ⚠ поза маршрутом
                               {t.offRouteKm != null && ` ${num(t.offRouteKm)} км`}
-                            </span>
+                            </button>
                           )}
 
                           {/* Низьке покриття — не порушення, а «дня майже не
@@ -383,9 +401,16 @@ export function TripsTab({
                                 </span>
                               )}
                               {t.excursionsCount > 0 && (
-                                <span className="text-g400">
-                                  Деталі епізодів — на мапі дня у вкладці «Маршрути»
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onShowDay?.(t.userId, kyivDate(t.startedAt));
+                                  }}
+                                  className="cursor-pointer font-medium text-bk underline decoration-g300 underline-offset-2 transition-colors hover:decoration-bk"
+                                >
+                                  Відкрити мапу дня з епізодами →
+                                </button>
                               )}
                             </div>
                           )}

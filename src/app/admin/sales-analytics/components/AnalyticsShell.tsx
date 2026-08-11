@@ -3,9 +3,10 @@
 /**
  * Оболонка центру «Аналітика торгових».
  *
- * Тримає спільний для всіх вкладок стан — період і фільтр торгового — і
- * дзеркалить його в URL. Раніше фільтри жили лише в пам'яті компонента, тож
- * посилання на «жовтень по Кулику» переслати було неможливо.
+ * Тримає спільний для всіх вкладок стан — період, фільтр торгового, вкладку
+ * з підвкладкою — і дзеркалить його в URL (?tab=&view=). Раніше фільтри жили
+ * лише в пам'яті компонента, тож посилання на «жовтень по Кулику» переслати
+ * було неможливо.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,17 +27,63 @@ const TABS = [
   { key: "summary", label: "Зведена" },
   { key: "overview", label: "Огляд" },
   { key: "reps", label: "Торгові" },
-  { key: "plans", label: "КПІ та плани" },
-  { key: "routes", label: "Маршрути" },
-  { key: "fuel", label: "Паливо" },
-  { key: "trips", label: "Поїздки" },
-  { key: "motivation", label: "Мотивація" },
+  { key: "kpi", label: "КПІ та мотивація" },
+  { key: "logistics", label: "Логістика" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
+/**
+ * Підвкладки об'єднаних розділів; перша в списку — типова. «Логістика» зібрала
+ * поїздки, маршрути й паливо: це один процес (виїхав → де був → скільки коштувало),
+ * тримати його трьома верхніми вкладками означало губити зв'язок між ними.
+ */
+const SUBTABS = {
+  kpi: [
+    { key: "plans", label: "Плани" },
+    { key: "motivation", label: "Мотивація" },
+  ],
+  logistics: [
+    { key: "trips", label: "Поїздки" },
+    { key: "routes", label: "Маршрути" },
+    { key: "fuel", label: "Паливо" },
+  ],
+} as const;
+
+type ViewKey = (typeof SUBTABS)[keyof typeof SUBTABS][number]["key"];
+
+/**
+ * Старі ключі вкладок → нове місце. Живуть у закладках користувачів,
+ * редіректі /admin/sales-reports (?tab=trips) і посиланнях дашборда.
+ */
+const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
+  plans: { tab: "kpi", view: "plans" },
+  motivation: { tab: "kpi", view: "motivation" },
+  trips: { tab: "logistics", view: "trips" },
+  routes: { tab: "logistics", view: "routes" },
+  fuel: { tab: "logistics", view: "fuel" },
+};
+
 /** Вкладки, доступні лише керівництву: там видно всю команду. */
-const MANAGER_ONLY: TabKey[] = ["plans", "routes", "fuel", "trips", "motivation"];
+const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
+
+function subtabsOf(tab: TabKey): ReadonlyArray<{ key: ViewKey; label: string }> | null {
+  return tab === "kpi" || tab === "logistics" ? SUBTABS[tab] : null;
+}
+
+/** Розбирає ?tab=&view= з урахуванням старих ключів і невалідних значень. */
+function resolveTarget(
+  tabParam: string | null,
+  viewParam: string | null
+): { tab: TabKey; view: ViewKey | null } {
+  const legacy = tabParam ? LEGACY_TABS[tabParam] : undefined;
+  if (legacy) return legacy;
+  const tab = TABS.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "summary";
+  const views = subtabsOf(tab);
+  if (!views) return { tab, view: null };
+  const view = views.some((v) => v.key === viewParam) ? (viewParam as ViewKey) : views[0].key;
+  return { tab, view };
+}
 
 function defaultPeriod(): Period {
   const today = kyivToday();
@@ -51,8 +98,18 @@ export function AnalyticsShell() {
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
   const isManager = role === "ADMIN" || role === "MANAGER";
 
-  const urlTab = searchParams.get("tab") as TabKey | null;
-  const [tab, setTab] = useState<TabKey>(urlTab && TABS.some((t) => t.key === urlTab) ? urlTab : "summary");
+  const [target, setTarget] = useState(() =>
+    resolveTarget(searchParams.get("tab"), searchParams.get("view"))
+  );
+  // Торговий, що потрапив на менеджерську вкладку через URL, бачить зведену.
+  // Похідне значення, а не setState в ефекті: стан лишається, але не рендериться.
+  const { tab, view } =
+    !isManager && MANAGER_ONLY.includes(target.tab)
+      ? { tab: "summary" as TabKey, view: null }
+      : target;
+  // Фокус мапи дня: виставляється кліком «поза маршрутом» у поїздках,
+  // щоб «Маршрути» відкрилися одразу на потрібному торговому й дні.
+  const [dayFocus, setDayFocus] = useState<{ repId: string; date: string } | null>(null);
   const [period, setPeriod] = useState<Period>(() => {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
@@ -65,10 +122,10 @@ export function AnalyticsShell() {
     [isManager]
   );
 
-  // Торговий, що потрапив на менеджерську вкладку через URL, повертається на зведену.
-  useEffect(() => {
-    if (!isManager && MANAGER_ONLY.includes(tab)) setTab("summary");
-  }, [isManager, tab]);
+  const openDayMap = useCallback((repId: string, date: string) => {
+    setDayFocus({ repId, date });
+    setTarget({ tab: "logistics", view: "routes" });
+  }, []);
 
   // Торговий за старим посиланням потрапляє у власний кабінет: зведена на
   // 1180px не читається з телефона, а показники там ті самі. Період
@@ -91,11 +148,13 @@ export function AnalyticsShell() {
 
     const params = new URLSearchParams();
     if (tab !== "summary") params.set("tab", tab);
+    const views = subtabsOf(tab);
+    if (views && view && view !== views[0].key) params.set("view", view);
     params.set("from", period.from);
     params.set("to", period.to);
     if (rep) params.set("rep", rep);
     router.replace(`/admin/sales-analytics?${params.toString()}`, { scroll: false });
-  }, [tab, period, rep, router, leavingToCabinet]);
+  }, [tab, view, period, rep, router, leavingToCabinet]);
 
   const onPeriodChange = useCallback((p: Period) => setPeriod(p), []);
 
@@ -159,7 +218,12 @@ export function AnalyticsShell() {
               <button
                 key={t.key}
                 type="button"
-                onClick={() => setTab(t.key)}
+                onClick={() => {
+                  // Ручна навігація скидає фокус мапи дня — інакше «Маршрути»
+                  // відкривалися б на давно переглянутій поїздці.
+                  setDayFocus(null);
+                  setTarget({ tab: t.key, view: subtabsOf(t.key)?.[0].key ?? null });
+                }}
                 aria-current={tab === t.key ? "page" : undefined}
                 className={`relative shrink-0 cursor-pointer rounded-[var(--radius-btn)] px-3.5 py-2 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
                   tab === t.key ? "bg-bk text-white" : "text-g600 hover:bg-g100 hover:text-bk"
@@ -173,9 +237,34 @@ export function AnalyticsShell() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-4 pb-10 sm:px-6">
-        {/* Період не потрібен вкладці КПІ — там свій вибір місяця. На «Маршрутах»
-            він задає діапазон разових призначень, які потрапляють на карту. */}
-        {tab !== "plans" && tab !== "motivation" && (
+        {subtabsOf(tab) && (
+          <nav
+            className="-mx-4 mb-4 flex gap-5 overflow-x-auto border-b border-g200 px-4 sm:mx-0 sm:px-0"
+            aria-label="Підрозділи вкладки"
+          >
+            {subtabsOf(tab)!.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                onClick={() => {
+                  setDayFocus(null);
+                  setTarget((prev) => ({ ...prev, view: v.key }));
+                }}
+                aria-current={view === v.key ? "page" : undefined}
+                className={`-mb-px shrink-0 cursor-pointer border-b-2 px-0.5 pb-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
+                  view === v.key ? "border-bk text-bk" : "border-transparent text-g500 hover:text-bk"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </nav>
+        )}
+
+        {/* Період не потрібен розділу КПІ — у планів свій вибір місяця, у схем
+            мотивації дат немає. На «Маршрутах» він задає діапазон разових
+            призначень, які потрапляють на карту. */}
+        {tab !== "kpi" && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
@@ -184,11 +273,13 @@ export function AnalyticsShell() {
         {tab === "summary" && <SummaryTab period={period} />}
         {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
         {tab === "reps" && <RepsTab period={period} />}
-        {tab === "plans" && <PlansTab />}
-        {tab === "routes" && <RoutesTab period={period} />}
-        {tab === "fuel" && <FuelTab period={period} />}
-        {tab === "trips" && <TripsTab period={period} rep={rep} onRepChange={setRep} />}
-        {tab === "motivation" && <MotivationTab />}
+        {tab === "kpi" && view === "plans" && <PlansTab />}
+        {tab === "kpi" && view === "motivation" && <MotivationTab />}
+        {tab === "logistics" && view === "trips" && (
+          <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
+        )}
+        {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
+        {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
       </div>
     </div>
   );

@@ -52,7 +52,7 @@ export function PlanAttainment() {
     <WidgetBody
       title="Виконання плану"
       hint={month ? `Місяць ${month} — план місячний, не за період` : undefined}
-      href={`${ANALYTICS}?tab=plans`}
+      href={`${ANALYTICS}?tab=kpi`}
       loading={summary.loading}
       error={summary.error}
     >

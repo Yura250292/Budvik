@@ -105,11 +105,14 @@ export function RepsTab({ period }: { period: Period }) {
     return Array.from(byId.values()).sort((a, b) => b.amount - a.amount);
   }, [sales.data, fuel.data, plans.data]);
 
-  // Медіана, а не середнє: один торговий із величезним оборотом на малому
-  // пробігу зсунув би середнє так, що «нижче середнього» опинилися б усі.
-  const medianPerKm = useMemo(() => {
-    const values = rows.filter((r) => r.km > 0 && r.amount > 0).map((r) => r.amount / r.km).sort((a, b) => a - b);
-    if (values.length === 0) return 0;
+  // Медіана, а не середнє: один торговий із дорогим авто на малому пробігу
+  // зсунув би середнє так, що «дешевше за середнє» опинилися б усі.
+  //
+  // Порівнювати є сенс лише коли рядків із пробігом хоча б три: на одному-двох
+  // медіана дорівнює самому значенню і бейдж завжди був би зеленим.
+  const medianCostPerKm = useMemo(() => {
+    const values = rows.filter((r) => r.km > 0 && r.fuelCost > 0).map((r) => r.fuelCost / r.km).sort((a, b) => a - b);
+    if (values.length < 3) return 0;
     const mid = Math.floor(values.length / 2);
     return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
   }, [rows]);
@@ -151,7 +154,9 @@ export function RepsTab({ period }: { period: Period }) {
               <th className="px-4 py-2.5 text-right">SKU</th>
               <th className="px-4 py-2.5 text-right">Робочі км</th>
               <th className="px-4 py-2.5 text-right">Паливо, грн</th>
-              <th className="px-4 py-2.5 text-right">грн/км</th>
+              <th className="px-4 py-2.5 text-right" title="Пальне ÷ робочі км">
+                Ціна км, грн
+              </th>
               <th className="w-40 px-4 py-2.5">План місяця</th>
             </tr>
           </thead>
@@ -181,11 +186,16 @@ export function RepsTab({ period }: { period: Period }) {
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.km)}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.fuelCost)}</td>
                 <td className="px-4 py-3 text-right">
-                  {/* Оборот на кілометр: скільки виручки приносить кожен проїханий км */}
-                  {r.km > 0 ? (
-                    <Badge status={r.amount / r.km >= medianPerKm ? "good" : "warn"}>
-                      {money(r.amount / r.km)}
-                    </Badge>
+                  {/* Ціна кілометра: пальне ÷ робочі км. Менше — краще, тому
+                      порівняння з медіаною тут обернене до решти показників. */}
+                  {r.km > 0 && r.fuelCost > 0 ? (
+                    medianCostPerKm > 0 ? (
+                      <Badge status={r.fuelCost / r.km <= medianCostPerKm ? "good" : "warn"}>
+                        {num(r.fuelCost / r.km, 2)}
+                      </Badge>
+                    ) : (
+                      <span className="tabular-nums text-g600">{num(r.fuelCost / r.km, 2)}</span>
+                    )
                   ) : (
                     <span className="text-g400">—</span>
                   )}

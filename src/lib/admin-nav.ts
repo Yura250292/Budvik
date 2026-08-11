@@ -36,14 +36,16 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "analytics",
     title: "Аналітика та звіти",
+    // Лише сторінки з власним контентом. Колишні пункти-прокладки з меню
+    // прибрані, але їхні URL живі як редіректи (закладки не ламаються):
+    //   /admin/reports        → /admin/warehouse-reports (хаб із посилань)
+    //   /admin/sales-reports  → /admin/sales-analytics?tab=trips
+    //   /admin/erp/stats      → /admin/analytics?tab=purchases
     items: [
-      { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, оборот, платежі, бонуси", iconKey: "chart", roles: AM },
-      { href: "/admin/sales-analytics", title: "Аналітика торгових", desc: "Продажі, КПІ, маршрути, паливо", iconKey: "chart", roles: ALL },
-      { href: "/admin/reports", title: "Звіти", desc: "Склад і торгові представники", iconKey: "report", roles: AM },
-      { href: "/admin/sales-reports", title: "Звіти торгових", desc: "Деталізація по представниках", iconKey: "report", roles: AM },
-      { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Рухи та залишки", iconKey: "report", roles: AM },
-      { href: "/admin/erp/reports", title: "ERP-звіти", desc: "Документообіг", iconKey: "report", roles: AM },
-      { href: "/admin/erp/stats", title: "ERP-статистика", desc: "Зведені показники", iconKey: "chart", roles: AM },
+      { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, оборот, платежі, закупівлі", iconKey: "chart", roles: AM },
+      { href: "/admin/sales-analytics", title: "Аналітика торгових", desc: "Продажі, КПІ, поїздки, маршрути", iconKey: "chart", roles: ALL },
+      { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Зміни, накладні, продуктивність", iconKey: "report", roles: AM },
+      { href: "/admin/erp/reports", title: "Бухгалтерські звіти", desc: "Виручка, маржа, дебіторка, комісії", iconKey: "report", roles: AM },
     ],
   },
   {

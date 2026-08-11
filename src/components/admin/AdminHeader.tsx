@@ -4,6 +4,7 @@ import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import Breadcrumbs from "./Breadcrumbs";
+import NotificationsBell from "./NotificationsBell";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/lib/useProfile";
 import { titleForPath, type AdminRole } from "@/lib/admin-nav";
@@ -112,6 +113,8 @@ export default function AdminHeader({
               Менеджер
             </Link>
           )}
+
+          <NotificationsBell />
 
           <div className="relative" ref={menuRef}>
             <button

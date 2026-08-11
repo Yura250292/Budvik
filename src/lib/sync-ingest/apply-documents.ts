@@ -93,6 +93,56 @@ async function resolveItems(
   return resolved;
 }
 
+/**
+ * Прибирає комісію, нараховану за документ, який у 1С відтоді змінився.
+ *
+ * Комісія рахується від суми документа. Коли склад мінусує позицію в уже
+ * проведеній накладній або її взагалі розпроводять, стара комісія лишається
+ * висіти за сумою, якої більше немає.
+ *
+ * Виплачене (PAID) не чіпаємо: гроші вже в людини, і мовчки списати їх
+ * синхронізацією — гірше, ніж лишити розбіжність. Такі випадки віддаємо
+ * керівнику окремим записом у журналі.
+ */
+async function invalidateCommissions(
+  found: { id: string; number: string; totalAmount: number },
+  totalAmount: number,
+  posted: boolean,
+  ctx: ApplyContext
+): Promise<void> {
+  const amountChanged = Math.abs(found.totalAmount - totalAmount) > 0.01;
+  if (!amountChanged && posted) return;
+
+  const commissions = await prisma.commissionRecord.findMany({
+    where: { salesDocumentId: found.id },
+    select: { id: true, status: true, commissionAmount: true },
+  });
+  if (commissions.length === 0) return;
+
+  const paid = commissions.filter((c) => c.status === "PAID");
+  const unpaid = commissions.filter((c) => c.status !== "PAID");
+
+  if (unpaid.length > 0) {
+    await prisma.commissionRecord.deleteMany({
+      where: { id: { in: unpaid.map((c) => c.id) } },
+    });
+  }
+
+  if (paid.length > 0) {
+    const paidSum = paid.reduce((s, c) => s + c.commissionAmount, 0);
+    ctx.discrepancy({
+      entityType: "document",
+      entityRef: found.number,
+      entityName: `Документ ${found.number}`,
+      field: "STALE_PAID_COMMISSION",
+      value1C: posted
+        ? `сума змінилась: ${found.totalAmount} → ${totalAmount}`
+        : "документ розпроведено в 1С",
+      valueBudvik: `виплачена комісія ${paidSum.toFixed(2)} грн — потрібне рішення керівника`,
+    });
+  }
+}
+
 export async function applySalesDocuments(
   records: DocumentRecord[],
   ctx: ApplyContext,
@@ -104,7 +154,7 @@ export async function applySalesDocuments(
 
   const existing = await prisma.salesDocument.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
-    select: { id: true, externalId: true, number: true, totalAmount: true },
+    select: { id: true, externalId: true, number: true, totalAmount: true, status: true },
   });
   const byExternalId = new Map(existing.map((d) => [d.externalId!, d]));
 
@@ -193,8 +243,29 @@ export async function applySalesDocuments(
       });
     }
 
+    const found = byExternalId.get(rec.externalId);
+
+    // Поле опційне: агент старішої версії його не шле. Відсутнє = проведений,
+    // бо доти запити відбирали лише проведені документи. Інакше перший же
+    // прогін старим агентом після оновлення сервера поскасовував би все.
+    const posted = rec.posted ?? true;
+
+    // Непроведений документ, якого ми ще не бачили, — це чернетка в 1С:
+    // менеджер її ще набирає. Такі не імпортуємо взагалі, інакше сайт
+    // заповнюється сміттям, яке ніколи не стане продажем.
+    //
+    // А от непроведений документ, який у нас ВЖЕ Є, — це розпроведення:
+    // документ провели, ми його забрали, потім у 1С скасували. До появи
+    // реального posted обмін про це не дізнавався ніколи (в запитах стояло
+    // «ГДЕ Проведен», тож розпроведене просто зникало з вибірки), і документ
+    // назавжди лишався CONFIRMED — з повною сумою в обороті торгового.
+    if (!posted && !found) {
+      ctx.skipped++;
+      continue;
+    }
+
     if (ctx.isPreview) {
-      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
+      found ? ctx.updated++ : ctx.created++;
       continue;
     }
 
@@ -204,8 +275,6 @@ export async function applySalesDocuments(
     const items = await resolveItems(rec.items ?? [], ctx, rec.number);
     const totalAmount =
       rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
-
-    const found = byExternalId.get(rec.externalId);
 
     try {
       if (!found) {
@@ -217,11 +286,12 @@ export async function applySalesDocuments(
             docType,
             counterpartyId,
             salesRepId,
-            status: rec.posted ? "CONFIRMED" : "DRAFT",
+            // Сюди доходять лише проведені (непроведені нові відсіяні вище).
+            status: "CONFIRMED",
             totalAmount,
             createdById,
             createdAt: new Date(rec.date),
-            confirmedAt: rec.posted ? new Date(rec.date) : null,
+            confirmedAt: new Date(rec.date),
             items: {
               create: items.map((i) => ({
                 productId: i.productId,
@@ -234,6 +304,15 @@ export async function applySalesDocuments(
         });
         ctx.created++;
       } else {
+        // Статус чіпаємо лише в межах «життя документа в 1С». Сайтові стани
+        // складу (PACKING, IN_TRANSIT, DELIVERED) виставляють люди вже після
+        // того, як документ приїхав, і обмін не має права їх відкочувати.
+        const liveOnSite =
+          found.status === "PACKING" ||
+          found.status === "IN_TRANSIT" ||
+          found.status === "DELIVERED";
+        const nextStatus = posted ? "CONFIRMED" : "CANCELLED";
+
         // Табличну частину перезаписуємо цілком (див. коментар угорі файлу).
         await prisma.$transaction([
           prisma.salesDocumentItem.deleteMany({ where: { salesDocumentId: found.id } }),
@@ -248,7 +327,10 @@ export async function applySalesDocuments(
               // Лише коли зіставили: null затер би вручну проставленого
               // торгового, якщо ім'я в 1С тимчасово не збіглося.
               ...(salesRepId ? { salesRepId } : {}),
-              status: rec.posted ? "CONFIRMED" : "DRAFT",
+              // Розпроведення в 1С сильніше за складський стан: якщо документа
+              // більше немає, зібрана чи навіть відвантажена коробка — привід
+              // розібратись, а не показувати її як живий продаж.
+              ...(liveOnSite && posted ? {} : { status: nextStatus }),
               totalAmount,
               items: {
                 create: items.map((i) => ({
@@ -262,6 +344,8 @@ export async function applySalesDocuments(
           }),
         ]);
         ctx.updated++;
+
+        await invalidateCommissions(found, totalAmount, posted, ctx);
       }
     } catch (e) {
       ctx.fail(`${docLabel} ${rec.number}`, e);

@@ -676,6 +676,32 @@ try {
             Log ("documents: no watermark, reading last {0} days" -f $days)
         }
 
+        # Sliding rescan window.
+        #
+        # Documents are selected by DOCUMENT DATE -- 8.2 over COM has no usable
+        # change timestamp. So the watermark, which is about when we last ran,
+        # says nothing about a document edited today but dated last week. And
+        # that edit is the norm here: the office posts an invoice, the warehouse
+        # rings back "we don't have that one", and the line is minused off a
+        # document that is already posted. With a 15-minute window we never
+        # heard about it; the nightly full run caught it up to a day later.
+        #
+        # So every run also re-reads the last N days regardless of the
+        # watermark. Re-reading is idempotent (upsert by Ref_Key, the tabular
+        # part is replaced wholesale), so the only cost is traffic: at ~2.3k
+        # orders per 90 days, three days is under a hundred documents.
+        $rescanDays = 3
+        if ($config.documents -and $null -ne $config.documents.windowDays) {
+            $rescanDays = [int]$config.documents.windowDays
+        }
+        if ($rescanDays -gt 0) {
+            $rescanFrom = (Get-Date).AddDays(-$rescanDays)
+            if ($rescanFrom -lt $docsFrom) {
+                Log ("documents: rescanning last {0} days for edits to posted documents" -f $rescanDays)
+                $docsFrom = $rescanFrom
+            }
+        }
+
         # --- counterparties ---
         # Read in full: the catalogue is small and has no change date, and a
         # document referencing an unknown customer would be dropped by the
@@ -751,7 +777,10 @@ try {
                 externalId = $id
                 number     = Str $r.Get(1)
                 date       = IsoDate $r.Get(2)
-                posted     = $true
+                # Read, not assumed. An unposted document that we already have
+                # is an unposting in 1C, and the server turns it into CANCELLED;
+                # an unposted one we have never seen is a draft and is dropped.
+                posted     = [bool]$r.Get(7)
             }
             $cp = RefId $ib $r.Get(3)
             if ($cp) { $rec.counterpartyExternalId = $cp }
@@ -847,7 +876,7 @@ try {
                 externalId = $id
                 number     = Str $r.Get(1)
                 date       = IsoDate $r.Get(2)
-                posted     = $true
+                posted     = [bool]$r.Get(7)
             }
             $cp = RefId $ib $r.Get(3)
             if ($cp) { $rec.counterpartyExternalId = $cp }

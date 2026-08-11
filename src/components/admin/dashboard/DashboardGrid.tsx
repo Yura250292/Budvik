@@ -107,7 +107,7 @@ function DashboardInner({ userId, role }: { userId: string | undefined; role: Ad
             <p className="py-2 text-center text-[13px] text-g400">Усі доступні віджети вже на дашборді</p>
           ) : (
             <div className="flex flex-col gap-3">
-              {(["Аналітика торгових", "Склад", "Магазин"] as WidgetGroup[]).map((group) => {
+              {(["Аналітика торгових", "Склад", "Магазин", "Інструменти"] as WidgetGroup[]).map((group) => {
                 const items = available.filter((d) => d.group === group);
                 if (!items.length) return null;
                 return (

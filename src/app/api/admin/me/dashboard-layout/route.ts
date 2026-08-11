@@ -35,6 +35,13 @@ const TYPES = [
   "stat-clients",
   "stat-wholesale",
   "recent-orders",
+  "weather",
+  "weather-forecast",
+  "currency",
+  "calculator",
+  "notes",
+  "clock",
+  "quick-actions",
 ];
 /**
  * Віджети, недоступні торговому: рейтинги колег, склад (його блокує

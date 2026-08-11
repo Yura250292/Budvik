@@ -30,7 +30,15 @@ export type WidgetType =
   | "stat-products"
   | "stat-clients"
   | "stat-wholesale"
-  | "recent-orders";
+  | "recent-orders"
+  // Інструменти — не дані компанії, а те, що зручно мати під рукою
+  | "weather"
+  | "weather-forecast"
+  | "currency"
+  | "calculator"
+  | "notes"
+  | "clock"
+  | "quick-actions";
 
 export type WidgetInstance = {
   id: string;
@@ -84,6 +92,10 @@ const MANAGER_LAYOUT: WidgetInstance[] = [
   { id: "w-wh-totals", type: "warehouse-totals", size: "4x1", order: 8 },
   { id: "w-wh-shifts", type: "warehouse-shifts", size: "2x1", order: 9 },
   { id: "w-wh-prod", type: "warehouse-productivity", size: "2x2", order: 10 },
+  // Інструменти — в кінці: корисні щодня, але це не цифри бізнесу.
+  { id: "w-weather", type: "weather", size: "2x1", order: 11 },
+  { id: "w-currency", type: "currency", size: "2x1", order: 12 },
+  { id: "w-notes", type: "notes", size: "2x2", order: 13 },
 ];
 
 export const DEFAULT_LAYOUTS: Record<AdminRole, WidgetInstance[]> = {
@@ -98,6 +110,10 @@ export const DEFAULT_LAYOUTS: Record<AdminRole, WidgetInstance[]> = {
     { id: "w-timeline", type: "revenue-timeline", size: "4x2", order: 3 },
     { id: "w-clients", type: "top-clients", size: "2x2", order: 4 },
     { id: "w-products", type: "top-products", size: "2x2", order: 5 },
+    // Торговий у роз'їздах: погода й курс потрібні йому навіть частіше.
+    { id: "w-weather", type: "weather", size: "2x1", order: 6 },
+    { id: "w-currency", type: "currency", size: "2x1", order: 7 },
+    { id: "w-notes", type: "notes", size: "2x2", order: 8 },
   ],
 };
 

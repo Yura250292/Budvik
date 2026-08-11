@@ -13,8 +13,13 @@ import {
   WarehouseShifts,
   WarehouseTotals,
 } from "./widgets/WarehouseWidgets";
+import { WeatherForecast, WeatherWidget } from "./widgets/WeatherWidget";
+import { CalculatorWidget, CurrencyRates } from "./widgets/CurrencyWidget";
+import { NotesWidget } from "./widgets/NotesWidget";
+import { ClockWidget } from "./widgets/ClockWidget";
+import { QuickActions } from "./widgets/QuickActions";
 
-export type WidgetGroup = "Аналітика торгових" | "Склад" | "Магазин";
+export type WidgetGroup = "Аналітика торгових" | "Склад" | "Магазин" | "Інструменти";
 
 export type WidgetDef = {
   type: WidgetType;
@@ -221,6 +226,80 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     defaultSize: "2x2",
     allowedSizes: ["2x1", "2x2", "3x1", "4x2"],
     Render: () => <RecentOrders />,
+  },
+
+  // ——— Інструменти ———
+  // Доступні всім ролям: це не дані компанії, а побутова зручність,
+  // тож ховати їх від торгового немає сенсу.
+  weather: {
+    type: "weather",
+    title: "Погода",
+    iconKey: "seasonal",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x1",
+    allowedSizes: ["2x1", "2x2", "3x1"],
+    Render: () => <WeatherWidget />,
+  },
+  "weather-forecast": {
+    type: "weather-forecast",
+    title: "Прогноз погоди",
+    iconKey: "seasonal",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x2",
+    allowedSizes: ["2x1", "2x2", "3x1"],
+    Render: () => <WeatherForecast />,
+  },
+  currency: {
+    type: "currency",
+    title: "Курс валют",
+    iconKey: "price",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x1",
+    allowedSizes: ["2x1", "2x2", "3x1", "4x1"],
+    Render: () => <CurrencyRates />,
+  },
+  calculator: {
+    type: "calculator",
+    title: "Калькулятор і конвертер",
+    iconKey: "money",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x2",
+    allowedSizes: ["2x2", "3x1"],
+    Render: () => <CalculatorWidget />,
+  },
+  notes: {
+    type: "notes",
+    title: "Нотатки",
+    iconKey: "page",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x2",
+    allowedSizes: ["2x2", "3x1", "4x2"],
+    Render: () => <NotesWidget />,
+  },
+  clock: {
+    type: "clock",
+    title: "Час і календар",
+    iconKey: "report",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x1",
+    allowedSizes: ["2x1", "2x2", "3x1"],
+    Render: () => <ClockWidget />,
+  },
+  "quick-actions": {
+    type: "quick-actions",
+    title: "Швидкі дії",
+    iconKey: "dashboard",
+    group: "Інструменти",
+    roles: ALL,
+    defaultSize: "2x2",
+    allowedSizes: ["2x1", "2x2", "3x1"],
+    Render: ({ role }) => <QuickActions role={role} />,
   },
 };
 

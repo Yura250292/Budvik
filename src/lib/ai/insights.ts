@@ -29,8 +29,17 @@ import Anthropic from "@anthropic-ai/sdk";
 
 /** Модель для інсайтів. Дешевша за Opus там, де все вже пораховано. */
 const MODEL = "claude-sonnet-5";
-const MAX_TOKENS = 4000;
-const TIMEOUT_MS = 90_000;
+
+/**
+ * Стеля виводу. 4000 не вистачало: вісім інсайтів із доказами й діями — це
+ * ~3.5 тис. токенів, і на портфелі в 150 клієнтів відповідь обривалася
+ * посеред JSON. Обрив при tool_choice не помітний ззовні — API однаково
+ * віддає tool_use блок, але з недописаним input, тож картка показувала
+ * «нічого вартого уваги» там, де насправді був 31 клієнт, що збивається
+ * з ритму.
+ */
+const MAX_TOKENS = 8000;
+const TIMEOUT_MS = 120_000;
 
 export type InsightSeverity = "critical" | "warning" | "info" | "positive";
 export type InsightUnit = "uah" | "pct" | "count" | "days";
@@ -248,6 +257,46 @@ function validate(insights: Insight[], facts: unknown): { kept: Insight[]; rejec
   return { kept, rejected };
 }
 
+/**
+ * Дістає масив інсайтів із того, що реально прийшло в полі `insights`.
+ *
+ * Зазвичай там масив. Але приблизно в одному випадку з трьох модель
+ * загортає всю відповідь у рядок і кладе його в те саме поле — тобто
+ * `insights` дорівнює `'{"insights":[...]}'`. Схема інструмента це
+ * пропускає, бо рядок теж валідне значення до перевірки типу.
+ *
+ * Спершу код просто питав `Array.isArray` — і така відповідь мовчки
+ * ставала порожнім списком. На картці це виглядало як «нічого вартого
+ * уваги» у торгового, в якого 31 клієнт збивався з ритму: найгірший
+ * можливий спосіб помилитися, бо керівник вірить, що все спокійно.
+ *
+ * Повертає null, якщо дістати масив не вдалося — викликач кидає помилку,
+ * і користувач бачить, що аналіз не вдався, замість вигаданого спокою.
+ */
+function extractInsights(raw: unknown): Insight[] | null {
+  if (Array.isArray(raw)) return raw as Insight[];
+
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed as Insight[];
+      // Подвійне загортання: рядок містить увесь об'єкт відповіді.
+      const inner = (parsed as { insights?: unknown })?.insights;
+      if (Array.isArray(inner)) return inner as Insight[];
+    } catch {
+      // Не JSON — нижче повернемо null.
+    }
+  }
+
+  // Об'єкт замість масиву: {insights: [...]} у полі insights.
+  if (raw && typeof raw === "object") {
+    const inner = (raw as { insights?: unknown }).insights;
+    if (Array.isArray(inner)) return inner as Insight[];
+  }
+
+  return null;
+}
+
 /** Чи налаштований ключ. Роут віддає 503 із зрозумілим текстом, а не падає. */
 export function insightsConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
@@ -290,8 +339,23 @@ export async function generateInsights(input: {
     throw new Error("Модель не повернула структурованої відповіді");
   }
 
-  const raw = (block.input as { insights?: unknown }).insights;
-  const list = Array.isArray(raw) ? (raw as Insight[]) : [];
+  // Обрив по max_tokens треба ловити ДО читання input. При tool_choice API
+  // однаково віддає tool_use блок, але з недописаним JSON — insights у
+  // ньому просто немає, і без цієї перевірки збій мовчки перетворювався б
+  // на «нічого вартого уваги».
+  if (message.stop_reason === "max_tokens") {
+    throw new Error(
+      "Модель не вклалася в ліміт відповіді — інсайти обірвалися на півслові. Спробуйте ще раз або звузьте період."
+    );
+  }
+
+  const list = extractInsights((block.input as { insights?: unknown }).insights);
+  if (!list) {
+    throw new Error(
+      `Модель повернула відповідь без списку інсайтів (stop_reason: ${message.stop_reason ?? "невідомо"})`
+    );
+  }
+
   const { kept, rejected } = validate(list, input.facts);
 
   return {

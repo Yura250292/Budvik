@@ -1,220 +1,482 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { formatPrice, formatDate } from "@/lib/utils";
+import type { ReceivableBucket } from "@prisma/client";
+import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
+import { money } from "@/components/ui/Stat";
 import { TableScroll } from "@/components/ui/TableScroll";
+import { PeriodPicker, type Period, PRESETS } from "@/components/ui/PeriodPicker";
+import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { useProfile } from "@/lib/useProfile";
+import {
+  BUCKET_LABELS,
+  BUCKET_COLORS,
+  STAGE_LABELS,
+  STAGE_COLORS,
+  type WorkingStage,
+} from "@/lib/erp/receivables";
 
-export default function ReportsPage() {
-  const { data: session } = useSession();
-  const [report, setReport] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+/**
+ * Бухгалтерські звіти.
+ *
+ * Сторінка навмисно не показує P&L. Попередня версія показувала — і три з
+ * чотирьох чисел там були вигадані: 1С не передає ані собівартості в
+ * рядках реалізації, ані надходжень товару (див. src/lib/erp/accounting.ts).
+ * Маржа виходила 0,1% і виглядала правдоподібно, а це найгірший різновид
+ * помилки: за таким числом приймають рішення.
+ *
+ * Замість цього — два грошові потоки поруч: відвантажено (метод
+ * нарахування) і зібрано (касовий метод). Різниця між ними і є те, що
+ * бухгалтерія має бачити щодня. А чого в даних немає — сказано прямо
+ * блоком «Чого бракує», а не показано нулями.
+ */
 
-  const role = (session?.user as any)?.role;
+type MonthRow = {
+  month: string;
+  shipped: number;
+  shippedCount: number;
+  collected: number;
+  collectedCount: number;
+};
 
-  const fetchData = async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (fromDate) params.set("from", fromDate);
-    if (toDate) params.set("to", toDate);
-    const res = await fetch(`/api/erp/reports?${params}`);
-    setReport(await res.json());
-    setLoading(false);
+type Debtor = {
+  counterpartyId: string;
+  name: string;
+  debt: number;
+  overdue: number;
+  oldestDays: number | null;
+  lastDocAt: string | null;
+};
+
+type Report = {
+  period: { from: string; to: string; days: number };
+  shipped: { total: number; count: number; clients: number };
+  collected: { total: number; count: number; clients: number };
+  gap: number;
+  months: MonthRow[];
+  receivables: {
+    total: number;
+    overdue: number;
+    overdueRatio: number;
+    buckets: Record<ReceivableBucket, number>;
+    stages: Record<WorkingStage, number>;
+    unknown: number;
+    debtors: Debtor[];
   };
+  advances: { total: number; count: number; clients: Array<{ id: string; name: string; amount: number }> };
+  gaps: string[];
+};
+
+const MONTH_NAMES = [
+  "січень", "лютий", "березень", "квітень", "травень", "червень",
+  "липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
+];
+
+function monthLabel(m: string): string {
+  const [y, mm] = m.split("-").map(Number);
+  return `${MONTH_NAMES[mm - 1] ?? m} ${y}`;
+}
+
+export default function AccountingReportsPage() {
+  const profile = useProfile();
+  const [report, setReport] = useState<Report | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  // «Цей місяць» за замовчуванням: бухгалтерію цікавить поточний період
+  // закриття, а не довільні 30 днів упоперек двох місяців.
+  const [period, setPeriod] = useState<Period>(() => PRESETS.find((p) => p.key === "curmonth")!.make());
+
+  const role = profile?.role;
+  const allowed = role === "ADMIN" || role === "MANAGER";
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/erp/reports?from=${period.from}&to=${period.to}`);
+      if (!res.ok) throw new Error(`Помилка ${res.status}`);
+      setReport(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити звіт");
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
 
   useEffect(() => {
-    if (role === "ADMIN" || role === "MANAGER") fetchData();
-  }, [role]);
+    if (allowed) load();
+  }, [allowed, load]);
 
   const exportCSV = () => {
     if (!report) return;
-    const rows = [
-      ["Звіт", "Budvik ERP"],
-      ["Період", `${fromDate || "Початок"} — ${toDate || "Зараз"}`],
+    const rows: Array<Array<string | number>> = [
+      ["Бухгалтерський звіт Budvik"],
+      ["Період", `${report.period.from} — ${report.period.to}`],
       [""],
-      ["Показник", "Сума (грн)"],
-      ["Виручка", report.revenue],
-      ["Собівартість", report.costOfGoods],
-      ["Валовий прибуток", report.grossProfit],
-      ["Маржа (%)", report.revenue > 0 ? Math.round((report.grossProfit / report.revenue) * 100) : 0],
+      ["Показник", "Сума (грн)", "Документів"],
+      ["Відвантажено (реалізації)", Math.round(report.shipped.total), report.shipped.count],
+      ["Зібрано грошей (каса)", Math.round(report.collected.total), report.collected.count],
+      ["Розрив (відвантажено − зібрано)", Math.round(report.gap), ""],
       [""],
-      ["Закупівлі", report.purchases],
-      ["Комісії (нараховані)", report.commissions],
-      ["Комісії (до виплати)", report.pendingCommissions],
+      ["Дебіторська заборгованість (на зараз)", Math.round(report.receivables.total), ""],
+      ["у т.ч. робоча", Math.round(report.receivables.total - report.receivables.overdue), ""],
+      ["у т.ч. прострочена", Math.round(report.receivables.overdue), ""],
+      ["Аванси покупців", Math.round(report.advances.total), report.advances.count],
       [""],
-      ["Дебіторська заборгованість", report.receivables?.total || 0],
-      ["Вартість складу", report.inventoryValue],
+      ["Помісячно"],
+      ["Місяць", "Відвантажено", "Зібрано", "Розрив"],
+      ...report.months.map((m) => [
+        m.month,
+        Math.round(m.shipped),
+        Math.round(m.collected),
+        Math.round(m.shipped - m.collected),
+      ]),
+      [""],
+      ["Боржники"],
+      ["Контрагент", "Борг", "Прострочено", "Днів"],
+      ...report.receivables.debtors.map((d) => [
+        `"${d.name.replace(/"/g, '""')}"`,
+        Math.round(d.debt),
+        Math.round(d.overdue),
+        d.oldestDays ?? "",
+      ]),
+      [""],
+      ["Чого бракує в даних"],
+      ...report.gaps.map((g) => [`"${g.replace(/"/g, '""')}"`]),
     ];
 
-    if (report.receivables?.items?.length > 0) {
-      rows.push([""], ["Дебіторська заборгованість - деталі"]);
-      rows.push(["Номер", "Контрагент", "Сума", "Оплачено", "Залишок"]);
-      for (const inv of report.receivables.items) {
-        rows.push([inv.number, inv.counterparty, inv.total, inv.paid, inv.remaining]);
-      }
-    }
-
-    const csv = rows.map((r) => r.join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const csv = rows.map((r) => r.join(";")).join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `report_${fromDate || "all"}_${toDate || "now"}.csv`;
+    a.download = `buh_${report.period.from}_${report.period.to}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  if (role !== "ADMIN" && role !== "MANAGER") {
-    return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
+  // profile === null означає «ще вантажиться»: useProfile віддає профіль
+  // напряму, без окремого прапорця. Показати «доступ заборонено» до його
+  // приходу означало б блимати відмовою в законного адміна.
+  if (!profile) {
+    return <div className="px-4 py-16 text-center text-sm text-g500">Завантаження…</div>;
   }
 
+  if (!allowed) {
+    return (
+      <div className="px-4 py-16 text-center">
+        <h1 className="text-xl font-semibold text-bk">Доступ заборонено</h1>
+      </div>
+    );
+  }
+
+  const maxFlow = report
+    ? Math.max(1, ...report.months.map((m) => Math.max(m.shipped, m.collected)))
+    : 1;
+
+  const buckets = report
+    ? (Object.keys(BUCKET_LABELS) as ReceivableBucket[]).filter((b) => report.receivables.buckets[b] > 0)
+    : [];
+
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/admin" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#FFD600" }}>
-              <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </Link>
-            <div>
-              <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A" }}>Бухгалтерські звіти</h1>
-              <p style={{ fontSize: "14px", color: "#6B7280" }}>Фінансова звітність</p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold text-bk">Бухгалтерські звіти</h1>
+          <p className="mt-0.5 text-xs text-g500">Рух коштів, дебіторка та аванси за даними 1С</p>
+        </div>
+        <button
+          type="button"
+          onClick={exportCSV}
+          disabled={!report}
+          className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs font-medium text-g600 transition-colors hover:border-g300 hover:text-bk disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Експорт CSV
+        </button>
+      </div>
+
+      <PeriodPicker value={period} onChange={setPeriod} />
+
+      {error && <ErrorBox message={error} onRetry={load} />}
+
+      {loading && !report ? (
+        <div className="px-4 py-12 text-center text-sm text-g500">Завантаження…</div>
+      ) : !report ? null : (
+        <>
+          {/* Два методи обліку поруч. Саме зіставлення, а не окремі картки:
+              питання бухгалтерії — не «скільки продали», а «скільки з
+              проданого дійшло до каси». */}
+          <Card>
+            <CardHeader
+              title="Рух коштів за період"
+              hint={`${report.period.from} — ${report.period.to}`}
+            />
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <p className="text-xs font-medium text-g500">Відвантажено</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-bk">
+                  {money(report.shipped.total)}
+                </p>
+                <p className="mt-1 text-xs text-g500">
+                  {report.shipped.count} реалізацій · {report.shipped.clients} клієнтів
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-g500">Зібрано грошей</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight" style={{ color: STAGE_COLORS.AWAITING_PAYMENT }}>
+                  {money(report.collected.total)}
+                </p>
+                <p className="mt-1 text-xs text-g500">
+                  {report.collected.count} оплат · {report.collected.clients} клієнтів
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-g500">Розрив</p>
+                <p
+                  className="mt-1 text-2xl font-semibold tabular-nums tracking-tight"
+                  style={{ color: report.gap > 0 ? BUCKET_COLORS.OVERDUE_60 : STAGE_COLORS.AWAITING_PAYMENT }}
+                >
+                  {report.gap > 0 ? "+" : ""}
+                  {money(report.gap)}
+                </p>
+                <p className="mt-1 text-xs text-g500">
+                  {report.gap > 0 ? "борг за період виріс" : "збирали більше, ніж відвантажували"}
+                </p>
+              </div>
             </div>
-          </div>
-          <button onClick={exportCSV} disabled={!report}
-            style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", opacity: report ? 1 : 0.5 }}>
-            Експорт CSV
-          </button>
-        </div>
-      </header>
+          </Card>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "24px", paddingBottom: "40px" }}>
-        {/* Date filter */}
-        <div className="flex gap-3 mb-6 items-end">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Від</label>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">До</label>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
-          </div>
-          <button onClick={fetchData} style={{ background: "#FFD600", padding: "8px 16px", borderRadius: "8px", fontWeight: 600, fontSize: "14px" }}>
-            Застосувати
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-12" style={{ color: "#9E9E9E" }}>Завантаження...</div>
-        ) : !report ? (
-          <div className="text-center py-12"><p style={{ color: "#9E9E9E" }}>Помилка завантаження</p></div>
-        ) : (
-          <>
-            {/* P&L */}
-            <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "16px" }}>Прибутки та збитки</h3>
+          {/* Помісячна динаміка — за весь час, не за обраний період: тренд
+              видно лише на довгому ряді, а період фільтрує картки вище. */}
+          <Card>
+            <CardHeader title="Помісячно" hint="Відвантаження та надходження грошей за всю історію обміну" />
+            {report.months.length === 0 ? (
+              <EmptyState title="Даних ще немає" />
+            ) : (
               <div className="space-y-3">
-                <div className="flex justify-between items-center" style={{ padding: "12px 0", borderBottom: "1px solid #F3F4F6" }}>
-                  <span style={{ fontSize: "15px", color: "#0A0A0A" }}>Виручка ({report.salesCount} документів)</span>
-                  <span style={{ fontSize: "18px", fontWeight: 700 }}>{formatPrice(report.revenue)}</span>
-                </div>
-                <div className="flex justify-between items-center" style={{ padding: "12px 0", borderBottom: "1px solid #F3F4F6" }}>
-                  <span style={{ fontSize: "15px", color: "#DC2626" }}>Собівартість</span>
-                  <span style={{ fontSize: "18px", fontWeight: 700, color: "#DC2626" }}>-{formatPrice(report.costOfGoods)}</span>
-                </div>
-                <div className="flex justify-between items-center" style={{ padding: "16px 0", borderBottom: "2px solid #0A0A0A" }}>
-                  <span style={{ fontSize: "16px", fontWeight: 700 }}>Валовий прибуток</span>
-                  <div className="text-right">
-                    <span style={{ fontSize: "22px", fontWeight: 700, color: report.grossProfit > 0 ? "#16A34A" : "#DC2626" }}>
-                      {formatPrice(report.grossProfit)}
-                    </span>
-                    <span style={{ fontSize: "14px", color: "#6B7280", marginLeft: "8px" }}>
-                      ({report.revenue > 0 ? Math.round((report.grossProfit / report.revenue) * 100) : 0}%)
-                    </span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center" style={{ padding: "12px 0", borderBottom: "1px solid #F3F4F6" }}>
-                  <span style={{ fontSize: "15px", color: "#F59E0B" }}>Комісії торгових</span>
-                  <span style={{ fontSize: "16px", fontWeight: 600, color: "#F59E0B" }}>-{formatPrice(report.commissions)}</span>
-                </div>
-                <div className="flex justify-between items-center" style={{ padding: "12px 0" }}>
-                  <span style={{ fontSize: "16px", fontWeight: 700 }}>Чистий прибуток (до податків)</span>
-                  <span style={{ fontSize: "20px", fontWeight: 700, color: (report.grossProfit - report.commissions) > 0 ? "#16A34A" : "#DC2626" }}>
-                    {formatPrice(report.grossProfit - report.commissions)}
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: "#2a78d6" }} />
+                    <span className="text-g600">Відвантажено</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: STAGE_COLORS.AWAITING_PAYMENT }} />
+                    <span className="text-g600">Зібрано</span>
                   </span>
                 </div>
+                <div className="space-y-2.5">
+                  {report.months.map((m) => (
+                    <div key={m.month} className="grid grid-cols-[7rem_1fr] items-center gap-3">
+                      <span className="truncate text-xs text-g600">{monthLabel(m.month)}</span>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-g100">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${(m.shipped / maxFlow) * 100}%`, backgroundColor: "#2a78d6" }}
+                            />
+                          </div>
+                          <span className="w-24 shrink-0 text-right text-xs font-medium tabular-nums text-bk">
+                            {money(m.shipped)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-g100">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${(m.collected / maxFlow) * 100}%`,
+                                backgroundColor: STAGE_COLORS.AWAITING_PAYMENT,
+                              }}
+                            />
+                          </div>
+                          <span className="w-24 shrink-0 text-right text-xs font-medium tabular-nums text-g600">
+                            {money(m.collected)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Дебіторка — залишок на «зараз», а не за період: борг не
+              «виникає в періоді», він просто є. */}
+          <Card>
+            <CardHeader
+              title="Дебіторська заборгованість"
+              hint="Сальдо взаєморозрахунків 1С станом на зараз. Строки — за датами наших відвантажень"
+            />
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <p className="text-xs font-medium text-g500">Усього</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-bk">
+                  {money(report.receivables.total)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-g500">Робоча</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight" style={{ color: STAGE_COLORS.AWAITING_PAYMENT }}>
+                  {money(report.receivables.total - report.receivables.overdue)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-g500">Прострочена</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight" style={{ color: BUCKET_COLORS.OVERDUE_90_PLUS }}>
+                  {money(report.receivables.overdue)}
+                </p>
+                <p className="mt-1 text-xs text-g500">{Math.round(report.receivables.overdueRatio)}% від боргу</p>
               </div>
             </div>
 
-            {/* Overview cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Закупівлі</p>
-                <p style={{ fontSize: "20px", fontWeight: 700 }}>{formatPrice(report.purchases)}</p>
-                <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{report.purchasesCount} документів</p>
+            {buckets.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {buckets.map((b) => (
+                  <span
+                    key={b}
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 bg-white px-2 py-1 text-xs"
+                  >
+                    <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: BUCKET_COLORS[b] }} />
+                    <span className="text-g600">{BUCKET_LABELS[b]}</span>
+                    <span className="font-semibold tabular-nums text-bk">{money(report.receivables.buckets[b])}</span>
+                  </span>
+                ))}
               </div>
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Вартість складу</p>
-                <p style={{ fontSize: "20px", fontWeight: 700 }}>{formatPrice(report.inventoryValue)}</p>
-                <p style={{ fontSize: "12px", color: "#9CA3AF" }}>за закупівельними цінами</p>
-              </div>
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Дебіторська заборгованість</p>
-                <p style={{ fontSize: "20px", fontWeight: 700, color: report.receivables?.total > 0 ? "#DC2626" : "#16A34A" }}>
-                  {formatPrice(report.receivables?.total || 0)}
-                </p>
-              </div>
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF" }}>
-                <p style={{ fontSize: "13px", color: "#6B7280" }}>Комісії до виплати</p>
-                <p style={{ fontSize: "20px", fontWeight: 700, color: "#F59E0B" }}>{formatPrice(report.pendingCommissions)}</p>
-              </div>
-            </div>
+            )}
 
-            {/* Receivables detail */}
-            {report.receivables?.items?.length > 0 && (
-              <div className="bg-white rounded-xl p-6" style={{ border: "1px solid #EFEFEF" }}>
-                <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Дебіторська заборгованість</h3>
-                <p style={{ fontSize: "13px", color: "#9CA3AF", marginBottom: "12px" }}>
-                  За даними 1С (взаєморозрахунки з контрагентами), топ-50 боржників
-                </p>
-                <TableScroll minWidth={480}>
-                <table className="w-full">
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid #EFEFEF" }}>
-                      <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Контрагент</th>
-                      <th style={{ padding: "8px 0", textAlign: "right", fontSize: "13px", color: "#6B7280" }}>Борг</th>
-                      <th style={{ padding: "8px 0", textAlign: "left", fontSize: "13px", color: "#6B7280" }}>Дані 1С від</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.receivables.items.map((row: any) => (
-                      <tr key={row.id} style={{ borderBottom: "1px solid #F3F4F6" }}>
-                        <td style={{ padding: "10px 0", fontSize: "14px" }}>
-                          <Link href={`/admin/erp/counterparties/${row.id}`} className="text-blue-600 hover:text-blue-800 font-semibold">
-                            {row.counterparty}
-                          </Link>
-                        </td>
-                        <td style={{ padding: "10px 0", textAlign: "right", fontSize: "14px", fontWeight: 700, color: "#DC2626" }}>{formatPrice(row.balance)}</td>
-                        <td style={{ padding: "10px 0", fontSize: "13px", color: "#6B7280" }}>
-                          {row.syncedAt ? formatDate(row.syncedAt) : "—"}
-                        </td>
+            {(report.receivables.stages.DELIVERY > 0 || report.receivables.stages.AWAITING_PAYMENT > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(Object.keys(STAGE_LABELS) as WorkingStage[])
+                  .filter((s) => report.receivables.stages[s] > 0)
+                  .map((s) => (
+                    <span
+                      key={s}
+                      className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 bg-white px-2 py-1 text-xs"
+                    >
+                      <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STAGE_COLORS[s] }} />
+                      <span className="text-g600">{STAGE_LABELS[s]}</span>
+                      <span className="font-semibold tabular-nums text-bk">{money(report.receivables.stages[s])}</span>
+                    </span>
+                  ))}
+              </div>
+            )}
+
+            {report.receivables.unknown > 0.01 && (
+              <p className="mt-3 text-xs text-g500">
+                {money(report.receivables.unknown)} боргу не вдалося зіставити з відвантаженнями — він старший за
+                нашу історію документів і врахований як прострочений понад 90 днів.
+              </p>
+            )}
+
+            {report.receivables.debtors.length > 0 && (
+              <div className="mt-4">
+                <TableScroll minWidth={520}>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-g200">
+                        <th className="py-2 text-left text-xs font-medium text-g500">Контрагент</th>
+                        <th className="py-2 text-right text-xs font-medium text-g500">Борг</th>
+                        <th className="py-2 text-right text-xs font-medium text-g500">Прострочено</th>
+                        <th className="py-2 text-right text-xs font-medium text-g500">Днів</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {report.receivables.debtors.map((d) => (
+                        <tr key={d.counterpartyId} className="border-b border-g100">
+                          <td className="py-2 text-sm">
+                            <Link
+                              href={`/admin/erp/counterparties/${d.counterpartyId}`}
+                              className="font-medium text-bk hover:underline"
+                            >
+                              {d.name}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-right text-sm font-semibold tabular-nums text-bk">
+                            {money(d.debt)}
+                          </td>
+                          <td
+                            className="py-2 text-right text-sm tabular-nums"
+                            style={{ color: d.overdue > 0 ? BUCKET_COLORS.OVERDUE_90_PLUS : undefined }}
+                          >
+                            {d.overdue > 0 ? money(d.overdue) : "—"}
+                          </td>
+                          <td className="py-2 text-right text-sm tabular-nums text-g600">
+                            {d.oldestDays ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </TableScroll>
               </div>
             )}
-          </>
-        )}
-      </div>
+          </Card>
+
+          {/* Аванси окремою статтею, а не мінусом до дебіторки: для
+              бухгалтерії це зобов'язання перед клієнтом, інша сторона
+              балансу. Згорнути їх із боргом означало б сховати і те, і те. */}
+          {report.advances.count > 0 && (
+            <Card>
+              <CardHeader
+                title="Аванси покупців"
+                hint="Від'ємні сальдо: клієнт заплатив наперед або переплатив. Це наше зобов'язання, не борг клієнта"
+              />
+              <p className="text-2xl font-semibold tabular-nums tracking-tight text-bk">
+                {money(report.advances.total)}
+              </p>
+              <p className="mt-1 text-xs text-g500">у {report.advances.count} клієнтів</p>
+
+              <div className="mt-4">
+                <TableScroll minWidth={360}>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-g200">
+                        <th className="py-2 text-left text-xs font-medium text-g500">Контрагент</th>
+                        <th className="py-2 text-right text-xs font-medium text-g500">Аванс</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.advances.clients.map((c) => (
+                        <tr key={c.id} className="border-b border-g100">
+                          <td className="py-2 text-sm">
+                            <Link
+                              href={`/admin/erp/counterparties/${c.id}`}
+                              className="font-medium text-bk hover:underline"
+                            >
+                              {c.name}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-right text-sm font-semibold tabular-nums text-bk">
+                            {money(c.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
+              </div>
+            </Card>
+          )}
+
+          {/* Явний перелік того, чого 1С не віддає. Без нього порожні
+              показники читалися б як справжні нулі — саме на цьому
+              трималася попередня версія звіту. */}
+          <Card>
+            <CardHeader title="Чого бракує в даних" hint="Ці показники не можна порахувати, доки 1С їх не віддає" />
+            <ul className="space-y-2">
+              {report.gaps.map((g) => (
+                <li key={g} className="flex gap-2 text-xs text-g600">
+                  <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-g300" />
+                  <span>{g}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

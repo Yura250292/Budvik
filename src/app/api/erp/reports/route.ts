@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getFinancialReport } from "@/lib/erp/stats";
+import { getAccountingReport } from "@/lib/erp/accounting";
+import { parsePeriod } from "@/lib/analytics/period";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -9,10 +10,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // parsePeriod, а не сирі from/to: київські межі доби й ті самі правила,
+  // що в аналітиці торгових, інакше «серпень» тут і там давав би різні суми.
   const { searchParams } = new URL(req.url);
-  const from = searchParams.get("from") || undefined;
-  const to = searchParams.get("to") || undefined;
+  const period = parsePeriod(searchParams);
 
-  const report = await getFinancialReport(from, to);
+  const report = await getAccountingReport(period);
   return NextResponse.json(report);
 }

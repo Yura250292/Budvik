@@ -29,24 +29,10 @@ const AM: AdminRole[] = ["ADMIN", "MANAGER"];
 
 export const TOP_ITEMS: NavItem[] = [
   { href: "/admin", title: "Дашборд", iconKey: "dashboard", roles: ALL },
-  { href: "/admin/orders", title: "Замовлення", desc: "Усі замовлення", iconKey: "orders", roles: ALL },
-  { href: "/admin/products", title: "Товари", desc: "Каталог", iconKey: "products", roles: AM },
   { href: "/admin/users", title: "Користувачі", desc: "Ролі, доступи, Telegram", iconKey: "clients", roles: AM },
-  { href: "/admin/wholesale", title: "Оптовики", desc: "Заявки та акаунти", iconKey: "wholesale", roles: AM },
 ];
 
 export const NAV_GROUPS: NavGroup[] = [
-  {
-    id: "sales-docs",
-    title: "Продажі та документи",
-    items: [
-      { href: "/admin/erp/counterparties", title: "Контрагенти", desc: "Постачальники та покупці", iconKey: "counterparties", roles: ALL },
-      { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },
-      { href: "/admin/erp/sales", title: "Продаж", desc: "Документи B2B/оффлайн", iconKey: "money", roles: ALL },
-      { href: "/admin/erp/invoices", title: "Видаткові накладні", desc: "Генерація та оплати", iconKey: "invoice", roles: AM },
-      { href: "/admin/erp/promotions", title: "Акції", desc: "Знижки, кешбек, об'ємні ціни", iconKey: "promo", roles: AM },
-    ],
-  },
   {
     id: "analytics",
     title: "Аналітика та звіти",
@@ -58,6 +44,17 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Рухи та залишки", iconKey: "report", roles: AM },
       { href: "/admin/erp/reports", title: "ERP-звіти", desc: "Документообіг", iconKey: "report", roles: AM },
       { href: "/admin/erp/stats", title: "ERP-статистика", desc: "Зведені показники", iconKey: "chart", roles: AM },
+    ],
+  },
+  {
+    id: "sales-docs",
+    title: "Продажі та документи",
+    items: [
+      { href: "/admin/erp/counterparties", title: "Контрагенти", desc: "Постачальники та покупці", iconKey: "counterparties", roles: ALL },
+      { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },
+      { href: "/admin/erp/sales", title: "Продаж", desc: "Документи B2B/оффлайн", iconKey: "money", roles: ALL },
+      { href: "/admin/erp/invoices", title: "Видаткові накладні", desc: "Генерація та оплати", iconKey: "invoice", roles: AM },
+      { href: "/admin/erp/promotions", title: "Акції", desc: "Знижки, кешбек, об'ємні ціни", iconKey: "promo", roles: AM },
     ],
   },
   {
@@ -78,6 +75,17 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/sales-reps", title: "Торгові представники", desc: "Регіони, клієнти, категорії, плани", iconKey: "team", roles: AM },
       { href: "/admin/erp/commissions", title: "Мотивація", desc: "Комісії менеджерів", iconKey: "star", roles: AM },
       { href: "/admin/erp/commissions/rates", title: "Ставки комісій", desc: "Налаштування відсотків", iconKey: "star", roles: AM },
+    ],
+  },
+  {
+    id: "shop",
+    // Інтернет-магазин ще в розробці — тримаємо згорнутим, щоб не відволікав.
+    title: "Інтернет-магазин",
+    collapsedByDefault: true,
+    items: [
+      { href: "/admin/products", title: "Товари", desc: "Каталог", iconKey: "products", roles: AM },
+      { href: "/admin/orders", title: "Замовлення", desc: "Усі замовлення", iconKey: "orders", roles: ALL },
+      { href: "/admin/wholesale", title: "Оптовики", desc: "Заявки та акаунти", iconKey: "wholesale", roles: AM },
     ],
   },
   {

@@ -10,7 +10,7 @@ import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 import { InsightsPanel } from "./InsightsPanel";
 import type { Period } from "@/components/ui/PeriodPicker";
-import { METRICS, type MetricKey } from "@/lib/analytics/benchmark";
+import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 
 /**
  * Порівняння команди: хто де сильний, хто де провисає.

@@ -44,22 +44,14 @@ import { portfolioCountsByRep } from "@/lib/analytics/clients";
  * простроченої дебіторки й для втрачених клієнтів більше означає гірше,
  * і без цього прапорця найгірший торговий потрапляв би в «сильні
  * сторони».
+ *
+ * Самі дані лежать у `benchmarkMetrics.ts`, щоб клієнтські компоненти
+ * брали їх звідти й не тягнули за собою Prisma. Тут — лише реекспорт
+ * для серверного коду.
  */
-export const METRICS = {
-  revenue: { label: "Оборот", higherIsBetter: true, unit: "uah" },
-  docs: { label: "Реалізацій", higherIsBetter: true, unit: "count" },
-  clients: { label: "Клієнтів", higherIsBetter: true, unit: "count" },
-  avgCheck: { label: "Середній чек", higherIsBetter: true, unit: "uah" },
-  collected: { label: "Зібрано грошей", higherIsBetter: true, unit: "uah" },
-  overdueRatio: { label: "Прострочена дебіторка", higherIsBetter: false, unit: "pct" },
-  skuPerClient: { label: "SKU на клієнта", higherIsBetter: true, unit: "count" },
-  brandCount: { label: "Брендів у продажах", higherIsBetter: true, unit: "count" },
-  newClients: { label: "Нових клієнтів", higherIsBetter: true, unit: "count" },
-  lostClients: { label: "Втрачених клієнтів", higherIsBetter: false, unit: "count" },
-  momentumPct: { label: "Динаміка обороту", higherIsBetter: true, unit: "pct" },
-} as const;
+import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 
-export type MetricKey = keyof typeof METRICS;
+export { METRICS, type MetricKey };
 
 /** Перцентиль, з якого метрика вважається сильною / слабкою стороною. */
 export const STRONG_PERCENTILE = 75;

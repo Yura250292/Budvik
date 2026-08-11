@@ -11,7 +11,8 @@
  */
 
 import { useSession } from "next-auth/react";
-import { Fragment, Suspense, useEffect, useState, useCallback } from "react";
+import { Fragment, Suspense, useState, useMemo } from "react";
+import useSWR from "swr";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
@@ -69,9 +70,6 @@ function AnalyticsPageInner() {
   const { data: session } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
   // Filters
   const [period, setPeriod] = useState<PeriodPreset>("month");
   const [fromDate, setFromDate] = useState("");
@@ -97,21 +95,24 @@ function AnalyticsPageInner() {
 
   const role = (session?.user as any)?.role;
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Ключ запиту = URL. SWR кешує відповідь по ньому поза деревом React, тож
+  // повернення на цю вкладку малює дані миттєво, а не тягне їх наново
+  // (відповідь тут важка). Зміна фільтрів дає новий ключ — новий запит.
+  const analyticsUrl = useMemo(() => {
     const params = new URLSearchParams();
     const range = period !== "all" ? getDateRange(period) : { from: fromDate, to: toDate };
     if (range.from) params.set("from", range.from);
     if (range.to) params.set("to", range.to);
     if (selectedRep !== "ALL") params.set("repId", selectedRep);
-    const res = await fetch(`/api/admin/analytics?${params}`);
-    setData(await res.json());
-    setLoading(false);
+    return `/api/admin/analytics?${params}`;
   }, [period, fromDate, toDate, selectedRep]);
 
-  useEffect(() => {
-    if (["ADMIN", "MANAGER"].includes(role)) fetchData();
-  }, [role, fetchData]);
+  const canRead = ["ADMIN", "MANAGER"].includes(role);
+  const { data, isLoading, mutate } = useSWR<any>(canRead ? analyticsUrl : null);
+  const fetchData = () => mutate();
+  // keepPreviousData лишає попередні цифри на екрані під час зміни фільтра,
+  // тож спінер показуємо лише коли даних ще немає взагалі.
+  const loading = isLoading && !data;
 
   if (!["ADMIN", "MANAGER"].includes(role)) {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
@@ -377,6 +378,21 @@ function AnalyticsPageInner() {
                     <p style={{ fontSize: "13px", color: "#6B7280" }}>
                       Показано {filteredOrders.length} замовлень | Сума: <b>{formatPrice(filteredOrders.reduce((s: number, o: any) => s + o.totalAmount, 0))}</b>
                     </p>
+                    {/*
+                      Таблиця показує останні N замовлень періоду, а не всі:
+                      віддавати тисячі рядків з позиціями — це були мегабайти
+                      на кожне відкриття. Підсумки вгорі (КПІ, графік, топ
+                      клієнтів) рахує база по ВСЬОМУ періоду, тож сума під
+                      таблицею і КПІ навмисно різні — попереджаємо явно,
+                      інакше це виглядало б як розбіжність у цифрах.
+                    */}
+                    {data?.ordersTotal > data?.ordersReturned && (
+                      <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "4px" }}>
+                        {searchOrder
+                          ? `Пошук іде по останніх ${data.ordersReturned} із ${data.ordersTotal} замовлень періоду — звузьте період, щоб охопити решту.`
+                          : `Це останні ${data.ordersReturned} із ${data.ordersTotal} замовлень періоду. Показники вгорі враховують усі — звузьте період, щоб побачити решту в таблиці.`}
+                      </p>
+                    )}
                   </div>
                 </div>
               </>

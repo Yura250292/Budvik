@@ -7,7 +7,9 @@
  */
 
 import { NextResponse } from "next/server";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { CATEGORIES_CACHE_TAG } from "@/lib/categories-cache";
 import { authenticateAgent } from "@/lib/sync-ingest/auth";
 import { setSyncState } from "@/lib/sync-ingest/context";
 import {
@@ -114,6 +116,17 @@ export async function POST(
     if (missing >= MISSING_ALERT_THRESHOLD) {
       await alertMissingEntities(runId, missing);
     }
+  }
+
+  // Обмін міг додати/прибрати категорії й товари, а сайдбар каталогу читає їх
+  // з кешу на годину. Без цього скидання нова категорія з'явилась би на сайті
+  // лише через годину після обміну.
+  if (status !== "failed") {
+    revalidateTag(CATEGORIES_CACHE_TAG, { expire: 3600 });
+    // Головна і каталог кешуються по часу (revalidate). Без явного скидання
+    // нові ціни й залишки з обміну чекали б кінця вікна кешу.
+    revalidatePath("/");
+    revalidatePath("/catalog");
   }
 
   return NextResponse.json<CompleteRunResponse>({

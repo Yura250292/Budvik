@@ -20,28 +20,39 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      phone: true,
-      role: true,
-      boltsBalance: true,
-      createdAt: true,
-      avatarUrl: true,
-      color: true,
-      telegramId: true,
-      telegramUsername: true,
-      // Лише щоб порахувати hasPassword — назовні не виходить (див. нижче).
-      password: true,
-      _count: { select: { orders: true } },
-      orders: {
-        select: { totalAmount: true },
+  // totalSpent рахує база, а не JS.
+  //
+  // Було: `orders: { select: { totalAmount: true } }` — тобто до відповіді
+  // тягнулися ВСІ замовлення КОЖНОГО користувача, і всі вони існували в
+  // пам'яті лише заради одного reduce нижче. Один groupBy повертає стільки
+  // рядків, скільки користувачів із замовленнями, замість усіх замовлень.
+  const [users, spentByUser] = await Promise.all([
+    prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        role: true,
+        boltsBalance: true,
+        createdAt: true,
+        avatarUrl: true,
+        color: true,
+        telegramId: true,
+        telegramUsername: true,
+        // Лише щоб порахувати hasPassword — назовні не виходить (див. нижче).
+        password: true,
+        _count: { select: { orders: true } },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.order.groupBy({
+      by: ["userId"],
+      _sum: { totalAmount: true },
+    }),
+  ]);
+
+  const spent = new Map(spentByUser.map((r) => [r.userId, r._sum.totalAmount ?? 0]));
 
   // Хеш пароля не залишає сервер. Спред `...u` тут був би небезпечний:
   // додавши password у select вище, ми б тихо віддали bcrypt-хеші всім,
@@ -60,7 +71,7 @@ export async function GET() {
     telegramUsername: u.telegramUsername,
     hasPassword: Boolean(u.password),
     _count: u._count,
-    totalSpent: u.orders.reduce((sum, o) => sum + o.totalAmount, 0),
+    totalSpent: spent.get(u.id) ?? 0,
   }));
 
   return NextResponse.json(result);

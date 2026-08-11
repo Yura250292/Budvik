@@ -938,6 +938,12 @@ model SyncDiscrepancy {
   createdAt   DateTime @default(now())
 
   syncJob SyncJob @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+
+  // 113 тис. рядків / 58 МБ, і до цієї міграції — жоден індекс, крім PK.
+  // Закриття прогону робить три count по syncJobId поспіль, кожен був повним
+  // скануванням 58 МБ. Шкода не стільки в самих count, скільки в тому, що
+  // вони щоразу вимивали каталог із 128 МБ shared_buffers.
+  @@index([syncJobId, field])
 }
 
 /// Реєстр застосованих батчів від агента 1С — забезпечує ідемпотентність:

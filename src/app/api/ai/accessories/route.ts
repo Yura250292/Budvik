@@ -56,27 +56,59 @@ export async function GET(req: Request) {
       suggestions = [];
     }
 
-    // Match suggested products with actual catalog
-    const allProducts = await prisma.product.findMany({
-      where: { isActive: true, id: { not: productId } },
-      include: { category: true },
-    });
+    // Зіставляємо пропозиції АІ з реальним каталогом.
+    //
+    // Раніше тут був findMany БЕЗ обмежень — усі ~49 тис. активних товарів з
+    // приєднаною категорією тягнулися в пам'ять заради лінійного .find() по
+    // кількох назвах. Заміряно: 12 224 мс на публічній сторінці товару.
+    // Тепер шукаємо в базі тільки те, що запропонував АІ.
+    //
+    // Префікс у 20 символів — та сама евристика, що була в .find(): АІ часто
+    // вертає назву з іншим хвостом («…, 750 Вт»), тож звіряємо початок.
+    const prefixes = suggestions
+      .map((s) => s.name?.trim().slice(0, 20))
+      .filter((n): n is string => !!n);
 
+    const candidates = prefixes.length
+      ? await prisma.product.findMany({
+          where: {
+            isActive: true,
+            id: { not: productId },
+            OR: prefixes.map((p) => ({ name: { contains: p, mode: "insensitive" as const } })),
+          },
+          include: { category: true },
+          take: 100,
+        })
+      : [];
+
+    // Зворотний бік звірки (назва товару входить у пропозицію АІ) на коротких
+    // назвах давав хибні влучення: у каталозі є товар з назвою «С», і він
+    // підходив під будь-яку пропозицію, витісняючи правильний товар. Тому
+    // зворотну перевірку робимо лише для назв, довших за 4 символи.
     const matched = suggestions
       .map((s) => {
-        const found = allProducts.find(
-          (p) => p.name.toLowerCase().includes(s.name.toLowerCase().slice(0, 20)) ||
-                 s.name.toLowerCase().includes(p.name.toLowerCase().slice(0, 20))
-        );
+        const needle = s.name.toLowerCase();
+        const found = candidates.find((p) => {
+          const name = p.name.toLowerCase();
+          if (name.includes(needle.slice(0, 20))) return true;
+          return name.length > 4 && needle.includes(name.slice(0, 20));
+        });
         return found ? { ...found, reason: s.reason } : null;
       })
       .filter(Boolean);
 
-    // If AI didn't find matches, fallback to same category
+    // Якщо АІ не влучив у каталог — показуємо товари з ІНШИХ категорій
+    // (саме так поводився старий код: фільтр був `!==`, не `===`).
     if (matched.length === 0) {
-      const fallback = allProducts
-        .filter((p) => p.categoryId !== product.categoryId)
-        .slice(0, 4);
+      const fallback = await prisma.product.findMany({
+        where: {
+          isActive: true,
+          id: { not: productId },
+          categoryId: { not: product.categoryId },
+        },
+        include: { category: true },
+        take: 4,
+      });
       return NextResponse.json({
         product: { id: product.id, name: product.name },
         accessories: fallback,

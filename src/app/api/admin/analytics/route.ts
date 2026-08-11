@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Скільки замовлень віддаємо в таблицю. Підсумки (КПІ, графік, топ клієнтів)
+ * рахуються по ВСЬОМУ періоду в базі й від цього числа не залежать.
+ */
+const ORDERS_PAGE_SIZE = 300;
 
 /**
  * Дані для «Аналітики» (/admin/analytics): замовлення → гроші → борги.
@@ -38,47 +45,107 @@ export async function GET(req: NextRequest) {
   }
   const repFilter = repId && repId !== "ALL" ? { salesRepId: repId } : {};
 
-  // 1. Замовлення за період
+  // 1. Замовлення за період.
+  //
+  // Було: findMany БЕЗ take, з items → product по кожному документу. На
+  // бойових даних це 3 682 мс і 5.6 МБ JSON на 2 577 документів — при тому,
+  // що з усіх позицій у відповідь ідуть лише лічильник і три штуки прев'ю.
+  // Агрегати (оборот по днях, топ клієнтів, КПІ) рахувалися в JS по всьому
+  // масиву, тобто весь він тягнувся з бази саме заради них.
+  //
+  // Стало: агрегати рахує Postgres (нижче), а сюди беремо лише сторінку
+  // документів для таблиці. docType ORDER: реалізації з 1С живуть у цій
+  // самій таблиці й без фільтра задвоїли б кожну відвантажену партію.
+  const docWhere = { docType: "ORDER" as const, ...dateFilter, ...repFilter };
+
   const salesDocs = await prisma.salesDocument.findMany({
-    // docType ORDER: реалізації з 1С живуть у цій самій таблиці й без
-    // фільтра задвоїли б кожну відвантажену партію.
-    where: { docType: "ORDER", ...dateFilter, ...repFilter },
+    where: docWhere,
     include: {
       salesRep: { select: { id: true, name: true } },
       counterparty: { select: { id: true, name: true } },
-      items: {
-        include: { product: { select: { name: true, sku: true, image: true } } },
-      },
+      _count: { select: { items: true } },
       invoice: { select: { paymentStatus: true, paidAmount: true } },
       deliveryStop: {
         select: { status: true, deliveryRoute: { select: { number: true } } },
       },
     },
     orderBy: { createdAt: "desc" },
+    take: ORDERS_PAGE_SIZE,
   });
 
-  const active = salesDocs.filter((d) => d.status !== "CANCELLED");
-  const totalRevenue = active.reduce((s, d) => s + d.totalAmount, 0);
+  // Прев'ю позицій (до трьох на документ) — одним запитом на всю сторінку.
+  // Вкладений `items: { take: 3 }` у Prisma коштує окремого підзапиту на
+  // кожен рядок; віконна функція робить те саме за один рейс до бази.
+  const docIds = salesDocs.map((d) => d.id);
+  const itemPreviews = docIds.length
+    ? await prisma.$queryRaw<
+        { salesDocumentId: string; quantity: number; sellingPrice: number; name: string; image: string | null }[]
+      >`
+        SELECT x."salesDocumentId", x.quantity, x."sellingPrice", x.name, x.image
+        FROM (
+          SELECT i."salesDocumentId", i.quantity, i."sellingPrice", pr.name, pr.image,
+                 row_number() OVER (PARTITION BY i."salesDocumentId" ORDER BY i.id) AS rn
+          FROM "SalesDocumentItem" i
+          JOIN "Product" pr ON pr.id = i."productId"
+          WHERE i."salesDocumentId" = ANY(${docIds})
+        ) x
+        WHERE x.rn <= 3
+      `
+    : [];
 
-  // 2. Оборот по днях
-  const dailyMap = new Map<string, { revenue: number; count: number }>();
-  for (const doc of active) {
-    const day = new Date(doc.createdAt).toISOString().slice(0, 10);
-    const d = dailyMap.get(day) || { revenue: 0, count: 0 };
-    d.revenue += doc.totalAmount;
-    d.count++;
-    dailyMap.set(day, d);
+  const previewsByDoc = new Map<string, typeof itemPreviews>();
+  for (const row of itemPreviews) {
+    const list = previewsByDoc.get(row.salesDocumentId) ?? [];
+    list.push(row);
+    previewsByDoc.set(row.salesDocumentId, list);
   }
 
-  // 3. Топ клієнтів за замовленнями
-  const clientMap = new Map<string, { name: string; revenue: number; count: number }>();
-  for (const doc of active) {
-    if (!doc.counterparty) continue;
-    const c = clientMap.get(doc.counterparty.id) || { name: doc.counterparty.name, revenue: 0, count: 0 };
-    c.revenue += doc.totalAmount;
-    c.count++;
-    clientMap.set(doc.counterparty.id, c);
-  }
+  // 2-3. Агрегати рахує Postgres по ВСЬОМУ періоду, а не по завантаженій
+  //      сторінці — інакше КПІ й графік показували б лише останні
+  //      ORDERS_PAGE_SIZE замовлень. Скасовані сюди не входять, як і раніше.
+  const aggWhere = {
+    ...docWhere,
+    status: { not: "CANCELLED" as const },
+  };
+
+  const [kpiAgg, dailyGroups, clientGroups] = await Promise.all([
+    prisma.salesDocument.aggregate({
+      where: aggWhere,
+      _sum: { totalAmount: true },
+      _count: true,
+    }),
+    prisma.$queryRaw<{ date: string; revenue: number; count: number }[]>`
+      SELECT to_char(d."createdAt", 'YYYY-MM-DD') AS date,
+             coalesce(sum(d."totalAmount"), 0)::float8 AS revenue,
+             count(*)::int AS count
+      FROM "SalesDocument" d
+      WHERE d."docType" = 'ORDER'
+        AND d.status <> 'CANCELLED'
+        ${from ? Prisma.sql`AND d."createdAt" >= ${new Date(from)}` : Prisma.empty}
+        ${to ? Prisma.sql`AND d."createdAt" <= ${new Date(to + "T23:59:59")}` : Prisma.empty}
+        ${repId && repId !== "ALL" ? Prisma.sql`AND d."salesRepId" = ${repId}` : Prisma.empty}
+      GROUP BY 1
+      ORDER BY 1
+    `,
+    prisma.$queryRaw<{ id: string; name: string; revenue: number; count: number }[]>`
+      SELECT c.id, c.name,
+             coalesce(sum(d."totalAmount"), 0)::float8 AS revenue,
+             count(*)::int AS count
+      FROM "SalesDocument" d
+      JOIN "Counterparty" c ON c.id = d."counterpartyId"
+      WHERE d."docType" = 'ORDER'
+        AND d.status <> 'CANCELLED'
+        ${from ? Prisma.sql`AND d."createdAt" >= ${new Date(from)}` : Prisma.empty}
+        ${to ? Prisma.sql`AND d."createdAt" <= ${new Date(to + "T23:59:59")}` : Prisma.empty}
+        ${repId && repId !== "ALL" ? Prisma.sql`AND d."salesRepId" = ${repId}` : Prisma.empty}
+      GROUP BY c.id, c.name
+      ORDER BY revenue DESC
+      LIMIT 15
+    `,
+  ]);
+
+  const totalOrders = kpiAgg._count;
+  const totalRevenue = kpiAgg._sum.totalAmount ?? 0;
 
   // 4. Надходження (ПКО з 1С). paidAt — дата грошей; для ручних записів
   //    без paidAt відступаємо на createdAt, щоб вони не випадали з періоду.
@@ -141,12 +208,12 @@ export async function GET(req: NextRequest) {
       createdAt: d.createdAt,
       salesRep: d.salesRep,
       counterparty: d.counterparty,
-      itemCount: d.items.length,
-      itemsSummary: d.items.slice(0, 3).map((i) => ({
-        name: i.product.name,
+      itemCount: d._count.items,
+      itemsSummary: (previewsByDoc.get(d.id) ?? []).map((i) => ({
+        name: i.name,
         qty: i.quantity,
         price: i.sellingPrice,
-        image: i.product.image,
+        image: i.image,
       })),
       invoiceStatus: d.invoice?.paymentStatus || null,
       paidAmount: d.invoice?.paidAmount || 0,
@@ -154,15 +221,18 @@ export async function GET(req: NextRequest) {
       routeNumber: d.deliveryStop?.deliveryRoute?.number || null,
     })),
 
+    // Скільки замовлень реально в періоді проти скількох віддали в orders —
+    // клієнт показує таблицю по сторінці, а підсумки по всьому періоду.
+    ordersTotal: totalOrders,
+    ordersReturned: salesDocs.length,
+
     kpis: {
-      totalOrders: active.length,
+      totalOrders,
       totalRevenue,
-      avgOrderValue: active.length > 0 ? totalRevenue / active.length : 0,
+      avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
     },
 
-    daily: Array.from(dailyMap.entries())
-      .map(([date, data]) => ({ date, ...data }))
-      .sort((a, b) => a.date.localeCompare(b.date)),
+    daily: dailyGroups,
 
     payments: {
       total: paymentAgg._sum.amount || 0,
@@ -186,10 +256,7 @@ export async function GET(req: NextRequest) {
       })),
     },
 
-    topClients: Array.from(clientMap.entries())
-      .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 15),
+    topClients: clientGroups,
 
     salesReps,
   });

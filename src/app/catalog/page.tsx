@@ -9,6 +9,7 @@ import Link from "next/link";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogSidebar from "@/components/CatalogSidebar";
 import { groupCategories, extractBrandsFromProducts } from "@/lib/category-tree";
+import { getCategoriesWithCounts } from "@/lib/categories-cache";
 import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 const PAGE_SIZE = 24;
@@ -209,11 +210,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   }
 
   const [categories, activeCategory, brandProducts] = await Promise.all([
-    prisma.category.findMany({
-      where: { products: { some: { isActive: true } } },
-      include: { _count: { select: { products: { where: { isActive: true } } } } },
-      orderBy: { name: "asc" },
-    }).then((cats) => cats.filter((c) => !/^\d+$/.test(c.name))),
+    getCategoriesWithCounts(),
     categorySlug
       ? prisma.category.findUnique({ where: { slug: categorySlug } })
       : null,

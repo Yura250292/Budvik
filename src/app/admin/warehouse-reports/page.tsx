@@ -359,6 +359,65 @@ export default function WarehouseReportsPage() {
     return list;
   }, [data]);
 
+  // Похідні списки — теж ДО раннього return, з тієї ж причини, що й
+  // shiftPoints вище: хуки мусять викликатися в тому самому порядку.
+  //
+  // Стабільні посилання: `data?.x || []` щоразу створює НОВИЙ масив, і
+  // useMemo нижче перераховувався б на кожен рендер попри незмінні дані.
+  const workers = useMemo(() => data?.workers || [], [data?.workers]);
+  const hourly = useMemo(() => data?.hourly || [], [data?.hourly]);
+
+  // Тип документа й пошук фільтруються на клієнті — дані вже завантажені,
+  // тож зайвий запит на сервер не потрібен.
+  //
+  // useMemo тут не косметика: обидва поля пошуку — це useState, і без
+  // мемоізації кожна натиснута літера переганяла всі списки заново (а разом
+  // з ними — Math.max по працівниках і сума по звітах), хоч змінювався лише
+  // один з фільтрів. Саме через це поля пошуку підгальмовували.
+  const reports = useMemo(
+    () =>
+      (data?.reports || []).filter((r: any) => {
+        if (docTypeFilter !== "ALL" && r.docType !== docTypeFilter) return false;
+        if (!searchReport) return true;
+        const q = searchReport.toLowerCase();
+        return (
+          r.docNumber?.toLowerCase().includes(q) ||
+          r.counterpartyName?.toLowerCase().includes(q) ||
+          r.userName?.toLowerCase().includes(q)
+        );
+      }),
+    [data?.reports, docTypeFilter, searchReport]
+  );
+  const reportsSum = useMemo(
+    () =>
+      reports
+        .filter((r: any) => r.status === "DONE")
+        .reduce((s: number, r: any) => s + (r.totalAmount || 0), 0),
+    [reports]
+  );
+  const nomenclature = useMemo(
+    () =>
+      (data?.nomenclature || []).filter(
+        (n: any) =>
+          !searchNom ||
+          n.name?.toLowerCase().includes(searchNom.toLowerCase()) ||
+          n.sku?.toLowerCase().includes(searchNom.toLowerCase())
+      ),
+    [data?.nomenclature, searchNom]
+  );
+  const maxWorkerAmount = useMemo(
+    () => Math.max(1, ...workers.map((w: any) => w.totalAmount || 0)),
+    [workers]
+  );
+  const maxItems = useMemo(
+    () => Math.max(1, ...workers.map((w: any) => w.itemsCount || 0)),
+    [workers]
+  );
+  const maxHourly = useMemo(
+    () => Math.max(1, ...hourly.map((h: any) => h.reports || 0)),
+    [hourly]
+  );
+
   if (!["ADMIN", "MANAGER"].includes(role)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -368,34 +427,7 @@ export default function WarehouseReportsPage() {
   }
 
   const kpis = data?.kpis;
-  const workers = data?.workers || [];
-
-  // Тип документа й пошук фільтруються на клієнті — дані вже завантажені,
-  // тож зайвий запит на сервер не потрібен
-  const reports = (data?.reports || []).filter((r: any) => {
-    if (docTypeFilter !== "ALL" && r.docType !== docTypeFilter) return false;
-    if (!searchReport) return true;
-    const q = searchReport.toLowerCase();
-    return (
-      r.docNumber?.toLowerCase().includes(q) ||
-      r.counterpartyName?.toLowerCase().includes(q) ||
-      r.userName?.toLowerCase().includes(q)
-    );
-  });
-  const reportsSum = reports
-    .filter((r: any) => r.status === "DONE")
-    .reduce((s: number, r: any) => s + (r.totalAmount || 0), 0);
   const shifts = data?.shifts || [];
-  const nomenclature = (data?.nomenclature || []).filter(
-    (n: any) =>
-      !searchNom ||
-      n.name?.toLowerCase().includes(searchNom.toLowerCase()) ||
-      n.sku?.toLowerCase().includes(searchNom.toLowerCase())
-  );
-  const maxWorkerAmount = Math.max(1, ...workers.map((w: any) => w.totalAmount || 0));
-  const maxItems = Math.max(1, ...workers.map((w: any) => w.itemsCount || 0));
-  const hourly = data?.hourly || [];
-  const maxHourly = Math.max(1, ...hourly.map((h: any) => h.reports || 0));
   const teamAvg = data?.teamAvg || { itemsPerHour: 0, itemsPerDay: 0, reportsPerDay: 0 };
 
   return (

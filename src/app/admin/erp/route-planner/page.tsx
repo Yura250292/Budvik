@@ -14,6 +14,8 @@ interface AddressEntry {
   manualCoords?: { lat: number; lng: number };
   geocoding?: boolean;
   error?: string;
+  /** Контрагент, з якого взята адреса — щоб зберегти йому знайдені координати. */
+  counterpartyId?: string;
 }
 
 type VehicleType = "fuel" | "electric";
@@ -63,6 +65,36 @@ interface SavedRouteData {
   routeGeometry: GeoJSON.LineString | null;
   updatedAt: string;
   stops: Array<{ address: string; displayName: string | null; lat: number; lng: number; sequence: number }>;
+}
+
+/**
+ * Запам'ятовує знайдені координати за контрагентом, щоб наступне планування
+ * не геокодувало ту саму адресу знову (кожен виклик Nominatim коштує 1.1 с
+ * через його ж політику частоти).
+ *
+ * Свідомо «тихо»: планування маршруту не має падати через те, що не вдалося
+ * зберегти координати — вони лише кеш, а не результат роботи користувача.
+ *
+ * Увага: PATCH контрагента дозволений лише ADMIN. Для MANAGER збереження
+ * тихо не спрацює, і його планування геокодуватиме адреси щоразу заново —
+ * до першого разу, коли той самий маршрут відкриє адміністратор. Розширювати
+ * права на запис контрагента заради кешу координат тут не став: це рішення
+ * про доступ, а не про швидкодію.
+ */
+async function persistCoords(
+  counterpartyId: string | undefined,
+  geo: { lat: number; lng: number }
+) {
+  if (!counterpartyId || geo?.lat == null || geo?.lng == null) return;
+  try {
+    await fetch(`/api/erp/counterparties/${counterpartyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deliveryLat: geo.lat, deliveryLng: geo.lng }),
+    });
+  } catch {
+    /* координати лишаться незбереженими — наступного разу перегеокодуємо */
+  }
 }
 
 function RoutePlannerContent() {
@@ -137,7 +169,11 @@ function RoutePlannerContent() {
         for (const stop of route.stops) {
           const addr = stop.counterparty?.deliveryAddress || stop.counterparty?.address || stop.address || "";
           if (!addr) continue;
-          const entry: AddressEntry = { id: crypto.randomUUID(), address: addr };
+          const entry: AddressEntry = {
+            id: crypto.randomUUID(),
+            address: addr,
+            counterpartyId: stop.counterparty?.id,
+          };
           // Try saved coords first
           if (stop.counterparty?.deliveryLat && stop.counterparty?.deliveryLng) {
             entry.geocoded = {
@@ -152,7 +188,18 @@ function RoutePlannerContent() {
         }
         setAddresses(newAddresses);
 
-        // Geocode missing ones
+        // Догеокодовуємо те, чого немає в базі.
+        //
+        // Цикл СВІДОМО послідовний: Nominatim — публічний сервіс OSM з
+        // політикою «не більше запиту на секунду», і lib/geo/nominatim.ts
+        // тримає цей інтервал сам (waitForRateLimit). Паралельні запити
+        // просто вишикувалися б у ту саму чергу, зате ризикували б баном.
+        //
+        // Прискорення дає не паралельність, а те, що знайдені координати ми
+        // тепер ЗБЕРІГАЄМО контрагенту (нижче). Вище вони вже читаються з
+        // deliveryLat/deliveryLng, але записувати їх було нікому — тому
+        // кожне планування геокодувало ті самі адреси заново, по 1.1 с на
+        // кожну. Тепер платимо цю ціну один раз на адресу.
         const updated = [...newAddresses];
         for (let i = 0; i < updated.length; i++) {
           if (!updated[i].geocoded && updated[i].address) {
@@ -163,6 +210,7 @@ function RoutePlannerContent() {
               if (res.ok) {
                 const geo = await res.json();
                 updated[i] = { ...updated[i], geocoded: geo, geocoding: false };
+                void persistCoords(updated[i].counterpartyId, geo);
               } else {
                 updated[i] = { ...updated[i], geocoding: false, error: "Не знайдено" };
               }

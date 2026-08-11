@@ -3,6 +3,16 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Скільки контрагентів віддаємо, якщо клієнт не попросив інакше.
+ *
+ * 1000 покриває наявні 3.7 тис. записів лише частково — і це свідомо: селекти
+ * в UI шукають по вже завантаженому списку, тож повний дамп бази туди не
+ * потрібен, а 2.6 МБ на кожне відкриття форми — потрібні ще менше.
+ */
+const DEFAULT_LIMIT = 1000;
+const MAX_LIMIT = 5000;
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
@@ -49,9 +59,23 @@ export async function GET(req: NextRequest) {
 
   if (and.length > 0) where.AND = and;
 
+  // Обмеження вибірки. Відповідь лишається МАСИВОМ — її читають десяток
+  // селектів контрагентів (erp/sales, erp/invoices, purchase-orders, sales/new
+  // тощо), і обгортка в { items, total } зламала б їх усі.
+  //
+  // За замовчуванням стеля висока: без limit цей маршрут віддавав 3 689
+  // контрагентів і 2.6 МБ. Клієнти, яким треба підказка пошуку, вже шлють
+  // limit (client-folders шле limit=15 — його досі просто ігнорували).
+  const limitParam = Number(searchParams.get("limit"));
+  const take =
+    Number.isFinite(limitParam) && limitParam > 0
+      ? Math.min(limitParam, MAX_LIMIT)
+      : DEFAULT_LIMIT;
+
   const counterparties = await prisma.counterparty.findMany({
     where,
     orderBy: { name: "asc" },
+    take,
     include: {
       _count: {
         select: {

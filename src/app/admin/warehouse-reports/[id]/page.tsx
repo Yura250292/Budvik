@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { formatPrice } from "@/lib/utils";
+import EditWarehouseReportModal from "@/components/admin/EditWarehouseReportModal";
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "В черзі",
@@ -92,6 +93,7 @@ export default function WarehouseReportDetailPage() {
   const [busy, setBusy] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -196,20 +198,36 @@ export default function WarehouseReportDetailPage() {
                   </button>
                 )}
                 {role === "ADMIN" && (
-                  <button
-                    onClick={remove}
-                    disabled={busy}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: "8px",
-                      background: "#FEF2F2",
-                      color: "#DC2626",
-                      fontWeight: 600,
-                      fontSize: "13px",
-                    }}
-                  >
-                    Видалити
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setEditing(true)}
+                      disabled={busy}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: "8px",
+                        background: "#0A0A0A",
+                        color: "white",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                      }}
+                    >
+                      ✏️ Редагувати
+                    </button>
+                    <button
+                      onClick={remove}
+                      disabled={busy}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: "8px",
+                        background: "#FEF2F2",
+                        color: "#DC2626",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                      }}
+                    >
+                      Видалити
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -499,6 +517,17 @@ export default function WarehouseReportDetailPage() {
           </div>
         )}
       </div>
+
+      {editing && report && (
+        <EditWarehouseReportModal
+          report={report}
+          onClose={() => setEditing(false)}
+          onSaved={(updated) => {
+            setReport(updated);
+            setEditing(false);
+          }}
+        />
+      )}
 
       {lightbox && (
         <div

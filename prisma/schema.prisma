@@ -803,6 +803,10 @@ model DeliveryRoute {
   fuelConsumption Float? // л/100км або кВт·год/100км
   fuelPricePer    Float? // ціна за 1л або 1кВт·год
   totalDistanceKm Float?
+  /// Фактичний пробіг, вводить адмін з паперового листа/одометра.
+  /// null — зарплата рахується з планових км (totalDistanceKm, OSRM).
+  /// У 1С кілометраж не живе (заповнені 2 листи з 40), тому джерело тут.
+  actualKm        Float?
   totalFuelCost   Float?
   notes           String?
   createdById     String

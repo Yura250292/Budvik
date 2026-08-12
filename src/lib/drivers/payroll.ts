@@ -43,10 +43,19 @@ export interface PayrollRates {
 /** Один маршрутний лист у вигляді, готовому до розрахунку. */
 export interface RouteSheetFacts {
   routeSheetId: string;
+  /** SITE — маршрут планувальника сайту, SHEET_1C — лист з обміну 1С */
+  source?: "SITE" | "SHEET_1C";
   number: string;
   /** Київська дата, YYYY-MM-DD */
   day: string;
   distanceKm: number;
+  /**
+   * Звідки взявся пробіг: MANUAL — увів адмін, PLAN — планові км OSRM
+   * (факт ще не введено), SHEET — з листа 1С, NONE — нізвідки (0 км).
+   */
+  kmSource?: "MANUAL" | "PLAN" | "SHEET" | "NONE";
+  /** Плановий пробіг OSRM — підказка адміну поруч із ручним полем */
+  plannedKm?: number | null;
   /** Унікальні адреси в межах листа */
   cityPoints: number;
   oblastPoints: number;

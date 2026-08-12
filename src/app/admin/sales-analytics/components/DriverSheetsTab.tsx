@@ -10,7 +10,11 @@ import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 
 /**
- * Журнал маршрутних листів з 1С.
+ * Журнал маршрутних листів: маршрути планувальника сайту + листи 1С.
+ *
+ * Головне джерело — маршрут сайту (у 1С лист — лише шапка без точок).
+ * Для нього адмін вводить фактичний пробіг: у 1С кілометражу немає, тому
+ * поки поле порожнє, розрахунок бере планові км OSRM і показує «≈».
  *
  * На відміну від вкладки зарплати, тут видно й листи без прив'язаного
  * водія — тобто те, що прийшло з обміну, але ще нікому не нараховано.
@@ -39,6 +43,7 @@ type SheetsResponse = {
   rates: { cityPointRate: number; oblastPointRate: number };
   rows: Array<{
     id: string;
+    source: "SITE" | "SHEET_1C";
     number: string;
     day: string;
     posted: boolean;
@@ -47,6 +52,8 @@ type SheetsResponse = {
     driverName1C: string | null;
     vehicle: string | null;
     distanceKm: number;
+    plannedKm: number | null;
+    actualKm: number | null;
     ordersTotal: number;
     debtsTotal: number;
     stopsCount: number;
@@ -64,6 +71,86 @@ const ZONE_SOURCE_LABEL: Record<Stop["zoneSource"], string> = {
   ADDRESS: "за адресою",
   UNKNOWN: "не визначено",
 };
+
+/**
+ * Поле фактичного пробігу маршруту сайту.
+ *
+ * Окремий компонент, щоб чернетка вводу жила локально й скидалася при
+ * перемиканні рядка (key={id} у місці виклику). Порожнє значення повертає
+ * розрахунок до планових км OSRM.
+ */
+function ActualKmEditor({
+  routeId,
+  actualKm,
+  plannedKm,
+  onSaved,
+  onError,
+}: {
+  routeId: string;
+  actualKm: number | null;
+  plannedKm: number | null;
+  onSaved: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [draft, setDraft] = useState(actualKm != null ? String(actualKm) : "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const trimmed = draft.trim().replace(",", ".");
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      onError("Пробіг має бути числом ≥ 0");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/drivers/route-sheets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routeId, actualKm: value }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти пробіг");
+      onSaved();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Помилка збереження");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="font-medium text-g500">Фактичний пробіг:</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        disabled={saving}
+        placeholder={plannedKm != null ? `≈ ${Math.round(plannedKm)}` : "км"}
+        aria-label="Фактичний пробіг, км"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+        className="w-24 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-right tabular-nums text-g700 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+      />
+      <span className="text-g500">км</span>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={save}
+        className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-1 font-medium text-g600 hover:bg-g50 disabled:opacity-50"
+      >
+        {saving ? "Зберігаю…" : "Зберегти"}
+      </button>
+      <span className="text-g400">
+        {plannedKm != null ? `план OSRM ≈ ${Math.round(plannedKm)} км · ` : ""}
+        порожнє поле — рахуємо за планом
+      </span>
+    </div>
+  );
+}
 
 export function DriverSheetsTab({ period }: { period: Period }) {
   const { data, loading, error, reload } = useApi<SheetsResponse>(
@@ -100,8 +187,8 @@ export function DriverSheetsTab({ period }: { period: Period }) {
     return (
       <Card>
         <EmptyState
-          title="Немає маршрутних листів за період"
-          hint="Листи підтягуються з 1С разом з іншими документами обміну."
+          title="Немає маршрутів за період"
+          hint="Маршрути формуються в планувальнику доставки; листи 1С — запасне джерело для днів без маршруту сайту."
         />
       </Card>
     );
@@ -115,7 +202,7 @@ export function DriverSheetsTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Маршрутні листи"
-            hint="Точки з однаковою адресою оплачуються як одна. Зону можна перемкнути вручну — це вплине і на минулі періоди."
+            hint="Головне джерело — маршрути сайту; «1С» — запасні листи з обміну. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» — плановий, поки адмін не ввів фактичний у деталі."
           />
         </div>
 
@@ -144,6 +231,11 @@ export function DriverSheetsTab({ period }: { period: Period }) {
                       <span className="mr-1.5 inline-block text-g400">{open === r.id ? "▾" : "▸"}</span>
                       {r.number}
                       <span className="ml-2 text-xs font-normal text-g500">{r.day}</span>
+                      {r.source === "SHEET_1C" && (
+                        <span className="ml-2 inline-block align-middle">
+                          <Badge status="neutral">1С</Badge>
+                        </span>
+                      )}
                       {!r.posted && (
                         <span className="ml-2 inline-block align-middle">
                           <Badge status="warn">не проведено</Badge>
@@ -160,7 +252,14 @@ export function DriverSheetsTab({ period }: { period: Period }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.distanceKm)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-g600">
+                      {r.source === "SITE" && r.actualKm == null && r.distanceKm > 0 && (
+                        <span className="mr-0.5 text-g400" title="Плановий пробіг OSRM — факт ще не введено">
+                          ≈
+                        </span>
+                      )}
+                      {num(r.distanceKm)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-g600">
                       {r.paidPoints}
                       {r.stopsCount !== r.paidPoints && (
@@ -183,6 +282,19 @@ export function DriverSheetsTab({ period }: { period: Period }) {
                     <tr key={`${r.id}-detail`}>
                       <td colSpan={7} className="bg-g50 px-4 py-3">
                         <div className="space-y-3">
+                          {r.source === "SITE" && data.canEdit && (
+                            <div className="rounded-[var(--radius-card)] border border-g200 bg-white p-3">
+                              <ActualKmEditor
+                                key={r.id}
+                                routeId={r.id}
+                                actualKm={r.actualKm}
+                                plannedKm={r.plannedKm}
+                                onSaved={reload}
+                                onError={setMessage}
+                              />
+                            </div>
+                          )}
+
                           <div className="rounded-[var(--radius-card)] border border-g200 bg-white p-3">
                             <p className="mb-2 text-xs font-medium text-g500">
                               Точки вигрузки{r.vehicle ? ` · ${r.vehicle}` : ""}

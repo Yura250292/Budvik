@@ -46,9 +46,13 @@ type PayrollResponse = {
     total: number;
     sheets: Array<{
       routeSheetId: string;
+      source: "SITE" | "SHEET_1C";
       number: string;
       day: string;
       distanceKm: number;
+      /** MANUAL — факт від адміна, PLAN — планові км OSRM, SHEET — з 1С */
+      kmSource: "MANUAL" | "PLAN" | "SHEET" | "NONE";
+      plannedKm: number | null;
       cityPoints: number;
       oblastPoints: number;
       unknownZonePoints: number;
@@ -256,8 +260,16 @@ export function DriverPayrollTab({
                                     {s.number}
                                     <span className="ml-2 text-xs font-normal text-g500">{s.day}</span>
                                     <span className="ml-2 text-xs font-normal text-g400">
+                                      {s.kmSource === "PLAN" && (
+                                        <span title="Плановий пробіг OSRM — факт вводиться у вкладці «Листи»">≈ </span>
+                                      )}
                                       {num(s.distanceKm)} км · {s.cityPoints + s.oblastPoints} точок
                                     </span>
+                                    {s.source === "SHEET_1C" && (
+                                      <span className="ml-2 inline-block align-middle">
+                                        <Badge status="neutral">1С</Badge>
+                                      </span>
+                                    )}
                                     {s.unknownZonePoints > 0 && (
                                       <span className="ml-2 inline-block align-middle">
                                         <Badge status="warn">

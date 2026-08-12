@@ -16,7 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
 import { calculateDriverPeriod } from "@/lib/drivers/payroll";
-import { getRates, loadBonuses, loadSheets, sheetToFacts } from "@/lib/drivers/payroll-facts";
+import { getRates, loadBonuses, loadPayrollRows, sheetToFacts } from "@/lib/drivers/payroll-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   const restrictToDriver = isFullAccess ? driverFilter : session.user.id;
 
   const [sheets, bonuses, rates, drivers, unmappedCount] = await Promise.all([
-    loadSheets(period.from, period.to, restrictToDriver),
+    loadPayrollRows(period.from, period.to, restrictToDriver),
     loadBonuses(period.from, period.to, restrictToDriver),
     getRates(),
     prisma.user.findMany({
@@ -55,7 +55,8 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  // Групуємо по водію: у листі driverId уже проставлений прийомом з 1С.
+  // Групуємо по водію: у маршруті сайту driverId ставить логіст, у листі
+  // 1С — прийом з обміну за мапінгом.
   const sheetsByDriver = new Map<string, ReturnType<typeof sheetToFacts>[]>();
   for (const sheet of sheets) {
     if (!sheet.driverId) continue;
@@ -97,9 +98,12 @@ export async function GET(req: NextRequest) {
         total: payroll.total,
         sheets: payroll.sheets.map((s) => ({
           routeSheetId: s.facts.routeSheetId,
+          source: s.facts.source ?? "SHEET_1C",
           number: s.facts.number,
           day: s.facts.day,
           distanceKm: s.facts.distanceKm,
+          kmSource: s.facts.kmSource ?? "SHEET",
+          plannedKm: s.facts.plannedKm ?? null,
           cityPoints: s.facts.cityPoints,
           oblastPoints: s.facts.oblastPoints,
           unknownZonePoints: s.facts.unknownZonePoints ?? 0,

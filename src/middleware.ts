@@ -34,6 +34,9 @@ export default withAuth(
          pathname.startsWith("/admin/reports") ||
          pathname.startsWith("/admin/erp/reports") ||
          pathname.startsWith("/admin/erp/stats") ||
+         // Закупівлі — робоче місце закупівельника (ADMIN/MANAGER):
+         // торговому нема чого бачити закупівельні ціни й дефіцит складу.
+         pathname.startsWith("/admin/procurement") ||
          pathname.startsWith("/admin/warehouse-reports") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"

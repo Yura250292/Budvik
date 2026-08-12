@@ -1,0 +1,114 @@
+[
+  {
+    "name": "DNIPRO-M ЛЬВІВ (Шевченка, 19)",
+    "lat": 49.84487205285373,
+    "lng": 24.00871381521783,
+    "resolvedAddress": "м. Львів, вул. Шевченка, 19",
+    "confidence": "high",
+    "source": "Official Dnipro-M store database (https://dnipro-m.ua/site/get-stores/) — franchisee store, city_name=Львів, address_name='вул. Шевченка, 19', geo field from vendor's own API"
+  },
+  {
+    "name": "DNIPRO-M МОСТИСЬКА (площа Ринок, 10а)",
+    "lat": 49.792291,
+    "lng": 23.152008,
+    "resolvedAddress": "м. Мостиська, пл. Ринок, 10-А",
+    "confidence": "high",
+    "source": "Official Dnipro-M store database (https://dnipro-m.ua/site/get-stores/) — franchisee store, city_name=Мостиська, address_name='пл. Ринок, 10-А', geo field from vendor's own API"
+  },
+  {
+    "name": "DNIPRO-M ТУРКА (Шептицького, 3б)",
+    "lat": 49.1522333,
+    "lng": 23.0354772,
+    "resolvedAddress": "м. Турка, вул. Шептицького, 3-Б",
+    "confidence": "high",
+    "source": "Official Dnipro-M store database (https://dnipro-m.ua/site/get-stores/) — franchisee store, city_name=Турка, address_name='вул. Шептицького, 3-Б', geo field from vendor's own API"
+  },
+  {
+    "name": "Галан М.В.",
+    "lat": 49.7961,
+    "lng": 24.034774,
+    "resolvedAddress": "м. Львів, ринок «Нижній Шувар» (просп. Св. Івана Павла II / вул. Хуторівка, 4б), ряд 4, пав. 73",
+    "confidence": "medium",
+    "source": "OpenStreetMap Overpass — way named '4 ряд Нижній Шувар' centre 49.796100,24.034774. NOTE: this is row 4 of the LOWER Shuvar wholesale market, not the Upper Shuvar mall on просп. Червоної Калини 36 (a common mix-up; Nominatim's plain 'Шувар' search returns the wrong one at 49.799,24.049). Individual pavilion 73 is not mapped; coordinate is the row itself, accurate to a few tens of metres."
+  },
+  {
+    "name": "Довбецький А.",
+    "lat": 49.7961,
+    "lng": 24.034774,
+    "resolvedAddress": "м. Львів, ринок «Нижній Шувар» (просп. Св. Івана Павла II / вул. Хуторівка, 4б), ряд 4, пав. 28",
+    "confidence": "medium",
+    "source": "OpenStreetMap Overpass — way named '4 ряд Нижній Шувар' centre 49.796100,24.034774. Same row as Галан М.В. (both р4). Lower Shuvar, not the Upper Shuvar mall. Pavilion 28 not individually mapped."
+  },
+  {
+    "name": "Гаргай Ірина Михайлівна",
+    "lat": 49.8463445,
+    "lng": 24.0177547,
+    "resolvedAddress": "м. Львів, вул. Базарна, 11 — Краківський ринок",
+    "confidence": "medium",
+    "source": "OSM Nominatim named object 'Краківський ринок, Базарна вулиця, Клепарів' = 49.8463445,24.0177547; independently corroborated by Photon house-level geocode of 'Базарна 11 Львів' = 49.846329,24.018184 (~35 m apart). Market-level coordinate; the individual ФОП/stall is not publicly listed."
+  },
+  {
+    "name": "Віра",
+    "lat": 49.865165,
+    "lng": 24.056877,
+    "resolvedAddress": "м. Львів, вул. Кукурудзяна, 1-3 — ринок «Торпедо», перший ряд, будка 15/16А",
+    "confidence": "medium",
+    "source": "OpenStreetMap Overpass relation 'Ринок «Торпедо»', addr:street='Кукурудзяна вулиця 3', centre 49.865165,24.056877. Directories list the market variously as Кукурудзяна 1 or 2 (dlab.com.ua, ua-region.com.ua) — all the same site. Market-level coordinate; individual booth not mapped."
+  },
+  {
+    "name": "Верхола Микола",
+    "lat": 49.9578927,
+    "lng": 23.5440257,
+    "resolvedAddress": "смт Шкло, вул. Петра Сагайдачного, 67, Яворівський р-н, Львівська обл., 81050",
+    "confidence": "high",
+    "source": "House-level match confirmed by two independent geocoders: OSM Nominatim structured search = 49.9578927,23.5440257 and Photon = 49.957893,23.544026. Street is officially 'вул. Петра Сагайдачного'."
+  },
+  {
+    "name": "Винярчук Степан",
+    "lat": 49.9207465,
+    "lng": 23.7349145,
+    "resolvedAddress": "смт Івано-Франкове, площа Ринок (центр), Яворівський р-н, Львівська обл., 81071",
+    "confidence": "medium",
+    "source": "OSM Nominatim 'площа Ринок, Івано-Франкове' = 49.9207465,23.7349145. The address on file says only 'Центр, маг. Господар'; the settlement centre is площа Ринок. The shop 'Господар' itself is not in any public directory, so this is the centre square rather than the storefront."
+  },
+  {
+    "name": "Дрозд Сергій",
+    "lat": 49.9198738,
+    "lng": 23.7339855,
+    "resolvedAddress": "смт Івано-Франкове, вул. Богдана Хмельницького, 16, Яворівський р-н, Львівська обл., 81071",
+    "confidence": "medium",
+    "source": "OSM Nominatim and Photon both resolve 'вул. Богдана Хмельницького, Івано-Франкове' to 49.9198738,23.7339855 / 49.919874,23.733985 but at STREET level only — house 16 is not individually mapped. The street adjoins площа Ринок, so the error is small (short street in a small settlement)."
+  },
+  {
+    "name": "Бодьо Л.Р.",
+    "lat": 49.426469,
+    "lng": 23.7452211,
+    "resolvedAddress": "смт Меденичі, вул. Дрогобицька, 10, Дрогобицький р-н, Львівська обл., 82160",
+    "confidence": "high",
+    "source": "House-level match confirmed by two independent geocoders: OSM Nominatim structured search = 49.4264690,23.7452211 and Photon = 49.426469,23.745221."
+  },
+  {
+    "name": "Войтович Т.",
+    "lat": 50.1163875,
+    "lng": 24.3414675,
+    "resolvedAddress": "м. Кам'янка-Бузька, вул. Панаса Саксаганського, 6, Львівська обл.",
+    "confidence": "high",
+    "source": "House-level match confirmed by two independent geocoders: OSM Nominatim structured search = 50.1163875,24.3414675 and Photon = 50.116388,24.341468. Street is officially 'вул. Панаса Саксаганського'. Shop 'Бум' not separately listed, but the street address is unambiguous."
+  },
+  {
+    "name": "Арендарчук Микола",
+    "lat": 50.828813,
+    "lng": 25.885819,
+    "resolvedAddress": "смт Цумань, вул. Набережна, 19, Луцький р-н, ВОЛИНСЬКА обл., 45233 — відділення Нової Пошти №1",
+    "confidence": "medium",
+    "source": "Nova Poshta branch No.1 directory listings (novoposhta.com/ua/np-11399, dostavki.pp.ua, delengine.com) give 50.828813,25.885819; OSM/Photon confirm вул. Набережна in Цумань at 50.828476,25.888120 (street level). WARNING: Цумань is in Volyn oblast, ~180 km from Lviv — this is a delivery-point address (Nova Poshta), NOT the client's own premises, so it likely should not be treated as a Lviv-oblast retail location."
+  },
+  {
+    "name": "Державне підприємство \"Український державний центр радіочастот\", Західна філія",
+    "lat": 49.84203,
+    "lng": 24.001259,
+    "resolvedAddress": "79018, м. Львів, вул. Стороженка, 20",
+    "confidence": "high",
+    "source": "Organisation confirmed at this address by multiple directories (dlab.com.ua/map/20119, lviv.vgorode.ua, youcontrol EDRPOU 20857613; tel. (032) 235-02-43, lviv@ucrf.gov.ua). Coordinates 49.84203,24.001259 from Visicom/directory mapping of вул. Стороженка, 20; consistent with the Visicom street view centre for вул. Стороженка (24.00109,49.84159)."
+  }
+]

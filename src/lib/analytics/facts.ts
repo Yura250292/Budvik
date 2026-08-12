@@ -80,6 +80,140 @@ export async function revenueByRep(from: Date, to: Date, repId?: string | null):
   return rows;
 }
 
+/** Один документ повернення для списку в інтерфейсі. */
+export type ReturnDoc = {
+  id: string;
+  number: string;
+  date: Date;
+  clientId: string | null;
+  clientName: string | null;
+  repId: string | null;
+  repName: string | null;
+  /** Додатна сума повернення (у базі лежить від'ємна). */
+  amount: number;
+  items: number;
+};
+
+/** Повернення клієнта за період — додатні суми, найбільші першими. */
+export type ClientReturns = {
+  clientId: string | null;
+  clientName: string | null;
+  amount: number;
+  docs: number;
+};
+
+/**
+ * Фільтр самих повернень. Дзеркало SALES_ONLY: там усе, крім повернень,
+ * тут — лише вони. Статус і джерело беремо ті самі, що й для обороту,
+ * інакше сума повернень у списку не зійшлася б із мінусом в обороті.
+ */
+export const RETURNS_ONLY = Prisma.sql`s."externalId" IS NOT NULL AND s.status = 'CONFIRMED' AND s."docType" = 'RETURN'`;
+
+/**
+ * Повернення в розрізі клієнтів.
+ *
+ * Потрібне і моделі (щоб побачити, чи повернення розмазані по базі, чи
+ * сидять в одного клієнта — це різні розмови), і вкладці «Повернення».
+ */
+export async function returnsByClient(
+  from: Date,
+  to: Date,
+  repId?: string | null,
+  limit = 20
+): Promise<ClientReturns[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<ClientReturns[]>`
+    SELECT
+      s."counterpartyId" AS "clientId",
+      c.name             AS "clientName",
+      -SUM(s."totalAmount")::float AS amount,
+      COUNT(*)::int AS docs
+    FROM "SalesDocument" s
+    LEFT JOIN "Counterparty" c ON c.id = s."counterpartyId"
+    WHERE ${RETURNS_ONLY}
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    GROUP BY s."counterpartyId", c.name
+    ORDER BY amount DESC
+    LIMIT ${limit}
+  `;
+}
+
+/**
+ * Список документів повернення за період.
+ *
+ * Сума розвертається в додатну прямо тут: у базі вона від'ємна (щоб SUM
+ * віднімав її сам), але людині в таблиці мінус перед кожним рядком лише
+ * заважає — знак несе сама назва колонки.
+ */
+export async function returnDocs(
+  from: Date,
+  to: Date,
+  repId?: string | null,
+  limit = 200
+): Promise<ReturnDoc[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<ReturnDoc[]>`
+    SELECT
+      s.id, s.number, s."createdAt" AS date,
+      s."counterpartyId" AS "clientId",
+      c.name AS "clientName",
+      s."salesRepId" AS "repId",
+      u.name AS "repName",
+      -s."totalAmount"::float AS amount,
+      (SELECT COUNT(*)::int FROM "SalesDocumentItem" i WHERE i."salesDocumentId" = s.id) AS items
+    FROM "SalesDocument" s
+    LEFT JOIN "Counterparty" c ON c.id = s."counterpartyId"
+    LEFT JOIN "User" u ON u.id = s."salesRepId"
+    WHERE ${RETURNS_ONLY}
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    ORDER BY s."createdAt" DESC
+    LIMIT ${limit}
+  `;
+}
+
+/** Що саме повертають: топ товарів за сумою повернень. */
+export type ReturnedProduct = {
+  productId: string;
+  name: string;
+  brandName: string | null;
+  qty: number;
+  amount: number;
+  docs: number;
+};
+
+export async function returnedProducts(
+  from: Date,
+  to: Date,
+  repId?: string | null,
+  limit = 20
+): Promise<ReturnedProduct[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<ReturnedProduct[]>`
+    SELECT
+      i."productId" AS "productId",
+      p.name        AS name,
+      b.name        AS "brandName",
+      -SUM(i.quantity)::float AS qty,
+      -SUM(i.quantity * i."sellingPrice")::float AS amount,
+      COUNT(DISTINCT s.id)::int AS docs
+    FROM "SalesDocumentItem" i
+    JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+    JOIN "Product" p ON p.id = i."productId"
+    LEFT JOIN "Brand" b ON b.id = p."brandId"
+    WHERE ${RETURNS_ONLY}
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    GROUP BY i."productId", p.name, b.name
+    ORDER BY amount DESC
+    LIMIT ${limit}
+  `;
+}
+
 /**
  * Оборот у розрізі торговий × бренд.
  *

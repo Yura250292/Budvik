@@ -10,6 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parsePeriod } from "@/lib/analytics/period";
 import { teamBenchmark, METRICS, type MetricKey } from "@/lib/analytics/benchmark";
+import { MOMENTUM_WEEKS } from "@/lib/analytics/trends";
 import { generateInsights, insightsConfigured } from "@/lib/ai/insights";
 import { readReport, writeReport } from "@/lib/ai/insight-cache";
 
@@ -63,6 +64,14 @@ async function buildFacts(period: ReturnType<typeof parsePeriod>) {
   const медіани: Record<string, number | null> = {};
   for (const key of keys) медіани[METRICS[key].label] = round(bench.medians[key]);
 
+  // Межі вікон метрики «Темп %» — та сама формула, що в trends.ts:
+  // останні 4 тижні від кінця періоду проти попередніх 4. Модель мусить
+  // указувати в інсайтах, що з чим порівняно, і дати бере звідси.
+  const DAY_MS = 86_400_000;
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const recentFrom = new Date(period.to.getTime() - MOMENTUM_WEEKS * 7 * DAY_MS);
+  const previousFrom = new Date(period.to.getTime() - 2 * MOMENTUM_WEEKS * 7 * DAY_MS);
+
   const nameById = new Map(bench.reps.map((r) => [r.repId, r.name]));
 
   // Лише бренди з прогалинами: повне покриття не потребує розмови.
@@ -78,6 +87,14 @@ async function buildFacts(period: ReturnType<typeof parsePeriod>) {
 
   return {
     період: { від: period.fromDay, до: period.toDay, днів: period.days },
+    вікна_метрики_темп: {
+      пояснення: "«Темп %» — оборот за останні 4 тижні проти попередніх 4",
+      останні_4_тижні: { від: day(recentFrom), до: period.toDay },
+      попередні_4_тижні: {
+        від: day(previousFrom),
+        до: day(new Date(recentFrom.getTime() - DAY_MS)),
+      },
+    },
     торгових_у_порівнянні: bench.reps.length,
     порівняння_можливе: bench.comparable,
     команда: reps,

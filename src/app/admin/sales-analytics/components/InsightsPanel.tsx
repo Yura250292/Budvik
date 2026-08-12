@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { money, num } from "@/components/ui/Stat";
-import { STATUS, type StatusKey } from "@/lib/analytics/colors";
+import { STATUS } from "@/lib/analytics/colors";
 import type { Insight } from "@/lib/ai/insights";
-import { InsightCard, sortInsights } from "./InsightCard";
+import { InsightSections, anchorResolver, type SourceResolver } from "./InsightCard";
 
 /**
  * Картка АІ-інсайтів — спільна для профілю торгового і зрізу команди.
@@ -59,11 +59,18 @@ function formatWhen(iso: string): string {
   }).format(new Date(iso));
 }
 
+/** YYYY-MM-DD → 01.05.2026. Без Date: день уже київський, зсувати нічого. */
+function formatDay(day: string): string {
+  const [y, m, d] = day.split("-");
+  return `${d}.${m}.${y}`;
+}
+
 export function InsightsPanel({
   endpoint,
   title = "АІ-аналіз",
   hint,
   saveContext,
+  resolveSource = anchorResolver,
 }: {
   /** Роут із GET (кеш) і POST (генерація) */
   endpoint: string;
@@ -71,6 +78,12 @@ export function InsightsPanel({
   hint?: string;
   /** Без нього кнопки «Зберегти» немає — панель не знає, що відкладати */
   saveContext?: SaveContext;
+  /**
+   * Куди вести посилання «джерело» на картках. За замовчуванням — якорі
+   * на цій же сторінці; сторінка може перевизначити (наприклад, щоб
+   * розгорнути згорнуту матрицю брендів перед скролом).
+   */
+  resolveSource?: SourceResolver;
 }) {
   const [saveState, setSaveState] = useState<"idle" | "form" | "saving" | "done">("idle");
   const [saveTitle, setSaveTitle] = useState("");
@@ -126,7 +139,6 @@ export function InsightsPanel({
 
   const report = data?.report ?? null;
   const insights = report?.insights ?? [];
-  const sorted = sortInsights(insights);
 
   // Нова генерація робить попереднє збереження неактуальним: керівник
   // дивиться вже на інші числа, і позначка «збережено» вводила б в оману.
@@ -167,7 +179,7 @@ export function InsightsPanel({
     }
   }, [saveContext, report, saveTitle, saveNote]);
 
-  const canSave = !!saveContext && sorted.length > 0 && !generating;
+  const canSave = !!saveContext && insights.length > 0 && !generating;
 
   return (
     <Card>
@@ -180,6 +192,13 @@ export function InsightsPanel({
               "Висновки робить модель, але всі числа пораховані з бази — вигадану цифру система відкидає."
             }
           />
+          {/* Період — завжди на видноті: висновки мають сенс лише разом
+              із діапазоном, за який порахований кожен рядок нижче. */}
+          {saveContext && (
+            <p className="mt-1 text-xs font-semibold text-g600">
+              Аналіз за період {formatDay(saveContext.fromDay)} — {formatDay(saveContext.toDay)}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {report && (
@@ -313,7 +332,7 @@ export function InsightsPanel({
       {/* Порожній результат при витрачених токенах — це збій, а не «все
           спокійно»: модель, яка щось рахувала, не мовчить. Кажемо прямо,
           інакше керівник повірить, що проблем немає. */}
-      {!generating && report && sorted.length === 0 && (
+      {!generating && report && insights.length === 0 && (
         <div className="mt-3">
           <EmptyState
             title={
@@ -331,12 +350,8 @@ export function InsightsPanel({
         </div>
       )}
 
-      {!generating && sorted.length > 0 && (
-        <ul className="mt-3 space-y-2.5">
-          {sorted.map((insight, i) => (
-            <InsightCard key={`${insight.title}-${i}`} insight={insight} />
-          ))}
-        </ul>
+      {!generating && insights.length > 0 && (
+        <InsightSections insights={insights} resolveSource={resolveSource} />
       )}
 
       {!generating && report && report.tokens > 0 && (

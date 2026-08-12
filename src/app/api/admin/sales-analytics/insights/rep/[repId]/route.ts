@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
 import { clientPortfolio } from "@/lib/analytics/clients";
 import { repTrend } from "@/lib/analytics/trends";
-import { revenueByRep } from "@/lib/analytics/facts";
+import { revenueByRep, returnsByClient } from "@/lib/analytics/facts";
 import { receivableRowsByRep, sumAging } from "@/lib/analytics/money-facts";
 import { generateInsights, insightsConfigured } from "@/lib/ai/insights";
 import { readReport, writeReport } from "@/lib/ai/insight-cache";
@@ -27,6 +27,14 @@ const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 
 /** Скільки клієнтів кожного стану показувати моделі. */
 const CLIENTS_PER_STATE = 12;
+
+/** Скільки клієнтів із поверненнями показувати моделі. */
+const RETURN_CLIENTS = 8;
+
+/** День перед датою YYYY-MM-DD — верхня межа попереднього вікна темпу. */
+function dayBefore(day: string): string {
+  return new Date(Date.parse(day) - 86_400_000).toISOString().slice(0, 10);
+}
 
 async function guard(req: NextRequest, repId: string) {
   const session = await getServerSession(authOptions);
@@ -59,16 +67,23 @@ async function guard(req: NextRequest, repId: string) {
  * і масштаб проблеми, і те, з ким говорити першим.
  */
 async function buildFacts(repId: string, repName: string | null, period: ReturnType<typeof parsePeriod>) {
-  const [trend, portfolio, revenue, receivables] = await Promise.all([
+  const [trend, portfolio, revenue, receivables, returnClients] = await Promise.all([
     repTrend(repId, period),
     clientPortfolio(repId, period),
     revenueByRep(period.from, period.to, repId),
     receivableRowsByRep(repId),
+    returnsByClient(period.from, period.to, repId, RETURN_CLIENTS),
   ]);
 
   const aging = sumAging(receivables);
   const totals = revenue[0];
   const round = (n: number) => Math.round(n);
+
+  // Оборот у підсумку вже нетто, тож частку рахуємо від валу — інакше
+  // при поверненнях, більших за продажі, вийшло б понад 100%.
+  const netto = round(totals?.amount ?? 0);
+  const returned = round(totals?.returns ?? 0);
+  const gross = netto + returned;
 
   const byState = (state: string) =>
     portfolio.clients
@@ -88,13 +103,31 @@ async function buildFacts(repId: string, repName: string | null, period: ReturnT
     торговий: repName ?? "—",
     період: { від: period.fromDay, до: period.toDay, днів: period.days },
     підсумок: {
-      оборот: round(totals?.amount ?? 0),
+      оборот: netto,
       реалізацій: totals?.docs ?? 0,
       клієнтів_у_періоді: totals?.clients ?? 0,
       середній_чек: totals && totals.docs > 0 ? round(totals.amount / totals.docs) : 0,
     },
+    повернення: {
+      сума: returned,
+      оборот_до_повернень: gross,
+      частка_від_обороту_відсотків: gross > 0 ? round((returned / gross) * 100) : 0,
+      по_клієнтах: returnClients.map((c) => ({
+        клієнт: c.clientName ?? "—",
+        сума: round(c.amount),
+        документів: c.docs,
+      })),
+    },
     темп: trend.momentum.comparable
       ? {
+          // Межі вікон датами: модель зобов'язана вказувати в кожному
+          // інсайті, ЩО з ЧИМ порівняно, і дати мусить брати звідси
+          // дослівно, а не вигадувати.
+          вікно_останніх_4_тижнів: { від: trend.momentum.recentFrom, до: period.toDay },
+          вікно_попередніх_4_тижнів: {
+            від: trend.momentum.previousFrom,
+            до: dayBefore(trend.momentum.recentFrom),
+          },
           останні_4_тижні: {
             оборот: round(trend.momentum.recent.amount),
             реалізацій: trend.momentum.recent.docs,
@@ -174,7 +207,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rep
   const facts = await buildFacts(repId, rep.name, period);
 
   // Без продажів немає про що робити висновки — модель тут не потрібна.
-  if (facts.підсумок.реалізацій === 0) {
+  // Але період із самими поверненнями порожнім не вважаємо: нуль продажів
+  // при поверненнях на пів мільйона — це якраз те, що треба показати.
+  if (facts.підсумок.реалізацій === 0 && facts.повернення.сума === 0) {
     return NextResponse.json({
       configured: true,
       report: {

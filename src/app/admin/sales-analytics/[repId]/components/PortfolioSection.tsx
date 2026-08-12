@@ -163,6 +163,8 @@ export function PortfolioSection({ repId, period }: { repId: string; period: { f
   return (
     <>
       {/* --- Темп: останні 4 тижні проти попередніх --- */}
+      {/* id-якорі — цілі посилань «джерело» з АІ-інсайтів */}
+      <div id="rep-dynamics" className="scroll-mt-20">
       <Card>
         <CardHeader
           title="Темп роботи"
@@ -225,8 +227,10 @@ export function PortfolioSection({ repId, period }: { repId: string; period: { f
           </div>
         )}
       </Card>
+      </div>
 
       {/* --- Портфель клієнтів --- */}
+      <div id="rep-portfolio" className="scroll-mt-20">
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
@@ -369,6 +373,7 @@ export function PortfolioSection({ repId, period }: { repId: string; period: { f
           </div>
         )}
       </Card>
+      </div>
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money, num } from "@/components/ui/Stat";
@@ -9,6 +9,7 @@ import { STATUS, CATEGORICAL, NEUTRAL } from "@/lib/analytics/colors";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 import { InsightsPanel } from "./InsightsPanel";
+import { anchorResolver, type SourceResolver } from "./InsightCard";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 
@@ -88,6 +89,14 @@ export function BenchmarkTab({ period }: { period: Period }) {
   );
   const [showMatrix, setShowMatrix] = useState(false);
 
+  // Посилання «джерело» з інсайту про бренди мусить спершу розгорнути
+  // матрицю — інакше якір скролив би до згорнутої картки без таблиці.
+  const resolveSource = useCallback<SourceResolver>((source) => {
+    const link = anchorResolver(source);
+    if (!link) return null;
+    return source === "brands" ? { ...link, onClick: () => setShowMatrix(true) } : link;
+  }, []);
+
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (loading && !data) return <CardSkeleton rows={8} />;
   if (!data) return null;
@@ -114,8 +123,11 @@ export function BenchmarkTab({ period }: { period: Period }) {
         title="АІ-аналіз команди"
         hint="Хто витягує команду, хто провисає і в чому саме. Порівняння за перцентилями, числа пораховані з бази."
         saveContext={{ kind: "team", fromDay: period.from, toDay: period.to }}
+        resolveSource={resolveSource}
       />
 
+      {/* id-якорі (team-*) — цілі посилань «джерело» з АІ-інсайтів */}
+      <div id="team-benchmark" className="scroll-mt-20">
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
@@ -186,9 +198,11 @@ export function BenchmarkTab({ period }: { period: Period }) {
           </table>
         </div>
       </Card>
+      </div>
 
       {/* --- Кого куди підтягувати --- */}
       {data.comparable && (
+        <div id="team-strengths" className="scroll-mt-20">
         <Card>
           <CardHeader
             title="Сильні та слабкі сторони"
@@ -229,9 +243,11 @@ export function BenchmarkTab({ period }: { period: Period }) {
             ))}
           </div>
         </Card>
+        </div>
       )}
 
       {/* --- Матриця брендів --- */}
+      <div id="team-brands" className="scroll-mt-20">
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
@@ -311,6 +327,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
           </div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

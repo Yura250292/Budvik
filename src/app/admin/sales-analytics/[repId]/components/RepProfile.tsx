@@ -171,7 +171,9 @@ export function RepProfile({
 
         {data && (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            {/* id-якорі (rep-*) — цілі посилань «джерело» з АІ-інсайтів;
+                scroll-mt компенсує липку шапку. */}
+            <div id="rep-summary" className="grid scroll-mt-20 grid-cols-2 gap-3 lg:grid-cols-5">
               <StatCard
                 label="Оборот"
                 value={money(data.totals.amount)}
@@ -251,7 +253,7 @@ export function RepProfile({
             </Card>
 
             {/* --- Дебіторка і заробіток --- */}
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div id="rep-receivables" className="grid scroll-mt-20 gap-4 lg:grid-cols-2">
               <Card padded={false}>
                 <div className="p-4 sm:p-5">
                   <CardHeader
@@ -583,6 +585,7 @@ export function RepProfile({
             </div>
 
             {/* --- Документи --- */}
+            <div id="rep-documents" className="scroll-mt-20">
             <Card padded={false}>
               <div className="p-4 sm:p-5">
                 <CardHeader title="Останні документи" hint="Проведені реалізації з 1С, до 50 штук" />
@@ -625,6 +628,7 @@ export function RepProfile({
                 </div>
               )}
             </Card>
+            </div>
           </>
         )}
       </div>

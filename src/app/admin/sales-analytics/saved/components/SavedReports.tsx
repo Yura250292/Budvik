@@ -6,7 +6,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { CardSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { num } from "@/components/ui/Stat";
 import { STATUS } from "@/lib/analytics/colors";
-import { InsightCard, sortInsights } from "../../components/InsightCard";
+import { InsightSections, SOURCE_META, type SourceResolver } from "../../components/InsightCard";
 import { ErrorBox } from "../../components/ErrorBox";
 import type { Insight } from "@/lib/ai/insights";
 
@@ -131,6 +131,21 @@ export function SavedReports() {
   );
 
   const visible = items.filter((i) => filter === "all" || i.kind === filter);
+
+  // Посилання «джерело» з архіву ведуть на живі сторінки з тим самим
+  // періодом: числа там можуть уже відрізнятися — саме в цьому сенс
+  // порівняння «як було у звіті / як є зараз».
+  const resolveSource: SourceResolver | undefined = full
+    ? (source) => {
+        const meta = SOURCE_META[source];
+        if (!meta) return null;
+        const base =
+          full.kind === "rep" && full.repId
+            ? `/admin/sales-analytics/${full.repId}?from=${full.fromDay}&to=${full.toDay}`
+            : `/admin/sales-analytics?tab=reps&view=benchmark&from=${full.fromDay}&to=${full.toDay}`;
+        return { href: `${base}#${meta.anchor}` };
+      }
+    : undefined;
 
   return (
     <div className="min-h-screen bg-background">
@@ -298,11 +313,7 @@ export function SavedReports() {
                       <EmptyState title="У звіті немає інсайтів" />
                     </div>
                   ) : (
-                    <ul className="mt-3 space-y-2.5">
-                      {sortInsights(full.insights).map((insight, i) => (
-                        <InsightCard key={`${insight.title}-${i}`} insight={insight} />
-                      ))}
-                    </ul>
+                    <InsightSections insights={full.insights} resolveSource={resolveSource} />
                   )}
 
                   {full.tokens > 0 && (

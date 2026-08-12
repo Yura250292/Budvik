@@ -236,13 +236,19 @@ export default function TabletDayMap({
     if (plannedRef.current) {
       plannedRef.current.setLatLngs(line);
     } else {
+      // Фіолетова пунктирна: сіра губилася серед доріг OSM, а суцільна
+      // зливалася з треком. Пунктир одразу читається як «план», а не
+      // «пройдено».
       plannedRef.current = L.polyline(line, {
-        color: "#64748B",
-        weight: 4,
-        opacity: 0.55,
+        color: "#7C3AED",
+        weight: 5,
+        opacity: 0.75,
+        dashArray: "10, 8",
       }).addTo(map);
-      plannedRef.current.bringToBack();
     }
+    // Підганяємо вікно під план: інакше лінія може виявитись за краєм
+    // екрана, і «прокласти маршрут» знову виглядає як «нічого не сталось».
+    map.fitBounds(L.latLngBounds(line), { padding: [40, 40], maxZoom: 14 });
   }, [planned]);
 
   // Навігація до точки — помаранчева, поверх усього, з підгонкою вікна:

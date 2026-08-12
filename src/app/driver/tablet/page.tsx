@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
+import { useBuildVersion } from "@/hooks/useBuildVersion";
 import type { RouteLine, TabletStop } from "@/components/map/TabletDayMap";
 
 const TabletDayMap = dynamic(() => import("@/components/map/TabletDayMap"), {
@@ -106,6 +107,7 @@ export default function DriverTabletPage() {
   const [navigating, setNavigating] = useState<string | null>(null);
 
   const track = useTrackRecorder({ enabled: true });
+  const build = useBuildVersion();
 
   const load = useCallback(async () => {
     try {
@@ -193,15 +195,30 @@ export default function DriverTabletPage() {
           start: track.position ? [track.position.lng, track.position.lat] : undefined,
         }),
       });
+      // Сесія протухла за ніч у тримачі — сервер віддає HTML логіна, і
+      // json() падає. Кажемо прямо, замість мовчазного «нічого не сталось».
+      if (res.status === 401) throw new Error("Сесія завершилась — увійдіть знову");
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      if (!json?.cheapest) throw new Error("Сервер не повернув маршрут");
       const built = json as OptimizeResp;
       setPlan(built);
       // Одразу показуємо лінію найдешевшого: «прокласти маршрут» без
       // лінії на карті виглядає як кнопка, що не спрацювала.
       setPreviewGeom(built.cheapest.geometry ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
+      // TypeError від fetch — це або немає мережі, або сторінка стара і
+      // не може довантажити свої чанки після деплою.
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      setError(
+        e instanceof TypeError
+          ? offline
+            ? "Немає звʼязку — маршрут порахується, коли зʼявиться інтернет"
+            : "Звʼязок обірвався. Якщо повторюється — перезавантажте сторінку"
+          : e instanceof Error
+            ? e.message
+            : "Не вдалося прокласти маршрут"
+      );
     } finally {
       setPlanning(false);
     }
@@ -392,9 +409,54 @@ export default function DriverTabletPage() {
         )}
       </header>
 
+      {/* Вийшов деплой під відкритою вкладкою: стара сторінка не може
+          довантажити свої чанки, і кнопки тихо перестають працювати.
+          Пропонуємо оновитись, але не робимо це самі — щоб не стерти
+          недописану відмітку візиту. */}
+      {build.stale && (
+        <button
+          type="button"
+          onClick={build.reload}
+          className="shrink-0 cursor-pointer transition-colors duration-200"
+          style={{
+            width: "100%",
+            minHeight: "44px",
+            border: "none",
+            background: "#FFD600",
+            color: "#0A0A0A",
+            fontSize: "14px",
+            fontWeight: 700,
+          }}
+        >
+          Вийшло оновлення — натисніть, щоб перезавантажити
+        </button>
+      )}
+
       {error && (
-        <div className="shrink-0 px-4 py-2" style={{ background: "#FEF2F2" }}>
-          <p style={{ fontSize: "13px", color: "#B91C1C" }}>{error}</p>
+        <div
+          className="flex shrink-0 items-center gap-2 px-4 py-2.5"
+          style={{ background: "#DC2626" }}
+        >
+          <p className="flex-1" style={{ fontSize: "13.5px", fontWeight: 600, color: "#fff" }}>
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Закрити помилку"
+            className="shrink-0 cursor-pointer rounded-lg"
+            style={{
+              minWidth: "44px",
+              minHeight: "36px",
+              border: "none",
+              background: "rgba(255,255,255,0.2)",
+              color: "#fff",
+              fontSize: "15px",
+              fontWeight: 700,
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -512,18 +574,10 @@ export default function DriverTabletPage() {
             </div>
           ) : (
             <>
-              <RoutePlanner
-                plan={plan}
+              <BuildRouteButton
                 planning={planning}
-                applying={applying}
                 hasPosition={!!track.position}
                 onBuild={buildPlan}
-                onApply={applyPlan}
-                onPreview={(g) => setPreviewGeom(g)}
-                onDismiss={() => {
-                  setPlan(null);
-                  setPreviewGeom(null);
-                }}
               />
 
               {stops.map((s) => (
@@ -542,6 +596,64 @@ export default function DriverTabletPage() {
           )}
         </aside>
       </div>
+
+      {/* Варіанти маршруту — шаром поверх усього екрана.
+          Раніше панель була всередині списку точок: на портретному
+          планшеті вона опинялася нижче карти, і водій, натиснувши
+          «Прокласти маршрут», бачив «нічого не сталося». */}
+      {plan && (
+        <RoutePlanner
+          plan={plan}
+          applying={applying}
+          onApply={applyPlan}
+          onPreview={(g) => setPreviewGeom(g)}
+          onDismiss={() => {
+            setPlan(null);
+            setPreviewGeom(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Кнопка запуску розрахунку — живе в списку, поруч із точками. */
+function BuildRouteButton({
+  planning,
+  hasPosition,
+  onBuild,
+}: {
+  planning: boolean;
+  hasPosition: boolean;
+  onBuild: () => void;
+}) {
+  return (
+    <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6" }}>
+      {/* Заливка, а не рамка: на сонці бліда кнопка читається як
+          неактивна, і водій тисне її вдруге, думаючи, що не спрацювало. */}
+      <button
+        type="button"
+        onClick={onBuild}
+        disabled={planning}
+        className="w-full cursor-pointer transition-colors duration-200"
+        style={{
+          minHeight: "48px",
+          padding: "12px",
+          borderRadius: "12px",
+          border: "none",
+          background: planning ? "#93C5FD" : "#2563EB",
+          color: "#fff",
+          fontSize: "15px",
+          fontWeight: 700,
+        }}
+      >
+        {planning ? "Рахую маршрут…" : "Прокласти маршрут"}
+      </button>
+      <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "6px", lineHeight: 1.45 }}>
+        {hasPosition
+          ? "Порахую від місця, де ви зараз."
+          : "Увімкніть геолокацію, щоб рахувати від вашого місця."}
+      </p>
     </div>
   );
 }
@@ -556,53 +668,18 @@ export default function DriverTabletPage() {
  */
 function RoutePlanner({
   plan,
-  planning,
   applying,
-  hasPosition,
-  onBuild,
   onApply,
   onPreview,
   onDismiss,
 }: {
-  plan: OptimizeResp | null;
-  planning: boolean;
+  plan: OptimizeResp;
   applying: "cheapest" | "balanced" | null;
-  hasPosition: boolean;
-  onBuild: () => void;
   onApply: (which: "cheapest" | "balanced") => void;
   /** Тап по картці варіанта — показати його лінію на карті */
   onPreview: (geometry: RouteLine) => void;
   onDismiss: () => void;
 }) {
-  if (!plan) {
-    return (
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6" }}>
-        <button
-          type="button"
-          onClick={onBuild}
-          disabled={planning}
-          className="w-full cursor-pointer transition-colors duration-200"
-          style={{
-            minHeight: "48px",
-            padding: "12px",
-            borderRadius: "12px",
-            border: "1px solid #2563EB",
-            background: planning ? "#EFF6FF" : "#fff",
-            color: "#2563EB",
-            fontSize: "15px",
-            fontWeight: 700,
-          }}
-        >
-          {planning ? "Рахую маршрут…" : "Прокласти маршрут"}
-        </button>
-        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "6px", lineHeight: 1.45 }}>
-          {hasPosition
-            ? "Порахую від місця, де ви зараз."
-            : "Увімкніть геолокацію, щоб рахувати від вашого місця."}
-        </p>
-      </div>
-    );
-  }
 
   const { cheapest, balanced, detourPercent, extraCost } = plan;
   // Пріоритетні точки, які підтягнув балансир — саме їх водій має
@@ -612,9 +689,28 @@ function RoutePlanner({
     .filter((s) => s.score >= 0.35);
 
   return (
-    <div style={{ padding: "12px 16px", borderBottom: "1px solid #E5E7EB", background: "#F8FAFC" }}>
-      <div className="mb-2 flex items-center justify-between">
-        <span style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>
+    // Затемнення на весь екран: результат розрахунку не має ховатися
+    // нижче карти, а тап повз панель — це «передумав».
+    <div
+      className="fixed inset-0 z-[1000] flex items-end justify-center"
+      style={{ background: "rgba(10,10,10,0.45)" }}
+      onClick={onDismiss}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full overflow-y-auto"
+        style={{
+          maxWidth: "560px",
+          maxHeight: "85vh",
+          background: "#F8FAFC",
+          borderTopLeftRadius: "18px",
+          borderTopRightRadius: "18px",
+          padding: "14px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.3)",
+        }}
+      >
+      <div className="mb-3 flex items-center justify-between">
+        <span style={{ fontSize: "16px", fontWeight: 700, color: "#0A0A0A" }}>
           Оберіть маршрут
         </span>
         <button
@@ -628,7 +724,8 @@ function RoutePlanner({
             border: "none",
             background: "none",
             color: "#6B7280",
-            fontSize: "13px",
+            fontSize: "14px",
+            fontWeight: 600,
           }}
         >
           Скасувати
@@ -684,6 +781,7 @@ function RoutePlanner({
           окремий варіант не потрібен.
         </p>
       )}
+      </div>
     </div>
   );
 }

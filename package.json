@@ -24,6 +24,7 @@
     "leaflet": "^1.9.4",
     "next": "16.1.6",
     "next-auth": "^4.24.13",
+    "polygon-clipping": "^0.15.7",
     "prisma": "^6.19.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",

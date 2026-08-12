@@ -48,9 +48,9 @@ export default function DriverPage() {
     setActionLoading(null);
   };
 
-  if (!["ADMIN", "MANAGER", "DRIVER"].includes(role)) {
-    return <div className="min-h-screen flex items-center justify-center"><p className="text-lg font-bold">Доступ заборонено</p></div>;
-  }
+  // Перевірку ролі робить DriverGate у layout секції — з урахуванням
+  // стану "loading". Тут вона стояла без нього, і поки сесія їхала,
+  // сторінка встигала показати «Доступ заборонено» самому водієві.
 
   const activeRoutes = routes.filter((r) => r.status === "PLANNED" || r.status === "IN_PROGRESS");
   const completedRoutes = routes.filter((r) => r.status === "COMPLETED");
@@ -76,23 +76,55 @@ export default function DriverPage() {
             </p>
           </div>
 
-          {/* Режим планшета: карта дня з чек-лістом і записом треку.
-              Окремий екран, бо цей список — довідковий, а той працює
-              весь день у тримачі. */}
-          <Link
-            href="/driver/tablet"
-            style={{
-              padding: "9px 14px", borderRadius: "10px", textDecoration: "none",
-              background: "rgba(255,255,255,0.15)", color: "white",
-              fontSize: "14px", fontWeight: 700, whiteSpace: "nowrap",
-            }}
-          >
-            Карта дня
-          </Link>
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "100px" }}>
+      <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "24px" }}>
+        {/* Головна дія дня — велика й перша. Список маршрутів нижче
+            довідковий, а «Карта дня» це те, з чим водій працює весь день:
+            вона показує точки, приймає відмітки й пише трек. */}
+        <Link
+          href="/driver/tablet"
+          className="flex cursor-pointer items-center gap-3 rounded-2xl transition-colors duration-200"
+          style={{
+            padding: "16px 18px",
+            background: "linear-gradient(135deg, #0A0A0A, #1F2937)",
+            color: "#fff",
+            textDecoration: "none",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
+          }}
+        >
+          <span
+            className="flex shrink-0 items-center justify-center rounded-xl"
+            style={{ width: "44px", height: "44px", background: "rgba(255,255,255,0.12)" }}
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="#FFD600" strokeWidth={1.6}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+              />
+            </svg>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block" style={{ fontSize: "17px", fontWeight: 700 }}>
+              Карта дня
+            </span>
+            <span className="block" style={{ fontSize: "12.5px", color: "rgba(255,255,255,0.6)", lineHeight: 1.4 }}>
+              Маршрут, відмітки візитів і запис пробігу
+            </span>
+          </span>
+          <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.5)" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </Link>
+
+        <p style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", margin: "18px 0 8px" }}>
+          Маршрути доставки
+        </p>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4" style={{ paddingBottom: "24px" }}>
         {loading ? (
           <div className="text-center py-8" style={{ color: "#9CA3AF" }}>Завантаження...</div>
         ) : routes.length === 0 ? (

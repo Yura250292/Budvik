@@ -154,6 +154,10 @@ export function RoutesTab({
   // Смугу зони рахує ZonePanel (там радіус і фільтри шарів), а малює мапа
   // тут — тому оверлей піднятий у спільного батька.
   const [zone, setZone] = useState<ZoneOverlay | null>(null);
+  /** Правка межі: стан тут, бо ручки малює мапа, а кнопки — панель під нею. */
+  const [zoneEditing, setZoneEditing] = useState(false);
+  /** Межа, яку адмін перетягнув мишею, але ще не зберіг. */
+  const [pendingRings, setPendingRings] = useState<Array<Array<[number, number]>> | null>(null);
   /** Шари карти напрямків. Маршрути ввімкнені завжди — це основа вкладки. */
   const [showRoutes, setShowRoutes] = useState(true);
   const [showZone, setShowZone] = useState(true);
@@ -903,6 +907,8 @@ export function RoutesTab({
               legend={showRoutes ? overviewLegend : []}
               zone={showZone && overview.kind === "template" ? zone : null}
               clients={mapClients}
+              zoneEditing={zoneEditing}
+              onZoneEdit={setPendingRings}
             />
           )}
         </Card>
@@ -922,6 +928,15 @@ export function RoutesTab({
           }
           period={period}
           onZoneChange={setZone}
+          editing={zoneEditing}
+          onEditingChange={(v) => {
+            setZoneEditing(v);
+            // Вихід із режиму скидає незбережене: інакше «Скасувати» лишало б
+            // перетягнуту межу висіти в пам'яті до наступного збереження.
+            if (!v) setPendingRings(null);
+          }}
+          pendingRings={pendingRings}
+          canEdit={canEdit}
         />
       </div>
     </div>

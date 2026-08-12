@@ -15,7 +15,7 @@ export default function DashboardPage() {
   const role = (session?.user as { role?: string } | undefined)?.role;
 
   /**
-   * Торгового відправляємо в його кабінет.
+   * Працівників відправляємо в їхні кабінети.
    *
    * Гейт саме тут, а не лише в /login: сюди ведуть кілька шляхів повз
    * форму входу — Google-вхід (callbackUrl: "/dashboard" у login і
@@ -23,11 +23,15 @@ export default function DashboardPage() {
    * посилання. Лікувати кожен окремо означало б забути наступний;
    * /dashboard — спільна для них точка.
    *
+   * Водій без цього бачив кабінет покупця: «Клієнт», болти на балансі,
+   * «Стати оптовиком» — і жодного маршруту.
+   *
    * У manifest.json start_url не чіпаємо: він один на всіх, і кабінет
    * торгового відкривався б покупцям.
    */
   useEffect(() => {
     if (role === "SALES") router.replace("/sales");
+    else if (role === "DRIVER") router.replace("/driver");
   }, [role, router]);
 
   useEffect(() => {

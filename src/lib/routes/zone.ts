@@ -25,7 +25,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Period } from "@/lib/analytics/period";
 import { clientPortfolioAll, type ClientState } from "@/lib/analytics/clients";
-import { CorridorIndex, corridorAxis, type LatLng } from "./corridor";
+import { CorridorIndex, corridorAxis, corridorRings, type LatLng } from "./corridor";
 
 /** Радіус коридору за замовчуванням — година об'їзду туди-назад по районних дорогах. */
 export const DEFAULT_RADIUS_KM = 10;
@@ -75,8 +75,14 @@ export type ZoneResult = {
   templateId: string;
   templateName: string;
   radiusKm: number;
-  /** Осьова лінія коридору для малювання смуги на мапі */
-  axis: LatLng[];
+  /**
+   * Готова межа зони для мапи: кільця [lat, lng]. Рахується тут, а не в
+   * браузері, бо об'єднання полігонів для 4000-точкової осі — це помітна
+   * робота, і на клієнті вона повторювалася б на кожен рух повзунка.
+   */
+  rings: Array<Array<[number, number]>>;
+  /** Межу правили руками — тоді radiusKm лише довідковий */
+  edited: boolean;
   summary: ZoneSummary;
   opportunities: ZoneOpportunity[];
   /** Торгові, призначені на цей напрямок (за розкладом або датою) */
@@ -128,6 +134,60 @@ export function settlementFromAddress(address: string | null): string | null {
   return null;
 }
 
+/** Кільце з corridorRings → пари [lat, lng] для мапи і для збереження. */
+function ringToPairs(ring: LatLng[]): Array<[number, number]> {
+  return ring.map((p) => [p.lat, p.lng] as [number, number]);
+}
+
+/**
+ * Читає ручну межу з JSON-поля.
+ *
+ * Валідуємо форму, а не довіряємо типу: у Json-полі за роки може опинитися
+ * будь-що (стара версія формату, ручна правка в базі), і крива межа тихо
+ * викинула б з зони всіх клієнтів — помилка, яку на карті видно не одразу.
+ * Кільце менш ніж із трьох точок — не полігон, тож ігнорується.
+ */
+function parseZonePolygon(value: unknown): Array<Array<[number, number]>> | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+
+  const rings: Array<Array<[number, number]>> = [];
+  for (const ring of value) {
+    if (!Array.isArray(ring) || ring.length < 3) continue;
+    const points: Array<[number, number]> = [];
+    for (const p of ring) {
+      if (!Array.isArray(p) || p.length < 2) continue;
+      const [lat, lng] = p;
+      if (typeof lat !== "number" || typeof lng !== "number") continue;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      points.push([lat, lng]);
+    }
+    if (points.length >= 3) rings.push(points);
+  }
+
+  return rings.length > 0 ? rings : null;
+}
+
+/**
+ * Чи точка всередині кільця — ray casting.
+ *
+ * Промінь пускається на схід; рахуємо перетини з ребрами. Умова на
+ * широту навмисно несиметрична (>= для одного кінця, < для іншого):
+ * так вершина, що лежить точно на промені, зараховується рівно один
+ * раз, і точка біля неї не «блимає» між «в зоні» і «поза».
+ */
+export function pointInRing(lat: number, lng: number, ring: Array<[number, number]>): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [latI, lngI] = ring[i];
+    const [latJ, lngJ] = ring[j];
+    if (latI > lat !== latJ > lat) {
+      const x = ((lngJ - lngI) * (lat - latI)) / (latJ - latI) + lngI;
+      if (lng < x) inside = !inside;
+    }
+  }
+  return inside;
+}
+
 type ProspectRow = {
   id: string;
   name: string;
@@ -165,6 +225,32 @@ export async function computeZone(
     template.stops.map((s) => ({ lat: s.lat, lng: s.lng }))
   );
   const index = new CorridorIndex(axis);
+
+  // Ручна межа має пріоритет над автоматикою: якщо адмін її посунув, він
+  // знає про місцевість те, чого не знає відстань до дороги — що за річкою
+  // мосту немає, або що в сусіднє село їдуть з іншого напрямку.
+  const manualRings = parseZonePolygon(template.zonePolygon);
+  const edited = manualRings !== null;
+  const rings = edited ? manualRings : corridorRings(axis, radiusKm).map(ringToPairs);
+
+  /**
+   * Чи точка всередині зони.
+   *
+   * Для автоматичної зони питаємо відстань до осі — це дешевше за перевірку
+   * полігона і точніше: контур є лише її намальованим наближенням.
+   * Для ручної — класичний ray casting з урахуванням дірок: точка в дірці
+   * не в зоні, хоч і всередині зовнішнього кільця.
+   */
+  const inZone = (lat: number, lng: number): { inside: boolean; distanceKm: number } => {
+    const distanceKm = index.distanceKm({ lat, lng });
+    if (!edited) return { inside: distanceKm <= radiusKm, distanceKm };
+
+    let inside = false;
+    for (const ring of rings) {
+      if (pointInRing(lat, lng, ring)) inside = !inside;
+    }
+    return { inside, distanceKm };
+  };
 
   const [portfolio, prospects] = await Promise.all([
     clientPortfolioAll(period),
@@ -215,8 +301,9 @@ export async function computeZone(
   for (const c of portfolio.clients) {
     if (c.lat == null || c.lng == null) continue;
 
-    const distanceKm = index.distanceKm({ lat: c.lat, lng: c.lng });
-    if (distanceKm > radiusKm) continue;
+    const hit = inZone(c.lat, c.lng);
+    if (!hit.inside) continue;
+    const distanceKm = hit.distanceKm;
 
     const settlement = settlementFromAddress(c.address);
     const isOwn = c.reps.some((r) => assignedRepIds.has(r.id));
@@ -261,8 +348,9 @@ export async function computeZone(
   }
 
   for (const p of prospects) {
-    const distanceKm = index.distanceKm({ lat: p.lat, lng: p.lng });
-    if (distanceKm > radiusKm) continue;
+    const hit = inZone(p.lat, p.lng);
+    if (!hit.inside) continue;
+    const distanceKm = hit.distanceKm;
 
     opportunities.push({
       kind: "PROSPECT",
@@ -294,8 +382,9 @@ export async function computeZone(
   for (const cp of geoCounterparties) {
     if (cp.deliveryLat == null || cp.deliveryLng == null) continue;
 
-    const distanceKm = index.distanceKm({ lat: cp.deliveryLat, lng: cp.deliveryLng });
-    if (distanceKm > radiusKm) continue;
+    const hit = inZone(cp.deliveryLat, cp.deliveryLng);
+    if (!hit.inside) continue;
+    const distanceKm = hit.distanceKm;
 
     const settlement = settlementFromAddress(cp.address);
     if (!settlement) continue;
@@ -353,7 +442,8 @@ export async function computeZone(
     templateId: template.id,
     templateName: template.name,
     radiusKm,
-    axis,
+    rings,
+    edited,
     summary: {
       ownClients,
       ownRevenue,

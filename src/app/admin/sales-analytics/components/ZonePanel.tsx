@@ -30,7 +30,8 @@ type ZoneResponse = {
   templateId: string;
   templateName: string;
   radiusKm: number;
-  axis: Array<{ lat: number; lng: number }>;
+  rings: Array<Array<[number, number]>>;
+  edited: boolean;
   summary: {
     ownClients: number;
     ownRevenue: number;
@@ -89,23 +90,32 @@ const STATE_LABEL: Record<string, string> = {
   LOST: "Втрачений",
 };
 
-/** Радіус у метрах для кола Leaflet. */
-const KM = 1000;
-
 export function ZonePanel({
   templateId,
   templateName,
   period,
   onZoneChange,
+  editing,
+  onEditingChange,
+  pendingRings,
+  canEdit = false,
 }: {
   templateId: string | null;
   templateName: string | null;
   period: Period;
   /** Смуга і точки для мапи — малює батьківський RoutesTab */
   onZoneChange: (zone: ZoneOverlay | null) => void;
+  /** Режим правки межі — стан живе в батьку, бо ручки малює мапа */
+  editing: boolean;
+  onEditingChange: (value: boolean) => void;
+  /** Межа, яку адмін наразі перетягнув, але ще не зберіг */
+  pendingRings: Array<Array<[number, number]>> | null;
+  canEdit?: boolean;
 }) {
   const [radiusKm, setRadiusKm] = useState(10);
   const [hidden, setHidden] = useState<Set<ZoneKind>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useApi<ZoneResponse>(
     templateId
@@ -118,12 +128,11 @@ export function ZonePanel({
     [data, hidden]
   );
 
-  // Смуга коридору будується тут, а не на сервері: геометрія залежить лише
-  // від осі та радіуса, обидва вже в руках, і зайвий кілобайт у відповіді
-  // API ні до чого.
+  // Межа приходить готовою з сервера: об'єднання полігонів для 4000-точкової
+  // осі — помітна робота, і в браузері вона повторювалася б на кожен рух
+  // повзунка радіуса.
   const overlay = useMemo<ZoneOverlay | null>(() => {
     if (!data) return null;
-    const shapes = buildBandShapes(data.axis, radiusKm);
     const points: ZonePoint[] = visible.map((o) => ({
       id: o.id,
       kind: o.kind,
@@ -138,8 +147,8 @@ export function ZonePanel({
             ? o.reps.map((r) => r.name).join(", ")
             : "Не закріплений ні за ким",
     }));
-    return { shapes, points };
-  }, [data, visible, radiusKm]);
+    return { rings: data.rings, points, edited: data.edited };
+  }, [data, visible]);
 
   // Віддаємо смугу батькові, який малює мапу. Залежність — лише overlay:
   // onZoneChange приходить із батька новим посиланням на кожен його рендер,
@@ -154,6 +163,48 @@ export function ZonePanel({
     return () => onZoneChange(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function saveBoundary() {
+    if (!templateId || !pendingRings) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/admin/route-templates/${templateId}/zone`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rings: pendingRings, radiusKm }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти межу");
+      onEditingChange(false);
+      // Перечитуємо: після ручної межі змінюється не лише контур, а й самі
+      // цифри — хто тепер у зоні, а хто випав.
+      reload();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Не вдалося зберегти межу");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetBoundary() {
+    if (!templateId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/admin/route-templates/${templateId}/zone`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Не вдалося скинути межу");
+      }
+      onEditingChange(false);
+      reload();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Не вдалося скинути межу");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (!templateId) {
     return (
@@ -178,26 +229,92 @@ export function ZonePanel({
     <Card>
       <CardHeader
         title={`Зона напрямку${templateName ? ` · ${templateName}` : ""}`}
-        hint="Смуга вздовж маршруту: усе, що в неї потрапляє, торговий проїжджає майже без гака. Крутіть радіус — список перерахується."
+        hint={
+          data?.edited
+            ? "Межу цієї зони виправлено вручну. Радіус більше на неї не впливає — поверніть автоматичну, щоб рахувалась від маршруту."
+            : "Смуга вздовж маршруту: усе, що в неї потрапляє, торговий проїжджає майже без гака. Крутіть радіус — список перерахується."
+        }
         action={
-          <div className="flex items-center gap-2">
-            <label htmlFor="zone-radius" className="whitespace-nowrap text-xs text-g500">
-              Радіус
-            </label>
-            <input
-              id="zone-radius"
-              type="range"
-              min={2}
-              max={40}
-              step={1}
-              value={radiusKm}
-              onChange={(e) => setRadiusKm(Number(e.target.value))}
-              className="w-32 cursor-pointer accent-[#0F766E]"
-            />
-            <span className="w-12 text-xs font-semibold tabular-nums text-bk">{radiusKm} км</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Радіус ховаємо в режимі правки: він там нічого не змінює, і
+                повзунок, що ні на що не впливає, збиває з пантелику. */}
+            {!editing && !data?.edited && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="zone-radius" className="whitespace-nowrap text-xs text-g500">
+                  Радіус
+                </label>
+                <input
+                  id="zone-radius"
+                  type="range"
+                  min={2}
+                  max={40}
+                  step={1}
+                  value={radiusKm}
+                  onChange={(e) => setRadiusKm(Number(e.target.value))}
+                  className="w-32 cursor-pointer accent-[#0B7285]"
+                />
+                <span className="w-12 text-xs font-semibold tabular-nums text-bk">{radiusKm} км</span>
+              </div>
+            )}
+
+            {canEdit && data && (
+              <div className="flex items-center gap-1.5">
+                {editing ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={saveBoundary}
+                      disabled={saving || !pendingRings}
+                      className="cursor-pointer rounded-[var(--radius-btn)] bg-[#0B7285] px-3 py-1.5 text-xs font-semibold text-white transition-colors duration-200 hover:bg-[#095c6b] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {saving ? "Збереження…" : pendingRings ? "Зберегти межу" : "Посуньте межу"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEditingChange(false)}
+                      disabled={saving}
+                      className="cursor-pointer rounded-[var(--radius-btn)] border border-g300 bg-white px-3 py-1.5 text-xs text-bk transition-colors duration-200 hover:border-g400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Скасувати
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onEditingChange(true)}
+                    className="cursor-pointer rounded-[var(--radius-btn)] border border-g300 bg-white px-3 py-1.5 text-xs text-bk transition-colors duration-200 hover:border-g400"
+                  >
+                    Правити межу
+                  </button>
+                )}
+                {data.edited && !editing && (
+                  <button
+                    type="button"
+                    onClick={resetBoundary}
+                    disabled={saving}
+                    className="cursor-pointer rounded-[var(--radius-btn)] border border-g300 bg-white px-3 py-1.5 text-xs text-g500 transition-colors duration-200 hover:border-g400 hover:text-bk disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Автоматична
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         }
       />
+
+      {editing && (
+        <p className="mb-3 rounded-[var(--radius-btn)] border border-[#0B7285]/30 bg-[#0B7285]/5 px-3 py-2 text-xs text-bk">
+          Тягніть кружечки на межі, щоб посунути її. Сусідні точки їдуть слідом,
+          тож межа лишається плавною. Зміни застосуються після «Зберегти межу».
+        </p>
+      )}
+
+      {saveError && (
+        <p role="alert" className="mb-3 text-xs text-[#e34948]">
+          {saveError}
+        </p>
+      )}
 
       {loading && !data ? (
         <Skeleton className="h-40 w-full" />
@@ -345,67 +462,4 @@ export function ZonePanel({
       )}
     </Card>
   );
-}
-
-/**
- * Смуга навколо осі: прямокутник на кожен відрізок плюс коло на кожен стик.
- *
- * Дублює логіку lib/routes/corridor.ts свідомо — там серверна версія в
- * градусах для розрахунку відстані, тут клієнтська для Leaflet, який
- * хоче [lat,lng] і радіус у метрах. Спільний модуль вимагав би тягнути
- * серверні типи в бандл заради двадцяти рядків тригонометрії.
- */
-function buildBandShapes(
-  axis: Array<{ lat: number; lng: number }>,
-  radiusKm: number
-): ZoneOverlay["shapes"] {
-  if (axis.length === 0) return { segments: [], circles: [] };
-
-  const KM_PER_DEG_LAT = 111.32;
-  const step = Math.max(0.5, radiusKm / 3);
-
-  // Проріджування: у геометрії OSRM на 250 км понад тисяча точок, і тисяча
-  // полігонів у Leaflet — це помітний фриз на кожен рух повзунка.
-  const simplified: Array<{ lat: number; lng: number }> = [axis[0]];
-  let last = axis[0];
-  for (let i = 1; i < axis.length - 1; i++) {
-    const p = axis[i];
-    const kx = KM_PER_DEG_LAT * Math.cos((((last.lat + p.lat) / 2) * Math.PI) / 180);
-    const dx = (p.lng - last.lng) * kx;
-    const dy = (p.lat - last.lat) * KM_PER_DEG_LAT;
-    if (Math.hypot(dx, dy) >= step) {
-      simplified.push(p);
-      last = p;
-    }
-  }
-  if (axis.length > 1) simplified.push(axis[axis.length - 1]);
-
-  const segments: Array<Array<[number, number]>> = [];
-  for (let i = 0; i < simplified.length - 1; i++) {
-    const a = simplified[i];
-    const b = simplified[i + 1];
-    const kx = KM_PER_DEG_LAT * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
-
-    const dx = (b.lng - a.lng) * kx;
-    const dy = (b.lat - a.lat) * KM_PER_DEG_LAT;
-    const len = Math.hypot(dx, dy);
-    if (len === 0) continue;
-
-    const offLng = ((-dy / len) * radiusKm) / kx;
-    const offLat = ((dx / len) * radiusKm) / KM_PER_DEG_LAT;
-
-    segments.push([
-      [a.lat + offLat, a.lng + offLng],
-      [b.lat + offLat, b.lng + offLng],
-      [b.lat - offLat, b.lng - offLng],
-      [a.lat - offLat, a.lng - offLng],
-    ]);
-  }
-
-  const circles = simplified.map((c) => ({
-    center: [c.lat, c.lng] as [number, number],
-    radiusM: radiusKm * KM,
-  }));
-
-  return { segments, circles };
 }

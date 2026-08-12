@@ -22,6 +22,11 @@
  * 380 клієнтів × тисячі відрізків геометрії рахуються на кожен рух повзунка.
  */
 
+// Default-імпорт, хоча .d.ts оголошує і іменовані: у ESM-збірці пакета
+// реально експортується лише default, і `import { union }` валить збірку
+// Turbopack на етапі статичного аналізу.
+import polygonClipping from "polygon-clipping";
+
 export type LatLng = { lat: number; lng: number };
 
 /** Скільки кілометрів в одному градусі широти. */
@@ -154,57 +159,126 @@ export class CorridorIndex {
 }
 
 /**
- * Полігон коридору для малювання на мапі.
+ * Межа зони: зовнішні контури коридору, з дірками, якщо вони є.
  *
- * Замість справжнього буфера (для якого знадобився б turf і клієнтський
- * бандл на сотні кілобайт) будуємо об'єднання «капсул»: для кожного
- * відрізка — прямокутник шириною 2R, для кожної вершини — коло радіуса R.
- * Leaflet малює це як набір фігур з однаковим стилем і напівпрозорою
- * заливкою; візуально це і є смуга. Точність малюнка тут другорядна:
- * рішення «в зоні / не в зоні» ухвалює distanceKm, а не піксель на екрані.
+ * Перша версія малювала окремі фігури — прямокутник на відрізок плюс коло
+ * на вершину — і на карті це виглядало як десятки накладених плям із
+ * внутрішніми обведеннями по швах. Межу зони з такого не прочитати.
  *
- * Осьова лінія проріджується: у геометрії OSRM на 246 км понад тисяча
- * точок, і малювати тисячу прямокутників — це секунди фризу на кожен рух
- * повзунка радіуса.
+ * Друга версія обгортала вісь одним кільцем (ліворуч туди, праворуч назад).
+ * На прямій трасі виходило ідеально, але перевірка на реальному «Стрию»
+ * показала, чому цього мало: 121 з 216 ділянок цього маршруту проходять
+ * за <12 км від іншої своєї ж частини — це петля Львів→Стрий→Трускавець→
+ * Львів, де дорога «туди» йде поруч із дорогою «назад». Одне кільце там
+ * неминуче перетинає саме себе, і контур пірнав усередину зони (частина
+ * точок опинялась за 0.9 км від осі замість 10).
+ *
+ * Тому союз рахується чесно, через polygon-clipping (~9 КБ gzip, і лише
+ * в динамічному чанку карти). Кожен відрізок осі дає капсулу, всі капсули
+ * об'єднуються — на виході зовнішні межі та справжні дірки між гілками
+ * маршруту. Своя реалізація булевих операцій над полігонами тут була б
+ * найгіршим варіантом: це класична задача з купою вироджених випадків.
  */
-export function corridorShapes(
-  axis: LatLng[],
-  radiusKm: number
-): { segments: LatLng[][]; circles: Array<{ center: LatLng; radiusKm: number }> } {
-  const simplified = simplifyAxis(axis, radiusKm / 3);
-  if (simplified.length === 0) return { segments: [], circles: [] };
-  if (simplified.length === 1) {
-    return { segments: [], circles: [{ center: simplified[0], radiusKm }] };
-  }
+export function corridorRings(axis: LatLng[], radiusKm: number): LatLng[][] {
+  const simplified = simplifyAxis(axis, radiusKm / 4);
+  if (simplified.length === 0) return [];
+  if (simplified.length === 1) return [circleRing(simplified[0], radiusKm)];
 
-  const segments: LatLng[][] = [];
+  // Капсула на кожен відрізок: прямокутник + півкола на торцях. Кожна —
+  // опуклий полігон, тож союз рахується стійко.
+  const capsules: Array<Array<[number, number]>> = [];
   for (let i = 0; i < simplified.length - 1; i++) {
-    const a = simplified[i];
-    const b = simplified[i + 1];
-    const s = scale((a.lat + b.lat) / 2);
-
-    const dx = (b.lng - a.lng) * s.kx;
-    const dy = (b.lat - a.lat) * s.ky;
-    const len = Math.hypot(dx, dy);
-    if (len === 0) continue;
-
-    // Нормаль до відрізка, довжиною radiusKm, назад у градуси.
-    const nx = (-dy / len) * radiusKm;
-    const ny = (dx / len) * radiusKm;
-    const offLng = nx / s.kx;
-    const offLat = ny / s.ky;
-
-    segments.push([
-      { lat: a.lat + offLat, lng: a.lng + offLng },
-      { lat: b.lat + offLat, lng: b.lng + offLng },
-      { lat: b.lat - offLat, lng: b.lng - offLng },
-      { lat: a.lat - offLat, lng: a.lng - offLng },
-    ]);
+    const capsule = segmentCapsule(simplified[i], simplified[i + 1], radiusKm);
+    if (capsule) capsules.push(capsule.map((p) => [p.lng, p.lat] as [number, number]));
   }
+  if (capsules.length === 0) return [];
 
-  // Кола на стиках згладжують кути між прямокутниками.
-  const circles = simplified.map((center) => ({ center, radiusKm }));
-  return { segments, circles };
+  // Вхід для union: кожна капсула — окремий полігон з єдиним кільцем.
+  const [first, ...rest] = capsules.map((c) => [closeRing(c)]);
+  const united = polygonClipping.union(first as never, ...(rest as never[]));
+
+  // Результат — MultiPolygon: [полігон][кільце][точка]. Беремо всі кільця:
+  // зовнішні дають межу, внутрішні — дірки між гілками маршруту.
+  const out: LatLng[][] = [];
+  for (const polygon of united) {
+    for (const ring of polygon) {
+      if (ring.length < 4) continue;
+      out.push(ring.map(([lng, lat]) => ({ lat, lng })));
+    }
+  }
+  return out;
+}
+
+/** polygon-clipping вимагає замкненого кільця: перша точка = остання. */
+function closeRing(ring: Array<[number, number]>): Array<[number, number]> {
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) return ring;
+  return [...ring, first];
+}
+
+/**
+ * Капсула навколо відрізка: прямокутник шириною 2R із заокругленими
+ * торцями. Заокруглення обов'язкове — з гострими торцями союз давав би
+ * зубці на кожному стику сусідніх відрізків.
+ */
+function segmentCapsule(a: LatLng, b: LatLng, radiusKm: number): LatLng[] | null {
+  const n = normalAt(a, b);
+  if (!n) return null;
+
+  const out: LatLng[] = [];
+  const startAngle = Math.atan2(n.y, n.x);
+
+  // Лівий бік від a до b, дуга навколо b, правий бік назад, дуга навколо a.
+  out.push(offsetPoint(a, n.x, n.y, radiusKm));
+  out.push(offsetPoint(b, n.x, n.y, radiusKm));
+  for (let k = 1; k < ARC_STEPS; k++) {
+    const ang = startAngle - (Math.PI * k) / ARC_STEPS;
+    out.push(offsetPoint(b, Math.cos(ang), Math.sin(ang), radiusKm));
+  }
+  out.push(offsetPoint(b, -n.x, -n.y, radiusKm));
+  out.push(offsetPoint(a, -n.x, -n.y, radiusKm));
+  for (let k = 1; k < ARC_STEPS; k++) {
+    const ang = startAngle + Math.PI - (Math.PI * k) / ARC_STEPS;
+    out.push(offsetPoint(a, Math.cos(ang), Math.sin(ang), radiusKm));
+  }
+  return out;
+}
+
+/** Скільки сегментів на дугу: 12 на півколо — на око вже гладко. */
+const ARC_STEPS = 12;
+
+/** Замкнене коло навколо точки — вироджений випадок осі з однієї точки. */
+function circleRing(center: LatLng, radiusKm: number): LatLng[] {
+  const s = scale(center.lat);
+  const out: LatLng[] = [];
+  for (let i = 0; i < ARC_STEPS * 2; i++) {
+    const a = (i / (ARC_STEPS * 2)) * Math.PI * 2;
+    out.push({
+      lat: center.lat + (Math.sin(a) * radiusKm) / s.ky,
+      lng: center.lng + (Math.cos(a) * radiusKm) / s.kx,
+    });
+  }
+  return out;
+}
+
+/** Одинична нормаль (ліворуч від напрямку a→b) у локальних км-координатах. */
+function normalAt(a: LatLng, b: LatLng): { x: number; y: number } | null {
+  const s = scale((a.lat + b.lat) / 2);
+  const dx = (b.lng - a.lng) * s.kx;
+  const dy = (b.lat - a.lat) * s.ky;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  return { x: -dy / len, y: dx / len };
+}
+
+/** Зміщує точку на distKm у напрямку одиничного вектора (nx, ny). */
+function offsetPoint(p: LatLng, nx: number, ny: number, distKm: number): LatLng {
+  const s = scale(p.lat);
+  return {
+    lat: p.lat + (ny * distKm) / s.ky,
+    lng: p.lng + (nx * distKm) / s.kx,
+  };
 }
 
 /**

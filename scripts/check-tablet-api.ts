@@ -159,6 +159,9 @@ async function main() {
   check("Маршрут сайту переміг лист 1С", day1b.body?.route?.source === "DELIVERY_ROUTE", day1b.body?.route?.source);
   check("Номер маршруту сайту", day1b.body?.route?.number === `${MARK}МР-1`, day1b.body?.route?.number);
   check("Сума з документа реалізації", day1b.body?.route?.stops?.[0]?.amount === 7000, day1b.body?.route?.stops?.[0]?.amount);
+  // Планувальник сайту борг не несе — він має братися з картки клієнта,
+  // інакше на головному джерелі даних кнопки інкасації не з'являться ніколи.
+  check("Борг узято з сальдо клієнта (3200)", day1b.body?.route?.stops?.[0]?.debtAmount === 3200, day1b.body?.route?.stops?.[0]?.debtAmount);
 
   // Прибираємо, щоб решта перевірок ішла на маршрутному листі
   await p.deliveryStop.deleteMany({ where: { deliveryRouteId: plannedRoute.id } });

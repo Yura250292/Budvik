@@ -170,6 +170,7 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
               deliveryLat: true,
               deliveryLng: true,
               geoSource: true,
+              receivableBalance: true,
             },
           },
           salesDocument: { select: { totalAmount: true, number: true } },
@@ -190,8 +191,17 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
     geoSource: s.counterparty?.geoSource ?? null,
     sequence: s.sequence || i + 1,
     amount: s.salesDocument?.totalAmount ?? 0,
-    // Планувальник сайту про борги нічого не знає — їх несе лише 1С.
-    debtAmount: 0,
+    /**
+     * Планувальник сайту борг у точку не кладе, тому беремо сальдо з
+     * картки контрагента — те саме число з 1С, просто прочитане з іншого
+     * місця. Без цього водій на маршруті сайту не побачив би кнопок
+     * інкасації взагалі, а маршрут сайту тепер головне джерело.
+     *
+     * Це БОРГ КЛІЄНТА ЗАГАЛОМ, а не «за цю накладну»: 1С не розкладає
+     * сальдо по документах доставки. Тому кнопка «забрав усе» ставить
+     * саме цю суму, і водій за потреби виправляє її вручну.
+     */
+    debtAmount: Math.max(0, s.counterparty?.receivableBalance ?? 0),
     routeSheetStopId: null,
     deliveryStopId: s.id,
   }));

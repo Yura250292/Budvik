@@ -265,6 +265,140 @@ export async function clientPortfolio(repId: string, period: Period): Promise<Re
   };
 }
 
+export type MapClient = PortfolioClient & {
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  geoSource: string | null;
+  /** Торгові, за якими закріплений клієнт (може бути кілька або жодного) */
+  reps: Array<{ id: string; name: string }>;
+};
+
+export type ClientMapPortfolio = {
+  clients: MapClient[];
+  counts: Record<ClientState, number>;
+};
+
+type MapRow = PortfolioRow & {
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  geoSource: string | null;
+  reps: Array<{ id: string; name: string }> | null;
+};
+
+/**
+ * Портфель клієнтів по всій компанії — для карти.
+ *
+ * Той самий SQL, що в portfolioRows, але без прив'язки до торгового:
+ * на карті мають бути й клієнти, документи яких не змаплені на людину
+ * (у 1С торговий проставлений не всюди). Інакше з карти зникали б саме
+ * ті точки, які найбільше треба комусь віддати.
+ *
+ * Класифікація навмисно та сама функція classify(), а не копія порогів:
+ * колір на карті мусить збігатися зі станом у картці торгового.
+ */
+export async function clientPortfolioAll(period: Period): Promise<ClientMapPortfolio> {
+  const rows = await prisma.$queryRaw<MapRow[]>`
+    WITH docs AS (
+      SELECT
+        s.id,
+        s."counterpartyId",
+        s."createdAt",
+        s."totalAmount",
+        s."docType"
+      FROM "SalesDocument" s
+      WHERE ${SOURCE_FILTER}
+        AND s."counterpartyId" IS NOT NULL
+    ),
+    period_docs AS (
+      SELECT
+        d."counterpartyId",
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS docs,
+        SUM(d."totalAmount")::float AS amount
+      FROM docs d
+      WHERE d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
+      GROUP BY 1
+    ),
+    history AS (
+      SELECT
+        d."counterpartyId",
+        MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
+        MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
+      FROM docs d
+      GROUP BY 1
+    )
+    SELECT
+      h."counterpartyId" AS "counterpartyId",
+      c.name             AS name,
+      h."firstDocAt"     AS "firstDocAt",
+      h."lastDocAt"      AS "lastDocAt",
+      h."historyDocs"    AS "historyDocs",
+      COALESCE(pd.docs, 0)::int     AS docs,
+      COALESCE(pd.amount, 0)::float AS amount,
+      0::int   AS "skuCount",
+      0::int   AS "brandCount",
+      COALESCE(c."receivableBalance", 0)::float AS receivable,
+      (
+        COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
+        COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
+      )::float AS "debtOverdue",
+      c."deliveryLat" AS lat,
+      c."deliveryLng" AS lng,
+      c.address       AS address,
+      c."geoSource"::text AS "geoSource",
+      (
+        SELECT COALESCE(json_agg(json_build_object('id', u.id, 'name', u.name)), '[]'::json)
+        FROM "SalesRepClient" src
+        JOIN "User" u ON u.id = src."salesRepId"
+        WHERE src."counterpartyId" = h."counterpartyId"
+      ) AS reps
+    FROM history h
+    JOIN "Counterparty" c ON c.id = h."counterpartyId"
+    LEFT JOIN period_docs pd ON pd."counterpartyId" = h."counterpartyId"
+    WHERE h."firstDocAt" IS NOT NULL
+    ORDER BY COALESCE(pd.amount, 0) DESC
+  `;
+
+  const asOf = period.to.getTime();
+  const counts: Record<ClientState, number> = {
+    NEW: 0,
+    ACTIVE: 0,
+    SLIPPING: 0,
+    DORMANT: 0,
+    LOST: 0,
+  };
+
+  const clients = rows.map((row) => {
+    const state = classify(row, period);
+    counts[state] += 1;
+
+    return {
+      counterpartyId: row.counterpartyId,
+      name: row.name,
+      firstDocAt: row.firstDocAt.toISOString(),
+      lastDocAt: row.lastDocAt.toISOString(),
+      daysSinceLast: Math.max(0, Math.floor((asOf - row.lastDocAt.getTime()) / DAY_MS)),
+      docs: row.docs,
+      amount: row.amount,
+      avgIntervalDays: avgIntervalDays(row),
+      skuCount: row.skuCount,
+      brandCount: row.brandCount,
+      receivable: row.receivable,
+      overdue: row.debtOverdue,
+      state,
+      lat: row.lat,
+      lng: row.lng,
+      address: row.address,
+      geoSource: row.geoSource,
+      reps: row.reps ?? [],
+    };
+  });
+
+  return { clients, counts };
+}
+
 export type PortfolioCounts = {
   repId: string;
   newClients: number;

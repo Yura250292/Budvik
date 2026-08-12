@@ -91,6 +91,29 @@ export function efficiencyStatus(value: number, teamAverage: number): StatusKey 
   return "bad";
 }
 
+/**
+ * Стани клієнта на карті.
+ *
+ * Порядок хюїв узятий з CATEGORICAL, але не за індексом: тут кольори мають
+ * читатися як шкала «добре → погано» (зелений → жовтий → помаранчевий →
+ * червоний), тому вони виписані явно. Синій для нових і фіолетовий для
+ * точок розпрацювання свідомо випадають зі шкали — це не стадії згасання,
+ * а окремі категорії.
+ *
+ * Колір ніколи не єдиний сигнал: у легенді поруч завжди підпис і число, а
+ * точки розпрацювання ще й квадратні — на випадок дальтонізму й друку.
+ */
+export const CLIENT_STATE = {
+  ACTIVE: { label: "Стабільні", color: "#008300", hint: "беруть у своєму звичному ритмі" },
+  NEW: { label: "Нові", color: "#2a78d6", hint: "перший документ у межах періоду" },
+  SLIPPING: { label: "Рідко беруть", color: "#eda100", hint: "пауза довша за власний ритм клієнта" },
+  DORMANT: { label: "Дуже рідко", color: "#eb6834", hint: "60+ днів без документа" },
+  LOST: { label: "Втрачені", color: "#e34948", hint: "90+ днів без документа" },
+  PROSPECT: { label: "Для розпрацювання", color: "#4a3aa7", hint: "нанесені вручну майбутні клієнти" },
+} as const;
+
+export type ClientStateKey = keyof typeof CLIENT_STATE;
+
 /** Стан поїздки за її статусом у боті. */
 export function tripStatus(status: string): StatusKey {
   if (status === "OPEN") return "info";

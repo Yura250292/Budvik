@@ -21,9 +21,13 @@ import { ReturnsTab } from "./ReturnsTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
+import { ClientMapTab } from "./ClientMapTab";
 import { FuelTab } from "./FuelTab";
 import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
+import { DriverPayrollTab } from "./DriverPayrollTab";
+import { DriverSheetsTab } from "./DriverSheetsTab";
+import { DriverSettingsTab } from "./DriverSettingsTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -31,6 +35,7 @@ const TABS = [
   { key: "reps", label: "Торгові" },
   { key: "kpi", label: "КПІ та мотивація" },
   { key: "logistics", label: "Логістика" },
+  { key: "drivers", label: "Водії" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -53,7 +58,16 @@ const SUBTABS = {
   logistics: [
     { key: "trips", label: "Поїздки" },
     { key: "routes", label: "Маршрути" },
+    { key: "clients", label: "Карта клієнтів" },
     { key: "fuel", label: "Паливо" },
+  ],
+  // Водії живуть окремо від «Логістики»: там витрати компанії на поїздки
+  // торгових, тут — зарплата за маршрутними листами з 1С. Спільного, крім
+  // слова «маршрут», у них нічого немає.
+  drivers: [
+    { key: "payroll", label: "Зарплата" },
+    { key: "sheets", label: "Маршрутні листи" },
+    { key: "driver-settings", label: "Налаштування" },
   ],
 } as const;
 
@@ -72,7 +86,7 @@ const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
 };
 
 /** Вкладки, доступні лише керівництву: там видно всю команду. */
-const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
+const MANAGER_ONLY: TabKey[] = ["kpi", "logistics", "drivers"];
 
 /**
  * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
@@ -82,7 +96,7 @@ const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
 const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark"];
 
 function subtabsOf(tab: TabKey): ReadonlyArray<{ key: ViewKey; label: string }> | null {
-  return tab === "reps" || tab === "kpi" || tab === "logistics" ? SUBTABS[tab] : null;
+  return tab in SUBTABS ? SUBTABS[tab as keyof typeof SUBTABS] : null;
 }
 
 /** Розбирає ?tab=&view= з урахуванням старих ключів і невалідних значень. */
@@ -217,7 +231,11 @@ export function AnalyticsShell() {
                   Аналітика торгових
                 </h1>
                 <p className="truncate text-xs text-g400">
-                  {isManager ? "Продажі з 1С, поїздки, КПІ та логістика" : "Ваші продажі та поїздки"}
+                  {tab === "drivers"
+                    ? "Зарплата водіїв за маршрутними листами"
+                    : isManager
+                      ? "Продажі з 1С, поїздки, КПІ та логістика"
+                      : "Ваші продажі та поїздки"}
                 </p>
               </div>
             </div>
@@ -302,7 +320,16 @@ export function AnalyticsShell() {
           <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
         )}
         {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
+        {tab === "logistics" && view === "clients" && <ClientMapTab period={period} />}
         {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
+        {tab === "drivers" && view === "payroll" && (
+          <DriverPayrollTab
+            period={period}
+            onOpenSettings={() => setTarget({ tab: "drivers", view: "driver-settings" })}
+          />
+        )}
+        {tab === "drivers" && view === "sheets" && <DriverSheetsTab period={period} />}
+        {tab === "drivers" && view === "driver-settings" && <DriverSettingsTab />}
       </div>
     </div>
   );

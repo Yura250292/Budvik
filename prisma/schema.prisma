@@ -167,6 +167,13 @@ enum OdometerSource {
   CORRECTED // AI розпізнав, але торговий виправив — головна метрика якості AI
 }
 
+/// Зона точки вигрузки для зарплати водія: місто дорожче за область.
+/// «Місто» — Львів у межах об'їзної; усе за нею — область.
+enum DeliveryZone {
+  CITY
+  OBLAST
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -243,6 +250,19 @@ model User {
   routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
   routeAssignments      RouteAssignment[] @relation("routeAssignmentRep")
   salesVehicle          SalesVehicle?     @relation("salesVehicle")
+
+  // Точки для розпрацювання на карті клієнтів
+  assignedProspects ProspectClient[] @relation("prospectAssignedRep")
+  createdProspects  ProspectClient[] @relation("prospectAuthor")
+
+  /// Ref_Key водія в 1С — прив'язка акаунта до маршрутних листів.
+  /// Поле, а не окрема таблиця: водіїв одиниці, зв'язок 1:1 і без історії
+  /// перепризначень (той самий підхід, що counterpartyId вище).
+  driver1CExternalId String? @unique
+
+  routeSheets          RouteSheet[]  @relation("driverRouteSheets")
+  driverBonuses        DriverBonus[] @relation("driverBonusDriver")
+  driverBonusesCreated DriverBonus[] @relation("driverBonusAuthor")
 
   dashboardLayout UserDashboardLayout?
   dashboardNotes  UserDashboardNote[]
@@ -541,7 +561,22 @@ model Counterparty {
   debtOverdue90Plus Float? // понад 90
   debtAgingSyncedAt DateTime?
 
+  /// Ручний override зони для зарплати водія: null — визначаємо автоматично
+  /// (полігон об'їзної за координатами, далі евристика адреси), CITY/OBLAST —
+  /// адмін сказав напевно. Останнє слово завжди за адміном, бо геокодування
+  /// іноді дає адресу без області.
+  deliveryZone DeliveryZone?
+
+  /// Звідки взялися deliveryLat/deliveryLng: геокодер, рука адміна чи
+  /// провалена спроба. Без цього поля бекфіл або смикав би Nominatim по
+  /// колу на безнадійних адресах, або затирав би виправлений вручну пін.
+  geoSource      GeoSource?
+  /// Коли востаннє намагалися геокодувати — і для успіху, і для провалу.
+  geoAttemptedAt DateTime?
+
   debtSnapshots DebtSnapshot[]
+  routeSheetStops RouteSheetStop[]
+  prospect        ProspectClient?
 
   purchaseOrders   PurchaseOrder[]
   salesDocuments   SalesDocument[]
@@ -632,6 +667,7 @@ model SalesDocument {
   commissions  CommissionRecord[]
   reservations StockReservation[]
   deliveryStop DeliveryStop?
+  routeSheetStops RouteSheetStop[] @relation("routeSheetStops")
 
   @@unique([number, docType])
   @@index([docType, status, createdAt]) // під фільтр аналітики торгових
@@ -1727,4 +1763,187 @@ model SavedAiReport {
 
   @@index([kind, repId, createdAt])
   @@index([createdAt])
+}
+
+/// Маршрутний лист з 1С — факт виїзду водія за день.
+///
+/// Окрема модель, а не розширення DeliveryRoute: той є планувальною
+/// сутністю сайту (адмін малює маршрут, createdById обов'язковий,
+/// DeliveryStop.salesDocumentId @unique). Маршрутний лист — обліковий
+/// документ 1С, який приходить готовим і жодного автора на сайті не має.
+/// Той самий поділ, що SalesDocument (1С) ≠ Order (сайт).
+///
+/// На цьому документі рахується зарплата водія: ставка за пробіг (за КОЖЕН
+/// лист, не за день), надбавка за кожну унікальну точку вигрузки і відсоток
+/// від (ordersTotal − debtsTotal). Див. src/lib/drivers/payroll.ts.
+model RouteSheet {
+  id         String   @id @default(cuid())
+  externalId String   @unique // Ref_Key з 1С — єдиний ключ ідемпотентності
+  number     String
+  /// Дата документа = робочий день водія
+  date       DateTime
+  posted     Boolean  @default(true)
+
+  /// Як водія записано в 1С — і для діагностики, і для списку нерозмаплених
+  driverName1C       String?
+  /// Ref_Key водія в 1С; стабільніший за ім'я, зіставляється з User.driver1CExternalId
+  driverExternalId1C String?
+  /// null — водія ще не прив'язали до акаунта; лист зберігається все одно
+  driverId           String?
+
+  vehicle    String?
+  distanceKm Float @default(0)
+
+  /// Сума замовлень, які водій везе цим листом (з 1С)
+  ordersTotal Float @default(0)
+  /// Сума боргів за попередні доставки, які він забирає (з 1С).
+  /// База відсотка = ordersTotal − debtsTotal.
+  debtsTotal  Float @default(0)
+
+  syncedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  driver User?            @relation("driverRouteSheets", fields: [driverId], references: [id])
+  stops  RouteSheetStop[]
+
+  @@index([driverId, date])
+  @@index([date])
+  @@index([driverExternalId1C])
+}
+
+/// Рядок маршрутного листа — одна точка вигрузки.
+///
+/// salesDocumentId НЕ @unique (на відміну від DeliveryStop): те саме
+/// замовлення може потрапити і в плановий маршрут сайту, і в маршрутний
+/// лист 1С, а унікальність зламала б прийом.
+///
+/// Точки для оплати рахуються за УНІКАЛЬНОЮ адресою в межах листа: три
+/// рядки з однією адресою — одна точка. Дедуплікація живе в
+/// src/lib/drivers/payroll-facts.ts, а не тут, щоб зміна правила не
+/// вимагала переливання даних.
+model RouteSheetStop {
+  id           String @id @default(cuid())
+  routeSheetId String
+  sequence     Int    @default(0)
+
+  counterpartyId  String?
+  salesDocumentId String?
+  /// Адреса з 1С, якщо документ її несе; інакше беремо з контрагента
+  address         String?
+
+  amount     Float @default(0)
+  debtAmount Float @default(0)
+
+  routeSheet    RouteSheet     @relation(fields: [routeSheetId], references: [id], onDelete: Cascade)
+  counterparty  Counterparty?  @relation(fields: [counterpartyId], references: [id])
+  salesDocument SalesDocument? @relation("routeSheetStops", fields: [salesDocumentId], references: [id])
+
+  @@index([routeSheetId])
+  @@index([counterpartyId])
+}
+
+/// Ручна надбавка водію: доставка Новою поштою, підміна, утримання.
+///
+/// Те, чого немає в 1С і що не виводиться з маршрутного листа. Сума може
+/// бути від'ємною — це утримання; причина обов'язкова, бо саме вона
+/// пояснює рядок у розрахунковому листку.
+model DriverBonus {
+  id       String   @id @default(cuid())
+  driverId String
+  /// Київська дата, до якої належить надбавка
+  date     DateTime
+  amount   Float
+  reason   String
+
+  createdById String
+  createdAt   DateTime @default(now())
+
+  driver    User @relation("driverBonusDriver", fields: [driverId], references: [id], onDelete: Cascade)
+  createdBy User @relation("driverBonusAuthor", fields: [createdById], references: [id])
+
+  @@index([driverId, date])
+  @@index([date])
+}
+
+/// Ставки зарплати водіїв — один рядок на всю систему.
+///
+/// Таблиця, а не константи в коді: ставки міняє адмін без розробника.
+/// Історії немає навмисно — зміна ставки перераховує і минулі періоди.
+/// Якщо знадобиться фіксувати минуле, додається validFrom, і модель стає
+/// журналом; поки що зайва складність.
+model DriverPayrollRates {
+  id String @id @default("default")
+
+  /// Ставка за маршрутний лист залежно від пробігу:
+  /// < kmTier1Max → kmTier1Rate; kmTier1Max..kmTier2Max → kmTier2Rate; далі kmTier3Rate.
+  /// Межі включно в середній тір: 100 км → 700, 300 км → 700.
+  kmTier1Max  Float @default(100)
+  kmTier1Rate Float @default(500)
+  kmTier2Max  Float @default(300)
+  kmTier2Rate Float @default(700)
+  kmTier3Rate Float @default(1000)
+
+  /// За кожну унікальну точку вигрузки
+  cityPointRate   Float @default(25)
+  oblastPointRate Float @default(15)
+
+  /// Відсоток від (ordersTotal − debtsTotal), у відсотках: 0.5 = 0,5%
+  turnoverPercent Float @default(0.5)
+
+  updatedAt DateTime @updatedAt @default(now())
+}
+
+// ========== Карта клієнтів ==========
+
+/// Звідки взялися координати клієнта на карті.
+///
+/// FAILED зберігається навмисно: без нього кожен запуск бекфілу знову
+/// витрачав би 6-8 запитів до Nominatim на ту саму безнадійну адресу.
+enum GeoSource {
+  GEOCODED
+  MANUAL
+  FAILED
+}
+
+enum ProspectStatus {
+  NEW
+  IN_PROGRESS
+  CONVERTED
+  REJECTED
+}
+
+/// Точка для розпрацювання: магазин, якого ще немає в клієнтах.
+///
+/// Навмисно окрема таблиця, а не рядок у Counterparty: контрагенти —
+/// власність 1С (externalId, синхронізація), і намальована на карті
+/// «майбутня» точка засмічувала б усі списки ERP та могла зіткнутися
+/// з реальним контрагентом при обміні. Коли клієнта відкрили,
+/// counterpartyId зв'язує точку з реальним контрагентом.
+model ProspectClient {
+  id      String  @id @default(cuid())
+  name    String
+  address String?
+  lat     Float
+  lng     Float
+  notes   String?
+
+  status ProspectStatus @default(NEW)
+
+  /// Кому доручено розпрацювати
+  assignedRepId String?
+  createdById   String?
+
+  /// Заповнюється при конверсії в реального клієнта
+  counterpartyId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedRep  User?         @relation("prospectAssignedRep", fields: [assignedRepId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation("prospectAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  counterparty Counterparty? @relation(fields: [counterpartyId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([assignedRepId])
 }

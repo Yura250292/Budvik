@@ -84,6 +84,11 @@ export type RepClientPortfolio = {
 type PortfolioRow = {
   counterpartyId: string;
   name: string;
+  /**
+   * Обидва запити нижче відсікають рядки з NULL-датами (лише повернення),
+   * тож тут Date, а не Date | null. Якщо колись з'явиться третій запит —
+   * фільтр треба повторити, інакше classify() впаде на .getTime().
+   */
   firstDocAt: Date;
   lastDocAt: Date;
   historyDocs: number;
@@ -102,6 +107,12 @@ type PortfolioRow = {
  * ВСЮ історію (інакше «новий клієнт» означало б лише «перший документ у
  * вибраному вікні», і кожен звужений період видавав би нових клієнтів
  * пачками), а оборот і документи — за обраний період.
+ *
+ * `h."firstDocAt" IS NOT NULL` відсікає контрагентів, у яких з цим торговим
+ * є лише повернення. FILTER (WHERE docType <> 'RETURN') на MIN/MAX дає їм
+ * NULL-дати при непорожньому рядку — і classify() падав на .getTime().
+ * У портфелі їм і не місце: клієнта, який нічого не купував, не можна
+ * назвати ні активним, ні втраченим.
  */
 async function portfolioRows(repId: string, period: Period): Promise<PortfolioRow[]> {
   return prisma.$queryRaw<PortfolioRow[]>`
@@ -165,6 +176,7 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
     JOIN "Counterparty" c ON c.id = h."counterpartyId"
     LEFT JOIN period_docs pd ON pd."counterpartyId" = h."counterpartyId"
     LEFT JOIN assortment a   ON a."counterpartyId"  = h."counterpartyId"
+    WHERE h."firstDocAt" IS NOT NULL
     ORDER BY COALESCE(pd.amount, 0) DESC
   `;
 }
@@ -317,6 +329,7 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
     FROM history h
     LEFT JOIN period_docs pd
       ON pd."salesRepId" = h."salesRepId" AND pd."counterpartyId" = h."counterpartyId"
+    WHERE h."firstDocAt" IS NOT NULL
   `;
 
   const map = new Map<string, PortfolioCounts>();

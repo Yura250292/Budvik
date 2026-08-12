@@ -53,6 +53,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "Продажі та документи",
     items: [
       { href: "/admin/erp/counterparties", title: "Контрагенти", desc: "Постачальники та покупці", iconKey: "counterparties", roles: ALL },
+      { href: "/admin/procurement", title: "Закупівлі", desc: "Дефіцит на складі: що замовити", iconKey: "purchase", roles: AM },
       { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },
       { href: "/admin/erp/sales", title: "Продаж", desc: "Документи B2B/оффлайн", iconKey: "money", roles: ALL },
       { href: "/admin/erp/invoices", title: "Видаткові накладні", desc: "Генерація та оплати", iconKey: "invoice", roles: AM },
@@ -157,6 +158,7 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/reports",
     "/admin/erp/reports",
     "/admin/erp/stats",
+    "/admin/procurement",
     "/admin/warehouse-reports",
     "/admin/integration",
   ];

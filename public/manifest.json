@@ -64,6 +64,15 @@
       "purpose": "any maskable"
     }
   ],
+  "shortcuts": [
+    {
+      "name": "Карта дня водія",
+      "short_name": "Карта дня",
+      "description": "Маршрут, чек-ліст клієнтів і запис треку",
+      "url": "/driver/tablet",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
   "categories": ["shopping", "business"],
   "lang": "uk",
   "dir": "ltr"

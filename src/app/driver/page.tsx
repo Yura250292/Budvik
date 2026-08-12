@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 const STOP_STATUS_LABELS: Record<string, string> = {
@@ -74,6 +75,20 @@ export default function DriverPage() {
               {activeRoutes.length > 0 ? `${activeRoutes.length} активних` : "Немає активних"}
             </p>
           </div>
+
+          {/* Режим планшета: карта дня з чек-лістом і записом треку.
+              Окремий екран, бо цей список — довідковий, а той працює
+              весь день у тримачі. */}
+          <Link
+            href="/driver/tablet"
+            style={{
+              padding: "9px 14px", borderRadius: "10px", textDecoration: "none",
+              background: "rgba(255,255,255,0.15)", color: "white",
+              fontSize: "14px", fontWeight: 700, whiteSpace: "nowrap",
+            }}
+          >
+            Карта дня
+          </Link>
         </div>
       </header>
 

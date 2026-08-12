@@ -291,11 +291,67 @@ export async function geocodeAddress(
     result = await nominatimSearch(trimmed);
   }
 
+  // Strategy 7: drop the house number and any human landmarks.
+  //
+  // This is the strategy that actually works on our data. Nominatim has poor
+  // house-number coverage in Ukraine outside Kyiv: "Львів, Кульпарківська, 93"
+  // returns nothing at all, while "Львів, Кульпарківська" answers instantly.
+  // Every strategy above keeps the number, so all six fail together on an
+  // address that OSM could resolve to the street.
+  //
+  // The street is enough for a delivery route: the driver needs the block, not
+  // the doorstep, and the exact pin gets corrected on site anyway.
+  if (!result) {
+    const cityStreet = dropHouseNumber(stripped);
+    if (cityStreet && cityStreet !== stripped) {
+      result = await nominatimSearch(cityStreet, { country: "ua" });
+    }
+  }
+
   if (result) {
     cache.set(cacheKey, result);
   }
 
   return result;
+}
+
+/**
+ * Місто й вулиця без номера будинку та орієнтирів.
+ *
+ * Наші адреси написані для людини, не для геокодера: «м.Черляни (після
+ * повороту зліва чорний магазин Інструмент) вул.Миру», «м.Золочів, на базарі
+ * маг.», «вул. Коротка, магазин Наша хата, біля площі». Усе, що після назви
+ * вулиці, для Nominatim — шум, через який запит не знаходить нічого.
+ *
+ * Беремо перші дві значущі частини (населений пункт + вулиця) і чистимо
+ * від номерів та дужок.
+ */
+export function dropHouseNumber(address: string): string {
+  const parts = address
+    .split(",")
+    .map((p) => p.replace(/\([^)]*\)/g, " ").trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+
+  const keep: string[] = [];
+  for (const part of parts) {
+    // Частина, що складається лише з номера («93», «21Б», «34/А»), — це
+    // будинок; на ній зупиняємось.
+    if (/^\d+\s*[а-яa-zА-ЯA-Z]?(\s*\/\s*\d+\s*[а-яa-zА-ЯA-Z]?)?$/.test(part)) break;
+
+    // Прибираємо номер, приліплений до назви: «вул.Миру 21Б» → «вул.Миру».
+    const cleaned = part
+      .replace(/№\s*[\dА-Яа-яA-Za-z/\\-]+/g, " ")
+      .replace(/\b(буд|будинок|дом|кв|офіс|оф)\b\.?\s*[\dА-Яа-яA-Za-z/-]*/gi, " ")
+      .replace(/[\dА-Яа-я]*\d+[\dА-Яа-я/-]*\s*$/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (cleaned) keep.push(cleaned);
+    if (keep.length >= 2) break;
+  }
+
+  return keep.join(", ");
 }
 
 export async function reverseGeocode(

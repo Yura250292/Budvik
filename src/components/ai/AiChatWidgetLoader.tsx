@@ -19,6 +19,9 @@ const AiChatWidget = dynamic(() => import("@/components/ai/AiChatWidget"), { ssr
 export default function AiChatWidgetLoader() {
   const pathname = usePathname();
   if (pathname?.startsWith("/sales")) return null;
+  // У водія те саме, лише гостріше: кружечок висить над кнопкою відмітки
+  // візиту, а тикають у нього пальцем на ходу.
+  if (pathname?.startsWith("/driver")) return null;
 
   return <AiChatWidget />;
 }

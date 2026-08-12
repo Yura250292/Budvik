@@ -23,6 +23,8 @@ export default function BottomNav() {
   if (pathname?.startsWith("/sales")) return null;
   // В адмінці навігацію дає шелл (бургер → drawer), а не таб-бар вітрини.
   if (pathname?.startsWith("/admin")) return null;
+  // У водія в машині таб-бар вітрини лише відбирає висоту в карти.
+  if (pathname?.startsWith("/driver")) return null;
 
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";

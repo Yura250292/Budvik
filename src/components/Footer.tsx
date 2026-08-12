@@ -14,6 +14,8 @@ export default function Footer() {
   if (pathname?.startsWith("/sales")) return null;
   // Адмінка має власний шелл із сайдбаром — футер вітрини там зайвий.
   if (pathname?.startsWith("/admin")) return null;
+  // Кабінет водія — повноекранний робочий інструмент без прокрутки.
+  if (pathname?.startsWith("/driver")) return null;
 
   return (
     <>

@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import RouteOptimizer from "@/components/routes/RouteOptimizer";
 
 const ROUTE_STATUS_LABELS: Record<string, string> = {
   PLANNED: "Запланований", IN_PROGRESS: "В дорозі", COMPLETED: "Завершений", CANCELLED: "Скасований",
@@ -255,30 +256,12 @@ export default function DeliveryRoutesPage() {
                     {r.totalFuelCost && ` | Паливо: ${formatPrice(r.totalFuelCost)}`}
                   </div>
                 )}
-                {/* AI optimize */}
+                {/* Побудова маршруту: реальні кілометри з OSRM і вибір
+                    між найдешевшим та варіантом з пріоритетами. Раніше тут
+                    був виклик LLM, який ВИГАДУВАВ кілометраж, і саме та
+                    вигадана цифра лягала у вартість пального. */}
                 {r.status === "PLANNED" && r.stops?.length >= 2 && (
-                  <div style={{ padding: "10px 20px", background: "#FAFAFA", borderTop: "1px solid #F3F4F6" }}>
-                    <button onClick={async () => {
-                      try {
-                        const res = await fetch(`/api/erp/delivery-routes/${r.id}/optimize`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ startAddress: "Вінниця, склад" }),
-                        });
-                        const data = await res.json();
-                        if (res.ok) {
-                          alert(`Маршрут оптимізовано!\n${data.optimization?.reasoning || ""}\nВідстань: ~${data.optimization?.estimatedDistanceKm || "?"} км\nЧас: ~${data.optimization?.estimatedTimeMinutes || "?"} хв`);
-                          fetchData();
-                        } else { alert(data.error); }
-                      } catch { alert("Помилка AI"); }
-                    }}
-                      style={{
-                        padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                        background: "linear-gradient(135deg, #8B5CF6, #6366F1)", color: "white", border: "none",
-                      }}>
-                      AI-оптимізація маршруту
-                    </button>
-                  </div>
+                  <RouteOptimizer routeId={r.id} driverId={r.driverId} date={r.date} onApplied={fetchData} />
                 )}
                 {/* Stops */}
                 <div>

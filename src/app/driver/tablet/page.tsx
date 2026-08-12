@@ -48,6 +48,23 @@ type DayResp = {
   };
 };
 
+type RouteVariant = {
+  order: string[];
+  distanceKm: number;
+  durationMin: number;
+  fuelCost: number;
+  stops: Array<{ key: string; name: string; reason: string; score: number }>;
+};
+
+type OptimizeResp = {
+  cheapest: RouteVariant;
+  balanced: RouteVariant | null;
+  detourPercent: number;
+  extraCost: number;
+  startName: string | null;
+  startedFromFirstStop: boolean;
+};
+
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
 /** Що показує індикатор треку в шапці. */
@@ -64,6 +81,11 @@ export default function DriverTabletPage() {
   const [error, setError] = useState<string | null>(null);
   const [openStop, setOpenStop] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+
+  // Побудова маршруту: null — ще не рахували, далі два варіанти на вибір
+  const [plan, setPlan] = useState<OptimizeResp | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [applying, setApplying] = useState<"cheapest" | "balanced" | null>(null);
 
   const track = useTrackRecorder({ enabled: true });
 
@@ -135,6 +157,63 @@ export default function DriverTabletPage() {
     [load, track.position]
   );
 
+  /**
+   * Прокласти маршрут від того місця, де водій стоїть зараз.
+   *
+   * Саме від поточної позиції, а не від складу: водій тисне цю кнопку
+   * посеред дня, коли половина точок уже позаду, і маршрут «зі складу»
+   * був би йому марний.
+   */
+  const buildPlan = useCallback(async () => {
+    setPlanning(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/routes/optimize-day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: track.position ? [track.position.lng, track.position.lat] : undefined,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      setPlan(json as OptimizeResp);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
+    } finally {
+      setPlanning(false);
+    }
+  }, [track.position]);
+
+  /** Застосувати обраний варіант — переставити точки в маршруті дня. */
+  const applyPlan = useCallback(
+    async (which: "cheapest" | "balanced") => {
+      const variant = which === "cheapest" ? plan?.cheapest : plan?.balanced;
+      if (!variant) return;
+      setApplying(which);
+      try {
+        const res = await fetch("/api/routes/apply-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order: variant.order,
+            distanceKm: variant.distanceKm,
+            fuelCost: variant.fuelCost,
+          }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти порядок");
+        setPlan(null);
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не вдалося зберегти порядок");
+      } finally {
+        setApplying(null);
+      }
+    },
+    [plan, load]
+  );
+
   const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
   const stops = data?.route.stops ?? [];
 
@@ -143,46 +222,94 @@ export default function DriverTabletPage() {
       className="fixed inset-0 flex flex-col"
       style={{ background: "#F3F4F6", overscrollBehavior: "none" }}
     >
-      {/* Шапка: маршрут, прогрес, стан треку */}
+      {/* Шапка: маршрут, прогрес, стан треку.
+          Цифри великі — на них дивляться скоса, тримаючи кермо. */}
       <header
-        className="flex shrink-0 items-center gap-3 px-4"
+        className="shrink-0"
         style={{
-          height: "52px",
           background: "#0A0A0A",
           color: "#fff",
           paddingTop: "env(safe-area-inset-top, 0px)",
         }}
       >
-        <span style={{ fontSize: "15px", fontWeight: 700 }}>
-          {data?.route.number ? `Лист ${data.route.number}` : "Маршрут на сьогодні"}
-        </span>
-        {data && data.progress.total > 0 && (
-          <span style={{ fontSize: "13px", color: "#9CA3AF" }}>
-            {data.progress.done + data.progress.missed} з {data.progress.total}
-          </span>
-        )}
+        <div className="flex items-center gap-3 px-4" style={{ height: "56px" }}>
+          <div className="min-w-0">
+            <p
+              className="truncate"
+              style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.2 }}
+            >
+              {data?.route.number ? `Маршрут ${data.route.number}` : "Маршрут на сьогодні"}
+            </p>
+            {data && data.progress.total > 0 && (
+              <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.3 }}>
+                {data.progress.done + data.progress.missed} з {data.progress.total} точок
+                {data.progress.debtPlanned > 0 && (
+                  <>
+                    {" · "}
+                    <span style={{ color: "#4ADE80" }}>
+                      {money.format(data.progress.collected)}
+                    </span>
+                    {" / "}
+                    {money.format(data.progress.debtPlanned)} ₴
+                  </>
+                )}
+              </p>
+            )}
+          </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          <span style={{ fontSize: "13px", color: "#9CA3AF" }}>
-            {track.distanceKm || data?.track.distanceKm || 0} км
-          </span>
-          <span className="flex items-center gap-1.5" style={{ fontSize: "12px" }}>
+          <div className="ml-auto flex items-center gap-3 text-right">
+            <div>
+              <p style={{ fontSize: "17px", fontWeight: 700, lineHeight: 1.1 }}>
+                {track.distanceKm || data?.track.distanceKm || 0}
+                <span style={{ fontSize: "12px", color: "#9CA3AF", fontWeight: 400 }}> км</span>
+              </p>
+              <p
+                className="flex items-center justify-end gap-1.5"
+                style={{ fontSize: "11px", color: "#D1D5DB", lineHeight: 1.3 }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    background: badge.dot,
+                    display: "inline-block",
+                  }}
+                />
+                {badge.label}
+                {track.pending > 0 && <span style={{ color: "#FB923C" }}>+{track.pending}</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Смужка прогресу: єдиний елемент, який читається боковим зором */}
+        {data && data.progress.total > 0 && (
+          <div
+            role="progressbar"
+            aria-valuenow={data.progress.done + data.progress.missed}
+            aria-valuemin={0}
+            aria-valuemax={data.progress.total}
+            aria-label="Пройдено точок маршруту"
+            style={{ height: "3px", background: "#1F2937", display: "flex" }}
+          >
             <span
-              aria-hidden
               style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                background: badge.dot,
-                display: "inline-block",
+                width: `${(data.progress.done / data.progress.total) * 100}%`,
+                background: "#16A34A",
+                transition: "width .3s",
               }}
             />
-            <span style={{ color: "#D1D5DB" }}>{badge.label}</span>
-            {track.pending > 0 && (
-              <span style={{ color: "#D97706" }}>+{track.pending}</span>
-            )}
-          </span>
-        </div>
+            <span
+              style={{
+                width: `${(data.progress.missed / data.progress.total) * 100}%`,
+                background: "#DC2626",
+                transition: "width .3s",
+              }}
+            />
+          </div>
+        )}
       </header>
 
       {error && (
@@ -191,21 +318,27 @@ export default function DriverTabletPage() {
         </div>
       )}
 
-      {/* Карта + чек-ліст. На альбомній — поруч, на портретній — одне під
-          одним: планшет у машині майже завжди горизонтально, але тримач
-          буває й вертикальний. */}
+      {/* Карта + чек-ліст. На альбомній — поруч на всю висоту, на
+          портретній — одне під одним. Планшет у машині майже завжди
+          горизонтально, але тримач буває й вертикальний.
+
+          min-h-0 на обох дітях обов'язковий: без нього flex-елемент не
+          дає внутрішньому списку скролитися і той розтягує сторінку. */}
       <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 landscape:h-full">
           <TabletDayMap stops={stops} trail={fullTrail} me={track.position} />
         </div>
 
         <aside
-          className="min-h-0 shrink-0 overflow-y-auto landscape:h-auto landscape:w-[380px]"
+          className="flex min-h-0 shrink-0 flex-col overflow-y-auto landscape:h-full landscape:w-[400px] landscape:max-h-none"
           style={{
             background: "#fff",
             borderTop: "1px solid #E5E7EB",
-            maxHeight: "45vh",
+            // Портретна орієнтація: список бере половину екрана, карта
+            // лишається читабельною. В альбомній стелю знімає клас вище.
+            maxHeight: "50vh",
             WebkitOverflowScrolling: "touch",
+            overscrollBehavior: "contain",
           }}
         >
           {!data ? (
@@ -224,24 +357,15 @@ export default function DriverTabletPage() {
             </div>
           ) : (
             <>
-              {/* Підсумок дня: скільки зібрано з того, що мали забрати */}
-              <div
-                className="sticky top-0 z-10 flex items-center gap-3 px-4 py-2.5"
-                style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}
-              >
-                <span style={{ fontSize: "13px", color: "#6B7280" }}>
-                  Лишилось <strong style={{ color: "#0A0A0A" }}>{data.progress.left}</strong>
-                </span>
-                {data.progress.debtPlanned > 0 && (
-                  <span style={{ fontSize: "13px", color: "#6B7280" }}>
-                    Зібрано{" "}
-                    <strong style={{ color: "#16A34A" }}>
-                      {money.format(data.progress.collected)}
-                    </strong>{" "}
-                    з {money.format(data.progress.debtPlanned)} грн
-                  </span>
-                )}
-              </div>
+              <RoutePlanner
+                plan={plan}
+                planning={planning}
+                applying={applying}
+                hasPosition={!!track.position}
+                onBuild={buildPlan}
+                onApply={applyPlan}
+                onDismiss={() => setPlan(null)}
+              />
 
               {stops.map((s) => (
                 <StopRow
@@ -257,6 +381,209 @@ export default function DriverTabletPage() {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Побудова маршруту: дві пропозиції з цінами.
+ *
+ * Вибір показуємо ЗАВЖДИ, коли варіанти різні, і завжди з різницею в
+ * гривнях. Автоматично застосувати «розумніший» порядок було б спокусливо,
+ * але водій має бачити, за що платить: гак заради боржника коштує пального,
+ * і це рішення людини, а не алгоритму.
+ */
+function RoutePlanner({
+  plan,
+  planning,
+  applying,
+  hasPosition,
+  onBuild,
+  onApply,
+  onDismiss,
+}: {
+  plan: OptimizeResp | null;
+  planning: boolean;
+  applying: "cheapest" | "balanced" | null;
+  hasPosition: boolean;
+  onBuild: () => void;
+  onApply: (which: "cheapest" | "balanced") => void;
+  onDismiss: () => void;
+}) {
+  if (!plan) {
+    return (
+      <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6" }}>
+        <button
+          type="button"
+          onClick={onBuild}
+          disabled={planning}
+          className="w-full cursor-pointer transition-colors duration-200"
+          style={{
+            minHeight: "48px",
+            padding: "12px",
+            borderRadius: "12px",
+            border: "1px solid #2563EB",
+            background: planning ? "#EFF6FF" : "#fff",
+            color: "#2563EB",
+            fontSize: "15px",
+            fontWeight: 700,
+          }}
+        >
+          {planning ? "Рахую маршрут…" : "Прокласти маршрут"}
+        </button>
+        <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "6px", lineHeight: 1.45 }}>
+          {hasPosition
+            ? "Порахую від місця, де ви зараз."
+            : "Увімкніть геолокацію, щоб рахувати від вашого місця."}
+        </p>
+      </div>
+    );
+  }
+
+  const { cheapest, balanced, detourPercent, extraCost } = plan;
+  // Пріоритетні точки, які підтягнув балансир — саме їх водій має
+  // побачити, щоб зрозуміти, за що доплачує.
+  const highlights = (balanced?.stops ?? [])
+    .slice(0, 3)
+    .filter((s) => s.score >= 0.35);
+
+  return (
+    <div style={{ padding: "12px 16px", borderBottom: "1px solid #E5E7EB", background: "#F8FAFC" }}>
+      <div className="mb-2 flex items-center justify-between">
+        <span style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>
+          Оберіть маршрут
+        </span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Закрити вибір маршруту"
+          className="cursor-pointer transition-colors duration-200"
+          style={{
+            minWidth: "44px",
+            minHeight: "44px",
+            border: "none",
+            background: "none",
+            color: "#6B7280",
+            fontSize: "13px",
+          }}
+        >
+          Скасувати
+        </button>
+      </div>
+
+      <VariantCard
+        title="Найдешевший"
+        distanceKm={cheapest.distanceKm}
+        durationMin={cheapest.durationMin}
+        fuelCost={cheapest.fuelCost}
+        accent="#16A34A"
+        note="Мінімум кілометрів"
+        busy={applying === "cheapest"}
+        disabled={applying !== null}
+        onApply={() => onApply("cheapest")}
+      />
+
+      {balanced && (
+        <div style={{ marginTop: "8px" }}>
+          <VariantCard
+            title="З пріоритетами"
+            distanceKm={balanced.distanceKm}
+            durationMin={balanced.durationMin}
+            fuelCost={balanced.fuelCost}
+            accent="#F97316"
+            note={
+              extraCost > 0
+                ? `Довше на ${detourPercent}% · дорожче на ${money.format(extraCost)} ₴`
+                : "Той самий пробіг, кращий порядок"
+            }
+            busy={applying === "balanced"}
+            disabled={applying !== null}
+            onApply={() => onApply("balanced")}
+          />
+          {highlights.length > 0 && (
+            <ul style={{ margin: "6px 0 0", padding: "0 0 0 14px", listStyle: "disc" }}>
+              {highlights.map((h) => (
+                <li key={h.key} style={{ fontSize: "11.5px", color: "#6B7280", lineHeight: 1.5 }}>
+                  <strong style={{ color: "#374151" }}>{h.name}</strong> раніше — {h.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!balanced && (
+        <p style={{ fontSize: "11.5px", color: "#6B7280", marginTop: "8px", lineHeight: 1.45 }}>
+          Найкоротший маршрут уже обслуговує важливих клієнтів вчасно —
+          окремий варіант не потрібен.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Картка одного варіанта маршруту: цифри великі, кнопка під палець. */
+function VariantCard({
+  title,
+  distanceKm,
+  durationMin,
+  fuelCost,
+  accent,
+  note,
+  busy,
+  disabled,
+  onApply,
+}: {
+  title: string;
+  distanceKm: number;
+  durationMin: number;
+  fuelCost: number;
+  accent: string;
+  note: string;
+  busy: boolean;
+  disabled: boolean;
+  onApply: () => void;
+}) {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: `1px solid ${accent}33`,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: "10px",
+        padding: "10px 12px",
+      }}
+    >
+      <div className="flex items-baseline gap-2">
+        <span style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>{title}</span>
+        <span style={{ fontSize: "13px", color: "#6B7280" }}>
+          {distanceKm} км · {Math.round(durationMin / 60)} год {durationMin % 60} хв
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: "16px", fontWeight: 700, color: accent }}>
+          {money.format(fuelCost)} ₴
+        </span>
+      </div>
+      <p style={{ fontSize: "11.5px", color: "#6B7280", margin: "3px 0 8px", lineHeight: 1.4 }}>
+        {note}
+      </p>
+      <button
+        type="button"
+        onClick={onApply}
+        disabled={disabled}
+        className="w-full cursor-pointer transition-colors duration-200"
+        style={{
+          minHeight: "44px",
+          borderRadius: "8px",
+          border: "none",
+          background: busy ? "#E5E7EB" : accent,
+          color: busy ? "#6B7280" : "#fff",
+          fontSize: "14px",
+          fontWeight: 700,
+          opacity: disabled && !busy ? 0.5 : 1,
+        }}
+      >
+        {busy ? "Застосовую…" : "Обрати цей"}
+      </button>
     </div>
   );
 }

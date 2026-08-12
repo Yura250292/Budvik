@@ -48,7 +48,13 @@ const NAME = "Тестовий водій";
     { name: "ТЕСТ · Кіоск на Стрийській", lat: 49.7940, lng: 24.0248, debt: 0, amount: 3150 },
   ];
 
-  const real = [];
+  const real: Array<{
+    id: string;
+    name: string;
+    deliveryLat: number | null;
+    deliveryLng: number | null;
+    receivableBalance: number | null;
+  }> = [];
   for (const f of FIXTURES) {
     const c = await p.counterparty.upsert({
       where: { code: f.name },

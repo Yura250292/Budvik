@@ -679,6 +679,11 @@ model SalesDocument {
 
   @@unique([number, docType])
   @@index([docType, status, createdAt]) // під фільтр аналітики торгових
+  // Є ще частковий індекс "SalesDocument_client_recent_idx"
+  // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
+  // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
+  // тож він живе лише в міграції 20260812210000_client_order_idx. Не видаляти
+  // його руками: без нього вибірка йде Seq Scan-ом по всій таблиці.
 }
 
 model SalesDocumentItem {
@@ -692,6 +697,9 @@ model SalesDocumentItem {
 
   salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id])
+
+  @@index([salesDocumentId]) // позиції документа: json_agg у картці клієнта
+  @@index([productId]) // зворотний обхід «товар -> хто брав» для рекомендацій
 }
 
 model Invoice {

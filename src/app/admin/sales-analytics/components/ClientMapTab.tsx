@@ -13,6 +13,7 @@ import type { ClientPoint, MapAction, MapMode, ProspectPoint } from "@/component
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
 import { ClientCommentsModal } from "./ClientCommentsModal";
+import { ClientOrderModal } from "./ClientOrderModal";
 
 /**
  * Карта клієнтів: хто бере регулярно, хто збивається, кого вже втратили —
@@ -107,6 +108,11 @@ export function ClientMapTab({ period }: { period: Period }) {
   const [pickedIndex, setPickedIndex] = useState(-1);
   const [focus, setFocus] = useState<{ lat: number; lng: number; id?: string; nonce: number } | null>(null);
   const [commentsFor, setCommentsFor] = useState<{ id: string; name: string } | null>(null);
+  const [orderFor, setOrderFor] = useState<{
+    id: string;
+    name: string;
+    state: ClientPoint["state"];
+  } | null>(null);
 
   // Шаблони тягнемо лише коли оверлей увімкнули: більшість сеансів карти
   // маршрути не потребує, а запит там важкий (геометрія всіх напрямків).
@@ -358,6 +364,11 @@ export function ClientMapTab({ period }: { period: Period }) {
       if (action.kind === "comments") {
         const c = data?.clients.find((x) => x.counterpartyId === action.id);
         if (c) setCommentsFor({ id: c.counterpartyId, name: c.name });
+        return;
+      }
+      if (action.kind === "orderCard") {
+        const c = data?.clients.find((x) => x.counterpartyId === action.id);
+        if (c) setOrderFor({ id: c.counterpartyId, name: c.name, state: c.state });
         return;
       }
       const p = data?.prospects.find((x) => x.id === action.id);
@@ -803,6 +814,12 @@ export function ClientMapTab({ period }: { period: Period }) {
 
       {commentsFor && (
         <ClientCommentsModal client={commentsFor} onClose={() => setCommentsFor(null)} />
+      )}
+
+      {/* key по клієнту: без нього перехід на інший пін лишав би на екрані
+          замовлення попереднього, поки вантажаться нові. */}
+      {orderFor && (
+        <ClientOrderModal key={orderFor.id} client={orderFor} onClose={() => setOrderFor(null)} />
       )}
     </div>
   );

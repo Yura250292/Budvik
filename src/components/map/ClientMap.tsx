@@ -50,6 +50,7 @@ export type MapMode = "view" | "addProspect" | "movePin";
 export type MapAction =
   | { kind: "moveClient"; id: string }
   | { kind: "comments"; id: string }
+  | { kind: "orderCard"; id: string }
   | { kind: "editProspect"; id: string }
   | { kind: "moveProspect"; id: string };
 
@@ -146,8 +147,11 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
     ${c.address ? `<br/><span style="color:#9CA3AF;font-size:11px">${escapeHtml(c.address)}</span>` : ""}
     ${c.geoSource === "MANUAL" ? `<br/><span style="color:#9CA3AF;font-size:11px">пін виставлено вручну</span>` : ""}
     ${c.geoSource === "CITY" ? `<br/><span style="color:#B45309;font-size:11px">приблизно: знайдено лише населений пункт</span>` : ""}
-    <br/><button data-action="comments" data-id="${escapeHtml(c.counterpartyId)}"
+    <br/><button data-action="orderCard" data-id="${escapeHtml(c.counterpartyId)}"
       style="margin-top:7px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
+      background:#F3F4F6;cursor:pointer;font-size:12px;font-weight:600">Замовлення</button>
+    <button data-action="comments" data-id="${escapeHtml(c.counterpartyId)}"
+      style="margin-top:7px;margin-left:5px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
       background:#fff;cursor:pointer;font-size:12px">Коментарі</button>
     <button data-action="moveClient" data-id="${escapeHtml(c.counterpartyId)}"
       style="margin-top:7px;margin-left:5px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;

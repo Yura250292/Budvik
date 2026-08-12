@@ -17,6 +17,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
+import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
 import type { SalesClientPoint, SalesRoute } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -42,6 +43,11 @@ export default function SalesMapPage() {
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [orderFor, setOrderFor] = useState<{
+    id: string;
+    name: string;
+    state: ClientStateKey;
+  } | null>(null);
 
   /**
    * Трек торгового вмикається кнопкою, а не сам.
@@ -109,6 +115,10 @@ export default function SalesMapPage() {
           clients={visible}
           route={data?.route ?? null}
           me={track.position ?? me}
+          onAction={(a) => {
+            const c = data?.clients.find((x) => x.id === a.id);
+            if (c) setOrderFor({ id: c.id, name: c.name, state: c.state });
+          }}
         />
       </div>
 
@@ -291,13 +301,20 @@ export default function SalesMapPage() {
                   })}
                 </div>
                 <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
-                  Тапніть точку, щоб відкрити картку клієнта. Приблизні точки можна уточнити
-                  в картці — станьте біля магазину й натисніть «Я зараз тут».
+                  Тапніть точку, щоб побачити, що клієнт брав і що йому запропонувати.
+                  Приблизні точки можна уточнити в картці — станьте біля магазину
+                  й натисніть «Я зараз тут».
                 </p>
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {/* key по клієнту: без нього тап по іншій точці лишав би на екрані
+          замовлення попереднього, поки вантажаться нові. */}
+      {orderFor && (
+        <ClientOrderModal key={orderFor.id} client={orderFor} onClose={() => setOrderFor(null)} />
       )}
     </div>
   );

@@ -14,6 +14,9 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 
+/** Що торговий може зробити з точки, крім переходу в картку. */
+export type SalesMapAction = { kind: "orderCard"; id: string };
+
 export type SalesClientPoint = {
   id: string;
   name: string;
@@ -77,10 +80,14 @@ function popupHtml(c: SalesClientPoint): string {
     ${c.daysSinceLast != null ? `<div style="color:#6B7280">Останній документ ${c.daysSinceLast} дн. тому</div>` : ""}
     ${debt}
     ${c.approximate ? `<div style="color:#D97706;font-size:12px;margin-top:3px">Точка приблизна</div>` : ""}
+    <button data-action="orderCard" data-id="${escapeHtml(c.id)}"
+       style="display:block;width:100%;margin-top:8px;padding:9px;text-align:center;
+       background:#0A0A0A;color:#fff;border:none;border-radius:8px;
+       font-weight:600;font-size:13px;cursor:pointer">Що брав і що везти</button>
     <a href="/sales/clients/${escapeHtml(c.id)}"
-       style="display:block;margin-top:8px;padding:8px;text-align:center;
-       background:#0A0A0A;color:#fff;border-radius:8px;text-decoration:none;
-       font-weight:600;font-size:13px">Відкрити картку</a>
+       style="display:block;margin-top:6px;padding:8px;text-align:center;
+       background:#fff;color:#0A0A0A;border:1px solid #E5E7EB;border-radius:8px;
+       text-decoration:none;font-weight:600;font-size:13px">Відкрити картку</a>
   </div>`;
 }
 
@@ -88,12 +95,14 @@ export default function SalesClientsMap({
   clients,
   route,
   me,
+  onAction,
   height = "100%",
 }: {
   clients: SalesClientPoint[];
   route: SalesRoute;
   /** Де зараз торговий — щоб бачити, хто поряд. */
   me?: { lat: number; lng: number } | null;
+  onAction?: (action: SalesMapAction) => void;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -101,6 +110,9 @@ export default function SalesClientsMap({
   const layersRef = useRef<L.LayerGroup | null>(null);
   const meRef = useRef<L.CircleMarker | null>(null);
   const fittedRef = useRef(false);
+  /** Колбек у ref: інакше кожен новий рендер сторінки перемальовував би точки. */
+  const actionRef = useRef(onAction);
+  actionRef.current = onAction;
 
   const key = useMemo(
     () =>
@@ -126,6 +138,21 @@ export default function SalesClientsMap({
       }).addTo(mapRef.current);
 
       layersRef.current = L.layerGroup().addTo(mapRef.current);
+
+      // Попапи — рядки HTML, тож React-обробник на кнопку не почепиш:
+      // ловимо тап делегуванням на відкритому попапі (як в адмінській карті).
+      mapRef.current.on("popupopen", (e: L.PopupEvent) => {
+        const root = e.popup.getElement();
+        root?.querySelectorAll<HTMLElement>("[data-action]").forEach((btn) => {
+          btn.onclick = () => {
+            const kind = btn.dataset.action as SalesMapAction["kind"];
+            const id = btn.dataset.id;
+            if (!kind || !id) return;
+            mapRef.current?.closePopup();
+            actionRef.current?.({ kind, id });
+          };
+        });
+      });
     }
 
     const map = mapRef.current;

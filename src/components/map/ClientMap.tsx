@@ -89,8 +89,12 @@ function spreadOverlaps<T extends { lat: number; lng: number }>(
     const spread = (counts.get(key) ?? 1) > 1;
     if (index === 0) return { ...p, spread };
 
-    const angle = (index * 2 * Math.PI) / 8;
-    const offset = 0.00035 * (1 + Math.floor(index / 8));
+    // Спіраль Ферма, а не кільце: у центрі Львова в одну точку сходяться
+    // 60 клієнтів, і кільцями по 8 вони лягли б сімома колами одне на
+    // одне. Тут радіус росте як √n, тож щільність лишається однаковою і
+    // група читається на будь-якому розмірі — від двох точок до сотні.
+    const angle = index * 2.399963; // золотий кут, дає рівномірний розподіл
+    const offset = 0.00028 * Math.sqrt(index);
     return {
       ...p,
       spread,

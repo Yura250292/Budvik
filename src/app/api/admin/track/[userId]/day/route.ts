@@ -12,7 +12,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { resolveDriverDay } from "@/lib/track/day-stops";
+import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +79,9 @@ export async function GET(
       lastPointAt: trackSession?.lastPointAt ?? null,
       points,
     },
-    route,
+    // Точки з приклеєними відмітками — карта фарбує їх за статусом візиту
+    // так само, як планшет у водія.
+    route: { ...route, stops: attachVisits(route.stops, visits) },
     visits,
     sheet1C: sheet
       ? {

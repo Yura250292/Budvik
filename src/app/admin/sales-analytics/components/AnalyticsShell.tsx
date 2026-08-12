@@ -28,6 +28,7 @@ import { MotivationTab } from "./MotivationTab";
 import { DriverPayrollTab } from "./DriverPayrollTab";
 import { DriverSheetsTab } from "./DriverSheetsTab";
 import { DriverSettingsTab } from "./DriverSettingsTab";
+import { LiveTrackTab } from "./LiveTrackTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -66,6 +67,7 @@ const SUBTABS = {
   // слова «маршрут», у них нічого немає.
   drivers: [
     { key: "payroll", label: "Зарплата" },
+    { key: "live", label: "На маршруті" },
     { key: "sheets", label: "Маршрутні листи" },
     { key: "driver-settings", label: "Налаштування" },
   ],
@@ -328,6 +330,7 @@ export function AnalyticsShell() {
             onOpenSettings={() => setTarget({ tab: "drivers", view: "driver-settings" })}
           />
         )}
+        {tab === "drivers" && view === "live" && <LiveTrackTab />}
         {tab === "drivers" && view === "sheets" && <DriverSheetsTab period={period} />}
         {tab === "drivers" && view === "driver-settings" && <DriverSettingsTab />}
       </div>

@@ -207,3 +207,28 @@ export async function resolveDriverDay(driverId: string, day: string): Promise<D
 
   return EMPTY;
 }
+
+/** Відмітка, приклеєна до точки маршруту. */
+export type StopVisit = {
+  status: string;
+  money: string;
+  collectedAmount: number | null;
+  comment: string | null;
+};
+
+/**
+ * Приклеює відмітки до точок за клієнтом.
+ *
+ * Спільне для планшета і адмінки: обидва малюють точку кольором статусу,
+ * і різні реалізації давали б різні кольори на тих самих даних.
+ */
+export function attachVisits<V extends StopVisit & { counterpartyId: string }>(
+  stops: DayStop[],
+  visits: V[]
+): Array<DayStop & { visit: StopVisit | null }> {
+  const byClient = new Map(visits.map((v) => [v.counterpartyId, v]));
+  return stops.map((s) => ({
+    ...s,
+    visit: s.counterpartyId ? (byClient.get(s.counterpartyId) ?? null) : null,
+  }));
+}

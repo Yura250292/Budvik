@@ -16,7 +16,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { resolveDriverDay } from "@/lib/track/day-stops";
+import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 
 export const dynamic = "force-dynamic";
 
@@ -70,14 +70,7 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const visitByClient = Object.fromEntries(
-    visits.filter((v) => v.counterpartyId).map((v) => [v.counterpartyId, v])
-  );
-
-  const stops = route.stops.map((s) => ({
-    ...s,
-    visit: s.counterpartyId ? (visitByClient[s.counterpartyId] ?? null) : null,
-  }));
+  const stops = attachVisits(route.stops, visits);
 
   const done = stops.filter((s) => s.visit?.status === "DONE").length;
   const missed = stops.filter((s) => s.visit?.status === "MISSED").length;

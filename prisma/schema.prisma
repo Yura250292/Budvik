@@ -267,6 +267,11 @@ model User {
 
   dashboardLayout UserDashboardLayout?
   dashboardNotes  UserDashboardNote[]
+
+  // Планшет у машині: веб-трек і відмітки візитів
+  trackSessions TrackSession[] @relation("trackSessionUser")
+  trackPoints   TrackPoint[]   @relation("trackPointUser")
+  visits        Visit[]        @relation("visitUser")
 }
 
 /// Розкладка віджетів дашборду адмінки. Окрема модель, а не поле в User:
@@ -579,6 +584,7 @@ model Counterparty {
   routeSheetStops RouteSheetStop[]
   prospect        ProspectClient?
   comments        ClientComment[]
+  visits          Visit[]
 
   purchaseOrders   PurchaseOrder[]
   salesDocuments   SalesDocument[]
@@ -1905,6 +1911,11 @@ model DriverPayrollRates {
 enum GeoSource {
   GEOCODED
   MANUAL
+  /// Геокодер знайшов лише населений пункт, не адресу. Такий пін гірший
+  /// за відсутність піна: виглядає точним, а каже лише «десь у цьому
+  /// місті». Карта показує їх напівпрозорими й окремим фільтром, щоб
+  /// їх не плутали зі справжніми точками.
+  CITY
   FAILED
 }
 
@@ -1970,4 +1981,146 @@ model ClientComment {
 
   /// Картка клієнта читає свіжі згори.
   @@index([counterpartyId, createdAt])
+}
+
+// ========== Планшет у машині: живий трек і чек-ліст візитів ==========
+// Планшет закріплений у машині, завжди на зарядці, вкладка з картою на
+// передньому плані. Тому трек збирає САМ БРАУЗЕР (watchPosition + Wake
+// Lock), а не Telegram-бот: обмеження «фонова вкладка засинає» цей
+// сценарій обходить, і зникає залежність від месенджера.
+//
+// Чому не перевикористали SalesTrip/SalesTrackPoint: там кожна точка
+// вимагає tripId, а поїздка відкривається ботом по фото одометра. Водій
+// нічого не фотографує і бота може не мати. Тут — вузькі власні моделі
+// з тією самою математикою (metersFromPrev рахується при вставці).
+
+/// Трек-сесія = один робочий день однієї людини.
+///
+/// Прив'язка до дня, а не до «поїздки»: планшет вмикається зранку і
+/// гасне ввечері, проміжних старт/стопів немає. Роль не фіксуємо —
+/// модель однаково обслуговує водія і торгового.
+model TrackSession {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Київська дата, 00:00 — робочий день
+  day DateTime
+
+  startedAt   DateTime  @default(now())
+  /// Час останньої прийнятої точки. Окреме поле, щоб «хто зараз онлайн»
+  /// не сканував таблицю точок.
+  lastPointAt DateTime?
+
+  /// Лічильники накопичуються сервером при вставці пачки: звіт про день
+  /// не має агрегувати сотні рядків заради двох чисел.
+  pointsCount Int   @default(0)
+  distanceKm  Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User         @relation("trackSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  points TrackPoint[]
+
+  /// День і людина однозначно визначають сесію — пачки точок роблять
+  /// upsert по цьому ключу, і паралельні вкладки не створять дублів.
+  @@unique([userId, day])
+  @@index([day])
+  @@index([lastPointAt])
+}
+
+/// Точка веб-треку. Свідомо вузька: день ≈ 100–300 точок на людину,
+/// жодного зворотного геокодування при вставці.
+model TrackPoint {
+  id        String @id @default(cuid())
+  sessionId String
+  userId    String // денормалізовано: вибірка треку по людині без join
+
+  lat Float
+  lng Float
+
+  /// Радіус похибки GPS, м. Точки з великою похибкою сервер відкидає:
+  /// без цього поля «був за 300 м від клієнта» неможливо трактувати.
+  accuracyM  Int?
+  speedKmh   Int?
+  headingDeg Int?
+
+  /// Час з GPS-події на пристрої, а не час запису: пачка може приїхати
+  /// через 20 хвилин офлайну, і createdAt збрехав би про момент.
+  recordedAt DateTime
+
+  metersFromPrev  Int?
+  minutesFromPrev Int?
+
+  createdAt DateTime @default(now())
+
+  session TrackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User         @relation("trackPointUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, recordedAt])
+  @@index([userId, recordedAt])
+}
+
+/// Чи потрапив на точку.
+enum VisitStatus {
+  DONE
+  MISSED
+}
+
+/// Що з грошима на точці. NOT_APPLICABLE — боргу не було, забирати
+/// нічого; окреме значення, щоб «нічого не забрав» не змішувалося з
+/// «не було чого забирати».
+enum MoneyCollected {
+  FULL
+  PARTIAL
+  NONE
+  NOT_APPLICABLE
+}
+
+/// Відмітка про візит до клієнта за день: приїхав / не потрапив,
+/// коментар і скільки грошей забрав.
+///
+/// Дає те, чого не було ніде: факт відвідування з боку людини. Точки
+/// маршрутного листа кажуть, куди ПЛАНУВАЛИ, трек — де БУВ, а Visit —
+/// що там СТАЛОСЯ.
+model Visit {
+  id             String @id @default(cuid())
+  userId         String
+  /// Київська дата візиту
+  day            DateTime
+  counterpartyId String
+
+  /// Звідки взялася точка в списку дня. Обидва nullable: клієнта можна
+  /// відмітити і поза планом (заїхав додатково).
+  routeSheetStopId String?
+  deliveryStopId   String?
+
+  status  VisitStatus
+  comment String?
+
+  money MoneyCollected @default(NOT_APPLICABLE)
+
+  /// Скільки забрав, ₴. При FULL сервер підставляє борг точки ЧИСЛОМ, а
+  /// не посиланням: борг у 1С завтра зміниться, а відмітка має лишитися
+  /// свідченням про той момент.
+  collectedAmount Float?
+
+  /// Де стояв планшет у мить відмітки — доказ присутності. Не блокуємо
+  /// відмітку без геолокації (буває глухий підвал), але порожнє поле
+  /// саме по собі інформативне.
+  lat       Float?
+  lng       Float?
+  accuracyM Int?
+
+  markedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User         @relation("visitUser", fields: [userId], references: [id], onDelete: Cascade)
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  /// Одна відмітка на клієнта за день: повторний тап редагує, а не
+  /// плодить дублі. Ловить і гонку подвійного натискання на рівні БД.
+  @@unique([userId, day, counterpartyId])
+  @@index([day])
+  @@index([counterpartyId, day])
 }

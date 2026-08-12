@@ -25,6 +25,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const period = parsePeriod(new URL(req.url).searchParams);
-  return NextResponse.json(await teamBenchmark(period));
+  const { searchParams } = new URL(req.url);
+  const period = parsePeriod(searchParams);
+
+  // ?reps=id1,id2 — порівнювати лише обраних. Невідомі id просто не
+  // знайдуть збігів, тож окремої валідації не потрібно.
+  const repsParam = searchParams.get("reps");
+  const onlyReps = repsParam
+    ? repsParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50)
+    : undefined;
+
+  return NextResponse.json(await teamBenchmark(period, onlyReps));
 }

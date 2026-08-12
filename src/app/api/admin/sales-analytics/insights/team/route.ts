@@ -30,7 +30,13 @@ async function guard(req: NextRequest) {
   if (!FULL_ACCESS_ROLES.includes(session.user.role)) {
     return { error: NextResponse.json({ error: "Немає доступу" }, { status: 403 }) };
   }
-  return { period: parsePeriod(new URL(req.url).searchParams) };
+  const { searchParams } = new URL(req.url);
+  // ?reps=id1,id2 — аналіз лише обраних торгових.
+  const repsParam = searchParams.get("reps");
+  const onlyReps = repsParam
+    ? repsParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50)
+    : undefined;
+  return { period: parsePeriod(searchParams), onlyReps };
 }
 
 /**
@@ -39,8 +45,8 @@ async function guard(req: NextRequest) {
  * Метрики підписані українською тими самими назвами, що в таблиці, — щоб
  * інсайт і колонка, на яку він посилається, називалися однаково.
  */
-async function buildFacts(period: ReturnType<typeof parsePeriod>) {
-  const bench = await teamBenchmark(period);
+async function buildFacts(period: ReturnType<typeof parsePeriod>, onlyReps?: string[]) {
+  const bench = await teamBenchmark(period, onlyReps);
   const keys = Object.keys(METRICS) as MetricKey[];
   const round = (n: number | null) => (n === null ? null : Math.round(n));
 
@@ -96,6 +102,12 @@ async function buildFacts(period: ReturnType<typeof parsePeriod>) {
       },
     },
     торгових_у_порівнянні: bench.reps.length,
+    // Керівник міг звузити порівняння галочками — модель мусить розуміти,
+    // що це не вся команда, і не робити висновків про відсутніх.
+    вибірка:
+      onlyReps && onlyReps.length > 0
+        ? `порівнюються лише обрані керівником ${bench.reps.length} із ${bench.roster.length} торгових; перцентилі й медіани пораховані всередині вибірки`
+        : "уся команда з продажами за період",
     порівняння_можливе: bench.comparable,
     команда: reps,
     медіани_команди: медіани,
@@ -107,8 +119,12 @@ export async function GET(req: NextRequest) {
   const checked = await guard(req);
   if ("error" in checked) return checked.error;
 
-  const { period } = checked;
-  const cached = await readReport("team", null, period.fromDay, period.toDay);
+  const { period, onlyReps } = checked;
+
+  // Кеш живе лише для повної команди: його ключ — (kind, період), і звіт
+  // по трьох обраних затер би там звіт по всіх. Для вибірки кешу немає —
+  // аналіз завжди генерується явно.
+  const cached = onlyReps ? null : await readReport("team", null, period.fromDay, period.toDay);
 
   return NextResponse.json({
     configured: insightsConfigured(),
@@ -128,8 +144,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { period } = checked;
-  const facts = await buildFacts(period);
+  const { period, onlyReps } = checked;
+  const facts = await buildFacts(period, onlyReps);
 
   if (facts.торгових_у_порівнянні === 0) {
     return NextResponse.json({
@@ -142,7 +158,9 @@ export async function POST(req: NextRequest) {
         generatedAt: new Date().toISOString(),
         fresh: true,
       },
-      empty: "За обраний період жоден торговий не має реалізацій.",
+      empty: onlyReps
+        ? "Ніхто з обраних торгових не має реалізацій за період."
+        : "За обраний період жоден торговий не має реалізацій.",
     });
   }
 
@@ -151,7 +169,9 @@ export async function POST(req: NextRequest) {
     result = await generateInsights({
       kind: "team",
       facts,
-      scopeNote: `Дані охоплюють усіх торгових компанії (${facts.торгових_у_порівнянні} осіб із продажами за період).`,
+      scopeNote: onlyReps
+        ? `Дані охоплюють ${facts.торгових_у_порівнянні} торгових, ОБРАНИХ керівником для порівняння (не всю команду).`
+        : `Дані охоплюють усіх торгових компанії (${facts.торгових_у_порівнянні} осіб із продажами за період).`,
     });
   } catch (e) {
     console.error("insights team", e);
@@ -161,16 +181,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const generatedAt = await writeReport({
-    kind: "team",
-    repId: null,
-    fromDay: period.fromDay,
-    toDay: period.toDay,
-    insights: result.insights,
-    facts,
-    model: result.model,
-    tokens: result.tokens,
-  });
+  // Звіт по вибірці в кеш не пишемо — ключ (kind, період) один, і вибірка
+  // затерла б звіт по всій команді. Зберегти його в архів однаково можна.
+  const generatedAt = onlyReps
+    ? new Date().toISOString()
+    : await writeReport({
+        kind: "team",
+        repId: null,
+        fromDay: period.fromDay,
+        toDay: period.toDay,
+        insights: result.insights,
+        facts,
+        model: result.model,
+        tokens: result.tokens,
+      });
 
   return NextResponse.json({
     configured: true,

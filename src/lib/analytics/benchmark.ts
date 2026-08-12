@@ -102,6 +102,12 @@ export type TeamBenchmark = {
   brandMatrix: BrandMatrixRow[];
   /** false — команда замала, перцентилі не показуємо */
   comparable: boolean;
+  /**
+   * Усі торгові з продажами за період — незалежно від фільтра. З цього
+   * списку інтерфейс малює галочки «кого порівнюємо»: якби ростер теж
+   * фільтрувався, зняту галочку не було б звідки повернути.
+   */
+  roster: Array<{ repId: string; name: string }>;
 };
 
 /**
@@ -165,8 +171,16 @@ async function assortmentByRep(period: Period) {
   `;
 }
 
-/** Зведення по команді з перцентилями, медіанами й матрицею брендів. */
-export async function teamBenchmark(period: Period): Promise<TeamBenchmark> {
+/**
+ * Зведення по команді з перцентилями, медіанами й матрицею брендів.
+ *
+ * `onlyRepIds` звужує порівняння до обраних торгових. Перцентилі, медіани,
+ * місця й матриця брендів тоді рахуються ВСЕРЕДИНІ вибірки — керівник
+ * порівнює трьох обраних між собою, а не проти всієї команди. Це свідомо:
+ * питання «хто з цих трьох найсильніший» відповіді відносно решти не
+ * потребує, а змішування баз плутало б.
+ */
+export async function teamBenchmark(period: Period, onlyRepIds?: string[]): Promise<TeamBenchmark> {
   const [revenue, brandRows, collected, receivables, momentum, portfolio, assortment, users] =
     await Promise.all([
       revenueByRep(period.from, period.to),
@@ -200,7 +214,7 @@ export async function teamBenchmark(period: Period): Promise<TeamBenchmark> {
   // База — ті, хто мав продажі в періоді. Торговий без жодної реалізації
   // у порівняння не потрапляє: його нулі зсунули б медіану всієї команди
   // вниз і зробили б решту «сильнішою», ніж вона є.
-  const metrics: RepMetrics[] = revenue.map((r) => {
+  const allMetrics: RepMetrics[] = revenue.map((r) => {
     const rep = r.repId;
     const money = collectedMap.get(rep) ?? { amount: 0, profit: 0 };
     const aging = agingMap.get(rep);
@@ -228,6 +242,15 @@ export async function teamBenchmark(period: Period): Promise<TeamBenchmark> {
       momentumPct: usableMomentum(mom) ? mom!.amountDeltaPct : null,
     };
   });
+
+  // Ростер — завжди повний, відсортований за оборотом; фільтр діє лише
+  // на те, кого порівнюємо.
+  const roster = [...allMetrics]
+    .sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0))
+    .map((m) => ({ repId: m.repId, name: m.name }));
+
+  const chosen = onlyRepIds && onlyRepIds.length > 0 ? new Set(onlyRepIds) : null;
+  const metrics = chosen ? allMetrics.filter((m) => chosen.has(m.repId)) : allMetrics;
 
   const keys = Object.keys(METRICS) as MetricKey[];
   const comparable = metrics.length >= MIN_TEAM_SIZE;
@@ -283,6 +306,7 @@ export async function teamBenchmark(period: Period): Promise<TeamBenchmark> {
     medians,
     brandMatrix: buildBrandMatrix(brandRows, metrics),
     comparable,
+    roster,
   };
 }
 

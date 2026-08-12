@@ -42,6 +42,8 @@ type BenchmarkResponse = {
     missingRepIds: string[];
   }>;
   comparable: boolean;
+  /** Повний список торгових із продажами — для галочок «кого порівнюємо» */
+  roster: Array<{ repId: string; name: string }>;
 };
 
 /** Колонки таблиці в порядку читання: спершу обсяг, далі якість роботи. */
@@ -84,10 +86,37 @@ function cellStyle(rank: number | null): React.CSSProperties | undefined {
 const MATRIX_LIMIT = 15;
 
 export function BenchmarkTab({ period }: { period: Period }) {
+  // null — порівнюємо всіх. Set — лише обраних галочками; перцентилі й
+  // медіани тоді сервер рахує всередині вибірки.
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+
+  // Стабільний порядок id у параметрі, щоб зміна порядку кліків не
+  // виглядала для useApi як нова адреса.
+  const repsQS =
+    picked && picked.size > 0 ? `&reps=${[...picked].sort().join(",")}` : "";
+
   const { data, loading, error, reload } = useApi<BenchmarkResponse>(
-    `/api/admin/sales-analytics/benchmark?from=${period.from}&to=${period.to}`
+    `/api/admin/sales-analytics/benchmark?from=${period.from}&to=${period.to}${repsQS}`
   );
   const [showMatrix, setShowMatrix] = useState(false);
+
+  const roster = data?.roster ?? [];
+
+  const toggleRep = useCallback(
+    (repId: string) => {
+      setPicked((prev) => {
+        // Виходимо з того, що бачить користувач: «всі» = всі галочки стоять.
+        const next = new Set(prev ?? roster.map((r) => r.repId));
+        if (next.has(repId)) next.delete(repId);
+        else next.add(repId);
+        // Останню галочку зняти не можна: порівняння без нікого беззмістовне.
+        if (next.size === 0) return prev;
+        // Обрані всі — це знову «вся команда», без параметра.
+        return next.size === roster.length ? null : next;
+      });
+    },
+    [roster]
+  );
 
   // Посилання «джерело» з інсайту про бренди мусить спершу розгорнути
   // матрицю — інакше якір скролив би до згорнутої картки без таблиці.
@@ -105,9 +134,24 @@ export function BenchmarkTab({ period }: { period: Period }) {
     return (
       <Card>
         <EmptyState
-          title="Немає продажів за період"
-          hint="Жоден торговий не має проведених реалізацій у цьому діапазоні."
+          title={picked ? "В обраних немає продажів за період" : "Немає продажів за період"}
+          hint={
+            picked
+              ? "Ніхто з обраних торгових не має реалізацій у цьому діапазоні."
+              : "Жоден торговий не має проведених реалізацій у цьому діапазоні."
+          }
         />
+        {picked && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setPicked(null)}
+              className="cursor-pointer text-[13px] font-medium text-bk underline underline-offset-2"
+            >
+              Показати всіх
+            </button>
+          </div>
+        )}
       </Card>
     );
   }
@@ -118,10 +162,60 @@ export function BenchmarkTab({ period }: { period: Period }) {
 
   return (
     <div className="space-y-4">
+      {/* --- Кого порівнюємо --- */}
+      {roster.length > 1 && (
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <CardHeader
+              title="Кого порівнюємо"
+              hint={
+                picked
+                  ? `Обрано ${picked.size} із ${roster.length}. Перцентилі й медіани рахуються всередині вибірки${picked.size < 4 ? "; менше чотирьох — без перцентилів, лише числа" : ""}.`
+                  : "Зніміть галочки з тих, хто не потрібен у порівнянні, — таблиця й АІ-аналіз перерахуються під вибірку."
+              }
+            />
+            {picked && (
+              <button
+                type="button"
+                onClick={() => setPicked(null)}
+                className="cursor-pointer text-[13px] font-medium text-g500 underline underline-offset-2 hover:text-bk"
+              >
+                Показати всіх
+              </button>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {roster.map((r) => {
+              const checked = !picked || picked.has(r.repId);
+              return (
+                <button
+                  key={r.repId}
+                  type="button"
+                  onClick={() => toggleRep(r.repId)}
+                  aria-pressed={checked}
+                  className={`cursor-pointer rounded-[var(--radius-btn)] border px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+                    checked
+                      ? "border-bk bg-bk text-white"
+                      : "border-g300 bg-white text-g500 hover:border-g400 hover:text-bk"
+                  }`}
+                >
+                  <span aria-hidden className="mr-1.5">{checked ? "✓" : "○"}</span>
+                  {r.name}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
       <InsightsPanel
-        endpoint={`/api/admin/sales-analytics/insights/team?from=${period.from}&to=${period.to}`}
-        title="АІ-аналіз команди"
-        hint="Хто витягує команду, хто провисає і в чому саме. Порівняння за перцентилями, числа пораховані з бази."
+        endpoint={`/api/admin/sales-analytics/insights/team?from=${period.from}&to=${period.to}${repsQS}`}
+        title={picked ? `АІ-аналіз обраних (${picked.size})` : "АІ-аналіз команди"}
+        hint={
+          picked
+            ? "Аналіз лише обраних торгових: перцентилі й медіани — всередині вибірки. Такий звіт не кешується — генерується щоразу."
+            : "Хто витягує команду, хто провисає і в чому саме. Порівняння за перцентилями, числа пораховані з бази."
+        }
         saveContext={{ kind: "team", fromDay: period.from, toDay: period.to }}
         resolveSource={resolveSource}
       />

@@ -112,6 +112,51 @@ async function main() {
   check("Планований борг = 4700", day1.body?.progress?.debtPlanned === 4700, day1.body?.progress?.debtPlanned);
   check("Трек порожній", day1.body?.track?.pointsCount === 0, day1.body?.track);
 
+  // --- 1b. Маршрут сайту має пріоритет над листом 1С ---
+  // 1С не знає, яку накладну повіз який водій (проби fe9debc, 2c8591e), і
+  // маршрут складає логіст на сайті. Тому порожній або чужий лист із 1С не
+  // сміє перекривати реальний маршрут дня.
+  const plannedRoute = await p.deliveryRoute.create({
+    data: {
+      number: `${MARK}МР-1`,
+      driverId: driver.id,
+      date: new Date(dayStartUtc.getTime() + 9 * 3600_000),
+      status: "PLANNED",
+      createdById: driver.id,
+      vehicleInfo: "Fiat Ducato",
+      stops: {
+        create: [
+          {
+            sequence: 1,
+            counterpartyId: clients[0].id,
+            address: "вул. Тестова, А",
+            salesDocumentId: (
+              await p.salesDocument.create({
+                data: {
+                  number: `${MARK}РН-1`,
+                  docType: "REALIZATION",
+                  counterpartyId: clients[0].id,
+                  totalAmount: 7000,
+                  createdById: driver.id,
+                },
+              })
+            ).id,
+          },
+        ],
+      },
+    },
+  });
+
+  const day1b = await get("/api/tablet/day");
+  check("Маршрут сайту переміг лист 1С", day1b.body?.route?.source === "DELIVERY_ROUTE", day1b.body?.route?.source);
+  check("Номер маршруту сайту", day1b.body?.route?.number === `${MARK}МР-1`, day1b.body?.route?.number);
+  check("Сума з документа реалізації", day1b.body?.route?.stops?.[0]?.amount === 7000, day1b.body?.route?.stops?.[0]?.amount);
+
+  // Прибираємо, щоб решта перевірок ішла на маршрутному листі
+  await p.deliveryStop.deleteMany({ where: { deliveryRouteId: plannedRoute.id } });
+  await p.deliveryRoute.delete({ where: { id: plannedRoute.id } });
+  await p.salesDocument.deleteMany({ where: { number: { startsWith: MARK } } });
+
   // --- 2. Трек ---
   // База часу фіксується ОДИН раз: інакше повторна пачка отримала б нові
   // мітки й перестала бути повторною — саме на цьому спіткнувся перший

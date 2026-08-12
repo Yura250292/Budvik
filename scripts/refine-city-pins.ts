@@ -72,8 +72,9 @@ type Row = {
   id: string;
   name: string;
   address: string;
-  deliveryLat: number;
-  deliveryLng: number;
+  /** null — картка ще не має координат узагалі */
+  deliveryLat: number | null;
+  deliveryLng: number | null;
   docs: number;
 };
 
@@ -82,6 +83,12 @@ async function main() {
 
   // Тільки ті, кому реально возили: уточнювати пін клієнта без відвантажень
   // немає сенсу, а запит до геокодера коштує секунди.
+  // Дві категорії разом: піни «по місту» (є куди рухати) і картки взагалі
+  // без координат (клієнта не видно на карті). Обидві виправляються тим
+  // самим запитом до геокодера, тож розділяти прогони немає сенсу.
+  //
+  // MANUAL і FAILED не чіпаємо: перше — рішення адміна, друге вже пробували
+  // і воно не далося (для повторів є --retry-failed у client-map/geocode).
   const rows = await prisma.$queryRaw<Row[]>`
     SELECT c.id, c.name, c.address, c."deliveryLat", c."deliveryLng",
            count(d.id)::int AS docs
@@ -90,9 +97,11 @@ async function main() {
       ON d."counterpartyId" = c.id
      AND d."docType" = 'REALIZATION'
      AND d."createdAt" > now() - interval '180 days'
-    WHERE c."geoSource"::text = 'CITY'
-      AND c.address IS NOT NULL AND c.address <> ''
-      AND c."deliveryLat" IS NOT NULL
+    WHERE c.address IS NOT NULL AND c.address <> ''
+      AND (
+        (c."geoSource"::text = 'CITY' AND c."deliveryLat" IS NOT NULL)
+        OR c."deliveryLat" IS NULL
+      )
     GROUP BY c.id, c.name, c.address, c."deliveryLat", c."deliveryLng"
     ORDER BY count(d.id) DESC
     LIMIT ${limit}`;
@@ -105,19 +114,49 @@ async function main() {
   let refined = 0;
   let unchanged = 0;
   let failed = 0;
+  let done = 0;
+
+  /**
+   * Скільки відмов поспіль означає, що нас притримують.
+   *
+   * Nominatim не повертає 429 — він просто віддає порожній результат. Тому
+   * серія відмов на адресах, які раніше знаходились, читається саме як
+   * rate limiting, а не як «таких вулиць немає». Пауза дешевша за прогін,
+   * що зіпсував усі результати.
+   */
+  const COOLDOWN_AFTER = 8;
+  const COOLDOWN_MS = 60_000;
+  let failStreak = 0;
 
   for (const r of candidates) {
+    done++;
+    if (done % 10 === 0) {
+      console.log(`  ... ${done}/${candidates.length} (уточнено ${refined})`);
+    }
+
+    if (failStreak >= COOLDOWN_AFTER) {
+      console.log(`  ⏸  ${failStreak} відмов поспіль — пауза 60 с (ліміт Nominatim)`);
+      await new Promise((res) => setTimeout(res, COOLDOWN_MS));
+      failStreak = 0;
+    }
+
     const hit = await geocodeAddress(r.address);
 
     if (!hit) {
       failed++;
+      failStreak++;
       console.log(`  —  ${r.name}`);
       console.log(`     ${r.address}`);
-      console.log(`     геокодер нічого не знайшов, лишаємо як є`);
       continue;
     }
+    failStreak = 0;
 
-    const shift = haversineMeters(r.deliveryLat, r.deliveryLng, hit.lat, hit.lng);
+    // Порожні координати приймаємо будь-які: рухати нема від чого, і точка
+    // навіть із похибкою краща за відсутність клієнта на карті.
+    const lat = r.deliveryLat;
+    const lng = r.deliveryLng;
+    const isNew = lat == null || lng == null;
+    const shift = isNew ? Infinity : haversineMeters(lat, lng, hit.lat, hit.lng);
 
     if (shift < MIN_SHIFT_M) {
       unchanged++;
@@ -127,7 +166,11 @@ async function main() {
     refined++;
     console.log(`  ✓  ${r.name}  (${r.docs} накл.)`);
     console.log(`     ${r.address}`);
-    console.log(`     пін їде на ${Math.round(shift)} м → ${hit.displayName}`);
+    console.log(
+      isNew
+        ? `     НОВА точка → ${hit.displayName}`
+        : `     пін їде на ${Math.round(shift)} м → ${hit.displayName}`
+    );
 
     if (apply) {
       await prisma.$executeRaw`

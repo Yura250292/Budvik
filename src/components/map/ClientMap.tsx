@@ -13,7 +13,7 @@
  * відмінністю — і через дальтонізм, і бо їх плутали б із клієнтами.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
@@ -49,6 +49,7 @@ export type MapMode = "view" | "addProspect" | "movePin";
 
 export type MapAction =
   | { kind: "moveClient"; id: string }
+  | { kind: "comments"; id: string }
   | { kind: "editProspect"; id: string }
   | { kind: "moveProspect"; id: string };
 
@@ -141,8 +142,11 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
     ${c.address ? `<br/><span style="color:#9CA3AF;font-size:11px">${escapeHtml(c.address)}</span>` : ""}
     ${c.geoSource === "MANUAL" ? `<br/><span style="color:#9CA3AF;font-size:11px">пін виставлено вручну</span>` : ""}
     ${c.spread && c.geoSource !== "MANUAL" ? `<br/><span style="color:#B45309;font-size:11px">приблизно: адресу знайдено лише до міста</span>` : ""}
-    <br/><button data-action="moveClient" data-id="${escapeHtml(c.counterpartyId)}"
+    <br/><button data-action="comments" data-id="${escapeHtml(c.counterpartyId)}"
       style="margin-top:7px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
+      background:#fff;cursor:pointer;font-size:12px">Коментарі</button>
+    <button data-action="moveClient" data-id="${escapeHtml(c.counterpartyId)}"
+      style="margin-top:7px;margin-left:5px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
       background:#fff;cursor:pointer;font-size:12px">Перемістити пін</button>
   </div>`;
 }
@@ -175,7 +179,8 @@ export default function ClientMap({
   mode = "view",
   onMapClick,
   onAction,
-  height = "560px",
+  focus = null,
+  height = "clamp(300px, 52vh, 460px)",
 }: {
   clients: ClientPoint[];
   prospects: ProspectPoint[];
@@ -183,12 +188,19 @@ export default function ClientMap({
   mode?: MapMode;
   onMapClick?: (lat: number, lng: number) => void;
   onAction?: (action: MapAction) => void;
+  /** Куди підлетіти: пошук передає знайденого клієнта разом із nonce, щоб
+   *  повторний вибір того самого теж спрацював. */
+  focus?: { lat: number; lng: number; id?: string; nonce: number } | null;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layersRef = useRef<L.LayerGroup | null>(null);
   const rendererRef = useRef<L.Renderer | null>(null);
+  /** Чи колесо зараз масштабує карту — показуємо підказкою, щоб не гадали. */
+  const [wheelActive, setWheelActive] = useState(false);
+  /** counterpartyId → маркер: щоб пошук міг розкрити попап знайденого. */
+  const markersRef = useRef(new Map<string, L.CircleMarker>());
   /** Колбеки в ref: інакше кожна зміна режиму перемальовувала б усі точки. */
   const clickRef = useRef(onMapClick);
   const actionRef = useRef(onAction);
@@ -219,6 +231,10 @@ export default function ClientMap({
       mapRef.current = L.map(containerRef.current, {
         zoomControl: true,
         attributionControl: true,
+        // Колесо гортає сторінку, а не масштабує: карта займає всю ширину,
+        // і при скролі повз неї сторінка інакше «залипає» на зумі. Масштаб
+        // вмикається кліком по карті (нижче) або Ctrl+колесом.
+        scrollWheelZoom: false,
       }).setView([49.8397, 24.0297], 8); // Львів — центр робочої зони
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -245,8 +261,17 @@ export default function ClientMap({
       });
 
       mapRef.current.on("click", (e: L.LeafletMouseEvent) => {
+        // Клік по карті означає «я тут працюю» — вмикаємо зум колесом.
+        // Вихід курсора за межі знову віддає колесо сторінці.
+        mapRef.current?.scrollWheelZoom.enable();
+        setWheelActive(true);
         if (modeRef.current === "view") return;
         clickRef.current?.(e.latlng.lat, e.latlng.lng);
+      });
+
+      mapRef.current.on("mouseout", () => {
+        mapRef.current?.scrollWheelZoom.disable();
+        setWheelActive(false);
       });
     }
 
@@ -273,8 +298,9 @@ export default function ClientMap({
       }
     });
 
+    markersRef.current.clear();
     spreadOverlaps(clients).forEach((c) => {
-      L.circleMarker([c.lat, c.lng], {
+      const marker = L.circleMarker([c.lat, c.lng], {
         renderer,
         radius: 7,
         color: "#ffffff",
@@ -285,6 +311,9 @@ export default function ClientMap({
         .bindPopup(clientPopup(c))
         .bindTooltip(c.name, { direction: "top" })
         .addTo(group);
+      // Тримаємо маркери за id: пошук має не лише підлетіти до точки, а й
+      // розкрити її попап — інакше серед сусідніх пінів не ясно, який знайшли.
+      markersRef.current.set(c.counterpartyId, marker);
       bounds.extend([c.lat, c.lng]);
     });
 
@@ -304,6 +333,19 @@ export default function ClientMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentKey]);
 
+  // Політ до знайденого пошуком клієнта.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus) return;
+    map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 14), { duration: 0.7 });
+    if (focus.id) {
+      // Попап відкриваємо після польоту: під час анімації Leaflet зсуває
+      // його разом із картою, і він встигає моргнути в кутку.
+      const marker = markersRef.current.get(focus.id);
+      if (marker) map.once("moveend", () => marker.openPopup());
+    }
+  }, [focus]);
+
   // Курсор — підказка, що зараз чекають клік по карті.
   useEffect(() => {
     const map = mapRef.current;
@@ -321,16 +363,27 @@ export default function ClientMap({
   }, []);
 
   return (
-    <div className="relative" style={{ height, width: "100%" }}>
-      <div
-        ref={containerRef}
-        style={{ height: "100%", width: "100%", borderRadius: "12px", overflow: "hidden" }}
-      />
+    // isolate створює власний стековий контекст: панелі Leaflet мають
+    // z-index до 1000 і без цього перекривали б шапку та бічне меню при
+    // скролі — карта «їздила» поверх сторінки. Тепер її шари лишаються
+    // всередині блока, хай який у них z-index.
+    <div
+      className="relative isolate overflow-hidden rounded-[12px] border border-line"
+      style={{ height, width: "100%", contain: "layout paint" }}
+    >
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+
       {mode !== "view" && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full bg-bk/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-[400] -translate-x-1/2 rounded-full bg-bk/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
           {mode === "addProspect"
             ? "Клікніть на карті, де стоїть майбутній клієнт"
             : "Клікніть на карті, куди перенести точку"}
+        </div>
+      )}
+
+      {mode === "view" && !wheelActive && (
+        <div className="pointer-events-none absolute bottom-2 left-1/2 z-[400] -translate-x-1/2 rounded-full bg-white/90 px-2.5 py-1 text-[11px] text-gr shadow">
+          Клікніть на карту, щоб масштабувати колесом
         </div>
       )}
     </div>

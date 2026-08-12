@@ -254,6 +254,7 @@ model User {
   // Точки для розпрацювання на карті клієнтів
   assignedProspects ProspectClient[] @relation("prospectAssignedRep")
   createdProspects  ProspectClient[] @relation("prospectAuthor")
+  clientComments    ClientComment[]  @relation("clientCommentAuthor")
 
   /// Ref_Key водія в 1С — прив'язка акаунта до маршрутних листів.
   /// Поле, а не окрема таблиця: водіїв одиниці, зв'язок 1:1 і без історії
@@ -577,6 +578,7 @@ model Counterparty {
   debtSnapshots DebtSnapshot[]
   routeSheetStops RouteSheetStop[]
   prospect        ProspectClient?
+  comments        ClientComment[]
 
   purchaseOrders   PurchaseOrder[]
   salesDocuments   SalesDocument[]
@@ -1946,4 +1948,26 @@ model ProspectClient {
 
   @@index([status])
   @@index([assignedRepId])
+}
+
+/// Коментар торгового про клієнта: домовленості, особливості роботи, чого чекати.
+///
+/// Живе окремо від Counterparty.notes, бо той — одне поле на всіх і його
+/// перезаписує будь-хто. Тут стрічка з автором і датою: видно, хто що
+/// казав і коли, а торговий на маршруті бачить контекст перед візитом.
+model ClientComment {
+  id             String @id @default(cuid())
+  counterpartyId String
+  authorId       String
+
+  text String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+  author       User         @relation("clientCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  /// Картка клієнта читає свіжі згори.
+  @@index([counterpartyId, createdAt])
 }

@@ -12,6 +12,7 @@ import type { OverviewRoute } from "@/components/map/RoutesOverviewMap";
 import type { ClientPoint, MapAction, MapMode, ProspectPoint } from "@/components/map/ClientMap";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { ClientCommentsModal } from "./ClientCommentsModal";
 
 /**
  * Карта клієнтів: хто бере регулярно, хто збивається, кого вже втратили —
@@ -24,7 +25,7 @@ import { ErrorBox } from "./ErrorBox";
 
 const ClientMap = dynamic(() => import("@/components/map/ClientMap"), {
   ssr: false,
-  loading: () => <Skeleton className="h-[560px] w-full" />,
+  loading: () => <Skeleton className="h-[clamp(300px,52vh,460px)] w-full" />,
 });
 
 const STATE_ORDER: ClientStateKey[] = ["ACTIVE", "NEW", "SLIPPING", "DORMANT", "LOST"];
@@ -94,6 +95,11 @@ export function ClientMapTab({ period }: { period: Period }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showUnmapped, setShowUnmapped] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pickedIndex, setPickedIndex] = useState(-1);
+  const [focus, setFocus] = useState<{ lat: number; lng: number; id?: string; nonce: number } | null>(null);
+  const [commentsFor, setCommentsFor] = useState<{ id: string; name: string } | null>(null);
 
   // Шаблони тягнемо лише коли оверлей увімкнули: більшість сеансів карти
   // маршрути не потребує, а запит там важкий (геометрія всіх напрямків).
@@ -125,6 +131,131 @@ export function ClientMapTab({ period }: { period: Period }) {
       (p) => repFilter === "all" || p.assignedRep?.id === repFilter
     );
   }, [data, showProspects, hiddenStates, repFilter]);
+
+  /**
+   * Підказки пошуку.
+   *
+   * Шукаємо по назві, адресі й місту в дужках назви («(м.Мостиська)»), бо
+   * саме так керівник і думає про клієнта: або прізвище, або де він.
+   * Дані вже в пам'яті, тож запиту не потрібно — список звужується з
+   * кожною літерою. Збіг на початку слова показуємо першим: «Стрий» має
+   * знайти Стрий, а не «Бистриця».
+   */
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2 || !data) return [];
+
+    type Suggestion = {
+      key: string;
+      kind: "client" | "prospect";
+      id: string;
+      name: string;
+      hint: string;
+      state: ClientStateKey;
+      lat: number | null;
+      lng: number | null;
+      rank: number;
+    };
+
+    const rank = (haystack: string) => {
+      const h = haystack.toLowerCase();
+      const at = h.indexOf(q);
+      if (at < 0) return -1;
+      // Початок рядка або початок слова — вагоміше за збіг усередині.
+      if (at === 0) return 0;
+      return /[\s(,.«"]/.test(h[at - 1]) ? 1 : 2;
+    };
+
+    const out: Suggestion[] = [];
+
+    for (const c of data.clients) {
+      const r = Math.min(
+        ...[rank(c.name), rank(c.address ?? "")].filter((x) => x >= 0).concat([99])
+      );
+      if (r === 99) continue;
+      out.push({
+        key: `c:${c.counterpartyId}`,
+        kind: "client",
+        id: c.counterpartyId,
+        name: c.name,
+        hint: CLIENT_STATE[c.state].label,
+        state: c.state,
+        lat: c.lat,
+        lng: c.lng,
+        rank: r,
+      });
+    }
+
+    for (const p of data.prospects) {
+      const r = Math.min(
+        ...[rank(p.name), rank(p.address ?? "")].filter((x) => x >= 0).concat([99])
+      );
+      if (r === 99) continue;
+      out.push({
+        key: `p:${p.id}`,
+        kind: "prospect",
+        id: p.id,
+        name: p.name,
+        hint: "для розпрацювання",
+        state: "PROSPECT",
+        lat: p.lat,
+        lng: p.lng,
+        rank: r,
+      });
+    }
+
+    // Ті, кого немає на карті, теж знаходимо — інакше пошук мовчить про
+    // клієнта, який просто не геокодувався, і це виглядає як його відсутність.
+    for (const u of data.unmapped) {
+      const r = Math.min(
+        ...[rank(u.name), rank(u.address ?? "")].filter((x) => x >= 0).concat([99])
+      );
+      if (r === 99) continue;
+      out.push({
+        key: `u:${u.counterpartyId}`,
+        kind: "client",
+        id: u.counterpartyId,
+        name: u.name,
+        hint: "немає на карті",
+        state: u.state,
+        lat: null,
+        lng: null,
+        rank: r + 3,
+      });
+    }
+
+    return out.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, "uk")).slice(0, 12);
+  }, [query, data]);
+
+  type Picked = (typeof suggestions)[number];
+
+  const pickSuggestion = useCallback((s: Picked) => {
+    setSearchOpen(false);
+    setQuery(s.name);
+    if (s.lat != null && s.lng != null) {
+      setFocus({ lat: s.lat, lng: s.lng, id: s.kind === "client" ? s.id : undefined, nonce: Date.now() });
+    } else {
+      // Координат немає — показуємо його в списку «кого немає на карті».
+      setShowUnmapped(true);
+    }
+  }, []);
+
+  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestions.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSearchOpen(true);
+      setPickedIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setPickedIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      pickSuggestion(suggestions[pickedIndex >= 0 ? pickedIndex : 0]);
+    } else if (e.key === "Escape") {
+      setSearchOpen(false);
+    }
+  };
 
   const toggleState = (key: string) => {
     setHiddenStates((prev) => {
@@ -217,6 +348,11 @@ export function ClientMapTab({ period }: { period: Period }) {
         setMode("movePin");
         return;
       }
+      if (action.kind === "comments") {
+        const c = data?.clients.find((x) => x.counterpartyId === action.id);
+        if (c) setCommentsFor({ id: c.counterpartyId, name: c.name });
+        return;
+      }
       const p = data?.prospects.find((x) => x.id === action.id);
       if (!p) return;
       setDraft({
@@ -301,7 +437,7 @@ export function ClientMapTab({ period }: { period: Period }) {
     }
   };
 
-  if (loading && !data) return <Skeleton className="h-[560px] w-full" />;
+  if (loading && !data) return <Skeleton className="h-[clamp(300px,52vh,460px)] w-full" />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (!data) return null;
 
@@ -316,6 +452,58 @@ export function ClientMapTab({ period }: { period: Period }) {
           title="Карта клієнтів"
           hint={`Колір — як часто клієнт бере. Рахується за документами (візитів у даних немає), історія з січня 2026. На карті ${data.coverage.mapped} з ${data.coverage.classified} клієнтів.`}
         />
+
+        {/* Пошук клієнта: підказки з тих самих даних, що вже в пам'яті */}
+        <div className="relative mb-2">
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPickedIndex(-1);
+            }}
+            onKeyDown={onSearchKeyDown}
+            onFocus={() => setSearchOpen(true)}
+            // Затримка: без неї клік по підказці не встигає спрацювати,
+            // бо blur ховає список раніше за onClick.
+            onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+            placeholder="Пошук клієнта: назва, місто, адреса…"
+            className="w-full rounded-[var(--radius-btn)] border border-line px-3 py-1.5 text-sm text-bk"
+          />
+          {searchOpen && suggestions.length > 0 && (
+            <ul className="absolute left-0 right-0 top-full z-[500] mt-1 max-h-[260px] overflow-y-auto rounded-[var(--radius-card)] border border-line bg-white shadow-lg">
+              {suggestions.map((s, i) => (
+                <li key={s.key}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickSuggestion(s)}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
+                      i === pickedIndex ? "bg-bg2" : "hover:bg-bg2"
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0"
+                      style={{
+                        background: CLIENT_STATE[s.state].color,
+                        borderRadius: s.kind === "prospect" ? "2px" : "9999px",
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-bk">{s.name}</span>
+                    <span className="shrink-0 truncate text-xs text-gr">
+                      {s.hint}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {query.trim().length >= 2 && suggestions.length === 0 && (
+            <p className="mt-1 text-xs text-gr">
+              Нічого не знайдено. Клієнт без координат шукається у списку «кого немає на карті».
+            </p>
+          )}
+        </div>
 
         {/* Фільтри */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -393,6 +581,7 @@ export function ClientMapTab({ period }: { period: Period }) {
           mode={mode}
           onMapClick={handleMapClick}
           onAction={handleAction}
+          focus={focus}
         />
 
         {/* Покриття і геокодування */}
@@ -597,6 +786,10 @@ export function ClientMapTab({ period }: { period: Period }) {
             </div>
           </div>
         </div>
+      )}
+
+      {commentsFor && (
+        <ClientCommentsModal client={commentsFor} onClose={() => setCommentsFor(null)} />
       )}
     </div>
   );

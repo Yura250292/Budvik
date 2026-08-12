@@ -1091,6 +1091,61 @@ try {
             $stats.paymentsFailed = $_.Exception.Message
             Log ("payments: SKIPPED -- " + $_.Exception.Message)
         }
+
+        # --- route sheets: headers only, for payroll cross-checks ---
+        # The probes proved this document is a bare header: no tabular section
+        # (the stop list is assembled BY HAND at print time and stored
+        # nowhere), Kilometrazh filled in ~5% of documents, and realizations
+        # do not know their sheet. So driver payroll runs on the site's own
+        # route planner, and these headers only answer one question: 1C has a
+        # sheet for this driver and day -- does the site have a route? The
+        # journal shows unmatched sheets as the backup source.
+        # Best-effort, same reasoning as debt above.
+        Log "reading route sheets..."
+        try {
+            $w = NewWriter (Join-Path $OutDir "route_sheet.ndjson")
+            $n = 0
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.routeSheetsSince
+            $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on route sheets query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                $id = RefId $ib $r.Get(0)
+                if (-not $id) { continue }
+                $rec = [ordered]@{
+                    externalId = $id
+                    number     = Str $r.Get(1)
+                    date       = IsoDate $r.Get(2)
+                    posted     = [bool]$r.Get(6)
+                }
+                $drvId = RefId $ib $r.Get(3)
+                if ($drvId) { $rec.driverExternalId = $drvId }
+                $drvName = Str $r.Get(4)
+                if ($drvName) { $rec.driverName = $drvName }
+                # Almost always zero -- see the note above. Sent only when
+                # actually filled, so the server's default 0 stays honest.
+                $km = Num $r.Get(5)
+                if ($km -gt 0) { $rec.distanceKm = $km }
+                WriteRecord $w $rec
+                $n++
+            }
+            $w.Close()
+            $stats.routeSheets = $n
+            Log "route sheets: $n"
+        }
+        catch {
+            if ($w) { try { $w.Close() } catch { } }
+            Remove-Item (Join-Path $OutDir "route_sheet.ndjson") -Force -EA 0
+            # Same reasoning as debt above.
+            if (IsConnectionLost $_) {
+                Log ("route sheets: connection lost -- aborting attempt")
+                throw
+            }
+            $stats.routeSheetsFailed = $_.Exception.Message
+            Log ("route sheets: SKIPPED -- " + $_.Exception.Message)
+        }
     }
 
     # Manifest doubles as the success marker: the sender refuses to run

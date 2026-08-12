@@ -153,7 +153,8 @@ $plan = @(
     @{ file = "realization_doc.ndjson"; entity = "realization_doc" },
     @{ file = "return_doc.ndjson";   entity = "return_doc"   },
     @{ file = "debt.ndjson";         entity = "debt"         },
-    @{ file = "payment.ndjson";      entity = "payment"      }
+    @{ file = "payment.ndjson";      entity = "payment"      },
+    @{ file = "route_sheet.ndjson";  entity = "route_sheet"  }
 )
 
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }

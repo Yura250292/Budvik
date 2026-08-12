@@ -100,6 +100,10 @@ export async function GET(req: NextRequest) {
       mapped: mapped.length,
       noAddress: unmapped.filter((c) => !c.address?.trim()).length,
       geoFailed: unmapped.filter((c) => c.geoSource === "FAILED").length,
+      // Скільки точок стоять у центрі населеного пункту, а не на адресі:
+      // без цієї цифри карта виглядає точнішою, ніж вона є.
+      cityOnly: mapped.filter((c) => c.geoSource === "CITY").length,
+      exact: mapped.filter((c) => c.geoSource === "MANUAL").length,
     },
   });
 }

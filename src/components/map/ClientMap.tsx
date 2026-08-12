@@ -145,7 +145,7 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
     <span style="color:#6B7280">Торговий: </span>${reps}
     ${c.address ? `<br/><span style="color:#9CA3AF;font-size:11px">${escapeHtml(c.address)}</span>` : ""}
     ${c.geoSource === "MANUAL" ? `<br/><span style="color:#9CA3AF;font-size:11px">пін виставлено вручну</span>` : ""}
-    ${c.spread && c.geoSource !== "MANUAL" ? `<br/><span style="color:#B45309;font-size:11px">приблизно: адресу знайдено лише до міста</span>` : ""}
+    ${c.geoSource === "CITY" ? `<br/><span style="color:#B45309;font-size:11px">приблизно: знайдено лише населений пункт</span>` : ""}
     <br/><button data-action="comments" data-id="${escapeHtml(c.counterpartyId)}"
       style="margin-top:7px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
       background:#fff;cursor:pointer;font-size:12px">Коментарі</button>
@@ -304,13 +304,17 @@ export default function ClientMap({
 
     markersRef.current.clear();
     spreadOverlaps(clients).forEach((c) => {
+      // Точку, знайдену лише до міста, малюємо порожнистою: колір стану
+      // лишається (він правдивий), але заливка зникає — видно, що місце
+      // приблизне. Суцільний пін на такій точці брехав би про адресу.
+      const cityOnly = c.geoSource === "CITY";
       const marker = L.circleMarker([c.lat, c.lng], {
         renderer,
-        radius: 7,
-        color: "#ffffff",
-        weight: 1.5,
-        fillColor: CLIENT_STATE[c.state].color,
-        fillOpacity: 0.9,
+        radius: cityOnly ? 6 : 7,
+        color: cityOnly ? CLIENT_STATE[c.state].color : "#ffffff",
+        weight: cityOnly ? 2 : 1.5,
+        fillColor: cityOnly ? "#ffffff" : CLIENT_STATE[c.state].color,
+        fillOpacity: cityOnly ? 0.55 : 0.9,
       })
         .bindPopup(clientPopup(c))
         .bindTooltip(c.name, { direction: "top" })

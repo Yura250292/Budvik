@@ -46,7 +46,14 @@ type ClientMapResponse = {
   prospects: ProspectPoint[];
   reps: Array<{ id: string; name: string }>;
   counts: Record<ClientStateKey, number>;
-  coverage: { classified: number; mapped: number; noAddress: number; geoFailed: number };
+  coverage: {
+    classified: number;
+    mapped: number;
+    noAddress: number;
+    geoFailed: number;
+    cityOnly: number;
+    exact: number;
+  };
 };
 
 type GeocodeProgress = { candidates: number; geocoded: number; failed: number; pending: number };
@@ -590,6 +597,12 @@ export function ClientMapTab({ period }: { period: Period }) {
             На карті <strong className="text-bk">{data.coverage.mapped}</strong> з{" "}
             <strong className="text-bk">{data.coverage.classified}</strong> клієнтів
           </span>
+          {data.coverage.cityOnly > 0 && (
+            <span title="Геокодер знайшов лише населений пункт. На карті вони порожнисті — точка приблизна.">
+              з них приблизних (лише місто):{" "}
+              <strong style={{ color: "#B45309" }}>{data.coverage.cityOnly}</strong>
+            </span>
+          )}
           {data.coverage.noAddress > 0 && <span>без адреси: {data.coverage.noAddress}</span>}
           {data.coverage.geoFailed > 0 && <span>адресу не знайдено: {data.coverage.geoFailed}</span>}
 

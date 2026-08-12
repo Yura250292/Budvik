@@ -808,6 +808,10 @@ model DeliveryRoute {
   /// У 1С кілометраж не живе (заповнені 2 листи з 40), тому джерело тут.
   actualKm        Float?
   totalFuelCost   Float?
+  /// Геометрія обраного маршруту (GeoJSON LineString з OSRM). Зберігається
+  /// при застосуванні порядку, щоб планшет малював лінію після
+  /// перезавантаження, не смикаючи OSRM на кожне відкриття дня.
+  routeGeometry   Json?
   notes           String?
   createdById     String
   createdAt       DateTime            @default(now())

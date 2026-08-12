@@ -15,7 +15,13 @@ import { PrismaClient } from "@prisma/client";
 import { encode } from "next-auth/jwt";
 
 const p = new PrismaClient();
-const BASE = "http://localhost:3000";
+/**
+ * За замовчуванням б'ємо в локальний сервер. Прогін проти проду:
+ *   TABLET_CHECK_BASE=https://www.budvik27.com npx tsx scripts/check-tablet-api.ts
+ * База там та сама (Railway), тому маркер __e2e_tablet__ і прибирання в
+ * кінці однаково обов'язкові.
+ */
+const BASE = process.env.TABLET_CHECK_BASE ?? "http://localhost:3000";
 const SECRET = process.env.NEXTAUTH_SECRET!;
 
 const MARK = "__e2e_tablet__";

@@ -62,17 +62,45 @@ export default function ClientDetailPage() {
               <span style={{ fontSize: "15px", fontWeight: 500 }}>{cp.phone}</span>
             </a>
           )}
-          {cp.address && (
-            <div className="flex items-center gap-3 py-2.5" style={{ borderTop: "1px solid #F3F4F6" }}>
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F3F4F6" }}>
-                <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#6B7280" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                </svg>
-              </div>
-              <span style={{ fontSize: "14px", color: "#6B7280" }}>{cp.address}</span>
+          {/* Точка на карті. Рядок клікабельний завжди, навіть без адреси:
+              саме такому клієнту пін потрібен найбільше. Позначка каже,
+              чи точку вже уточнили руками, чи там досі здогадка геокодера. */}
+          <Link
+            href={`/sales/clients/${id}/pin`}
+            className="flex items-center gap-3 py-2.5"
+            style={{ borderTop: "1px solid #F3F4F6", textDecoration: "none", color: "#0A0A0A" }}
+          >
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center"
+              style={{ background: cp.geoSource === "MANUAL" ? "#ECFDF5" : "#FFF7ED" }}
+            >
+              <svg
+                className="w-4.5 h-4.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke={cp.geoSource === "MANUAL" ? "#059669" : "#D97706"}
+                strokeWidth={1.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+              </svg>
             </div>
-          )}
+            <div className="min-w-0 flex-1">
+              <p style={{ fontSize: "14px", color: "#6B7280" }}>
+                {cp.address || "Адреси немає"}
+              </p>
+              <p style={{ fontSize: "12px", color: cp.geoSource === "MANUAL" ? "#059669" : "#D97706", marginTop: "1px" }}>
+                {cp.geoSource === "MANUAL"
+                  ? "Точку уточнено"
+                  : cp.deliveryLat != null
+                    ? "Точка приблизна — уточнити"
+                    : "Точки на карті немає — поставити"}
+              </p>
+            </div>
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+          </Link>
           {cp.contactPerson && (
             <div className="flex items-center gap-3 py-2.5" style={{ borderTop: "1px solid #F3F4F6" }}>
               <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F3F4F6" }}>

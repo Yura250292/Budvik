@@ -15,6 +15,7 @@ type Client = {
   phone: string | null;
   address: string | null;
   receivableBalance: number | null;
+  geoSource: string | null;
   debtOverdue30: number | null;
   debtOverdue60: number | null;
   debtOverdue90: number | null;
@@ -199,6 +200,18 @@ export default function ClientsPage() {
                       {c.phone && (
                         <span className="truncate" style={{ fontSize: "12px", color: "#9CA3AF" }}>
                           {c.phone}
+                        </span>
+                      )}
+                      {/* Точка ще не уточнена — тиха позначка, щоб торговий
+                          бачив обсяг роботи, але вона не кричала гучніше
+                          за борг, по який він насправді їде. */}
+                      {c.geoSource !== "MANUAL" && (
+                        <span
+                          className="shrink-0"
+                          title="Точку на карті ще не уточнено"
+                          style={{ fontSize: "11px", color: "#D97706" }}
+                        >
+                          ⌖ пін
                         </span>
                       )}
                     </div>

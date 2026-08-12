@@ -19,6 +19,9 @@ export async function GET(
     select: {
       id: true, name: true, code: true, type: true, phone: true, email: true, address: true, contactPerson: true,
       receivableBalance: true, balanceSyncedAt: true,
+      // Пін на карті: картка показує, чи точка вже уточнена, і дає
+      // торговому виправити її — геокодер здебільшого влучає лише в місто.
+      deliveryLat: true, deliveryLng: true, geoSource: true,
     },
   });
 

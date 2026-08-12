@@ -163,6 +163,44 @@ async function main() {
   // інакше на головному джерелі даних кнопки інкасації не з'являться ніколи.
   check("Борг узято з сальдо клієнта (3200)", day1b.body?.route?.stops?.[0]?.debtAmount === 3200, day1b.body?.route?.stops?.[0]?.debtAmount);
 
+  // Геометрія обраного маршруту зберігається і повертається в дні:
+  // лінія на карті має пережити перезавантаження планшета.
+  const fakeGeom = {
+    type: "LineString",
+    coordinates: [[24.0315, 49.8419], [24.0087, 49.8449]] as [number, number][],
+  };
+  const applyGeom = await post("/api/routes/apply-order", {
+    order: [`ds:${(await p.deliveryStop.findFirst({ where: { deliveryRouteId: plannedRoute.id } }))!.id}`],
+    distanceKm: 4.2,
+    fuelCost: 31,
+    geometry: fakeGeom,
+  });
+  check("apply-order з геометрією → 200", applyGeom.status === 200, applyGeom);
+  const day1c = await get("/api/tablet/day");
+  check(
+    "Геометрія повернулась у дні після збереження",
+    day1c.body?.route?.geometry?.coordinates?.length === 2,
+    day1c.body?.route?.geometry
+  );
+
+  // Навігація до точки: валідація формату
+  const navBad = await post("/api/routes/navigate", { from: [999, 0], to: [24.0, 49.8] });
+  check("navigate з кривими координатами → 400", navBad.status === 400, navBad.status);
+  // Живий виклик OSRM: демо-сервер може лежати — тоді 502 теж чесна відповідь
+  const navOk = await post("/api/routes/navigate", { from: [24.0315, 49.8419], to: [24.0087, 49.8449] });
+  check(
+    "navigate → 200 (або 502, якщо OSRM лежить)",
+    navOk.status === 200 || navOk.status === 502,
+    navOk.status
+  );
+  if (navOk.status === 200) {
+    check("navigate віддає км, хв і лінію",
+      typeof navOk.body?.distanceKm === "number" &&
+      typeof navOk.body?.durationMin === "number" &&
+      Array.isArray(navOk.body?.geometry?.coordinates),
+      navOk.body && { km: navOk.body.distanceKm, min: navOk.body.durationMin });
+  }
+
   // Прибираємо, щоб решта перевірок ішла на маршрутному листі
   await p.deliveryStop.deleteMany({ where: { deliveryRouteId: plannedRoute.id } });
   await p.deliveryRoute.delete({ where: { id: plannedRoute.id } });

@@ -20,6 +20,7 @@ type Variant = {
   distanceKm: number;
   durationMin: number;
   fuelCost: number;
+  geometry: { type: string; coordinates: [number, number][] } | null;
   stops: Array<{ key: string; name: string; reason: string; score: number; sequence: number }>;
 };
 
@@ -90,6 +91,8 @@ export default function RouteOptimizer({
             order: variant.order,
             distanceKm: variant.distanceKm,
             fuelCost: variant.fuelCost,
+            // Геометрія — планшет водія намалює лінію обраного маршруту
+            geometry: variant.geometry,
           }),
         });
         const json = await res.json().catch(() => null);

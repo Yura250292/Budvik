@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
-import type { TabletStop } from "@/components/map/TabletDayMap";
+import type { RouteLine, TabletStop } from "@/components/map/TabletDayMap";
 
 const TabletDayMap = dynamic(() => import("@/components/map/TabletDayMap"), {
   ssr: false,
@@ -30,6 +30,7 @@ type DayResp = {
     number: string | null;
     vehicle: string | null;
     plannedKm: number | null;
+    geometry: RouteLine;
     stops: TabletStop[];
   };
   progress: {
@@ -53,7 +54,19 @@ type RouteVariant = {
   distanceKm: number;
   durationMin: number;
   fuelCost: number;
+  geometry: RouteLine;
   stops: Array<{ key: string; name: string; reason: string; score: number }>;
+};
+
+/** Активна навігація до однієї точки. */
+type NavState = {
+  stopKey: string;
+  name: string;
+  lat: number;
+  lng: number;
+  distanceKm: number;
+  durationMin: number;
+  geometry: RouteLine;
 };
 
 type OptimizeResp = {
@@ -86,6 +99,11 @@ export default function DriverTabletPage() {
   const [plan, setPlan] = useState<OptimizeResp | null>(null);
   const [planning, setPlanning] = useState(false);
   const [applying, setApplying] = useState<"cheapest" | "balanced" | null>(null);
+  /** Попередній перегляд лінії варіанта, поки водій вибирає */
+  const [previewGeom, setPreviewGeom] = useState<RouteLine>(null);
+  /** Навігація до однієї точки: лінія на нашій карті, не Google Maps */
+  const [nav, setNav] = useState<NavState | null>(null);
+  const [navigating, setNavigating] = useState<string | null>(null);
 
   const track = useTrackRecorder({ enabled: true });
 
@@ -177,7 +195,11 @@ export default function DriverTabletPage() {
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
-      setPlan(json as OptimizeResp);
+      const built = json as OptimizeResp;
+      setPlan(built);
+      // Одразу показуємо лінію найдешевшого: «прокласти маршрут» без
+      // лінії на карті виглядає як кнопка, що не спрацювала.
+      setPreviewGeom(built.cheapest.geometry ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
     } finally {
@@ -199,11 +221,13 @@ export default function DriverTabletPage() {
             order: variant.order,
             distanceKm: variant.distanceKm,
             fuelCost: variant.fuelCost,
+            geometry: variant.geometry,
           }),
         });
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти порядок");
         setPlan(null);
+        setPreviewGeom(null);
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не вдалося зберегти порядок");
@@ -214,8 +238,64 @@ export default function DriverTabletPage() {
     [plan, load]
   );
 
+  /**
+   * Навігація до точки — лінія на нашій карті замість Google Maps.
+   *
+   * Вихід у зовнішній застосунок відправляє вкладку у фон і рве трек;
+   * дорога, намальована тут, тримає планшет у вебі. Google Maps лишився
+   * запасним лінком у банері — для голосових підказок.
+   */
+  const navigateTo = useCallback(
+    async (stop: TabletStop) => {
+      if (stop.lat == null || stop.lng == null) return;
+      setNavigating(stop.key);
+      setError(null);
+      try {
+        // Позиція: свіжа з трекера, інакше разовий запит до GPS.
+        let from = track.position;
+        if (!from) {
+          from = await new Promise((resolve) =>
+            navigator.geolocation?.getCurrentPosition(
+              (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+              () => resolve(null),
+              { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
+            ) ?? resolve(null)
+          );
+        }
+        if (!from) {
+          throw new Error("Немає вашої позиції — дозвольте геолокацію і спробуйте ще раз");
+        }
+
+        const res = await fetch("/api/routes/navigate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from: [from.lng, from.lat], to: [stop.lng, stop.lat] }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? "Не вдалося прокласти дорогу");
+
+        setNav({
+          stopKey: stop.key,
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng,
+          distanceKm: json.distanceKm,
+          durationMin: json.durationMin,
+          geometry: json.geometry,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не вдалося прокласти дорогу");
+      } finally {
+        setNavigating(null);
+      }
+    },
+    [track.position]
+  );
+
   const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
   const stops = data?.route.stops ?? [];
+  /** Лінія плану: попередній перегляд варіанта має пріоритет над збереженою */
+  const plannedLine = previewGeom ?? data?.route.geometry ?? null;
 
   return (
     <div
@@ -326,7 +406,82 @@ export default function DriverTabletPage() {
           дає внутрішньому списку скролитися і той розтягує сторінку. */}
       <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
         <div className="relative min-h-0 flex-1 landscape:h-full">
-          <TabletDayMap stops={stops} trail={fullTrail} me={track.position} />
+          <TabletDayMap
+            stops={stops}
+            trail={fullTrail}
+            me={track.position}
+            planned={plannedLine}
+            nav={nav?.geometry ?? null}
+            onNavigate={(key) => {
+              const s = stops.find((x) => x.key === key);
+              if (s) void navigateTo(s);
+            }}
+          />
+
+          {/* Банер активної навігації поверх карти */}
+          {nav && (
+            <div
+              className="absolute inset-x-3 z-[500] flex items-center gap-2 rounded-2xl px-3 py-2.5"
+              style={{
+                bottom: "12px",
+                background: "#0A0A0A",
+                color: "#fff",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.35)",
+              }}
+            >
+              <span
+                aria-hidden
+                className="shrink-0"
+                style={{
+                  width: "10px",
+                  height: "10px",
+                  borderRadius: "50%",
+                  background: "#F97316",
+                }}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate" style={{ fontSize: "14px", fontWeight: 700 }}>
+                  {nav.name}
+                </span>
+                <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
+                  {nav.distanceKm} км · ~{nav.durationMin} хв
+                </span>
+              </span>
+              {/* Запасний вихід для голосових підказок — свідомо дрібний */}
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${nav.lat},${nav.lng}`}
+                target="_blank"
+                rel="noopener"
+                className="shrink-0 cursor-pointer rounded-lg px-2.5 py-2"
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: "#93C5FD",
+                  textDecoration: "none",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                Google
+              </a>
+              <button
+                type="button"
+                onClick={() => setNav(null)}
+                aria-label="Завершити навігацію"
+                className="shrink-0 cursor-pointer rounded-lg transition-colors duration-200"
+                style={{
+                  minWidth: "44px",
+                  minHeight: "40px",
+                  border: "none",
+                  background: "rgba(255,255,255,0.12)",
+                  color: "#fff",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
 
         <aside
@@ -364,7 +519,11 @@ export default function DriverTabletPage() {
                 hasPosition={!!track.position}
                 onBuild={buildPlan}
                 onApply={applyPlan}
-                onDismiss={() => setPlan(null)}
+                onPreview={(g) => setPreviewGeom(g)}
+                onDismiss={() => {
+                  setPlan(null);
+                  setPreviewGeom(null);
+                }}
               />
 
               {stops.map((s) => (
@@ -373,8 +532,10 @@ export default function DriverTabletPage() {
                   stop={s}
                   open={openStop === s.key}
                   saving={saving === s.key}
+                  navigating={navigating === s.key}
                   onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
                   onMark={mark}
+                  onNavigate={(x) => void navigateTo(x)}
                 />
               ))}
             </>
@@ -400,6 +561,7 @@ function RoutePlanner({
   hasPosition,
   onBuild,
   onApply,
+  onPreview,
   onDismiss,
 }: {
   plan: OptimizeResp | null;
@@ -408,6 +570,8 @@ function RoutePlanner({
   hasPosition: boolean;
   onBuild: () => void;
   onApply: (which: "cheapest" | "balanced") => void;
+  /** Тап по картці варіанта — показати його лінію на карті */
+  onPreview: (geometry: RouteLine) => void;
   onDismiss: () => void;
 }) {
   if (!plan) {
@@ -477,10 +641,11 @@ function RoutePlanner({
         durationMin={cheapest.durationMin}
         fuelCost={cheapest.fuelCost}
         accent="#16A34A"
-        note="Мінімум кілометрів"
+        note="Мінімум кілометрів · тапніть, щоб побачити лінію"
         busy={applying === "cheapest"}
         disabled={applying !== null}
         onApply={() => onApply("cheapest")}
+        onPreview={() => onPreview(cheapest.geometry)}
       />
 
       {balanced && (
@@ -499,6 +664,7 @@ function RoutePlanner({
             busy={applying === "balanced"}
             disabled={applying !== null}
             onApply={() => onApply("balanced")}
+            onPreview={() => onPreview(balanced.geometry)}
           />
           {highlights.length > 0 && (
             <ul style={{ margin: "6px 0 0", padding: "0 0 0 14px", listStyle: "disc" }}>
@@ -533,6 +699,7 @@ function VariantCard({
   busy,
   disabled,
   onApply,
+  onPreview,
 }: {
   title: string;
   distanceKm: number;
@@ -543,9 +710,14 @@ function VariantCard({
   busy: boolean;
   disabled: boolean;
   onApply: () => void;
+  onPreview: () => void;
 }) {
   return (
+    // Тап по тілу картки показує лінію варіанта на карті — водій бачить,
+    // КУДИ його поведе кожен варіант, ще до вибору.
     <div
+      onClick={onPreview}
+      className="cursor-pointer"
       style={{
         background: "#fff",
         border: `1px solid ${accent}33`,
@@ -568,7 +740,10 @@ function VariantCard({
       </p>
       <button
         type="button"
-        onClick={onApply}
+        onClick={(e) => {
+          e.stopPropagation(); // тап по кнопці — вибір, а не превʼю картки
+          onApply();
+        }}
         disabled={disabled}
         className="w-full cursor-pointer transition-colors duration-200"
         style={{
@@ -593,12 +768,15 @@ function StopRow({
   stop,
   open,
   saving,
+  navigating,
   onToggle,
   onMark,
+  onNavigate,
 }: {
   stop: TabletStop;
   open: boolean;
   saving: boolean;
+  navigating: boolean;
   onToggle: () => void;
   onMark: (
     stop: TabletStop,
@@ -606,6 +784,7 @@ function StopRow({
     money: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE",
     extra?: { collectedAmount?: number; comment?: string }
   ) => void;
+  onNavigate: (stop: TabletStop) => void;
 }) {
   const [partial, setPartial] = useState("");
   const [comment, setComment] = useState("");
@@ -804,25 +983,28 @@ function StopRow({
           )}
 
           {stop.lat != null && stop.lng != null && (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}`}
-              target="_blank"
-              rel="noopener"
+            // Кнопка, а не лінк на Google Maps: дорога малюється на нашій
+            // карті, і вкладка з треком не йде у фон.
+            <button
+              type="button"
+              disabled={navigating}
+              onClick={() => onNavigate(stop)}
+              className="w-full cursor-pointer transition-colors duration-200"
               style={{
                 display: "block",
                 marginTop: "8px",
                 padding: "12px",
                 borderRadius: "10px",
-                background: "#2563EB",
+                border: "none",
+                background: navigating ? "#93C5FD" : "#2563EB",
                 color: "#fff",
                 textAlign: "center",
-                textDecoration: "none",
                 fontSize: "14px",
                 fontWeight: 600,
               }}
             >
-              Навігація до точки
-            </a>
+              {navigating ? "Прокладаю дорогу…" : "Навігація до точки"}
+            </button>
           )}
         </div>
       )}

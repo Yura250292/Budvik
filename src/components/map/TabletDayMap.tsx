@@ -91,13 +91,14 @@ function popupHtml(s: TabletStop): string {
     s.visit?.collectedAmount != null
       ? `<div style="color:#16A34A;font-weight:600;margin-top:2px">Забрано ${escapeHtml(money.format(s.visit.collectedAmount))} грн</div>`
       : "";
+  // Кнопка, а не лінк на Google Maps: вихід у зовнішній застосунок
+  // відправляє вкладку у фон і рве трек. Дорогу малює наша карта.
   const nav =
     s.lat != null && s.lng != null
-      ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}"
-           target="_blank" rel="noopener"
-           style="display:block;margin-top:8px;padding:9px;text-align:center;
-           background:#2563EB;color:#fff;border-radius:8px;text-decoration:none;
-           font-weight:600;font-size:13px">Навігація</a>`
+      ? `<button data-nav="${escapeHtml(s.key)}"
+           style="display:block;width:100%;margin-top:8px;padding:9px;text-align:center;
+           background:#2563EB;color:#fff;border:none;border-radius:8px;
+           font-weight:600;font-size:13px;cursor:pointer">Навігація</button>`
       : "";
 
   return `<div style="font-family:system-ui;font-size:14px;min-width:190px;max-width:260px">
@@ -111,24 +112,41 @@ function popupHtml(s: TabletStop): string {
   </div>`;
 }
 
+/** GeoJSON LineString у координатах OSRM: [lng, lat][] */
+export type RouteLine = { type: string; coordinates: [number, number][] } | null;
+
 export default function TabletDayMap({
   stops,
   trail,
   me,
+  planned,
+  nav,
+  onNavigate,
   height = "100%",
 }: {
   stops: TabletStop[];
   /** Пройдений сьогодні шлях */
   trail: Array<[number, number]>;
   me?: { lat: number; lng: number } | null;
+  /** Лінія обраного маршруту дня — фон під точками */
+  planned?: RouteLine;
+  /** Активна навігація до однієї точки — малюється поверх усього */
+  nav?: RouteLine;
+  /** Тап «Навігація» в попапі точки */
+  onNavigate?: (stopKey: string) => void;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const stopsLayerRef = useRef<L.LayerGroup | null>(null);
   const trailRef = useRef<L.Polyline | null>(null);
+  const plannedRef = useRef<L.Polyline | null>(null);
+  const navRef = useRef<L.Polyline | null>(null);
   const meRef = useRef<L.CircleMarker | null>(null);
   const fittedRef = useRef(false);
+  /** Колбек у ref, щоб зміна функції не перемальовувала маркери. */
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
 
   // Перемальовуємо точки лише коли змінився склад або статуси — трек
   // оновлюється щохвилини, і тягнути за собою маркери марно.
@@ -152,6 +170,21 @@ export default function TabletDayMap({
       }).addTo(mapRef.current);
 
       stopsLayerRef.current = L.layerGroup().addTo(mapRef.current);
+
+      // Попапи — рядки HTML, React-обробник туди не почепиш: ловимо тап
+      // делегуванням на відкритому попапі (той самий патерн, що в картах
+      // торгового й адміна).
+      mapRef.current.on("popupopen", (e: L.PopupEvent) => {
+        const root = e.popup.getElement();
+        root?.querySelectorAll<HTMLElement>("[data-nav]").forEach((btn) => {
+          btn.onclick = () => {
+            const key = btn.dataset.nav;
+            if (!key) return;
+            mapRef.current?.closePopup();
+            onNavigateRef.current?.(key);
+          };
+        });
+      });
     }
 
     const map = mapRef.current;
@@ -189,6 +222,51 @@ export default function TabletDayMap({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopsKey]);
+
+  // Лінія плану — сіра, під точками: це фон «куди їхати», а не подія.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!planned?.coordinates?.length) {
+      plannedRef.current?.remove();
+      plannedRef.current = null;
+      return;
+    }
+    const line = planned.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+    if (plannedRef.current) {
+      plannedRef.current.setLatLngs(line);
+    } else {
+      plannedRef.current = L.polyline(line, {
+        color: "#64748B",
+        weight: 4,
+        opacity: 0.55,
+      }).addTo(map);
+      plannedRef.current.bringToBack();
+    }
+  }, [planned]);
+
+  // Навігація до точки — помаранчева, поверх усього, з підгонкою вікна:
+  // водій щойно попросив дорогу, і вона має бути перед очима вся.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!nav?.coordinates?.length) {
+      navRef.current?.remove();
+      navRef.current = null;
+      return;
+    }
+    const line = nav.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+    if (navRef.current) {
+      navRef.current.setLatLngs(line);
+    } else {
+      navRef.current = L.polyline(line, {
+        color: "#F97316",
+        weight: 5,
+        opacity: 0.9,
+      }).addTo(map);
+    }
+    map.fitBounds(L.latLngBounds(line), { padding: [50, 50], maxZoom: 15 });
+  }, [nav]);
 
   // Трек окремим шаром: додається точка за точкою, без перемальовування
   // маркерів.
@@ -237,6 +315,8 @@ export default function TabletDayMap({
       mapRef.current = null;
       stopsLayerRef.current = null;
       trailRef.current = null;
+      plannedRef.current = null;
+      navRef.current = null;
       meRef.current = null;
     };
   }, []);

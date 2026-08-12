@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
     order?: string[];
     distanceKm?: number;
     fuelCost?: number;
+    /** GeoJSON LineString обраного варіанта — щоб карта малювала лінію */
+    geometry?: { type: string; coordinates: [number, number][] } | null;
   };
   try {
     body = await req.json();
@@ -93,6 +95,11 @@ export async function POST(req: NextRequest) {
         // ця цифра потім лягає у витрати.
         totalDistanceKm: typeof body.distanceKm === "number" ? body.distanceKm : undefined,
         totalFuelCost: typeof body.fuelCost === "number" ? body.fuelCost : undefined,
+        // Геометрія — щоб лінія маршруту пережила перезавантаження планшета
+        routeGeometry:
+          body.geometry && Array.isArray(body.geometry.coordinates)
+            ? body.geometry
+            : undefined,
       },
     }),
   ]);

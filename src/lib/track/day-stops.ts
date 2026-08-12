@@ -57,6 +57,8 @@ export type DayRoute = {
   vehicle: string | null;
   /** Пробіг за планом (з 1С), км */
   plannedKm: number | null;
+  /** GeoJSON LineString обраного маршруту — карта малює лінію плану */
+  geometry: { type: string; coordinates: [number, number][] } | null;
   stops: DayStop[];
 };
 
@@ -65,6 +67,7 @@ const EMPTY: DayRoute = {
   number: null,
   vehicle: null,
   plannedKm: null,
+  geometry: null,
   stops: [],
 };
 
@@ -144,6 +147,8 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
     number: sheet.number,
     vehicle: sheet.vehicle,
     plannedKm: sheet.distanceKm || null,
+    // Лист 1С геометрії не несе — лінія з'явиться після «Прокласти маршрут»
+    geometry: null,
     stops: mergeByAddress(stops),
   };
 }
@@ -206,11 +211,13 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
     deliveryStopId: s.id,
   }));
 
+  const geometry = route.routeGeometry as DayRoute["geometry"];
   return {
     source: "DELIVERY_ROUTE",
     number: route.number,
     vehicle: route.vehicleInfo,
     plannedKm: route.totalDistanceKm,
+    geometry: geometry && Array.isArray(geometry.coordinates) ? geometry : null,
     stops: mergeByAddress(stops),
   };
 }

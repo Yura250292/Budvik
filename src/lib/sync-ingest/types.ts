@@ -23,6 +23,7 @@ export type SyncEntityType =
   | "realization_doc"
   | "return_doc"
   | "purchase_doc"
+  | "route_sheet"
   | "debt"
   | "payment";
 
@@ -148,6 +149,49 @@ export interface DocumentRecord {
 }
 
 /**
+ * Один рядок маршрутного листа — точка вигрузки.
+ *
+ * Адреса може прийти рядком з документа або не прийти взагалі: тоді сайт
+ * бере її з картки контрагента. Точки для оплати рахуються за унікальною
+ * адресою, тож три рядки на одну адресу дадуть одну оплачену точку.
+ */
+export interface RouteSheetStopRecord {
+  /** externalId замовлення або реалізації, яку везуть у цю точку. */
+  salesDocExternalId?: string;
+  counterpartyExternalId?: string;
+  address?: string;
+  /** Сума замовлення в рядку. */
+  amount?: number;
+  /** Борг за попередні доставки, який водій забирає в цій точці. */
+  debtAmount?: number;
+}
+
+/**
+ * Маршрутний лист — факт виїзду водія за день; основа його зарплати.
+ *
+ * `distanceKm` критичний: саме за ним рахується ставка за лист, і лист без
+ * пробігу оплатиться за найнижчим тарифом. `ordersTotal` та `debtsTotal` —
+ * дві суми з документа, різниця між якими дає базу відсотка.
+ *
+ * Водій приходить як `driverExternalId` (Ref_Key фізособи в 1С); акаунт на
+ * сайті прив'язує адмін вручну, тож лист із невідомим водієм зберігається
+ * з driverId = null і чекає прив'язки, а не відкидається.
+ */
+export interface RouteSheetRecord {
+  externalId: string;
+  number: string;
+  date: string; // ISO 8601
+  posted?: boolean;
+  driverName?: string;
+  driverExternalId?: string;
+  vehicle?: string;
+  distanceKm?: number;
+  ordersTotal?: number;
+  debtsTotal?: number;
+  stops?: RouteSheetStopRecord[];
+}
+
+/**
  * Сальдо взаєморозрахунків по контрагенту.
  *
  * `balance` — загальний борг, він є завжди. Розбивка за строками
@@ -214,6 +258,7 @@ export type SyncRecord =
   | StockRecord
   | CounterpartyRecord
   | DocumentRecord
+  | RouteSheetRecord
   | DebtRecord
   | PaymentRecord;
 
@@ -229,6 +274,7 @@ export interface SyncRecordMap {
   realization_doc: DocumentRecord;
   return_doc: DocumentRecord;
   purchase_doc: DocumentRecord;
+  route_sheet: RouteSheetRecord;
   debt: DebtRecord;
   payment: PaymentRecord;
 }

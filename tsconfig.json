@@ -11,6 +11,9 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Скрипти в scripts/ запускаються через `node --experimental-strip-types`,
+    // а він вимагає розширення в імпортах. Безпечно при noEmit.
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [

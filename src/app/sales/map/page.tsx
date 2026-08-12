@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
+import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import type { SalesClientPoint, SalesRoute } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -41,6 +42,17 @@ export default function SalesMapPage() {
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  /**
+   * Трек торгового вмикається кнопкою, а не сам.
+   *
+   * У водія планшет стоїть у тримачі весь день, тому там запис стартує
+   * одразу. Торговий відкриває карту на телефоні між справами, і
+   * автоматичний запис означав би, що телефон пише трек щоразу, коли той
+   * просто глянув, хто поруч. Рішення лишаємо за людиною.
+   */
+  const [tracking, setTracking] = useState(false);
+  const track = useTrackRecorder({ enabled: tracking });
 
   useEffect(() => {
     let alive = true;
@@ -91,7 +103,13 @@ export default function SalesMapPage() {
       }}
     >
       <div className="absolute inset-0">
-        <SalesClientsMap clients={visible} route={data?.route ?? null} me={me} />
+        {/* Поки трек іде, позиція оновлюється сама — кнопка «де я» потрібна
+            лише коли запис вимкнено. */}
+        <SalesClientsMap
+          clients={visible}
+          route={data?.route ?? null}
+          me={track.position ?? me}
+        />
       </div>
 
       {/* Шапка поверх карти: назад і маршрут дня */}
@@ -152,6 +170,39 @@ export default function SalesMapPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
             <circle cx="12" cy="12" r="6" />
           </svg>
+        </button>
+
+        {/* Запис треку: поки йде — показуємо пробіг, щоб було видно, що
+            воно працює, і щоб не забули вимкнути після роботи. */}
+        <button
+          type="button"
+          onClick={() => setTracking((v) => !v)}
+          aria-label={tracking ? "Зупинити запис маршруту" : "Записувати маршрут"}
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3"
+          style={{
+            background: tracking ? "#DC2626" : "#fff",
+            color: tracking ? "#fff" : "#0A0A0A",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.15)",
+            border: "none",
+            fontSize: "13px",
+            fontWeight: 600,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: tracking ? "2px" : "50%",
+              background: tracking ? "#fff" : "#DC2626",
+              display: "inline-block",
+            }}
+          />
+          {tracking
+            ? track.status === "buffering"
+              ? "Немає звʼязку"
+              : `${track.distanceKm} км`
+            : "Записати"}
         </button>
       </div>
 

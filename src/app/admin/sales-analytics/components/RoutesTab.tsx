@@ -7,9 +7,16 @@ import { StatCard, num } from "@/components/ui/Stat";
 import { CardSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { kyivToday, type Period } from "@/components/ui/PeriodPicker";
 import { colorForRep } from "@/lib/routes/colors";
-import type { OverviewRoute, LegendEntry } from "@/components/map/RoutesOverviewMap";
+import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
+import type {
+  OverviewRoute,
+  LegendEntry,
+  ZoneOverlay,
+  MapClientPoint,
+} from "@/components/map/RoutesOverviewMap";
 import { useApi } from "./useApi";
 import { ErrorBox } from "./ErrorBox";
+import { ZonePanel } from "./ZonePanel";
 
 /**
  * Маршрути: шаблони напрямків, тижневий розклад, оглядова мапа і мапа дня.
@@ -51,6 +58,9 @@ type TemplatesResponse = {
     stops: Array<{ id: string; settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
   }>;
 };
+
+/** З ендпойнта карти клієнтів беремо лише точки — решта полів тут не потрібна. */
+type ClientsResponse = { clients: MapClientPoint[] };
 
 type AssignmentsResponse = {
   canEdit: boolean;
@@ -141,6 +151,15 @@ export function RoutesTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewMode>({ kind: "all" });
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  // Смугу зони рахує ZonePanel (там радіус і фільтри шарів), а малює мапа
+  // тут — тому оверлей піднятий у спільного батька.
+  const [zone, setZone] = useState<ZoneOverlay | null>(null);
+  /** Шари карти напрямків. Маршрути ввімкнені завжди — це основа вкладки. */
+  const [showRoutes, setShowRoutes] = useState(true);
+  const [showZone, setShowZone] = useState(true);
+  const [showClients, setShowClients] = useState(false);
+  /** Які стани клієнтів показувати: та сама легенда, що на «Карті клієнтів». */
+  const [hiddenStates, setHiddenStates] = useState<Set<ClientStateKey>>(new Set());
   const overviewRef = useRef<HTMLDivElement>(null);
   const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,6 +170,18 @@ export function RoutesTab({
   const routeDay = useApi<RouteDayResponse>(
     mapRep ? `/api/admin/sales-analytics/route-day?repId=${mapRep}&date=${day}` : null
   );
+
+  // Клієнти тягнуться лише коли шар увімкнули: відповідь важка (сотні точок
+  // із портфелем і станами), а більшості сеансів роботи з розкладом вона
+  // взагалі не потрібна.
+  const clientsApi = useApi<ClientsResponse>(
+    showClients ? `/api/admin/sales-analytics/client-map?from=${period.from}&to=${period.to}` : null
+  );
+
+  const mapClients = useMemo<MapClientPoint[]>(() => {
+    if (!showClients || !clientsApi.data) return [];
+    return clientsApi.data.clients.filter((c) => !hiddenStates.has(c.state));
+  }, [showClients, clientsApi.data, hiddenStates]);
 
   async function createTemplate() {
     const settlements = form.settlements
@@ -798,7 +829,66 @@ export function RoutesTab({
             }
           />
 
-          {overviewRoutes.length === 0 ? (
+          {/*
+            Шари. Клієнти вимкнені за замовчуванням: вкладка про маршрути, і
+            378 точок поверх ліній роблять карту нечитабельною, поки їх
+            свідомо не попросили.
+          */}
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-g100 pb-3">
+            <LayerToggle checked={showRoutes} onChange={setShowRoutes} label="Маршрути" />
+            <LayerToggle
+              checked={showZone}
+              onChange={setShowZone}
+              label="Зона напрямку"
+              disabled={overview.kind !== "template"}
+              hint={overview.kind !== "template" ? "Оберіть один напрямок" : undefined}
+            />
+            <LayerToggle
+              checked={showClients}
+              onChange={setShowClients}
+              label="Клієнти"
+              hint={clientsApi.loading ? "завантаження…" : undefined}
+            />
+
+            {showClients && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(Object.keys(CLIENT_STATE) as ClientStateKey[])
+                  .filter((k) => k !== "PROSPECT")
+                  .map((key) => {
+                    const meta = CLIENT_STATE[key];
+                    const off = hiddenStates.has(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={!off}
+                        title={meta.hint}
+                        onClick={() =>
+                          setHiddenStates((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          })
+                        }
+                        className={`flex items-center gap-1.5 rounded-[var(--radius-btn)] border px-2 py-0.5 text-xs transition-colors ${
+                          off ? "border-g200 bg-g50 text-g400" : "border-g300 bg-white text-bk hover:border-g400"
+                        }`}
+                      >
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ background: off ? "#D1D5DB" : meta.color }}
+                        />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+
+          {overviewRoutes.length === 0 && !showClients ? (
             <EmptyState
               title={
                 overview.kind === "all"
@@ -808,10 +898,72 @@ export function RoutesTab({
               hint="Створіть напрямок вище і призначте його торговому в розкладі — тоді він з'явиться на карті."
             />
           ) : (
-            <RoutesOverviewMap routes={overviewRoutes} legend={overviewLegend} />
+            <RoutesOverviewMap
+              routes={showRoutes ? overviewRoutes : []}
+              legend={showRoutes ? overviewLegend : []}
+              zone={showZone && overview.kind === "template" ? zone : null}
+              clients={mapClients}
+            />
           )}
         </Card>
+
+        {/*
+          Зона живе під картою напрямків, а не окремою вкладкою: смуга і
+          список — це одна думка, і дивитися на них треба разом. Рахується
+          лише для одного обраного напрямку — накладені коридори кількох
+          маршрутів у план на день не читаються.
+        */}
+        <ZonePanel
+          templateId={overview.kind === "template" ? overview.templateId : null}
+          templateName={
+            overview.kind === "template"
+              ? (list.find((t) => t.id === overview.templateId)?.name ?? null)
+              : null
+          }
+          period={period}
+          onZoneChange={setZone}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * Галочка шару карти.
+ *
+ * Нативний checkbox, а не стилізований div: шарів кілька, вони вмикаються
+ * часто, і клавіатурна навігація з читалкою тут мусить працювати без
+ * додаткової ролі та обробників.
+ */
+function LayerToggle({
+  checked,
+  onChange,
+  label,
+  disabled = false,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <label
+      title={hint}
+      className={`flex select-none items-center gap-1.5 text-xs ${
+        disabled ? "cursor-not-allowed text-g400" : "cursor-pointer text-bk"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked && !disabled}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 cursor-pointer accent-[#0F766E] disabled:cursor-not-allowed"
+      />
+      {label}
+      {hint && <span className="text-g400">({hint})</span>}
+    </label>
   );
 }

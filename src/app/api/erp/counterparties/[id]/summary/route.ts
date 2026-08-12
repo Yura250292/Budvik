@@ -103,15 +103,50 @@ export async function GET(
     }).filter((tp) => tp.product);
   }
 
+  // Повернення від цього клієнта. Окремим блоком, а не разом із продажами:
+  // вище фільтр docType ORDER (щоб покупка не двоїлася), і повернення туди
+  // не потрапляють у принципі. Суми в базі від'ємні — розвертаємо для показу.
+  const returnDocs = await prisma.salesDocument.findMany({
+    where: {
+      counterpartyId: id,
+      docType: "RETURN",
+      status: "CONFIRMED",
+      ...(session.user.role === "SALES" ? { salesRepId: session.user.id } : {}),
+    },
+    select: {
+      id: true, number: true, totalAmount: true, createdAt: true,
+      salesRep: { select: { name: true } },
+      items: {
+        select: {
+          id: true,
+          quantity: true,
+          sellingPrice: true,
+          product: { select: { id: true, name: true, image: true, sku: true } },
+        },
+        take: 5,
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  const returns = returnDocs.map((d) => ({
+    ...d,
+    totalAmount: -d.totalAmount,
+    items: d.items.map((i) => ({ ...i, quantity: -i.quantity })),
+  }));
+
   // Stats
   const confirmedSales = recentSales.filter((s) => s.status === "CONFIRMED");
   const totalSalesAmount = confirmedSales.reduce((sum, s) => sum + s.totalAmount, 0);
+  const totalReturned = returns.reduce((sum, r) => sum + r.totalAmount, 0);
 
   return NextResponse.json({
     counterparty: counterpartyInfo,
     debt: { total: totalDebt, syncedAt: balanceSyncedAt, invoices: [] },
     payments,
     sales: { items: recentSales, totalAmount: totalSalesAmount, count: confirmedSales.length },
+    returns: { items: returns, totalAmount: totalReturned, count: returns.length },
     topProducts: topProductsWithDetails,
   });
 }

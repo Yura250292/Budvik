@@ -38,7 +38,7 @@ export default function ClientDetailPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження...</div>;
   if (!data?.counterparty) return <div className="min-h-screen flex items-center justify-center"><p>Клієнта не знайдено</p></div>;
 
-  const { counterparty: cp, debt, sales, topProducts = [], payments = [] } = data;
+  const { counterparty: cp, debt, sales, topProducts = [], payments = [], returns } = data;
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
@@ -241,6 +241,44 @@ export default function ClientDetailPage() {
             <p style={{ fontSize: "13px", color: "#9CA3AF", padding: "20px 16px", textAlign: "center" }}>Замовлень поки немає</p>
           )}
         </div>
+
+        {/*
+          Повернення. Блок показується лише коли вони є: у більшості клієнтів
+          повернень немає взагалі, і порожня картка «0 ₴» лише додавала б шуму
+          на телефоні. Суми приходять з API вже додатними (у базі від'ємні).
+        */}
+        {returns && returns.count > 0 && (
+          <div className="bg-white rounded-2xl mb-3" style={{ border: "1px solid #FCA5A5", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div className="flex items-center justify-between" style={{ padding: "14px 16px", borderBottom: "1px solid #F3F4F6" }}>
+              <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Повернення</p>
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#DC2626" }}>
+                {returns.count} шт. / −{formatPrice(returns.totalAmount)}
+              </p>
+            </div>
+            <div style={{ padding: "4px 0" }}>
+              {returns.items.slice(0, 10).map((r: any) => (
+                <div key={r.id} style={{ padding: "10px 16px", borderBottom: "1px solid #F9FAFB" }}>
+                  <div className="flex items-center justify-between">
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{r.number}</span>
+                      {r.items?.length > 0 && (
+                        <p style={{ fontSize: "11px", color: "#6B7280", marginTop: "2px" }} className="truncate">
+                          {r.items.map((i: any) => `${i.quantity}x ${i.product?.name ?? "—"}`).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right" style={{ flexShrink: 0, marginLeft: "8px" }}>
+                      <p style={{ fontSize: "15px", fontWeight: 700, color: "#DC2626" }}>
+                        −{formatPrice(r.totalAmount)}
+                      </p>
+                      <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{formatDate(r.createdAt)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/*
           Кнопка «Нове замовлення» прибрана разом з рештою входів у

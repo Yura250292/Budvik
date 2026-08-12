@@ -17,6 +17,7 @@ import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPick
 import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
+import { ReturnsTab } from "./ReturnsTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
@@ -43,6 +44,7 @@ const SUBTABS = {
   reps: [
     { key: "list", label: "Показники" },
     { key: "benchmark", label: "Порівняння" },
+    { key: "returns", label: "Повернення" },
   ],
   kpi: [
     { key: "plans", label: "Плани" },
@@ -293,6 +295,7 @@ export function AnalyticsShell() {
         {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
+        {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "logistics" && view === "trips" && (

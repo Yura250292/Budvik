@@ -18,7 +18,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,6 +34,12 @@ const SYSTEM_PROMPT = `Ти аналітик відділу продажів б�
 Цифри — це РЕАЛІЗАЦІЇ з 1С за період, тобто фактично відвантажений товар,
 а не замовлення. Так і називай їх: реалізації, відвантаження, продажі.
 Твоя робота — пояснити, порівняти, знайти закономірність.
+
+ПОВЕРНЕННЯ. Усі суми вже НЕТТО: повернення від покупців віднято. Окремо
+дається поле "повернення" (додатне число — скільки повернули) і
+"частка_повернень_відсотків". Лічильники (реалізацій, клієнтів) рахують
+лише продажі, повернення їх не роздувають. Висока частка повернень — це
+привід сказати, але причини з цифр не видно, тож не вигадуй їх.
 
 ПРАВИЛА:
 1. Використовуй ЛИШЕ надані цифри. Не вигадуй і не оцінюй "приблизно".
@@ -72,15 +78,24 @@ function resolvePeriod(fromRaw?: string, toRaw?: string, daysRaw?: number) {
   return { from: fallbackFrom, to: new Date(), days };
 }
 
-/** Компактне зведення для моделі: усе потрібне, нічого зайвого. */
+/**
+ * Компактне зведення для моделі: усе потрібне, нічого зайвого.
+ *
+ * Гроші рахуються нетто (повернення в сумі з мінусом), а лічильники —
+ * лише по продажах через SALES_ONLY. Без цього 2,5 тис. повернень
+ * додалися б до "реалізацій", а від'ємні суми зіпсували б середній чек.
+ */
 async function buildSummary(from: Date, to: Date, days: number, restrictToRep: string | null) {
   const repCondition = restrictToRep
     ? Prisma.sql`AND s."salesRepId" = ${restrictToRep}`
     : Prisma.empty;
 
   const [byRep, byBrand, totals, weekly, topClients] = await Promise.all([
-    prisma.$queryRaw<Array<{ rep: string; docs: number; amount: number }>>`
-      SELECT u.name AS rep, COUNT(*)::int AS docs, SUM(s."totalAmount")::float AS amount
+    prisma.$queryRaw<Array<{ rep: string; docs: number; amount: number; returns: number }>>`
+      SELECT u.name AS rep,
+             COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+             SUM(s."totalAmount")::float AS amount,
+             -SUM(s."totalAmount") FILTER (WHERE NOT (${SALES_ONLY}))::float AS returns
       FROM "SalesDocument" s
       JOIN "User" u ON u.id = s."salesRepId"
       WHERE ${SOURCE_FILTER}
@@ -99,11 +114,14 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY b.name ORDER BY amount DESC NULLS LAST LIMIT 20
     `,
-    prisma.$queryRaw<Array<{ docs: number; amount: number; avg: number; clients: number }>>`
-      SELECT COUNT(*)::int AS docs,
+    prisma.$queryRaw<
+      Array<{ docs: number; amount: number; avg: number; clients: number; returns: number }>
+    >`
+      SELECT COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
              SUM(s."totalAmount")::float AS amount,
-             AVG(s."totalAmount")::float AS avg,
-             COUNT(DISTINCT s."counterpartyId")::int AS clients
+             AVG(s."totalAmount") FILTER (WHERE ${SALES_ONLY})::float AS avg,
+             COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients,
+             -SUM(s."totalAmount") FILTER (WHERE NOT (${SALES_ONLY}))::float AS returns
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
@@ -112,14 +130,18 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
     // модель однаково побачить лише тренд.
     prisma.$queryRaw<Array<{ week: Date; docs: number; amount: number }>>`
       SELECT date_trunc('week', s."createdAt") AS week,
-             COUNT(*)::int AS docs, SUM(s."totalAmount")::float AS amount
+             COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+             SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         AND s."createdAt" >= ${from} AND s."createdAt" <= ${to} ${repCondition}
       GROUP BY 1 ORDER BY 1
     `,
-    prisma.$queryRaw<Array<{ client: string; amount: number; docs: number }>>`
-      SELECT c.name AS client, SUM(s."totalAmount")::float AS amount, COUNT(*)::int AS docs
+    prisma.$queryRaw<Array<{ client: string; amount: number; docs: number; returns: number }>>`
+      SELECT c.name AS client,
+             SUM(s."totalAmount")::float AS amount,
+             COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
+             -SUM(s."totalAmount") FILTER (WHERE NOT (${SALES_ONLY}))::float AS returns
       FROM "SalesDocument" s
       JOIN "Counterparty" c ON c.id = s."counterpartyId"
       WHERE ${SOURCE_FILTER}
@@ -130,19 +152,33 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
 
   const round = (n: number | null) => Math.round(n ?? 0);
 
+  // Частку рахуємо від валу (нетто + повернення), а не від нетто: інакше
+  // при поверненнях, більших за продажі, вийшло б понад 100%.
+  const returnShare = (returns: number, net: number) => {
+    const gross = net + returns;
+    return gross > 0 ? Math.round((returns / gross) * 1000) / 10 : 0;
+  };
+
+  const totalReturns = round(totals[0]?.returns);
+  const totalAmount = round(totals[0]?.amount);
+
   return {
     період_днів: days,
     підсумок: {
-      сума: round(totals[0]?.amount),
+      сума: totalAmount,
       реалізацій: totals[0]?.docs ?? 0,
       середній_чек: round(totals[0]?.avg),
       унікальних_клієнтів: totals[0]?.clients ?? 0,
+      повернення: totalReturns,
+      частка_повернень_відсотків: returnShare(totalReturns, totalAmount),
     },
     торгові: byRep.map((r) => ({
       імя: r.rep,
       сума: round(r.amount),
       реалізацій: r.docs,
       середній_чек: r.docs > 0 ? round(r.amount / r.docs) : 0,
+      повернення: round(r.returns),
+      частка_повернень_відсотків: returnShare(round(r.returns), round(r.amount)),
     })),
     бренди: byBrand.map((b) => ({
       бренд: b.brand ?? "Без бренду",
@@ -158,6 +194,7 @@ async function buildSummary(from: Date, to: Date, days: number, restrictToRep: s
       клієнт: c.client,
       сума: round(c.amount),
       реалізацій: c.docs,
+      повернення: round(c.returns),
     })),
   };
 }
@@ -314,8 +351,9 @@ export async function POST(req: Request) {
 
   const summary = await buildSummary(from, to, days, restrictToRep);
 
-  // Порожній період: модель тут не потрібна, відповідь очевидна.
-  if (summary.підсумок.реалізацій === 0) {
+  // Порожній період: модель тут не потрібна, відповідь очевидна. Період
+  // із самими поверненнями порожнім НЕ вважаємо — там є про що казати.
+  if (summary.підсумок.реалізацій === 0 && summary.підсумок.повернення === 0) {
     return NextResponse.json({
       answer: `За обраний період (${days} дн.) продажів немає — відповідати нема на чому.`,
       facts: [],

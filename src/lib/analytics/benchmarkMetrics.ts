@@ -13,6 +13,7 @@ export const METRICS = {
   avgCheck: { label: "Середній чек", higherIsBetter: true, unit: "uah" },
   collected: { label: "Зібрано грошей", higherIsBetter: true, unit: "uah" },
   overdueRatio: { label: "Прострочена дебіторка", higherIsBetter: false, unit: "pct" },
+  returnRatio: { label: "Частка повернень", higherIsBetter: false, unit: "pct" },
   skuPerClient: { label: "SKU на клієнта", higherIsBetter: true, unit: "count" },
   brandCount: { label: "Брендів у продажах", higherIsBetter: true, unit: "count" },
   newClients: { label: "Нових клієнтів", higherIsBetter: true, unit: "count" },

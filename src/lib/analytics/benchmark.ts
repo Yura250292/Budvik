@@ -217,6 +217,9 @@ export async function teamBenchmark(period: Period): Promise<TeamBenchmark> {
       avgCheck: r.docs > 0 ? r.amount / r.docs : 0,
       collected: money.amount,
       overdueRatio: aging?.overdueRatio ?? 0,
+      // Частка від валу (нетто + повернення), а не від нетто: інакше
+      // торговий, що повернув більше, ніж продав, дав би понад 100%.
+      returnRatio: r.amount + r.returns > 0 ? (r.returns / (r.amount + r.returns)) * 100 : 0,
       skuPerClient: assort && assort.clients > 0 ? assort.skus / assort.clients : 0,
       brandCount: brandsPerRep.get(rep)?.size ?? 0,
       newClients: counts?.newClients ?? 0,

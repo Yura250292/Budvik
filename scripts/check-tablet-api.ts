@@ -104,7 +104,9 @@ async function main() {
   check("Номер листа віддано", day1.body?.route?.number === `${MARK}МЛ-001`, day1.body?.route?.number);
   check("4 рядки злилися у 3 точки", day1.body?.route?.stops?.length === 3, day1.body?.route?.stops?.length);
 
-  const stopV = day1.body?.route?.stops?.find((s: any) => s.name.includes("Магазин В"));
+  const stopV = day1.body?.route?.stops?.find((s: { name: string }) =>
+    s.name.includes("Магазин В")
+  );
   check("Суми дублів склалися (5000+5000)", stopV?.amount === 10000, stopV?.amount);
   check("Координати підтягнулися з картки клієнта", stopV?.lat === 49.9, stopV?.lat);
   check("Борг по точці А = 3200", day1.body?.route?.stops?.[0]?.debtAmount === 3200, day1.body?.route?.stops?.[0]);
@@ -289,7 +291,7 @@ async function main() {
 
     const live = await aGet("/api/admin/track/live");
     check("ADMIN /live → 200", live.status === 200, live.status);
-    const me = live.body?.people?.find((x: any) => x.userId === driver.id);
+    const me = live.body?.people?.find((x: { userId: string }) => x.userId === driver.id);
     check("Водій у списку живих", !!me, live.body?.people?.length);
     check("Онлайн (точка свіжа)", me?.online === true, me);
     check("Остання координата — з останньої точки", me?.lat === 49.9, me?.lat);

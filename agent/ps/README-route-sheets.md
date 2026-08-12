@@ -5,33 +5,39 @@
 модифікована, тому вгадувати назви полів не можна: помилкове ім'я реквізиту
 валить запит без пояснення, що саме не так.
 
-## Крок 1. Перекинути файл на сервер
+## Крок 1. Покласти файл у локальну папку «Завантаження»
 
-Файл: `agent/ps/probe-route-sheets.ps1`
-
-Через RDP-сесію (176.104.186.243:7777) покласти його поруч із рештою скриптів
-агента — туди, де вже лежать `extract.ps1` і `config.json`. Зазвичай це шлях
-виду `C:\budvik-agent\ps\`.
-
-Копіювати через `\\tsclient\Downloads`, як робили з попередніми пробами.
+`agent/ps/probe-route-sheets.ps1` → `~/Downloads` на Маку. RDP пробрасує її на
+сервер як `\\tsclient\Downloads`, тож копіювати нічого не треба — скрипт
+запускається просто звідти.
 
 ## Крок 2. Запустити
 
-Відкрити **32-бітний** PowerShell (звичайний не підійде — COM-конектор 1С 8.2
-32-бітний) і виконати з папки скриптів:
+Відкрити PowerShell у RDP і виконати **одним рядком**:
 
 ```
-C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -ep bypass -f probe-route-sheets.ps1 > probe-route-sheets.txt 2>&1
+C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -ep bypass -f \\tsclient\Downloads\probe-route-sheets.ps1 -ConfigPath C:\Users\fedyshyn\budvik-agent\config.json > \\tsclient\Downloads\out-route-sheets.txt 2>&1
 ```
+
+Три речі, кожна з яких обов'язкова:
+
+- `C:\Windows\SysWOW64\...` — **32-бітний** PowerShell. Звичайний не бачить
+  COM-конектор 1С 8.2.
+- **Повний шлях** `\\tsclient\Downloads\probe-route-sheets.ps1`. Коротке ім'я
+  спрацює, лише якщо запускати з тієї самої папки, де лежить файл; інакше
+  PowerShell відповість `The argument ... to the -File parameter does not exist`
+  і скрипт навіть не стартує.
+- `-ConfigPath` до `config.json` агента. Без нього скрипт шукає конфіг поруч із
+  собою — у проброшеній папці, де його немає.
+
+Вивід одразу лягає в `\\tsclient\Downloads`, тобто приїжджає на Мак сам.
 
 Скрипт **лише читає** — нічого не змінює і не проводить. Виконується кілька
-хвилин: спершу перебирає всі документи конфігурації, потім по кожному
-кандидату перевіряє реквізити.
+хвилин.
 
 ## Крок 3. Повернути результат
 
-Забрати `probe-route-sheets.txt` тим самим шляхом (`\\tsclient\Downloads`) і
-переслати мені. Це все.
+`out-route-sheets.txt` уже в `~/Downloads` — просто скажіть, що готово.
 
 ## Якщо скрипт нічого не знайшов
 

@@ -100,93 +100,68 @@ function IsFilled($value) {
     return ($txt -ne "" -and $txt -ne "0" -and $txt -ne "0,00" -and $txt -ne "False")
 }
 
-# --- 0. Find the document in the metadata ------------------------------------
+# --- 0. Find the document by trying candidate names --------------------------
 #
-# The whole probe hangs on this section. Everything below reruns per candidate,
-# so a wrong guess here is visible immediately rather than silently producing
-# "ABSENT" for every field.
+# $ib.Metadata is null through COM on this build (documented quirk: metadata is
+# discovered by querying candidates in try/catch, never by walking the metadata
+# tree). So instead of enumerating the configuration, we ask it directly: for
+# each plausible document name, "VYBRAT PERVYE 1 Ssylka, Data IZ Dokument.<Name>".
+# A name that exists answers; one that doesn't throws and is skipped.
+#
+# The list below covers the typical UT 2.3 names plus the usual custom ones. If
+# every candidate fails, section 0b brute-forces the attribute list of whatever
+# the user names via -DocName.
 
-Write-Host "=== 0. Metadata scan: which document is the route sheet? ==="
+Write-Host "=== 0. Probing candidate document names ==="
+
+# Cyrillic document names, built from char codes (this file must stay ASCII).
+$NAME_MARSHLIST = C 1052,1072,1088,1096,1088,1091,1090,1085,1099,1081,1051,1080,1089,1090            # MarshrutnyiList
+$NAME_PUTEVLIST = C 1055,1091,1090,1077,1074,1086,1081,1051,1080,1089,1090                           # PutevoiList
+$NAME_MARSHRUT  = C 1052,1072,1088,1096,1088,1091,1090                                               # Marshrut
+$NAME_ZADANIE   = C 1047,1072,1076,1072,1085,1080,1077,1053,1072,1055,1077,1088,1077,1074,1086,1079,1082,1091  # ZadanieNaPerevozku
+$NAME_DOSTAVKA  = C 1044,1086,1089,1090,1072,1074,1082,1072                                          # Dostavka
+$NAME_REYS      = C 1056,1077,1081,1089                                                              # Reys
+$NAME_MARSHLIST2= C 1052,1072,1088,1096,1088,1091,1090,1085,1099,1081,1051,1080,1089,1090,1042,1086,1076,1080,1090,1077,1083,1103  # MarshrutnyiListVoditelya
+$NAME_PUTLIST2  = C 1055,1091,1090,1077,1074,1086,1081,1051,1080,1089,1090,1040,1074,1090,1086        # PutevoiListAvto
+$NAME_RASHNAKL  = C 1056,1072,1089,1093,1086,1076,1085,1072,1103,1053,1072,1082,1083,1072,1076,1085,1072,1103  # RashodnayaNakladnaya
+
+$nameCandidates = @(
+    @{ label = "MarshrutnyiList";          name = $NAME_MARSHLIST },
+    @{ label = "MarshrutnyiListVoditelya"; name = $NAME_MARSHLIST2 },
+    @{ label = "PutevoiList";              name = $NAME_PUTEVLIST },
+    @{ label = "PutevoiListAvto";          name = $NAME_PUTLIST2 },
+    @{ label = "Marshrut";                 name = $NAME_MARSHRUT },
+    @{ label = "ZadanieNaPerevozku";       name = $NAME_ZADANIE },
+    @{ label = "Dostavka";                 name = $NAME_DOSTAVKA },
+    @{ label = "Reys";                     name = $NAME_REYS },
+    @{ label = "RashodnayaNakladnaya";     name = $NAME_RASHNAKL }
+)
 
 $candidates = @()
 
-try {
-    $meta = $ib.Metadata
-    $docsMeta = $meta.Documents
-    $count = $docsMeta.Count()
-    Write-Host ("  configuration has {0} documents" -f $count)
-
-    $matches = @()
-    for ($i = 0; $i -lt $count; $i++) {
-        $d = $docsMeta.Get($i)
-        $n = [string]$d.Name
-        $syn = ""
-        try { $syn = [string]$d.Synonym } catch { }
-        $hay = $n + " " + $syn
-        if ($hay -match [regex]::Escape($SUB_MARSH) -or
-            $hay -match [regex]::Escape($SUB_PUTEV) -or
-            $hay -match [regex]::Escape($SUB_DOSTAV) -or
-            $hay -match [regex]::Escape($SUB_REYS) -or
-            $n -match 'Marshrut|Putev|Route|Delivery|Reys') {
-            $matches += @{ name = $n; synonym = $syn; meta = $d }
-        }
+foreach ($cand in $nameCandidates) {
+    try {
+        $q = $ib.NewObject("Query")
+        $q.Text = "$SELECT $FIRST 1 R.$REF, R.$DATE $FROM $DOC.$($cand.name) $AS R"
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute returned null" }
+        $r = $rs.Choose()
+        $hasRows = $r.Next()
+        Write-Host ("  EXISTS  {0,-26} {1}" -f $cand.label,
+            $(if ($hasRows) { "has documents" } else { "empty" }))
+        $candidates += $cand.name
     }
-
-    if ($matches.Count -eq 0) {
-        Write-Host "  NO candidate matched Marshrut/Putev/Dostav/Reys."
-        Write-Host "  Full document list follows -- find the route sheet by eye and rerun"
-        Write-Host "  with -DocName <MetadataName>:"
-        for ($i = 0; $i -lt $count; $i++) {
-            $d = $docsMeta.Get($i)
-            Write-Host ("      {0}   |   {1}" -f [string]$d.Name, [string]$d.Synonym)
-        }
-    }
-
-    foreach ($m in $matches) {
-        Write-Host ""
-        Write-Host ("  CANDIDATE: {0}   (synonym: {1})" -f $m.name, $m.synonym)
-        $candidates += $m.name
-
-        # Header attributes: name + type. This is the answer sheet for sections
-        # 2-3 -- driver, mileage, vehicle and the two money fields should all be
-        # visible here by name.
-        Write-Host "    header attributes:"
-        try {
-            $attrs = $m.meta.Attributes
-            $ac = $attrs.Count()
-            for ($j = 0; $j -lt $ac; $j++) {
-                $a = $attrs.Get($j)
-                $t = ""
-                try { $t = [string]$a.Type } catch { }
-                Write-Host ("      - {0,-32} {1}" -f [string]$a.Name, $t)
-            }
-        } catch { Write-Host ("      (failed: " + $_.Exception.Message + ")") }
-
-        # Tabular sections: this decides whether stops (and therefore addresses
-        # and per-stop amounts) exist at all, or whether the sheet is header-only.
-        Write-Host "    tabular sections:"
-        try {
-            $tabs = $m.meta.TabularSections
-            $tc = $tabs.Count()
-            if ($tc -eq 0) { Write-Host "      (none -- header-only document)" }
-            for ($k = 0; $k -lt $tc; $k++) {
-                $ts = $tabs.Get($k)
-                Write-Host ("      * {0}" -f [string]$ts.Name)
-                $tattrs = $ts.Attributes
-                $tac = $tattrs.Count()
-                for ($j = 0; $j -lt $tac; $j++) {
-                    $a = $tattrs.Get($j)
-                    $t = ""
-                    try { $t = [string]$a.Type } catch { }
-                    Write-Host ("          - {0,-28} {1}" -f [string]$a.Name, $t)
-                }
-            }
-        } catch { Write-Host ("      (failed: " + $_.Exception.Message + ")") }
+    catch {
+        Write-Host ("  absent  {0}" -f $cand.label)
     }
 }
-catch {
-    Write-Host ("  METADATA SCAN FAILED: " + $_.Exception.Message)
-    Write-Host "  Fall back to -DocName with a guessed name."
+
+if ($candidates.Count -eq 0) {
+    Write-Host ""
+    Write-Host "  None of the guessed names exists in this configuration."
+    Write-Host "  Open 1C: Operations -> Documents, find the route sheet, and note the"
+    Write-Host "  name shown in the configurator (or its Russian name in the journal)."
+    Write-Host "  Then rerun with:  -DocName <ExactName>"
 }
 Write-Host ""
 

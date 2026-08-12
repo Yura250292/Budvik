@@ -72,6 +72,26 @@ check("відсоток 150", main.lines.find((l) => l.kind === "TURNOVER_PERCEN
 console.log("  пояснення рядків:");
 for (const l of main.lines) console.log(`    · ${l.label}: ${l.explanation} = ${l.amount}`);
 
+console.log("\n=== Реальний лист №1817 від 11.08.2026 (скріншот 1С) ===");
+// Підсумок листа 71 966,52 включає рядок «Оплата заборгованості 000001242»
+// на 5 888,00 — це старий борг, не сьогоднішня розвозка. Відсоток лише з різниці.
+const real = calculateRouteSheetPay(
+  sheet({
+    routeSheetId: "1817",
+    number: "1817",
+    day: "2026-08-11",
+    ordersTotal: 71966.52,
+    debtsTotal: 5888,
+    cityPoints: 0,
+    oblastPoints: 0,
+    distanceKm: 0,
+  }),
+  DEFAULT_RATES
+);
+const pctLine = real.lines.find((l) => l.kind === "TURNOVER_PERCENT");
+check("база 66 078,52", pctLine?.base, 66078.52);
+check("0,5% = 330,39", Math.round((pctLine?.amount ?? 0) * 100) / 100, 330.39);
+
 console.log("\n=== Точки міста й області разом ===");
 const mixed = calculateRouteSheetPay(
   sheet({ cityPoints: 3, oblastPoints: 4, ordersTotal: 0, debtsTotal: 0 }),

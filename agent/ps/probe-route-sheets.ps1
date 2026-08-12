@@ -125,7 +125,14 @@ $NAME_MARSHLIST2= C 1052,1072,1088,1096,1088,1091,1090,1085,1099,1081,1051,1080,
 $NAME_PUTLIST2  = C 1055,1091,1090,1077,1074,1086,1081,1051,1080,1089,1090,1040,1074,1090,1086        # PutevoiListAvto
 $NAME_RASHNAKL  = C 1056,1072,1089,1093,1086,1076,1085,1072,1103,1053,1072,1082,1083,1072,1076,1085,1072,1103  # RashodnayaNakladnaya
 
+# CONFIRMED 2026-08-12: the document is Dokument.MarshrutnyjLyst -- Ukrainian
+# spelling with "y" (1080) where the Russian form has "yi" (1099,1081). That one
+# letter is why 50 earlier guesses missed it. It stays first in the list; the
+# rest are kept as fallbacks in case another base spells it differently.
+$NAME_CONFIRMED = C 1052,1072,1088,1096,1088,1091,1090,1085,1080,1081,1051,1080,1089,1090  # MarshrutnyjLyst
+
 $nameCandidates = @(
+    @{ label = "MarshrutnyjLyst (CONFIRMED)"; name = $NAME_CONFIRMED },
     @{ label = "MarshrutnyiList";          name = $NAME_MARSHLIST },
     @{ label = "MarshrutnyiListVoditelya"; name = $NAME_MARSHLIST2 },
     @{ label = "PutevoiList";              name = $NAME_PUTEVLIST },
@@ -259,7 +266,29 @@ $KDOPLATE = C 1050,1054,1087,1083,1072,1090,1077                                
 $SKLAD    = C 1057,1082,1083,1072,1076                                                 # Sklad
 $KOMMENT  = C 1050,1086,1084,1084,1077,1085,1090,1072,1088,1080,1081                   # Kommentarii
 
+# The printed form has START and END ODOMETER boxes, not a single mileage
+# field -- distance is their difference. That is why every probe for Probeg or
+# Rasstoyanie came back absent.
+$SPIDOM   = C 1057,1087,1110,1076,1086,1084,1077,1090,1088                                 # Spidometr (UA)
+$SPIDOM_RU= C 1057,1087,1080,1076,1086,1084,1077,1090,1088                                 # Spidometr (RU)
+$POCHATK  = C 1055,1086,1095,1072,1090,1082,1086,1074,1080,1081,1057,1087,1110,1076,1086,1084,1077,1090,1088  # PochatkovyiSpidometr
+$KINCEV   = C 1050,1110,1085,1094,1077,1074,1080,1081,1057,1087,1110,1076,1086,1084,1077,1090,1088            # KincevyiSpidometr
+$SPID_POCH= C 1057,1087,1110,1076,1086,1084,1077,1090,1088,1055,1086,1095,1072,1090,1082,1086,1074,1080,1081  # SpidometrPochatkovyi
+$SPID_KIN = C 1057,1087,1110,1076,1086,1084,1077,1090,1088,1050,1110,1085,1094,1077,1074,1080,1081            # SpidometrKincevyi
+$NACHALN  = C 1053,1072,1095,1072,1083,1100,1085,1099,1081,1057,1087,1080,1076,1086,1084,1077,1090,1088       # NachalnyiSpidometr
+$KONECHN  = C 1050,1086,1085,1077,1095,1085,1099,1081,1057,1087,1080,1076,1086,1084,1077,1090,1088            # KonechnyiSpidometr
+$VODIJ_UA = C 1042,1086,1076,1110,1081                                                     # Vodij (UA)
+
 $headerFields = @(
+    @{ name = "PochatkovyiSpidometr [KM]";      field = $POCHATK },
+    @{ name = "KincevyiSpidometr [KM]";         field = $KINCEV },
+    @{ name = "SpidometrPochatkovyi [KM]";      field = $SPID_POCH },
+    @{ name = "SpidometrKincevyi [KM]";         field = $SPID_KIN },
+    @{ name = "NachalnyiSpidometr [KM]";        field = $NACHALN },
+    @{ name = "KonechnyiSpidometr [KM]";        field = $KONECHN },
+    @{ name = "Spidometr (UA)";                 field = $SPIDOM },
+    @{ name = "Spidometr (RU)";                 field = $SPIDOM_RU },
+    @{ name = "Vodij (UA)  [DRIVER?]";          field = $VODIJ_UA },
     @{ name = "Voditel  [DRIVER?]";             field = $VODITEL },
     @{ name = "Sotrudnik  [DRIVER?]";           field = $SOTRUDNIK },
     @{ name = "FizLico  [DRIVER?]";             field = $FIZLICO },
@@ -452,7 +481,29 @@ $tabSections = @(
     @{ name = "Tovary";    field = $TS_TOVARY }
 )
 
+# From the printed form, each stop row carries: client, address, manager+phone,
+# the realization document, the contract kind ("Bezgotivka" = already paid,
+# "Postavka fakt" = driver collects cash), "Suma dokumenta" and "Suma
+# nadhodzhennya" (what the driver actually brought back -- often a part of the
+# invoice, the rest becoming debt).
+$SUMA_DOK  = C 1057,1091,1084,1072,1044,1086,1082,1091,1084,1077,1085,1090,1072                          # SumaDokumenta (UA)
+$SUMA_NADH = C 1057,1091,1084,1072,1053,1072,1076,1093,1086,1076,1078,1077,1085,1085,1103                # SumaNadhodzhennya (UA)
+$NADHODZH  = C 1053,1072,1076,1093,1086,1076,1078,1077,1085,1085,1103                                    # Nadhodzhennya
+$DOGOVIR   = C 1044,1086,1075,1086,1074,1110,1088                                                        # Dogovir (UA)
+$MENEDZHER = C 1052,1077,1085,1077,1076,1078,1077,1088                                                   # Menedzher
+$KLIENT    = C 1050,1083,1110,1108,1085,1090                                                             # Klient (UA)
+$DOKUMENT_UA = C 1044,1086,1082,1091,1084,1077,1085,1090                                                 # Dokument
+$KOMENTAR  = C 1050,1086,1084,1077,1085,1090,1072,1088                                                   # Komentar (UA)
+
 $lineFields = @(
+    @{ name = "SumaDokumenta [INVOICE]"; field = $SUMA_DOK },
+    @{ name = "SumaNadhodzhennya [CASH]";field = $SUMA_NADH },
+    @{ name = "Nadhodzhennya [CASH]";    field = $NADHODZH },
+    @{ name = "Dogovir [PAID/CASH?]";    field = $DOGOVIR },
+    @{ name = "Klient (UA)";             field = $KLIENT },
+    @{ name = "Menedzher";               field = $MENEDZHER },
+    @{ name = "Dokument [LINK]";         field = $DOKUMENT_UA },
+    @{ name = "Komentar (UA)";           field = $KOMENTAR },
     @{ name = "Kontragent";              field = $KONTR },
     @{ name = "ZakazPokupatelya [LINK]"; field = $ZAKAZ },
     @{ name = "Dokument [LINK]";         field = $DOKUMENT },

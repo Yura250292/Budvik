@@ -362,7 +362,12 @@ export default function TabletDayMap({
     // Водій торкнувся карти — віддаємо керування йому. Слідування, яке
     // перебиває палець, дратує найбільше: людина тягне карту подивитись
     // наступну точку, а її щосекунди відкидає назад.
-    const release = () => {
+    // Тільки СПРАВЖНІЙ дотик, не наша ж анімація. easeTo теж шле
+    // dragstart/rotatestart/pitchstart — без цієї перевірки слідування
+    // вимикало саме себе на першому ж повороті камери за курсом, і карта
+    // назавжди застигала на зумі тієї швидкості, з якою рушила.
+    const release = (e: { originalEvent?: unknown }) => {
+      if (!e?.originalEvent) return;
       if (modeRef.current === "follow") onModeChangeRef.current?.("overview");
     };
     map.on("dragstart", release);

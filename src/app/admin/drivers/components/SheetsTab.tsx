@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money, num } from "@/components/ui/Stat";
@@ -50,6 +51,8 @@ type SheetsResponse = {
     id: string;
     source: "SITE" | "SHEET_1C";
     number: string;
+    /** Маршрут сайту, зроблений із цього листа 1С. */
+    convertedRoute: { id: string; number: string; status: string } | null;
     day: string;
     posted: boolean;
     driverId: string | null;
@@ -208,6 +211,37 @@ export function SheetsTab({ period }: { period: Period }) {
       reload();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Помилка видалення");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Лист 1С → маршрут сайту. Сама передача водієві лишається окремою дією
+   * в «Маршрутах доставки»: логіст спершу дивиться порядок точок, і кнопка,
+   * що робить обидва кроки разом, позбавила б його цієї паузи.
+   */
+  async function toRoute(sheetId: string, number: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/drivers/route-sheets/to-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося створити маршрут");
+      if (json.skippedDuplicates > 0) {
+        setMessage(
+          `Маршрут ${json.route.number} створено. ${json.skippedDuplicates} ${
+            json.skippedDuplicates === 1 ? "рядок з дублем адреси об'єднано" : "рядків з дублем адреси об'єднано"
+          } в одну точку.`
+        );
+      }
+      reload();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : `Помилка для листа ${number}`);
     } finally {
       setBusy(false);
     }
@@ -426,6 +460,47 @@ export function SheetsTab({ period }: { period: Period }) {
                                 <span className="text-xs text-g400">
                                   Лист із 1С — видаляється в 1С. Тут його відновить наступний обмін.
                                 </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Передача водієві. Лист 1С сам по собі водій не
+                              бачить: кабінет і карта дня працюють з маршрутами
+                              сайту, тому лист спершу стає маршрутом. */}
+                          {data.canEdit && r.source === "SHEET_1C" && (
+                            <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-g200 bg-white p-3">
+                              {r.convertedRoute ? (
+                                <>
+                                  <Link
+                                    href="/admin/erp/delivery-routes"
+                                    className="cursor-pointer rounded-[var(--radius-badge)] bg-bk px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                                  >
+                                    Відкрити маршрут {r.convertedRoute.number}
+                                  </Link>
+                                  <span className="text-xs text-g500">
+                                    {r.convertedRoute.status === "PLANNED"
+                                      ? "Чернетка — водій його ще не бачить. Передайте в «Маршрутах доставки»."
+                                      : "Передано водієві — доступний у кабінеті й на карті дня."}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy || !r.driverId || r.stopsCount === 0}
+                                    onClick={() => toRoute(r.id, r.number)}
+                                    className="cursor-pointer rounded-[var(--radius-badge)] bg-bk px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                                  >
+                                    {busy ? "Створюю…" : "Зробити маршрутом"}
+                                  </button>
+                                  <span className="text-xs text-g400">
+                                    {!r.driverId
+                                      ? "Спершу прив'яжіть водія в «Налаштуваннях» — маршрут передається людині."
+                                      : r.stopsCount === 0
+                                        ? "У листі немає точок — обмін ще не привіз їх."
+                                        : "Точки з листа стануть маршрутом сайту: карта дня, чек-лист, відмітки доставки."}
+                                  </span>
+                                </>
                               )}
                             </div>
                           )}

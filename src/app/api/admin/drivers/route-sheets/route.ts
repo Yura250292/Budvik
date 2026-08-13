@@ -52,6 +52,18 @@ export async function GET(req: NextRequest) {
     getRates(),
   ]);
 
+  // Які листи вже перетворені на маршрут сайту. Номер маршруту несе номер
+  // листа — окремого поля-зв'язку немає, і заводити його заради однієї
+  // ознаки дорожче, ніж один запит по номерах.
+  const sheetNumbers = sheets.filter((s) => s.source === "SHEET_1C").map((s) => `1С-${s.number}`);
+  const converted = sheetNumbers.length
+    ? await prisma.deliveryRoute.findMany({
+        where: { number: { in: sheetNumbers } },
+        select: { id: true, number: true, status: true },
+      })
+    : [];
+  const convertedByNumber = new Map(converted.map((r) => [r.number, r]));
+
   const rows = sheets
     .sort((a, b) => b.date.getTime() - a.date.getTime() || b.number.localeCompare(a.number))
     .map((sheet) => {
@@ -60,10 +72,16 @@ export async function GET(req: NextRequest) {
       // нуль, щоб не створювати враження заробітку.
       const pay = sheet.posted ? calculateRouteSheetPay(sheetToFacts(sheet), rates) : null;
 
+      const asRoute = sheet.source === "SHEET_1C"
+        ? (convertedByNumber.get(`1С-${sheet.number}`) ?? null)
+        : null;
+
       return {
         id: sheet.id,
         source: sheet.source,
         number: sheet.number,
+        /** Маршрут сайту, створений із цього листа: null — ще не створено. */
+        convertedRoute: asRoute,
         day: kyivDate(sheet.date),
         posted: sheet.posted,
         driverId: sheet.driverId,

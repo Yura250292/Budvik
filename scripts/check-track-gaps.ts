@@ -43,7 +43,7 @@ console.log("\nПозначення розривів");
   const r = preparePoints([
     { lat: 49.8555, lng: 24.0325, recordedAt: t(0), accuracyM: 10 },
     { lat: 49.8000, lng: 24.0100, recordedAt: t(30), accuracyM: 10 },
-  ]);
+  ], null);
   check("Обидві точки прийнято", r.points.length, 2);
   check("Перша точка не розрив", r.points[0].isGap, false);
   ok("Друга точка — розрив", r.points[1].isGap === true);
@@ -59,7 +59,7 @@ console.log("\nЩільний трек розривами не вважаєть�
     recordedAt: new Date(Date.UTC(2026, 7, 12, 9, 0, i * 15)).toISOString(),
     accuracyM: 8,
   }));
-  const r = preparePoints(raw);
+  const r = preparePoints(raw, null);
   ok("Жодної точки не позначено розривом", r.points.every((p) => !p.isGap));
   check("Розривів не знайдено", findGaps(r.points).length, 0);
 }
@@ -70,7 +70,7 @@ console.log("\nСтрибок GPS не стає розривом");
   const r = preparePoints([
     { lat: 49.84, lng: 24.03, recordedAt: t(0), accuracyM: 10 },
     { lat: 49.91, lng: 24.03, recordedAt: t(1), accuracyM: 10 },
-  ]);
+  ], null);
   check("Стрибок не рахується в пробіг", r.points[1].countsToDistance, false);
   check("І розривом теж не є — нема чого добирати", r.points[1].isGap, false);
 }
@@ -80,7 +80,7 @@ console.log("\nfindGaps: звідки і куди");
   const r = preparePoints([
     { lat: 49.8555, lng: 24.0325, recordedAt: t(0), accuracyM: 10 },
     { lat: 49.8000, lng: 24.0100, recordedAt: t(30), accuracyM: 10 },
-  ]);
+  ], null);
   const gaps = findGaps(r.points);
   check("Знайдено один розрив", gaps.length, 1);
   check("Індекс кінцевої точки", gaps[0].index, 1);
@@ -102,7 +102,7 @@ console.log("\nРозрив на межі пачок");
 }
 {
   // Без опори на попередню точку розрив нема від чого міряти
-  const r = preparePoints([{ lat: 49.8, lng: 24.01, recordedAt: t(30), accuracyM: 10 }]);
+  const r = preparePoints([{ lat: 49.8, lng: 24.01, recordedAt: t(30), accuracyM: 10 }], null);
   check("Перша точка дня — не розрив", r.points[0].isGap, false);
   check("І в findGaps не потрапляє", findGaps(r.points).length, 0);
 }

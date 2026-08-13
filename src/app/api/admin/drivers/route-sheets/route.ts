@@ -10,6 +10,10 @@
  * PATCH зберігає фактичний пробіг маршруту (actualKm): у 1С кілометраж не
  * живе, тому адмін вводить його сюди з паперового листа чи одометра. Поки
  * поле порожнє, розрахунок бере планові км OSRM.
+ *
+ * DELETE прибирає маршрут сайту — тестові й помилково створені. Листи 1С
+ * не видаляємо: прийом іде за externalId, тож наступний обмін привів би
+ * документ назад, і кнопка виглядала б зламаною.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -83,6 +87,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     period: { from: period.fromDay, to: period.toDay, days: period.days },
     canEdit: isFullAccess,
+    // Видалення вужче за редагування: воно міняє нараховане за період
+    // мовчки, тож лишається за адміністратором.
+    canDelete: role === "ADMIN",
     rates,
     rows,
   });
@@ -118,4 +125,58 @@ export async function PATCH(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Видалення маршруту сайту — тестові й помилково створені.
+ *
+ * Тільки ADMIN: маршрут — первинне джерело зарплати водія, і його зникнення
+ * мовчки змінює нараховане за період. Менеджеру вистачає правки точок.
+ *
+ * Листи 1С не чіпаємо: вони приходять обміном за externalId, і видалений
+ * документ повернувся б наступною синхронізацією. Прибирати треба в 1С.
+ */
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  }
+  if (session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Видаляти маршрути може лише адміністратор" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const routeId = searchParams.get("routeId");
+  if (!routeId) {
+    return NextResponse.json({ error: "Потрібен routeId" }, { status: 400 });
+  }
+
+  const route = await prisma.deliveryRoute.findUnique({
+    where: { id: routeId },
+    select: { id: true, number: true, stops: { select: { id: true } } },
+  });
+  if (!route) {
+    return NextResponse.json({ error: "Маршрут не знайдено" }, { status: 404 });
+  }
+
+  const stopIds = route.stops.map((s) => s.id);
+
+  // Visit.deliveryStopId — звичайне поле, а не зв'язок, тож каскад його не
+  // прибирає: без цього відмітки водія лишилися б висіти на неіснуючих
+  // точках. Сам візит зберігаємо — це свідчення, що людина там була;
+  // рвемо лише посилання на видалений маршрут.
+  await prisma.$transaction([
+    ...(stopIds.length > 0
+      ? [
+          prisma.visit.updateMany({
+            where: { deliveryStopId: { in: stopIds } },
+            data: { deliveryStopId: null },
+          }),
+        ]
+      : []),
+    prisma.deliveryStop.deleteMany({ where: { deliveryRouteId: routeId } }),
+    prisma.deliveryRoute.delete({ where: { id: routeId } }),
+  ]);
+
+  return NextResponse.json({ ok: true, number: route.number });
 }

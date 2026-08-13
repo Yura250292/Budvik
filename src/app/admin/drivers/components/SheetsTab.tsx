@@ -44,6 +44,7 @@ type Stop = {
 type SheetsResponse = {
   period: { from: string; to: string; days: number };
   canEdit: boolean;
+  canDelete: boolean;
   rates: { cityPointRate: number; oblastPointRate: number };
   rows: Array<{
     id: string;
@@ -178,6 +179,35 @@ export function SheetsTab({ period }: { period: Period }) {
       reload();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Помилка збереження");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Видалення маршруту сайту. Підтвердження — нативне confirm: дія рідкісна
+   * (тестові та помилкові маршрути), а власна модалка тут коштувала б
+   * більше, ніж дає.
+   */
+  async function removeRoute(routeId: string, number: string, stopsCount: number) {
+    const warn =
+      stopsCount > 0
+        ? `\n\nРазом із ним зникнуть точки (${stopsCount}) і нарахування за цей лист.`
+        : "";
+    if (!confirm(`Видалити маршрут ${number}?${warn}\n\nДію не можна скасувати.`)) return;
+
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/admin/drivers/route-sheets?routeId=${encodeURIComponent(routeId)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося видалити маршрут");
+      setOpen(null);
+      reload();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Помилка видалення");
     } finally {
       setBusy(false);
     }
@@ -372,6 +402,33 @@ export function SheetsTab({ period }: { period: Period }) {
                               </ul>
                             )}
                           </div>
+
+                          {/* Видалення — в кінці деталі, а не в рядку таблиці:
+                              поруч зі списком точок видно, що саме зникне.
+                              Для листів 1С кнопки немає — їх повертає обмін. */}
+                          {data.canDelete && (
+                            <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-g200 bg-white p-3">
+                              {r.source === "SITE" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => removeRoute(r.id, r.number, r.stopsCount)}
+                                    className="cursor-pointer rounded-[var(--radius-badge)] border border-[#FCA5A5] px-2.5 py-1 text-xs font-medium text-[#B91C1C] transition-colors hover:bg-[#FEF2F2] disabled:opacity-50"
+                                  >
+                                    {busy ? "Видаляю…" : "Видалити маршрут"}
+                                  </button>
+                                  <span className="text-xs text-g400">
+                                    Разом із точками й нарахуванням за цей лист. Скасувати не можна.
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-xs text-g400">
+                                  Лист із 1С — видаляється в 1С. Тут його відновить наступний обмін.
+                                </span>
+                              )}
+                            </div>
+                          )}
 
                           {r.lines.length > 0 && (
                             <div className="rounded-[var(--radius-card)] border border-g200 bg-white p-3">

@@ -45,18 +45,25 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
         backTo="/sales/catalog"
       />
 
-      <div className="mx-auto max-w-lg px-4 pt-4">
-        <div className="mb-3">
-          <CatalogFilters
-            brands={tree.main}
-            tailBrands={tree.tail}
-            unbranded={tree.unbranded}
-            types={types}
-            priceBounds={priceBounds}
-            basePath="/sales/catalog/list"
-          />
-        </div>
+      {/* Ширше на планшеті: його тримають горизонтально й показують клієнту */}
+      <div className="mx-auto max-w-lg px-4 pt-4 md:max-w-4xl lg:max-w-5xl">
+        {/*
+          На телефоні фільтри — кнопка з панеллю зверху; від планшета вони
+          стають бічною колонкою, і товар видно одночасно з фільтрами.
+        */}
+        <div className="flex flex-col gap-4 md:flex-row">
+          <aside className="w-full flex-shrink-0 md:w-64">
+            <CatalogFilters
+              brands={tree.main}
+              tailBrands={tree.tail}
+              unbranded={tree.unbranded}
+              types={types}
+              priceBounds={priceBounds}
+              basePath="/sales/catalog/list"
+            />
+          </aside>
 
+          <div className="min-w-0 flex-1">
         <ActiveFilterChips
           filters={filters}
           brands={allBrands}
@@ -100,6 +107,8 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
             )}
           </>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

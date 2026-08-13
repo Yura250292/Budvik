@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
-import type { RouteLine, TabletStop } from "@/components/map/TabletDayMap";
+import type { MapMode, RouteLine, TabletStop } from "@/components/map/TabletDayMap";
 
 const TabletDayMap = dynamic(() => import("@/components/map/TabletDayMap"), {
   ssr: false,
@@ -106,8 +106,34 @@ export default function DriverTabletPage() {
   const [nav, setNav] = useState<NavState | null>(null);
   const [navigating, setNavigating] = useState<string | null>(null);
 
+  /**
+   * Режим карти. Стартуємо в огляді: поки водій не поїхав, йому треба
+   * бачити весь маршрут, а не свій двір зумом 17.
+   */
+  const [mapMode, setMapMode] = useState<MapMode>("overview");
+  const [traffic, setTraffic] = useState(false);
+  /** Чи налаштований ключ TomTom — без нього перемикач пробок ховаємо */
+  const [trafficAvailable, setTrafficAvailable] = useState(false);
+
   const track = useTrackRecorder({ enabled: true });
   const build = useBuildVersion();
+
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/traffic/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!alive || !j) return;
+        setTrafficAvailable(Boolean(j.enabled));
+        // Пробки самі вмикаються, коли вони є: водієві не треба щоранку
+        // згадувати про перемикач.
+        setTraffic(Boolean(j.enabled));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -314,6 +340,9 @@ export default function DriverTabletPage() {
           durationMin: json.durationMin,
           geometry: json.geometry,
         });
+        // Дорога прокладена — вмикаємо слідування: далі водій їде, а не
+        // роздивляється карту. Показ усієї лінії робимо до цього моменту.
+        setMapMode("follow");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не вдалося прокласти дорогу");
       } finally {
@@ -495,13 +524,93 @@ export default function DriverTabletPage() {
             stops={stops}
             trail={fullTrail}
             me={track.position}
+            motion={track.motion}
             planned={plannedLine}
             nav={nav?.geometry ?? null}
+            mode={mapMode}
+            onModeChange={setMapMode}
+            traffic={traffic}
             onNavigate={(key) => {
               const s = stops.find((x) => x.key === key);
               if (s) void navigateTo(s);
             }}
           />
+
+          {/* Керування картою: великі кнопки в кутку, щоб цілити пальцем
+              не дивлячись. Ліворуч їх немає — там вилазять попапи точок. */}
+          <div
+            className="absolute z-[500] flex flex-col gap-2"
+            style={{ top: "12px", right: "12px" }}
+          >
+            {/* Слідування. Коли водій відтягнув карту пальцем, режим сам
+                падає в «огляд» — кнопка стає жовтою, кличучи назад. */}
+            <button
+              type="button"
+              onClick={() => setMapMode(mapMode === "follow" ? "overview" : "follow")}
+              disabled={!track.position}
+              aria-pressed={mapMode === "follow"}
+              aria-label={mapMode === "follow" ? "Вимкнути слідування" : "Показувати мене"}
+              className="cursor-pointer rounded-xl transition-colors duration-200 disabled:opacity-40"
+              style={{
+                width: "48px",
+                height: "48px",
+                border: "none",
+                background: mapMode === "follow" ? "#2563EB" : "#FFD600",
+                color: mapMode === "follow" ? "#fff" : "#0A0A0A",
+                fontSize: "20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+              }}
+            >
+              ➤
+            </button>
+
+            {trafficAvailable && (
+              <button
+                type="button"
+                onClick={() => setTraffic((v) => !v)}
+                aria-pressed={traffic}
+                aria-label={traffic ? "Сховати пробки" : "Показати пробки"}
+                className="cursor-pointer rounded-xl transition-colors duration-200"
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  border: "none",
+                  background: traffic ? "#DC2626" : "rgba(10,10,10,0.75)",
+                  color: "#fff",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  lineHeight: 1.1,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                }}
+              >
+                Проб<br />ки
+              </button>
+            )}
+          </div>
+
+          {/* Спідометр — лише під час руху. Стоїш у клієнта: цифра 0
+              нічого не додає, тільки займає карту. */}
+          {mapMode === "follow" &&
+            track.motion?.speedKmh != null &&
+            track.motion.speedKmh >= 3 && (
+              <div
+                className="absolute z-[500] rounded-2xl px-3 py-1.5 text-center"
+                style={{
+                  top: "12px",
+                  left: "12px",
+                  background: "rgba(10,10,10,0.78)",
+                  color: "#fff",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                }}
+              >
+                <span style={{ fontSize: "22px", fontWeight: 700, lineHeight: 1 }}>
+                  {Math.round(track.motion.speedKmh)}
+                </span>
+                <span style={{ fontSize: "11px", color: "#9CA3AF", display: "block" }}>
+                  км/год
+                </span>
+              </div>
+            )}
 
           {/* Банер активної навігації поверх карти */}
           {nav && (

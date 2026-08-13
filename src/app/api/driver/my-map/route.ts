@@ -39,6 +39,7 @@ type Row = {
   historyDocs: number;
   visits: number;
   lastVisitAt: Date | null;
+  mine: boolean;
 };
 
 /** Стан клієнта на сьогодні — та сама логіка, що в analytics/clients.ts. */
@@ -72,6 +73,17 @@ export async function GET(req: NextRequest) {
       : url.searchParams.get("driverId") || session.user.id;
   const day = url.searchParams.get("day") || kyivDate(new Date());
 
+  /**
+   * scope=all — усі клієнти компанії, а не лише «мої».
+   *
+   * Портфель водія (точки його маршрутів + відмітки візитів) виявився
+   * заплюзьким: новий водій бачить рівно сьогоднішній виїзд, і карта для
+   * нього порожня. А підміняючи колегу або довозячи чуже, він має знайти
+   * магазин, до якого ніколи не їздив. Своїх лишаємо окремим фільтром —
+   * прапорець `mine` у відповіді.
+   */
+  const scopeAll = url.searchParams.get("scope") === "all";
+
   const [rows, todayRoute] = await Promise.all([
     prisma.$queryRaw<Row[]>`
       WITH mine AS (
@@ -81,14 +93,33 @@ export async function GET(req: NextRequest) {
                (
                  COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
                  COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
-               )::float AS overdue
+               )::float AS overdue,
+               -- Той самий предикат, що раніше різав вибірку, тепер лише
+               -- позначає «мої»: у режимі «всі» він стає фільтром на клієнті.
+               (
+                 EXISTS (
+                   SELECT 1 FROM "DeliveryStop" ds
+                   JOIN "DeliveryRoute" dr ON dr.id = ds."deliveryRouteId"
+                   WHERE ds."counterpartyId" = c.id AND dr."driverId" = ${driverId}
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM "RouteSheetStop" rss
+                   JOIN "RouteSheet" rs ON rs.id = rss."routeSheetId"
+                   WHERE rss."counterpartyId" = c.id AND rs."driverId" = ${driverId}
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM "Visit" v
+                   WHERE v."counterpartyId" = c.id AND v."userId" = ${driverId}
+                 )
+               ) AS mine
         FROM "Counterparty" c
         WHERE c."isActive"
           AND c."deliveryLat" IS NOT NULL
           AND c."deliveryLng" IS NOT NULL
           AND (
+            ${scopeAll}
             -- Точки маршрутів, які цей водій возив
-            EXISTS (
+            OR EXISTS (
               SELECT 1 FROM "DeliveryStop" ds
               JOIN "DeliveryRoute" dr ON dr.id = ds."deliveryRouteId"
               WHERE ds."counterpartyId" = c.id AND dr."driverId" = ${driverId}
@@ -166,6 +197,8 @@ export async function GET(req: NextRequest) {
       lastVisitAt: r.lastVisitAt,
       /** Чи є ця точка в сьогоднішньому маршруті */
       today: todayIds.has(r.id),
+      /** Чи возив цей водій сюди хоч раз — фільтр «мої клієнти» */
+      mine: r.mine,
     };
   });
 
@@ -174,6 +207,7 @@ export async function GET(req: NextRequest) {
     clients,
     counts,
     todayCount: todayIds.size,
+    mineCount: clients.filter((c) => c.mine).length,
     approximateCount: clients.filter((c) => c.approximate).length,
   });
 }

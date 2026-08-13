@@ -21,7 +21,11 @@ import { lastOrders, recommendations } from "@/lib/analytics/clientOrder";
 
 export const dynamic = "force-dynamic";
 
-const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES"];
+/**
+ * DRIVER теж читає: водій везе коробки й на місці чує «а це вже брали?».
+ * Тільки читання — замовлень він не створює.
+ */
+const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES", "DRIVER"];
 
 export async function GET(
   _req: NextRequest,

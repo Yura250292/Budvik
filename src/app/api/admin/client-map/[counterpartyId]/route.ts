@@ -44,6 +44,29 @@ async function ownsClient(counterpartyId: string, repId: string): Promise<boolea
   return !!hit;
 }
 
+/**
+ * Чи возив цей водій до цієї точки.
+ *
+ * Ті самі три джерела, що формують портфель на /api/driver/my-map:
+ * маршрут сайту, маршрутний лист із 1С, відмітка візиту. Карта водія
+ * тепер показує всіх клієнтів компанії, тож без цієї перевірки будь-хто
+ * з роллю DRIVER міг би посунути пін магазину на іншому кінці області.
+ */
+async function droveTo(counterpartyId: string, driverId: string): Promise<boolean> {
+  const hit = await prisma.counterparty.findFirst({
+    where: {
+      id: counterpartyId,
+      OR: [
+        { deliveryStops: { some: { deliveryRoute: { driverId } } } },
+        { routeSheetStops: { some: { routeSheet: { driverId } } } },
+        { visits: { some: { userId: driverId } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return !!hit;
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ counterpartyId: string }> }
@@ -56,11 +79,20 @@ export async function PATCH(
   const isFullAccess = FULL_ACCESS_ROLES.includes(session.user.role);
 
   if (!isFullAccess) {
-    if (session.user.role !== "SALES") {
+    // Водій уточнює пін нарівні з торговим — і навіть частіше: він
+    // під'їжджає фурою і першим бачить, що заїзд з іншого боку. Прив'язки
+    // «свій клієнт» у нього немає (закріплень водіям не роздають), тож
+    // обмежуємо тим, куди він реально їздив: точки маршрутів і візити.
+    if (session.user.role === "DRIVER") {
+      if (!(await droveTo(counterpartyId, session.user.id))) {
+        return NextResponse.json({ error: "Ви туди не їздили" }, { status: 403 });
+      }
+    } else if (session.user.role === "SALES") {
+      if (!(await ownsClient(counterpartyId, session.user.id))) {
+        return NextResponse.json({ error: "Це не ваш клієнт" }, { status: 403 });
+      }
+    } else {
       return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-    }
-    if (!(await ownsClient(counterpartyId, session.user.id))) {
-      return NextResponse.json({ error: "Це не ваш клієнт" }, { status: 403 });
     }
   }
 

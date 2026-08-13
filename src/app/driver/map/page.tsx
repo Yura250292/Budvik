@@ -12,6 +12,9 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
+import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
+import { ClientCommentsModal } from "@/app/admin/sales-analytics/components/ClientCommentsModal";
+import { DriverPinModal } from "@/components/driver/DriverPinModal";
 import type { SalesClientPoint } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -23,6 +26,7 @@ type DriverClient = SalesClientPoint & {
   visits: number;
   lastVisitAt: string | null;
   today: boolean;
+  mine: boolean;
 };
 
 type Resp = {
@@ -30,8 +34,15 @@ type Resp = {
   clients: DriverClient[];
   counts: Record<string, number>;
   todayCount: number;
+  mineCount: number;
   approximateCount: number;
 };
+
+/**
+ * Що показувати на карті. Раніше вибірка була жорстко «мої» — і новий
+ * водій бачив рівно сьогоднішній виїзд, тобто порожню карту.
+ */
+type Scope = "today" | "mine" | "all";
 
 const LEGEND: ClientStateKey[] = ["ACTIVE", "NEW", "SLIPPING", "DORMANT", "LOST"];
 
@@ -39,14 +50,19 @@ export default function DriverMapPage() {
   const [data, setData] = useState<Resp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [onlyToday, setOnlyToday] = useState(false);
+  const [scope, setScope] = useState<Scope>("all");
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [orderFor, setOrderFor] = useState<{ id: string; name: string; state: ClientStateKey } | null>(null);
+  const [commentsFor, setCommentsFor] = useState<{ id: string; name: string } | null>(null);
+  const [pinFor, setPinFor] = useState<DriverClient | null>(null);
 
+  // Тягнемо завжди повний набір: 379 точок — одна відповідь, а перемикання
+  // «сьогодні / мої / всі» після цього миттєве, без походу в мережу.
   useEffect(() => {
     let alive = true;
-    fetch("/api/driver/my-map")
+    fetch("/api/driver/my-map?scope=all")
       .then(async (r) => {
         const j = await r.json().catch(() => null);
         if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
@@ -82,7 +98,22 @@ export default function DriverMapPage() {
 
   const visible = (data?.clients ?? [])
     .filter((c) => !hidden.has(c.state))
-    .filter((c) => !onlyToday || c.today);
+    .filter((c) => (scope === "today" ? c.today : scope === "mine" ? c.mine : true));
+
+  /** Пін уточнили — правимо точку на місці, без перезавантаження всієї карти. */
+  const applyPin = useCallback((id: string, lat: number, lng: number) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            clients: prev.clients.map((c) =>
+              c.id === id ? { ...c, lat, lng, approximate: false } : c
+            ),
+            approximateCount: Math.max(0, prev.approximateCount - 1),
+          }
+        : prev
+    );
+  }, []);
 
   return (
     // Фіксований шар на всю висоту мінус нижнє меню водія
@@ -95,18 +126,33 @@ export default function DriverMapPage() {
       }}
     >
       <div className="absolute inset-0">
-        <SalesClientsMap clients={visible} route={null} me={me} />
+        <SalesClientsMap
+          clients={visible}
+          route={null}
+          me={me}
+          // Картки клієнта в розділі водія немає (там лише маршрути), тож
+          // посилання не даємо — натомість коментарі й уточнення піна.
+          extras={{ comments: true, pin: true }}
+          onAction={(a) => {
+            const c = data?.clients.find((x) => x.id === a.id);
+            if (!c) return;
+            if (a.kind === "orderCard") setOrderFor({ id: c.id, name: c.name, state: c.state });
+            else if (a.kind === "comments") setCommentsFor({ id: c.id, name: c.name });
+            else if (a.kind === "pin") setPinFor(c);
+          }}
+        />
       </div>
 
       {/* Шапка поверх карти */}
       <div
-        className="absolute inset-x-0 top-0 z-[500] flex items-center gap-2 px-3"
+        className="absolute inset-x-0 top-0 z-[500] px-3"
         style={{
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
           paddingBottom: "10px",
           background: "linear-gradient(#F3F4F6EE, #F3F4F600)",
         }}
       >
+        <div className="flex items-center gap-2">
         <div
           className="min-w-0 flex-1 rounded-full px-3 py-2"
           style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
@@ -121,26 +167,6 @@ export default function DriverMapPage() {
             )}
           </p>
         </div>
-
-        {data && data.todayCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setOnlyToday((v) => !v)}
-            aria-pressed={onlyToday}
-            className="shrink-0 cursor-pointer rounded-full px-3 transition-colors duration-200"
-            style={{
-              minHeight: "40px",
-              background: onlyToday ? "#0A0A0A" : "#fff",
-              color: onlyToday ? "#fff" : "#0A0A0A",
-              boxShadow: "0 1px 6px rgba(0,0,0,0.15)",
-              border: "none",
-              fontSize: "13px",
-              fontWeight: 600,
-            }}
-          >
-            Сьогодні
-          </button>
-        )}
 
         <button
           type="button"
@@ -166,6 +192,49 @@ export default function DriverMapPage() {
             <circle cx="12" cy="12" r="6" />
           </svg>
         </button>
+        </div>
+
+        {/* Обсяг карти. Окремим рядом, а не в шапці: три варіанти поруч із
+            лічильником не влазять у 800px портрета, і «Всі» опинялося б за
+            краєм. Сегменти — 44px заввишки, у них цілять пальцем у машині. */}
+        {data && (
+          <div
+            className="mt-2 flex gap-1 rounded-full p-1"
+            style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+          >
+            {(
+              [
+                { key: "today", label: "Сьогодні", n: data.todayCount },
+                { key: "mine", label: "Мої", n: data.mineCount },
+                { key: "all", label: "Всі", n: data.clients.length },
+              ] as Array<{ key: Scope; label: string; n: number }>
+            ).map((s) => {
+              const on = scope === s.key;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => setScope(s.key)}
+                  aria-pressed={on}
+                  className="flex-1 cursor-pointer rounded-full transition-colors duration-200"
+                  style={{
+                    minHeight: "40px",
+                    border: "none",
+                    background: on ? "#0A0A0A" : "transparent",
+                    color: on ? "#fff" : "#374151",
+                    fontSize: "13px",
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {s.label}{" "}
+                  <span style={{ color: on ? "rgba(255,255,255,0.65)" : "#9CA3AF", fontWeight: 400 }}>
+                    {s.n}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -251,13 +320,39 @@ export default function DriverMapPage() {
                   })}
                 </div>
                 <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
-                  Тут усі клієнти, до яких ви возили товар. Тапніть точку, щоб
-                  побачити борг і побудувати навігацію.
+                  «Мої» — куди ви вже возили, «Всі» — уся база компанії.
+                  Тапніть точку: борг, що клієнт брав, коментарі. Якщо стоїте
+                  біля магазину — уточніть точку, вона лишиться всім.
                 </p>
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {orderFor && (
+        <ClientOrderModal key={orderFor.id} client={orderFor} onClose={() => setOrderFor(null)} />
+      )}
+      {commentsFor && (
+        <ClientCommentsModal
+          key={commentsFor.id}
+          client={commentsFor}
+          onClose={() => setCommentsFor(null)}
+        />
+      )}
+      {pinFor && (
+        <DriverPinModal
+          key={pinFor.id}
+          client={{
+            id: pinFor.id,
+            name: pinFor.name,
+            lat: pinFor.lat,
+            lng: pinFor.lng,
+            approximate: pinFor.approximate,
+          }}
+          onClose={() => setPinFor(null)}
+          onSaved={(lat, lng) => applyPin(pinFor.id, lat, lng)}
+        />
       )}
     </div>
   );

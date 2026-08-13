@@ -16,7 +16,15 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES"];
+/**
+ * DRIVER тут нарівні з SALES: водій стоїть біля дверей і бачить те, чого
+ * не бачить ніхто («заїзд з двору», «після 15:00 зачинено», «вивіска
+ * інша»). Стрічка спільна — торговий і водій пишуть в одну.
+ */
+const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES", "DRIVER"];
+
+/** Хто може правити й видаляти чужі коментарі. */
+const MANAGEMENT_ROLES = ["ADMIN", "MANAGER"];
 
 export async function GET(
   _req: NextRequest,
@@ -48,7 +56,10 @@ export async function GET(
       text: c.text,
       createdAt: c.createdAt.toISOString(),
       author: c.author,
-      canEdit: c.author.id === session.user.id || session.user.role !== "SALES",
+      // Явний перелік, а не «не SALES»: із появою DRIVER заперечення тихо
+      // роздало б водієві право правити чужі коментарі.
+      canEdit:
+        c.author.id === session.user.id || MANAGEMENT_ROLES.includes(session.user.role),
     })),
   });
 }

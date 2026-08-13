@@ -15,7 +15,10 @@ import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 
 /** Що торговий може зробити з точки, крім переходу в картку. */
-export type SalesMapAction = { kind: "orderCard"; id: string };
+export type SalesMapAction =
+  | { kind: "orderCard"; id: string }
+  | { kind: "comments"; id: string }
+  | { kind: "pin"; id: string };
 
 export type SalesClientPoint = {
   id: string;
@@ -62,7 +65,51 @@ function spread<T extends { lat: number; lng: number }>(points: T[]): T[] {
   });
 }
 
-function popupHtml(c: SalesClientPoint): string {
+/**
+ * Чим комплектувати попап. Карта одна на торгового й водія, а набір дій
+ * різний: у водія немає картки клієнта в його розділі (там лише маршрути),
+ * зате є коментарі й уточнення піна прямо з карти — він стоїть біля дверей.
+ */
+export type PopupExtras = {
+  comments?: boolean;
+  pin?: boolean;
+  /** Префікс посилання на картку, напр. "/sales/clients/". Немає — немає кнопки. */
+  clientCardHref?: string;
+};
+
+/**
+ * Вікно по основному скупченню точок, а не по крайніх.
+ *
+ * У режимі «всі клієнти» серед львівських точок трапляється поодинока на
+ * Донеччині — і fitBounds по всіх розтягує карту на пів Європи, де весь
+ * робочий регіон стискається в нерозбірливу пляму. Відрізаємо по 5%
+ * найдальших з кожного краю: центр ваги лишається там, де водій працює,
+ * а поодинокі далекі точки він знайде відтисканням.
+ */
+function coreBounds(points: Array<{ lat: number; lng: number }>): L.LatLngBounds | null {
+  if (points.length < 12) return null; // на десятку точок відрізати нічого
+
+  const cut = (arr: number[]) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const k = Math.floor(sorted.length * 0.05);
+    return [sorted[k], sorted[sorted.length - 1 - k]] as const;
+  };
+
+  const [latMin, latMax] = cut(points.map((p) => p.lat));
+  const [lngMin, lngMax] = cut(points.map((p) => p.lng));
+  return L.latLngBounds([latMin, lngMin], [latMax, lngMax]);
+}
+
+/** Кнопка в попапі: однакова геометрія, різний вигляд. */
+function popupButton(action: string, id: string, label: string, primary: boolean): string {
+  return `<button data-action="${action}" data-id="${escapeHtml(id)}"
+     style="display:block;width:100%;margin-top:6px;padding:9px;text-align:center;
+     background:${primary ? "#0A0A0A" : "#fff"};color:${primary ? "#fff" : "#0A0A0A"};
+     border:${primary ? "none" : "1px solid #E5E7EB"};border-radius:8px;
+     font-weight:600;font-size:13px;cursor:pointer">${escapeHtml(label)}</button>`;
+}
+
+function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
   const meta = CLIENT_STATE[c.state];
   const debt =
     c.overdue > 0
@@ -80,14 +127,17 @@ function popupHtml(c: SalesClientPoint): string {
     ${c.daysSinceLast != null ? `<div style="color:#6B7280">Останній документ ${c.daysSinceLast} дн. тому</div>` : ""}
     ${debt}
     ${c.approximate ? `<div style="color:#D97706;font-size:12px;margin-top:3px">Точка приблизна</div>` : ""}
-    <button data-action="orderCard" data-id="${escapeHtml(c.id)}"
-       style="display:block;width:100%;margin-top:8px;padding:9px;text-align:center;
-       background:#0A0A0A;color:#fff;border:none;border-radius:8px;
-       font-weight:600;font-size:13px;cursor:pointer">Що брав і що везти</button>
-    <a href="/sales/clients/${escapeHtml(c.id)}"
+    ${popupButton("orderCard", c.id, "Що брав і що везти", true)}
+    ${extras.comments ? popupButton("comments", c.id, "Коментарі", false) : ""}
+    ${extras.pin ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
+    ${
+      extras.clientCardHref
+        ? `<a href="${escapeHtml(extras.clientCardHref)}${escapeHtml(c.id)}"
        style="display:block;margin-top:6px;padding:8px;text-align:center;
        background:#fff;color:#0A0A0A;border:1px solid #E5E7EB;border-radius:8px;
-       text-decoration:none;font-weight:600;font-size:13px">Відкрити картку</a>
+       text-decoration:none;font-weight:600;font-size:13px">Відкрити картку</a>`
+        : ""
+    }
   </div>`;
 }
 
@@ -96,6 +146,7 @@ export default function SalesClientsMap({
   route,
   me,
   onAction,
+  extras = { clientCardHref: "/sales/clients/" },
   height = "100%",
 }: {
   clients: SalesClientPoint[];
@@ -103,6 +154,8 @@ export default function SalesClientsMap({
   /** Де зараз торговий — щоб бачити, хто поряд. */
   me?: { lat: number; lng: number } | null;
   onAction?: (action: SalesMapAction) => void;
+  /** Які дії показувати в попапі — набір різний у торгового й водія. */
+  extras?: PopupExtras;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -113,6 +166,9 @@ export default function SalesClientsMap({
   /** Колбек у ref: інакше кожен новий рендер сторінки перемальовував би точки. */
   const actionRef = useRef(onAction);
   actionRef.current = onAction;
+  /** Теж у ref: `extras` — літерал, новий на кожен рендер сторінки. */
+  const extrasRef = useRef(extras);
+  extrasRef.current = extras;
 
   const key = useMemo(
     () =>
@@ -189,13 +245,13 @@ export default function SalesClientsMap({
         fillColor: CLIENT_STATE[c.state].color,
         fillOpacity: 0.92,
       })
-        .bindPopup(popupHtml(c), { minWidth: 190 })
+        .bindPopup(popupHtml(c, extrasRef.current), { minWidth: 190 })
         .addTo(group);
       bounds.extend([c.lat, c.lng]);
     });
 
     if (!fittedRef.current && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+      map.fitBounds(coreBounds(clients) ?? bounds, { padding: [30, 30], maxZoom: 13 });
       fittedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

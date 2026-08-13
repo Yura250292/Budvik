@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 export type ShiftPointType = "open" | "close" | "checkpoint";
 
@@ -83,21 +84,24 @@ export default function ShiftMap({
 }: ShiftMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
     if (!mapRef.current) return;
 
     if (!mapInstanceRef.current) {
-      mapInstanceRef.current = L.map(mapRef.current, {
-        zoomControl: true,
-        attributionControl: true,
-      }).setView([49.2328, 28.4816], 12); // За замовчуванням — Вінниця
+      mapInstanceRef.current = L.map(mapRef.current, FRAMED_MAP_OPTIONS).setView(
+        [49.2328, 28.4816],
+        12
+      ); // За замовчуванням — Вінниця
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
+
+      attachWheelGate(mapInstanceRef.current, onWheelChange);
     }
 
     const map = mapInstanceRef.current;
@@ -181,7 +185,8 @@ export default function ShiftMap({
     if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     }
-  }, [points, connectRoute]);
+    // onWheelChange стабільний — див. useWheelGate.
+  }, [points, connectRoute, onWheelChange]);
 
   useEffect(() => {
     return () => {
@@ -193,9 +198,8 @@ export default function ShiftMap({
   }, []);
 
   return (
-    <div
-      ref={mapRef}
-      style={{ height, width: "100%", borderRadius: "12px", overflow: "hidden" }}
-    />
+    <MapFrame height={height} wheelActive={wheelActive}>
+      <div ref={mapRef} style={{ height: "100%", width: "100%" }} />
+    </MapFrame>
   );
 }

@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 export type TrackPerson = {
   userId: string;
@@ -70,6 +71,7 @@ export default function TrackDayMap({
   const peopleLayerRef = useRef<L.LayerGroup | null>(null);
   const detailLayerRef = useRef<L.LayerGroup | null>(null);
   const fittedRef = useRef(false);
+  const { wheelActive, onWheelChange } = useWheelGate();
   // Колбек у ref: інакше кожен новий рендер батька перемальовував би
   // маркери лише через те, що onSelect — нова функція.
   const onSelectRef = useRef(onSelect);
@@ -84,7 +86,7 @@ export default function TrackDayMap({
     if (!containerRef.current) return;
 
     if (!mapRef.current) {
-      mapRef.current = L.map(containerRef.current, { attributionControl: true }).setView(
+      mapRef.current = L.map(containerRef.current, FRAMED_MAP_OPTIONS).setView(
         [49.8397, 24.0297],
         9
       );
@@ -92,6 +94,7 @@ export default function TrackDayMap({
         attribution: "&copy; OpenStreetMap",
         maxZoom: 19,
       }).addTo(mapRef.current);
+      attachWheelGate(mapRef.current, onWheelChange);
       peopleLayerRef.current = L.layerGroup().addTo(mapRef.current);
       detailLayerRef.current = L.layerGroup().addTo(mapRef.current);
     }
@@ -201,5 +204,9 @@ export default function TrackDayMap({
     };
   }, []);
 
-  return <div ref={containerRef} style={{ height, width: "100%" }} />;
+  return (
+    <MapFrame height={height} wheelActive={wheelActive}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+    </MapFrame>
+  );
 }

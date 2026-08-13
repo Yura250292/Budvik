@@ -9,10 +9,11 @@
  * при десятках полілінь обхід усіх шарів мапи з instanceof — надто крихкий.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 /** Клієнт на карті напрямків. Форма збігається з ClientPoint карти клієнтів. */
 export type MapClientPoint = {
@@ -168,7 +169,7 @@ export default function RoutesOverviewMap({
    */
   const rendererRef = useRef<L.Renderer | null>(null);
   /** Чи колесо зараз масштабує карту — інакше незрозуміло, чому не зумиться. */
-  const [wheelActive, setWheelActive] = useState(false);
+  const { wheelActive, onWheelChange } = useWheelGate();
 
   /** Шар ручок правки — окремо від самої межі, щоб не перемальовувати її на кожен драг. */
   const handlesRef = useRef<L.LayerGroup | null>(null);
@@ -208,14 +209,13 @@ export default function RoutesOverviewMap({
     if (!containerRef.current) return;
 
     if (!mapRef.current) {
-      mapRef.current = L.map(containerRef.current, {
-        zoomControl: true,
-        attributionControl: true,
-        // Колесо гортає сторінку, а не масштабує: карта на всю ширину, і при
-        // скролі повз неї сторінка інакше «залипає» на зумі. Масштаб
-        // вмикається кліком по карті, вихід курсора його знімає.
-        scrollWheelZoom: false,
-      }).setView([49.8397, 24.0297], 8); // Львів — типовий центр напрямків
+      // Колесо гортає сторінку, а не масштабує: карта на всю ширину, і при
+      // скролі повз неї сторінка інакше «залипає» на зумі. Масштаб
+      // вмикається кліком по карті, вихід курсора його знімає — див. MapFrame.
+      mapRef.current = L.map(containerRef.current, FRAMED_MAP_OPTIONS).setView(
+        [49.8397, 24.0297],
+        8
+      ); // Львів — типовий центр напрямків
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -233,14 +233,7 @@ export default function RoutesOverviewMap({
       // Ручки правки — найвище: у них треба влучати мишею поверх усього.
       handlesRef.current = L.layerGroup().addTo(mapRef.current);
 
-      mapRef.current.on("click", () => {
-        mapRef.current?.scrollWheelZoom.enable();
-        setWheelActive(true);
-      });
-      mapRef.current.on("mouseout", () => {
-        mapRef.current?.scrollWheelZoom.disable();
-        setWheelActive(false);
-      });
+      attachWheelGate(mapRef.current, onWheelChange);
     }
 
     const map = mapRef.current;
@@ -510,8 +503,8 @@ export default function RoutesOverviewMap({
   }, []);
 
   return (
-    <div className="relative" style={{ height, width: "100%" }}>
-      <div ref={containerRef} style={{ height: "100%", width: "100%", borderRadius: "12px", overflow: "hidden" }} />
+    <MapFrame height={height} wheelActive={wheelActive}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
       {legend.length > 0 && (
         <div className="absolute right-2 top-2 z-[1000] max-h-[200px] max-w-[220px] overflow-y-auto rounded-[var(--radius-card)] bg-white/95 px-2.5 py-2 shadow-lg backdrop-blur">
           <ul className="space-y-1">
@@ -528,12 +521,6 @@ export default function RoutesOverviewMap({
           </ul>
         </div>
       )}
-
-      {!wheelActive && (
-        <div className="pointer-events-none absolute bottom-2 left-1/2 z-[400] -translate-x-1/2 rounded-full bg-white/90 px-2.5 py-1 text-[11px] text-gr shadow">
-          Клікніть на карту, щоб масштабувати колесом
-        </div>
-      )}
-    </div>
+    </MapFrame>
   );
 }

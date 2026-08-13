@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 export interface GeoPoint {
   lat: number;
@@ -48,21 +49,24 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
   const mapInstanceRef = useRef<L.Map | null>(null);
   const onMapClickRef = useRef(onMapClick);
   onMapClickRef.current = onMapClick;
+  const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
     if (!mapRef.current) return;
 
     // Initialize map only once
     if (!mapInstanceRef.current) {
-      mapInstanceRef.current = L.map(mapRef.current, {
-        zoomControl: true,
-        attributionControl: true,
-      }).setView([49.2328, 28.4816], 12); // Default: Vinnytsia
+      mapInstanceRef.current = L.map(mapRef.current, FRAMED_MAP_OPTIONS).setView(
+        [49.2328, 28.4816],
+        12
+      ); // Default: Vinnytsia
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
+
+      attachWheelGate(mapInstanceRef.current, onWheelChange);
 
       // Map click handler
       mapInstanceRef.current.on("click", (e: L.LeafletMouseEvent) => {
@@ -119,7 +123,8 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
     if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-  }, [stops, routeGeometry]);
+    // onWheelChange стабільний — див. useWheelGate.
+  }, [stops, routeGeometry, onWheelChange]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -140,14 +145,10 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
   }, [pickingMode]);
 
   return (
-    <div
-      ref={mapRef}
-      style={{
-        height,
-        width: "100%",
-        borderRadius: "14px",
-        overflow: "hidden",
-      }}
-    />
+    // Під час вибору точки підказку не показуємо: там уже свій режим кліку,
+    // і два повідомлення про клік поспіль тільки збивають.
+    <MapFrame height={height} wheelActive={wheelActive} hint={!pickingMode} rounded="14px">
+      <div ref={mapRef} style={{ height: "100%", width: "100%" }} />
+    </MapFrame>
   );
 }

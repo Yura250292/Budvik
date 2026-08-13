@@ -13,11 +13,12 @@
  * відмінністю — і через дальтонізм, і бо їх плутали б із клієнтами.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import type { OverviewRoute } from "./RoutesOverviewMap";
+import { FRAMED_MAP_OPTIONS, useWheelGate } from "./MapFrame";
 
 export type ClientPoint = {
   counterpartyId: string;
@@ -206,7 +207,7 @@ export default function ClientMap({
   const layersRef = useRef<L.LayerGroup | null>(null);
   const rendererRef = useRef<L.Renderer | null>(null);
   /** Чи колесо зараз масштабує карту — показуємо підказкою, щоб не гадали. */
-  const [wheelActive, setWheelActive] = useState(false);
+  const { wheelActive, onWheelChange } = useWheelGate();
   /** counterpartyId → маркер: щоб пошук міг розкрити попап знайденого. */
   const markersRef = useRef(new Map<string, L.CircleMarker>());
   /** Колбеки в ref: інакше кожна зміна режиму перемальовувала б усі точки. */
@@ -236,14 +237,13 @@ export default function ClientMap({
     if (!containerRef.current) return;
 
     if (!mapRef.current) {
-      mapRef.current = L.map(containerRef.current, {
-        zoomControl: true,
-        attributionControl: true,
-        // Колесо гортає сторінку, а не масштабує: карта займає всю ширину,
-        // і при скролі повз неї сторінка інакше «залипає» на зумі. Масштаб
-        // вмикається кліком по карті (нижче) або Ctrl+колесом.
-        scrollWheelZoom: false,
-      }).setView([49.8397, 24.0297], 8); // Львів — центр робочої зони
+      // Колесо гортає сторінку, а не масштабує: карта займає всю ширину,
+      // і при скролі повз неї сторінка інакше «залипає» на зумі. Масштаб
+      // вмикається кліком по карті (нижче) — див. MapFrame.
+      mapRef.current = L.map(containerRef.current, FRAMED_MAP_OPTIONS).setView(
+        [49.8397, 24.0297],
+        8
+      ); // Львів — центр робочої зони
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -272,14 +272,14 @@ export default function ClientMap({
         // Клік по карті означає «я тут працюю» — вмикаємо зум колесом.
         // Вихід курсора за межі знову віддає колесо сторінці.
         mapRef.current?.scrollWheelZoom.enable();
-        setWheelActive(true);
+        onWheelChange(true);
         if (modeRef.current === "view") return;
         clickRef.current?.(e.latlng.lat, e.latlng.lng);
       });
 
       mapRef.current.on("mouseout", () => {
         mapRef.current?.scrollWheelZoom.disable();
-        setWheelActive(false);
+        onWheelChange(false);
       });
     }
 

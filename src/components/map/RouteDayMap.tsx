@@ -12,6 +12,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 export type PlannedStop = {
   settlement: string;
@@ -121,20 +122,23 @@ export default function RouteDayMap({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     if (!mapRef.current) {
-      mapRef.current = L.map(containerRef.current, {
-        zoomControl: true,
-        attributionControl: true,
-      }).setView([49.8397, 24.0297], 9); // Львів — типовий центр напрямків
+      mapRef.current = L.map(containerRef.current, FRAMED_MAP_OPTIONS).setView(
+        [49.8397, 24.0297],
+        9
+      ); // Львів — типовий центр напрямків
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(mapRef.current);
+
+      attachWheelGate(mapRef.current, onWheelChange);
     }
 
     const map = mapRef.current;
@@ -246,7 +250,9 @@ export default function RouteDayMap({
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  }, [plannedStops, plannedGeometry, plannedColor, actual, trackSegments, excursions]);
+    // onWheelChange стабільний (useCallback у useWheelGate) — у списку він
+    // лише щоб не глушити правило, перестворення мапи це не спричиняє.
+  }, [plannedStops, plannedGeometry, plannedColor, actual, trackSegments, excursions, onWheelChange]);
 
   useEffect(() => {
     return () => {
@@ -255,5 +261,9 @@ export default function RouteDayMap({
     };
   }, []);
 
-  return <div ref={containerRef} style={{ height, width: "100%", borderRadius: "12px", overflow: "hidden" }} />;
+  return (
+    <MapFrame height={height} wheelActive={wheelActive}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+    </MapFrame>
+  );
 }

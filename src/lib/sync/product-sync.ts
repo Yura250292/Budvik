@@ -128,7 +128,7 @@ export function parseFileToProducts(content: string, fileName: string): ParsedPr
 export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncPreviewResult> {
   // Load all products at once for speed
   const allProducts = await prisma.product.findMany({
-    select: { sku: true, name: true, price: true, wholesalePrice: true, stock: true },
+    select: { sku: true, name: true, price: true, stock: true },
   });
 
   const bySku = new Map(allProducts.filter((p) => p.sku).map((p) => [p.sku!, p]));

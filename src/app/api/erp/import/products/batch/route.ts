@@ -52,7 +52,8 @@ export async function POST(req: NextRequest) {
 
           const updateData: any = {};
           if (finalPrice !== undefined) updateData.price = finalPrice;
-          if (costPrice !== undefined) updateData.wholesalePrice = costPrice;
+          // Собівартість більше не пишемо у wholesalePrice: поле виведене з
+          // обігу як джерело цін. Її місце — SupplierProduct.purchasePrice.
           if (stockVal !== undefined) updateData.stock = stockVal;
           if (product.sku) updateData.sku = product.sku;
 
@@ -100,7 +101,6 @@ export async function POST(req: NextRequest) {
           sku: skuExists ? `${sku}-${Date.now().toString(36)}` : sku,
           description: "",
           price: finalPrice,
-          wholesalePrice: costPrice,
           stock: product.stock && !isNaN(product.stock) ? product.stock : 0,
           categoryId,
           isActive: true,

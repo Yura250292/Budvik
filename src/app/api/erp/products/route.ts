@@ -119,14 +119,13 @@ export async function GET(req: NextRequest) {
       sku: p.sku,
       slug: p.slug,
       price: p.price,
-      wholesalePrice: p.wholesalePrice,
       stock: p.stock,
       reserved,
       available: p.stock - reserved,
       image: p.image,
       category: p.category?.name || null,
       categoryId: p.category?.id || null,
-      purchasePrice: p.supplierProducts[0]?.purchasePrice || p.wholesalePrice || 0,
+      purchasePrice: p.supplierProducts[0]?.purchasePrice || 0,
     };
   });
 

@@ -35,7 +35,7 @@ export default function AdminProductsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -75,7 +75,7 @@ export default function AdminProductsPage() {
   };
 
   const resetForm = () => {
-    setForm({ name: "", description: "", price: "", wholesalePrice: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
+    setForm({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
     setEditingProduct(null);
     setShowForm(false);
   };
@@ -89,7 +89,6 @@ export default function AdminProductsPage() {
         name: product.name,
         description: product.description,
         price: product.price,
-        wholesalePrice: product.wholesalePrice,
         stock: product.stock,
         categoryId: product.categoryId,
         isPromo: !product.isPromo,
@@ -111,7 +110,6 @@ export default function AdminProductsPage() {
         name: product.name,
         description: product.description,
         price: product.price,
-        wholesalePrice: product.wholesalePrice,
         stock: product.stock,
         categoryId: product.categoryId,
         isPromo: product.isPromo,
@@ -128,7 +126,6 @@ export default function AdminProductsPage() {
       name: product.name,
       description: product.description,
       price: String(product.price),
-      wholesalePrice: product.wholesalePrice ? String(product.wholesalePrice) : "",
       stock: String(product.stock),
       categoryId: product.categoryId,
       isPromo: product.isPromo || false,
@@ -258,17 +255,6 @@ export default function AdminProductsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-g600 mb-1">Оптова ціна (грн)</label>
-              <input
-                type="number"
-                value={form.wholesalePrice}
-                onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })}
-                min="0"
-                placeholder="Залишити порожнім якщо немає"
-                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-g600 mb-1">Кількість на складі</label>
               <input
                 type="number"
@@ -394,15 +380,6 @@ export default function AdminProductsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="font-bold text-bk">{formatPrice(product.price)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {product.wholesalePrice ? (
-                          <span className="font-semibold text-primary bg-primary/5 px-2 py-0.5 rounded">
-                            {formatPrice(product.wholesalePrice)}
-                          </span>
-                        ) : (
-                          <span className="text-g300">—</span>
-                        )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button

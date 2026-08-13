@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       );
     }
     let itemPrice = isWholesale
-      ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
+      ? getWholesalePrice(product.price, product.name, brandDiscounts)
       : product.price;
     if (!isWholesale && product.isPromo && product.promoPrice) {
       itemPrice = product.promoPrice;

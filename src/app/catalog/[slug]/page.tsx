@@ -12,6 +12,7 @@ import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
 import ProductDescription from "@/components/ProductDescription";
+import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -25,7 +26,12 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
   const session = await getServerSession(authOptions);
   const isWholesale = session?.user?.role === "WHOLESALE";
-  const basePrice = isWholesale && product.wholesalePrice ? product.wholesalePrice : product.price;
+  // Оптова ціна = роздріб із 1С мінус знижка по бренду. Поле wholesalePrice
+  // тут більше не джерело: 1С його не передає, і в базі лишились старі
+  // значення з магазину, які синхронізація ніколи не оновлює.
+  const brandDiscounts = isWholesale ? await getBrandDiscounts() : null;
+  const basePrice =
+    isWholesale && brandDiscounts ? getWholesalePrice(product.price, product.name, brandDiscounts) : product.price;
   const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : basePrice;
 
   const relatedProducts = await prisma.product.findMany({
@@ -83,7 +89,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                   </span>
                 </>
               )}
-              {isWholesale && product.wholesalePrice && product.wholesalePrice < product.price && !product.isPromo && (
+              {isWholesale && basePrice < product.price && !product.isPromo && (
                 <>
                   <span className="text-lg text-g400 line-through">{formatPrice(product.price)}</span>
                   <span className="text-sm bg-primary/15 text-primary-dark px-2 py-0.5 rounded-full font-medium">Оптова ціна</span>

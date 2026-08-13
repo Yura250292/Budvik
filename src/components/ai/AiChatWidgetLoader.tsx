@@ -22,6 +22,9 @@ export default function AiChatWidgetLoader() {
   // У водія те саме, лише гостріше: кружечок висить над кнопкою відмітки
   // візиту, а тикають у нього пальцем на ходу.
   if (pathname?.startsWith("/driver")) return null;
+  // В адмінці асистент теж зайвий: він знає про товари для покупця, а не
+  // про закупівлі й звіти, і при цьому перекриває панель заявки внизу.
+  if (pathname?.startsWith("/admin")) return null;
 
   return <AiChatWidget />;
 }

@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     where: { id },
     select: {
       id: true, sku: true, name: true, slug: true, description: true, image: true,
-      price: true, wholesalePrice: true, stock: true,
+      price: true, stock: true,
       brand: { select: { name: true } },
       category: { select: { name: true } },
     },

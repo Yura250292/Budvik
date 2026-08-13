@@ -142,7 +142,8 @@ async function checkProductPrice(product: any): Promise<PriceCheckResult> {
   const productName = product.name;
   const sku = product.sku || "";
   const ourPrice = product.price || 0;
-  const ourCostPrice = product.wholesalePrice || 0;
+  // wholesalePrice не є собівартістю і 1С його не передає — див. wholesale-pricing.ts
+  const ourCostPrice = 0;
   const category = product.category?.name || "";
 
   const searchQuery = sku && !sku.startsWith("1C-")

@@ -1,0 +1,174 @@
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { productType } from "@/lib/catalog/brand-tree";
+
+/**
+ * Фільтри каталогу в одному місці.
+ *
+ * Сторінка каталогу і публічний API мають відповідати однаково: торговий
+ * відкриває посилання зі змісту, а не будує запит руками, тож розбіжність
+ * між ними означала б, що зі змісту він потрапляє не туди, куди обіцяно.
+ */
+export interface CatalogFilters {
+  /** Slug бренда, "none" — товари без бренда, кілька — через кому. */
+  brands: string[];
+  /** Тип товару (перше слово назви після зрізаного бренда). */
+  types: string[];
+  search?: string;
+  priceMin?: number;
+  priceMax?: number;
+  /** Лише те, що зараз є на складі. */
+  inStock: boolean;
+  /** Лише позиції з фото — щоб було що показати клієнту. */
+  withImage: boolean;
+  categorySlug?: string;
+  sort?: string;
+}
+
+export function parseFilters(sp: URLSearchParams | Record<string, string | undefined>): CatalogFilters {
+  const get = (k: string): string | undefined => {
+    const v = sp instanceof URLSearchParams ? sp.get(k) : sp[k];
+    return v ?? undefined;
+  };
+  const list = (k: string): string[] => {
+    const raw = get(k);
+    if (!raw) return [];
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  };
+  const num = (k: string): number | undefined => {
+    const raw = Number(get(k));
+    return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+  };
+
+  return {
+    brands: list("brand"),
+    types: list("type"),
+    search: get("search")?.trim() || undefined,
+    priceMin: num("priceMin"),
+    priceMax: num("priceMax"),
+    inStock: get("inStock") === "1",
+    withImage: get("withImage") === "1",
+    categorySlug: get("category") || undefined,
+    sort: get("sort") || undefined,
+  };
+}
+
+/**
+ * Prisma-where з фільтрів.
+ *
+ * Бренд фільтруємо по brandId через зв'язок, а не `name contains «YATO»`, як
+ * було раніше: підрядок у назві ловив чужі товари, де бренд згаданий у
+ * сумісності, і губив ті, де в назві його немає зовсім.
+ */
+export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhereInput> {
+  const where: Prisma.ProductWhereInput = { isActive: true };
+  const and: Prisma.ProductWhereInput[] = [];
+
+  if (f.brands.length) {
+    const slugs = f.brands.filter((b) => b !== "none");
+    const includeUnbranded = f.brands.includes("none");
+    const or: Prisma.ProductWhereInput[] = [];
+    if (slugs.length) or.push({ brand: { slug: { in: slugs } } });
+    if (includeUnbranded) or.push({ brandId: null });
+    if (or.length) and.push({ OR: or });
+  }
+
+  // Тип живе в назві, а не окремою колонкою, тож фільтруємо підрядком —
+  // всередині обраного бренда це безпечно, бо тип і виведений із цієї ж назви.
+  if (f.types.length) {
+    and.push({ OR: f.types.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })) });
+  }
+
+  if (f.categorySlug) where.category = { slug: f.categorySlug };
+
+  if (f.search) {
+    const terms = f.search
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 1);
+
+    if (terms.length > 1) {
+      // Кілька слів — потрібні всі, інакше «ключ ріжковий» видає всі ключі.
+      and.push(
+        ...terms.map((t) => ({
+          OR: [
+            { name: { contains: t, mode: "insensitive" as const } },
+            { sku: { contains: t, mode: "insensitive" as const } },
+          ],
+        }))
+      );
+    } else {
+      and.push({
+        OR: [
+          { name: { contains: f.search, mode: "insensitive" as const } },
+          { sku: { contains: f.search, mode: "insensitive" as const } },
+        ],
+      });
+    }
+  }
+
+  if (f.priceMin !== undefined || f.priceMax !== undefined) {
+    const price: Prisma.FloatFilter = {};
+    if (f.priceMin !== undefined) price.gte = f.priceMin;
+    if (f.priceMax !== undefined) price.lte = f.priceMax;
+    and.push({ price });
+  }
+
+  if (f.inStock) and.push({ stock: { gt: 0 } });
+  if (f.withImage) and.push({ image: { not: null } }, { NOT: { image: "" } });
+
+  if (and.length) where.AND = and;
+  return where;
+}
+
+export function buildOrderBy(sort?: string): Prisma.ProductOrderByWithRelationInput[] {
+  const map: Record<string, Prisma.ProductOrderByWithRelationInput[]> = {
+    "price-asc": [{ stock: "desc" }, { price: "asc" }],
+    "price-desc": [{ stock: "desc" }, { price: "desc" }],
+    "name-asc": [{ stock: "desc" }, { name: "asc" }],
+    "name-desc": [{ stock: "desc" }, { name: "desc" }],
+    newest: [{ stock: "desc" }, { createdAt: "desc" }],
+  };
+  // За замовчуванням: спершу те, що є на складі — торговий показує клієнту
+  // товар, який можна відвантажити сьогодні.
+  return map[sort || ""] || [{ stock: "desc" }, { priority: "desc" }, { name: "asc" }];
+}
+
+/** Рядок запиту з фільтрів — щоб посилання зі змісту й пагінація не розходились. */
+export function filtersToQuery(f: Partial<CatalogFilters>, page?: number): string {
+  const sp = new URLSearchParams();
+  if (f.brands?.length) sp.set("brand", f.brands.join(","));
+  if (f.types?.length) sp.set("type", f.types.join(","));
+  if (f.search) sp.set("search", f.search);
+  if (f.priceMin !== undefined) sp.set("priceMin", String(f.priceMin));
+  if (f.priceMax !== undefined) sp.set("priceMax", String(f.priceMax));
+  if (f.inStock) sp.set("inStock", "1");
+  if (f.withImage) sp.set("withImage", "1");
+  if (f.categorySlug) sp.set("category", f.categorySlug);
+  if (f.sort) sp.set("sort", f.sort);
+  if (page && page > 1) sp.set("page", String(page));
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export const CATALOG_PAGE_SIZE = 24;
+
+/** Товари за фільтрами — спільний шлях для сторінки каталогу і API. */
+export async function fetchCatalogPage(f: CatalogFilters, page: number) {
+  const where = await buildWhere(f);
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: { category: { select: { name: true, slug: true } }, brand: { select: { name: true, slug: true } } },
+      orderBy: buildOrderBy(f.sort),
+      skip: (page - 1) * CATALOG_PAGE_SIZE,
+      take: CATALOG_PAGE_SIZE,
+    }),
+    prisma.product.count({ where }),
+  ]);
+  return { products, total };
+}
+
+/** Ре-експорт, щоб сторінки тягли типізацію з одного модуля. */
+export { productType };

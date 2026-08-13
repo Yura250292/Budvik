@@ -72,9 +72,42 @@ export function attachWheelGate(map: L.Map, onWheelChange?: (active: boolean) =>
     map.scrollWheelZoom.enable();
     onWheelChange?.(true);
   });
-  map.on("mouseout", () => {
+  closeWheelGateOn(map, onWheelChange);
+}
+
+/**
+ * Друга половина воріт — умови, за яких колесо повертається сторінці.
+ *
+ * Винесена окремо, бо ClientMap відкриває ворота власним обробником кліку
+ * (той самий клік ставить пін), а закриватися має за спільним правилом.
+ *
+ * Одного mouseout від Leaflet замало. На трекпаді курсор під час скролу
+ * стоїть на місці: подія не приходить, і карта, раз увімкнена кліком, з'їдає
+ * прокрутку назавжди — сторінка під нею не рухається, хоча меню позаду
+ * гортається. Тому ворота закриває ще й вихід вказівника з контейнера
+ * (pointerleave ловить і мишу, і перо, і зняття пальця) та будь-який скрол
+ * сторінки: поїхала сторінка — карта втратила право на колесо, навіть якщо
+ * курсор усе ще над нею. Наступний клік поверне зум.
+ */
+export function closeWheelGateOn(map: L.Map, onWheelChange?: (active: boolean) => void) {
+  const container = map.getContainer();
+
+  const close = () => {
     map.scrollWheelZoom.disable();
     onWheelChange?.(false);
+  };
+
+  map.on("mouseout", close);
+  container.addEventListener("pointerleave", close);
+
+  const onPageScroll = () => {
+    if (map.scrollWheelZoom.enabled()) close();
+  };
+  window.addEventListener("scroll", onPageScroll, { passive: true, capture: true });
+
+  map.on("unload", () => {
+    container.removeEventListener("pointerleave", close);
+    window.removeEventListener("scroll", onPageScroll, { capture: true });
   });
 }
 

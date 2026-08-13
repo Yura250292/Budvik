@@ -18,7 +18,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import type { OverviewRoute } from "./RoutesOverviewMap";
-import { FRAMED_MAP_OPTIONS, useWheelGate } from "./MapFrame";
+import { FRAMED_MAP_OPTIONS, closeWheelGateOn, useWheelGate } from "./MapFrame";
 
 export type ClientPoint = {
   counterpartyId: string;
@@ -277,10 +277,10 @@ export default function ClientMap({
         clickRef.current?.(e.latlng.lat, e.latlng.lng);
       });
 
-      mapRef.current.on("mouseout", () => {
-        mapRef.current?.scrollWheelZoom.disable();
-        onWheelChange(false);
-      });
+      // Закриття воріт — спільним правилом: mouseout, вихід вказівника з
+      // контейнера і скрол сторінки. Інакше на трекпаді карта, увімкнена
+      // кліком, назавжди забирає прокрутку в сторінки — див. MapFrame.
+      closeWheelGateOn(mapRef.current, onWheelChange);
     }
 
     const map = mapRef.current;

@@ -253,6 +253,45 @@ export default function TabletDayMap({
     [stops]
   );
 
+  /**
+   * Рве трек там, де між точками діра.
+   *
+   * Планшет буває офлайн, і сусідні точки треку опиняються за кілометри
+   * одна від одної. З'єднані лінією, вони малюють пряму через півміста —
+   * «через дахи», якої водій не проїжджав. Дороги для таких розривів
+   * добирає сервер (buildTrackPath), але коли OSRM не відповів, лишається
+   * хорда. Її краще не малювати зовсім: розрив у лінії чесніший за
+   * вигадану дорогу.
+   */
+  const splitTrail = useCallback((pts: Array<[number, number]>): Array<Array<[number, number]>> => {
+    const R = 6_371_000;
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const metersBetween = (a: [number, number], b: [number, number]) => {
+      const dLat = rad(b[0] - a[0]);
+      const dLng = rad(b[1] - a[1]);
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+    };
+
+    // 700 м: далі за це сусідні точки не бувають при живому GPS —
+    // проріджування пише точку щонайменше кожні 30 м руху.
+    const GAP_M = 700;
+    const out: Array<Array<[number, number]>> = [];
+    let cur: Array<[number, number]> = [];
+
+    for (let i = 0; i < pts.length; i++) {
+      if (i > 0 && metersBetween(pts[i - 1], pts[i]) > GAP_M) {
+        if (cur.length > 1) out.push(cur);
+        cur = [];
+      }
+      cur.push(pts[i]);
+    }
+    if (cur.length > 1) out.push(cur);
+    return out;
+  }, []);
+
   /** Проста лінія: джерело створене на load, тут лише оновлюємо дані. */
   const setLine = useCallback((id: string, coords: Array<[number, number]> | null) => {
     const map = mapRef.current;
@@ -316,27 +355,32 @@ export default function TabletDayMap({
         map.addSource(id, { type: "geojson", data: emptyLine });
       }
 
-      // Фіолетова пунктирна: суцільна зливалася б з треком. Пунктир
-      // одразу читається як «план», а не «пройдено».
-      map.addLayer({
-        id: "planned",
-        type: "line",
-        source: "planned",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#7C3AED",
-          "line-width": 5,
-          "line-opacity": 0.75,
-          "line-dasharray": [2, 1.6],
-        },
-      });
-
+      // Трек іде ПЕРШИМ, тобто під маршрутом: пройдене — довідка, а не
+      // те, за чим їдуть. Сірий, щоб не сперечався з синьою дорогою.
       map.addLayer({
         id: "trail",
         type: "line",
         source: "trail",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#2563EB", "line-width": 4, "line-opacity": 0.75 },
+        paint: { "line-color": "#6B7280", "line-width": 4, "line-opacity": 0.55 },
+      });
+
+      // Маршрут — суцільна синя з темною облямівкою, як у будь-якому
+      // навігаторі. Пунктир фіолетовим читався як «щось службове»:
+      // водій хоче бачити дорогу, а не позначку на схемі.
+      map.addLayer({
+        id: "planned-casing",
+        type: "line",
+        source: "planned",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#1E40AF", "line-width": 11, "line-opacity": 0.9 },
+      });
+      map.addLayer({
+        id: "planned",
+        type: "line",
+        source: "planned",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#3B82F6", "line-width": 7, "line-opacity": 1 },
       });
 
       // Активна навігація — помаранчева, з темною облямівкою, щоб
@@ -463,14 +507,23 @@ export default function TabletDayMap({
     }
   }, [nav, ready, setLine]);
 
-  // Трек: GeoJSON у [lng, lat], а приходить [lat, lng].
+  // Трек: GeoJSON у [lng, lat], а приходить [lat, lng]. Малюємо
+  // шматками, щоб діри в записі не ставали прямими через квартали.
   useEffect(() => {
-    if (!ready || trail.length < 2) return;
-    setLine(
-      "trail",
-      trail.map(([lat, lng]) => [lng, lat] as [number, number])
+    const map = mapRef.current;
+    if (!map || !ready || trail.length < 2) return;
+    const src = map.getSource("trail") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+
+    const segments = splitTrail(trail).map((seg) =>
+      seg.map(([lat, lng]) => [lng, lat] as [number, number])
     );
-  }, [trail, ready, setLine]);
+    src.setData({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "MultiLineString", coordinates: segments },
+    });
+  }, [trail, ready, splitTrail]);
 
   useEffect(() => {
     const map = mapRef.current;

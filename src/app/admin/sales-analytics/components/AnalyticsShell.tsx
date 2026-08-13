@@ -160,26 +160,28 @@ export function AnalyticsShell() {
     setTarget({ tab: "logistics", view: "routes" });
   }, []);
 
-  // Закладка на ?tab=drivers — розділ переїхав. Читаємо параметр з URL, а
-  // не з target: resolveTarget уже підмінив невідому вкладку на зведену.
-  const leavingToDrivers = searchParams.get("tab") === "drivers";
-
   // Торговий за старим посиланням потрапляє у власний кабінет: зведена на
   // 1180px не читається з телефона, а показники там ті самі. Період
   // переносимо, інакше він мовчки скинувся б на типовий.
   // replace, а не push — щоб «Назад» не кидало в цикл редіректів.
-  const leavingToCabinet = status === "authenticated" && role === "SALES" && !leavingToDrivers;
+  const leavingToCabinet = status === "authenticated" && role === "SALES";
+
+  // Закладка на ?tab=drivers — розділ переїхав. Читаємо параметр з URL, а
+  // не з target: resolveTarget уже підмінив невідому вкладку на зведену.
+  // Торгового туди не шлемо: middleware його там і так відіб'є на /admin,
+  // а кабінет — правильніша адреса, ніж зайвий стрибок.
+  const leavingToDrivers = searchParams.get("tab") === "drivers" && !leavingToCabinet;
 
   const leaving = leavingToCabinet || leavingToDrivers;
 
   useEffect(() => {
+    if (leavingToCabinet) {
+      router.replace(`/sales/analytics?from=${period.from}&to=${period.to}`);
+      return;
+    }
     if (leavingToDrivers) {
       const v = DRIVER_VIEW_MOVED[searchParams.get("view") ?? ""] ?? "payroll";
       router.replace(`/admin/drivers?tab=${v}&from=${period.from}&to=${period.to}`);
-      return;
-    }
-    if (leavingToCabinet) {
-      router.replace(`/sales/analytics?from=${period.from}&to=${period.to}`);
     }
   }, [leavingToCabinet, leavingToDrivers, searchParams, period.from, period.to, router]);
 

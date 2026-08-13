@@ -81,13 +81,29 @@ export default function BottomNav() {
           </Link>
         )}
 
-        {/* 5th slot: role-specific or profile */}
+        {/* 5-й слот — вхід у робочий кабінет своєї ролі. Водій і торговий
+            заходять на вітрину так само, як покупці, і без цього слоту в них
+            не лишається жодного переходу до себе. */}
         {session && role === "SALES" ? (
           <Link href="/sales" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 active:scale-90 transition-transform duration-100 ${isActive("/sales") ? activeClass : inactiveClass}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span className="text-[10px] font-medium">Торговий</span>
+          </Link>
+        ) : session && role === "DRIVER" ? (
+          <Link href="/driver" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 active:scale-90 transition-transform duration-100 ${isActive("/driver") ? activeClass : inactiveClass}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+            </svg>
+            <span className="text-[10px] font-medium">Кабінет</span>
+          </Link>
+        ) : session && role === "WAREHOUSE" ? (
+          <Link href="/warehouse" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 active:scale-90 transition-transform duration-100 ${isActive("/warehouse") ? activeClass : inactiveClass}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+            <span className="text-[10px] font-medium">Склад</span>
           </Link>
         ) : (
           // Кабінет ще порожній, тож покупця ведемо одразу в «Замовлення».

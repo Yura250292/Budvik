@@ -44,6 +44,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, надходження, борги", iconKey: "chart", roles: AM },
       { href: "/admin/sales-analytics", title: "Аналітика торгових", desc: "Продажі, КПІ та мотивація, поїздки", iconKey: "chart", roles: ALL },
+      // Поруч із торговими: обидва розділи читають з тієї самої панелі,
+      // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
+      { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },
       { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Зміни, накладні, продуктивність", iconKey: "report", roles: AM },
       { href: "/admin/erp/reports", title: "Бухгалтерські звіти", desc: "Рух коштів, дебіторка, аванси", iconKey: "report", roles: AM },
     ],
@@ -64,9 +67,8 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "logistics",
     title: "Логістика та склад",
     items: [
-      // Окремо від «Аналітики торгових»: там продажі й поїздки торгових,
-      // тут доставка й зарплата водіїв — різні люди, різні процеси.
-      { href: "/admin/drivers", title: "Водії", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },
+      // Водії живуть в «Аналітиці та звітах» поруч із торговими — тут лишається
+      // сама логістика: куди їхати й чим возити.
       { href: "/admin/erp/delivery-routes", title: "Маршрути доставки", desc: "Шляхові листи для водіїв", iconKey: "truck", roles: AM },
       { href: "/admin/erp/route-planner", title: "Планувальник маршрутів", desc: "Побудова маршруту на карті", iconKey: "truck", roles: AM },
       { href: "/admin/stock-locations", title: "Склади та залишки", desc: "Управління складами", iconKey: "warehouse", roles: AM },

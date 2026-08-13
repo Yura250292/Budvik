@@ -4,22 +4,42 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import RouteOptimizer from "@/components/routes/RouteOptimizer";
+import RouteStopsEditor from "@/components/routes/RouteStopsEditor";
+import AssignDriverBar from "@/components/routes/AssignDriverBar";
 
+// PLANNED — чернетка логіста, водій її НЕ бачить; ASSIGNED — передано.
 const ROUTE_STATUS_LABELS: Record<string, string> = {
-  PLANNED: "Запланований", IN_PROGRESS: "В дорозі", COMPLETED: "Завершений", CANCELLED: "Скасований",
+  PLANNED: "Чернетка", ASSIGNED: "Передано водію", IN_PROGRESS: "В дорозі",
+  COMPLETED: "Завершений", CANCELLED: "Скасований",
 };
 const ROUTE_STATUS_COLOR: Record<string, string> = {
-  PLANNED: "#2563EB", IN_PROGRESS: "#D97706", COMPLETED: "#16A34A", CANCELLED: "#DC2626",
+  PLANNED: "#6B7280", ASSIGNED: "#2563EB", IN_PROGRESS: "#D97706",
+  COMPLETED: "#16A34A", CANCELLED: "#DC2626",
 };
 const ROUTE_STATUS_BG: Record<string, string> = {
-  PLANNED: "#EFF6FF", IN_PROGRESS: "#FFFBEB", COMPLETED: "#F0FDF4", CANCELLED: "#FEF2F2",
+  PLANNED: "#F3F4F6", ASSIGNED: "#EFF6FF", IN_PROGRESS: "#FFFBEB",
+  COMPLETED: "#F0FDF4", CANCELLED: "#FEF2F2",
+};
+
+/** Точки можна правити, поки водій не поїхав (дзеркало lib/routes/editable.ts) */
+const EDITABLE = ["PLANNED", "ASSIGNED"];
+
+type Driver = { id: string; name: string | null };
+type Order = {
+  id: string;
+  number: string;
+  totalAmount: number;
+  counterparty?: { name: string } | null;
+  salesRep?: { name: string | null } | null;
+  _count?: { items: number };
 };
 
 export default function ManagerRoutesPage() {
   const { data: session } = useSession();
   const [routes, setRoutes] = useState<any[]>([]);
-  const [confirmedOrders, setConfirmedOrders] = useState<any[]>([]);
-  const [drivers, setDrivers] = useState<any[]>([]);
+  const [confirmedOrders, setConfirmedOrders] = useState<Order[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -55,6 +75,17 @@ export default function ManagerRoutesPage() {
     if (role === "ADMIN" || role === "MANAGER") fetchData();
   }, [role, fetchData]);
 
+  // Замовлення, які ще нікуди не поставлені: одна накладна живе рівно в
+  // одному маршруті, тож пропонувати зайняті — значить ловити 409.
+  const takenOrderIds = new Set<string>(
+    routes.flatMap((r) =>
+      (r.stops ?? [])
+        .map((s: { salesDocument?: { id: string } | null }) => s.salesDocument?.id)
+        .filter(Boolean)
+    )
+  );
+  const freeOrders: Order[] = confirmedOrders.filter((o) => !takenOrderIds.has(o.id));
+
   const toggleOrder = (id: string) => {
     setSelectedOrderIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -62,8 +93,8 @@ export default function ManagerRoutesPage() {
   };
 
   const selectAll = () => {
-    if (selectedOrderIds.length === confirmedOrders.length) setSelectedOrderIds([]);
-    else setSelectedOrderIds(confirmedOrders.map((o) => o.id));
+    if (selectedOrderIds.length === freeOrders.length) setSelectedOrderIds([]);
+    else setSelectedOrderIds(freeOrders.map((o) => o.id));
   };
 
   const handleCreate = async () => {
@@ -119,8 +150,8 @@ export default function ManagerRoutesPage() {
             <div>
               <h1 style={{ fontSize: "20px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1.2 }}>Дорожні листи</h1>
               <p style={{ fontSize: "13px", color: "#6B7280" }}>
-                {confirmedOrders.length > 0
-                  ? `${confirmedOrders.length} замовлень чекають маршруту`
+                {freeOrders.length > 0
+                  ? `${freeOrders.length} замовлень чекають маршруту`
                   : "Маршрути та планувальник"}
               </p>
             </div>
@@ -222,22 +253,22 @@ export default function ManagerRoutesPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p style={{ fontSize: "13px", fontWeight: 600, color: "#374151" }}>
-                  Замовлення для маршруту ({confirmedOrders.length})
+                  Замовлення для маршруту ({freeOrders.length})
                 </p>
-                {confirmedOrders.length > 0 && (
+                {freeOrders.length > 0 && (
                   <button onClick={selectAll}
                     style={{ fontSize: "12px", color: "#2563EB", fontWeight: 500, background: "none", border: "none", padding: 0 }}>
-                    {selectedOrderIds.length === confirmedOrders.length ? "Зняти всі" : "Вибрати всі"}
+                    {selectedOrderIds.length === freeOrders.length ? "Зняти всі" : "Вибрати всі"}
                   </button>
                 )}
               </div>
-              {confirmedOrders.length === 0 ? (
+              {freeOrders.length === 0 ? (
                 <p style={{ fontSize: "13px", color: "#9CA3AF", padding: "12px", background: "#F9FAFB", borderRadius: "10px", textAlign: "center" }}>
                   Немає підтверджених замовлень
                 </p>
               ) : (
                 <div className="space-y-1 mb-4" style={{ maxHeight: "240px", overflow: "auto", border: "1px solid #E5E7EB", borderRadius: "10px", padding: "6px" }}>
-                  {confirmedOrders.map((o) => (
+                  {freeOrders.map((o) => (
                     <label key={o.id}
                       className="flex items-center gap-3 rounded-lg cursor-pointer"
                       style={{
@@ -316,7 +347,7 @@ export default function ManagerRoutesPage() {
               Активні
             </p>
             <div className="space-y-3">
-              {activeRoutes.map((r) => <RouteCard key={r.id} route={r} />)}
+              {activeRoutes.map((r) => <RouteCard key={r.id} route={r} drivers={drivers} freeOrders={freeOrders} onChanged={fetchData} />)}
             </div>
           </div>
         )}
@@ -328,7 +359,7 @@ export default function ManagerRoutesPage() {
               Завершені
             </p>
             <div className="space-y-3">
-              {doneRoutes.map((r) => <RouteCard key={r.id} route={r} />)}
+              {doneRoutes.map((r) => <RouteCard key={r.id} route={r} drivers={drivers} freeOrders={freeOrders} onChanged={fetchData} />)}
             </div>
           </div>
         )}
@@ -337,8 +368,20 @@ export default function ManagerRoutesPage() {
   );
 }
 
-function RouteCard({ route: r }: { route: any }) {
-  const [expanded, setExpanded] = useState(false);
+function RouteCard({
+  route: r,
+  drivers,
+  freeOrders,
+  onChanged,
+}: {
+  route: any;
+  drivers: Driver[];
+  freeOrders: Order[];
+  onChanged: () => void;
+}) {
+  // Чернетки й передані маршрути розгорнуті одразу: саме з ними менеджер
+  // працює — перевіряє точки й передає водію. Закриті згортаємо, це історія.
+  const [expanded, setExpanded] = useState(EDITABLE.includes(r.status));
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden"
@@ -388,38 +431,31 @@ function RouteCard({ route: r }: { route: any }) {
         </div>
       </div>
 
-      {expanded && r.stops?.length > 0 && (
+      {expanded && (
         <div style={{ borderTop: "1px solid #F3F4F6" }}>
-          {r.stops.map((stop: any, idx: number) => (
-            <div key={stop.id} className="flex items-center gap-3"
-              style={{ padding: "12px 16px", borderBottom: "1px solid #F9FAFB" }}>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{
-                  background: stop.status === "DELIVERED" ? "#F0FDF4" : "#F9FAFB",
-                  fontSize: "12px", fontWeight: 700,
-                  color: stop.status === "DELIVERED" ? "#16A34A" : "#6B7280",
-                  border: stop.status === "DELIVERED" ? "1px solid #BBF7D0" : "1px solid #E5E7EB",
-                }}>
-                {stop.status === "DELIVERED" ? "✓" : idx + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: "14px", fontWeight: 500, color: "#0A0A0A" }}>
-                  {stop.counterparty?.name || stop.salesDocument?.counterparty?.name || "—"}
-                </p>
-                {stop.address && (
-                  <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{stop.address}</p>
-                )}
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A" }}>
-                  {stop.salesDocument?.number}
-                </p>
-                <p style={{ fontSize: "12px", color: "#6B7280" }}>
-                  {formatPrice(stop.salesDocument?.totalAmount || 0)}
-                </p>
-              </div>
-            </div>
-          ))}
+          {/* Передача водію — головна дія: поки її не зробили, маршруту
+              для водія не існує. */}
+          <AssignDriverBar
+            routeId={r.id}
+            status={r.status}
+            driverId={r.driverId}
+            driverName={r.driver?.name ?? null}
+            date={r.date}
+            assignedAt={r.assignedAt ?? null}
+            stopsCount={r.stops?.length ?? 0}
+            drivers={drivers}
+            onChanged={onChanged}
+          />
+          {EDITABLE.includes(r.status) && r.stops?.length >= 2 && (
+            <RouteOptimizer routeId={r.id} driverId={r.driverId} date={r.date} onApplied={onChanged} />
+          )}
+          <RouteStopsEditor
+            routeId={r.id}
+            stops={r.stops ?? []}
+            editable={EDITABLE.includes(r.status)}
+            availableOrders={freeOrders}
+            onChanged={onChanged}
+          />
           {r.notes && (
             <div style={{ padding: "10px 16px", background: "#FFFBEB", borderTop: "1px solid #FEF3C7" }}>
               <p style={{ fontSize: "13px", color: "#92400E" }}>Примітка: {r.notes}</p>

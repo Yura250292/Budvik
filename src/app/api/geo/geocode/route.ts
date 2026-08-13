@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { geocodeAddress, reverseGeocode } from "@/lib/geo/nominatim";
+import { geocodeAddress, reverseGeocode, searchAddressCandidates } from "@/lib/geo/nominatim";
 
 export async function GET(req: NextRequest) {
   // Проксі до Nominatim: без перевірки сесії будь-хто ганяв би через наш
@@ -32,6 +32,19 @@ export async function GET(req: NextRequest) {
   // Forward geocode: ?q=...
   if (!q || q.trim().length < 2) {
     return NextResponse.json({ error: "Параметр q або lat+lng обовʼязкові" }, { status: 400 });
+  }
+
+  // ?all=1 — список кандидатів для ручного вибору. Окремий режим, бо
+  // одиночний geocodeAddress перебирає до восьми написань з паузами і для
+  // живого пошуку в полі занадто повільний.
+  if (req.nextUrl.searchParams.get("all") === "1") {
+    try {
+      const items = await searchAddressCandidates(q.trim());
+      return NextResponse.json({ items });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Помилка пошуку адреси";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   }
 
   try {

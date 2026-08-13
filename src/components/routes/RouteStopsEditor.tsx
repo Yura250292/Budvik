@@ -14,6 +14,7 @@
 
 import { useState } from "react";
 import { formatPrice } from "@/lib/utils";
+import StopPinModal from "@/components/routes/StopPinModal";
 
 type Stop = {
   id: string;
@@ -25,7 +26,13 @@ type Stop = {
   payOverride: number | null;
   zoneOverride: "CITY" | "OBLAST" | null;
   notes: string | null;
-  counterparty?: { id: string; name: string } | null;
+  counterparty?: {
+    id: string;
+    name: string;
+    deliveryLat?: number | null;
+    deliveryLng?: number | null;
+    geoSource?: string | null;
+  } | null;
   salesDocument?: { id: string; number: string; totalAmount: number } | null;
 };
 
@@ -65,6 +72,7 @@ export default function RouteStopsEditor({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<null | "order" | "errand">(null);
+  const [pinStop, setPinStop] = useState<Stop | null>(null);
 
   // Форма бонусної поїздки
   const [exKind, setExKind] = useState<"PICKUP" | "ERRAND">("PICKUP");
@@ -199,6 +207,11 @@ export default function RouteStopsEditor({
       {stops.map((stop, idx) => {
         const isErrand = stop.kind !== "DELIVERY";
         const rowBusy = busy?.endsWith(stop.id);
+        const cp = stop.counterparty;
+        // Точка без координат або з піном від геокодера: водій поїде «в
+        // район», а не за адресою. Саме це менеджер і має виправити.
+        const noPin = !!cp && cp.deliveryLat == null;
+        const roughPin = !!cp && cp.deliveryLat != null && cp.geoSource !== "MANUAL";
         return (
           <div
             key={stop.id}
@@ -255,7 +268,41 @@ export default function RouteStopsEditor({
               )}
 
               {editable && (
-                <div className="flex items-center gap-2" style={{ marginTop: "6px" }}>
+                <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "6px" }}>
+                  {/* Уточнення піна — перше, що має впасти в око: без нього
+                      водій поїде за приблизною координатою. */}
+                  {cp && (noPin || roughPin) && (
+                    <button
+                      onClick={() => setPinStop(stop)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        border: "1px solid #FCD34D",
+                        background: "#FFFBEB",
+                        color: "#92400E",
+                      }}
+                    >
+                      {noPin ? "📍 Немає точки на карті" : "📍 Точка приблизна"}
+                    </button>
+                  )}
+                  {cp && !noPin && !roughPin && (
+                    <button
+                      onClick={() => setPinStop(stop)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        border: "1px solid #E5E7EB",
+                        background: "white",
+                        color: "#6B7280",
+                      }}
+                    >
+                      📍 Точка уточнена
+                    </button>
+                  )}
                   {/* Зона впливає лише на тариф за точку; для поїздки з
                       власною ціною вона нічого не вирішує, тому не показуємо. */}
                   {!isErrand && stop.payOverride == null && (
@@ -462,6 +509,19 @@ export default function RouteStopsEditor({
             </div>
           )}
         </div>
+      )}
+
+      {pinStop?.counterparty && (
+        <StopPinModal
+          counterpartyId={pinStop.counterparty.id}
+          name={pinStop.counterparty.name}
+          address={pinStop.address}
+          lat={pinStop.counterparty.deliveryLat ?? null}
+          lng={pinStop.counterparty.deliveryLng ?? null}
+          approximate={pinStop.counterparty.geoSource !== "MANUAL"}
+          onClose={() => setPinStop(null)}
+          onSaved={onChanged}
+        />
       )}
     </div>
   );

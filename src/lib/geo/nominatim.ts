@@ -354,6 +354,47 @@ export function dropHouseNumber(address: string): string {
   return keep.join(", ");
 }
 
+/**
+ * Кандидати для ручного вибору: людина шукає адресу і сама тикає потрібну.
+ *
+ * Свідомо НЕ використовує ланцюжок стратегій geocodeAddress. Той перебирає
+ * до восьми варіантів написання з паузою 1,1 с між запитами — на безнадійній
+ * адресі це 9 секунд, і всі інші користувачі стоять у черзі за тим самим
+ * глобальним лічильником. Для живого пошуку в полі це неприйнятно: тут
+ * рівно один запит, а «нічого не знайшлося» — теж відповідь, бо далі людина
+ * поставить пін пальцем.
+ */
+export async function searchAddressCandidates(
+  query: string,
+  limit = 6
+): Promise<Array<{ lat: number; lng: number; displayName: string }>> {
+  await waitForRateLimit();
+
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    limit: String(Math.min(Math.max(limit, 1), 10)),
+    "accept-language": "uk",
+    countrycodes: "ua",
+  });
+
+  const res = await fetch(`${NOMINATIM_URL}/search?${params}`, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+
+  return data
+    .map((d: { lat: string; lon: string; display_name: string }) => ({
+      lat: parseFloat(d.lat),
+      lng: parseFloat(d.lon),
+      displayName: d.display_name,
+    }))
+    .filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lng));
+}
+
 export async function reverseGeocode(
   lat: number,
   lng: number

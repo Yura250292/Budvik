@@ -36,7 +36,18 @@ export async function GET(req: NextRequest) {
       stops: {
         include: {
           salesDocument: { select: { id: true, number: true, status: true, totalAmount: true } },
-          counterparty: { select: { id: true, name: true, address: true } },
+          counterparty: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              // Стан піна: редактор точок підсвічує клієнтів без координат
+              // і тих, кому пін поставив геокодер (geoSource ≠ MANUAL).
+              deliveryLat: true,
+              deliveryLng: true,
+              geoSource: true,
+            },
+          },
         },
         orderBy: { sequence: "asc" },
       },

@@ -155,26 +155,7 @@ export default function CartPage() {
               <span>{formatPrice(total)}</span>
             </div>
 
-            {session && !isWholesale && boltsBalance > 0 && (
-              <div className="border-t border-g200 pt-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useBolts}
-                    onChange={(e) => setUseBolts(e.target.checked)}
-                    className="rounded text-bk focus:ring-primary"
-                  />
-                  <span className="text-bk-muted">Використати Болти</span>
-                </label>
-                {useBolts && (
-                  <div className="flex justify-between text-green-600 mt-1">
-                    <span>Знижка ({Math.floor(maxBolts)} Болтів)</span>
-                    <span>-{formatPrice(boltsDiscount)}</span>
-                  </div>
-                )}
-                <p className="text-xs text-g400 mt-1">Баланс: {boltsBalance} Болтів</p>
-              </div>
-            )}
+            {/* Оплата Болтами прихована — логіка розрахунку лишається робочою. */}
           </div>
 
           <div className="border-t border-g200 pt-4 mb-4">
@@ -182,9 +163,7 @@ export default function CartPage() {
               <span>До оплати</span>
               <span className="text-bk">{formatPrice(finalTotal)}</span>
             </div>
-            {session && !isWholesale && boltsEarned > 0 && (
-              <p className="text-xs text-green-600 mt-1">+ {boltsEarned} Болтів кешбек</p>
-            )}
+            {/* Рядок «+N Болтів кешбек» прихований разом із програмою лояльності. */}
           </div>
 
           <button

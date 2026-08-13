@@ -62,22 +62,7 @@ export default function Header() {
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-4 lg:gap-5 flex-shrink-0">
             <Link href="/catalog" className={navLinkClass}>Каталог</Link>
-            <Link href="/simulation" className={`${navLinkClass} flex items-center gap-1`}>
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              <span className="whitespace-nowrap">Симуляція</span>
-            </Link>
-            <Link href="/ai/wizard" className={`${navLinkClass} flex items-center gap-1`}>
-              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                {/* Mini viking helmet */}
-                <path d="M4 14C4 8.5 8 4 12 4C16 4 20 8.5 20 14V16H4V14Z" fill="#FFD600" stroke="currentColor" strokeWidth="1.5"/>
-                <path d="M4 12H20" stroke="currentColor" strokeWidth="1.5"/>
-                <path d="M4 12L1 6" stroke="#FFD600" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M20 12L23 6" stroke="#FFD600" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <span className="whitespace-nowrap">AI&nbsp;Підбір</span>
-            </Link>
+            {/* «Симуляція» і «AI Підбір» приховані до готовності — сторінки лишаються на місці. */}
             {session ? (
               <>
                 {role === "SALES" && (
@@ -88,10 +73,12 @@ export default function Header() {
                     Торговий
                   </Link>
                 )}
-                {(role === "ADMIN" || role === "MANAGER") && (
-                  <Link href="/admin" className={navLinkClass}>Панель</Link>
+                {/* Робоче меню — усім, крім звичайних покупців (CLIENT/WHOLESALE).
+                    Список збігається з тим, кого пускає middleware у /admin. */}
+                {(role === "ADMIN" || role === "MANAGER" || role === "SALES") && (
+                  <Link href="/admin" className={navLinkClass}>CRM/ERP</Link>
                 )}
-                <Link href="/dashboard" className={navLinkClass}>Кабінет</Link>
+                {/* «Кабінет» прихований — функціонал ще порожній; «Замовлення» лишаються. */}
                 <Link href="/dashboard/orders" className={navLinkClass}>Замовлення</Link>
               </>
             ) : null}
@@ -123,18 +110,7 @@ export default function Header() {
               )}
             </Link>
 
-            {/* Mobile: болти badge */}
-            {session && (
-              <Link
-                href="/dashboard/loyalty"
-                className="md:hidden flex items-center justify-center bg-[#FFD600] text-[#0A0A0A] w-7 h-7 rounded-full active:scale-90 transition-transform duration-100"
-                title="Болти"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </Link>
-            )}
+            {/* Бейдж «Болти» прихований — до програми лояльності повернемось пізніше. */}
 
             {/* Mobile: вийти */}
             {session && (
@@ -171,19 +147,6 @@ export default function Header() {
                 <span className="absolute -top-0.5 -right-0.5 bg-[#FFD600] text-[#0A0A0A] text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
                   {compareCount}
                 </span>
-              </Link>
-            )}
-
-            {/* Болти badge - desktop */}
-            {session && (
-              <Link
-                href="/dashboard/loyalty"
-                className="hidden md:flex items-center gap-1 bg-[#FFD600] text-[#0A0A0A] px-2.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#FFC400] active:bg-[#FFB800] active:scale-95 transition-[background-color,transform] duration-100"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Болти
               </Link>
             )}
 

@@ -159,8 +159,8 @@ export default async function HomePage() {
             <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
-            Електро та ручний iнструмент вiд провiдних виробникiв. Програма лояльностi
-            &quot;Болти&quot; — кешбек з кожної покупки!
+            Електро та ручний iнструмент вiд провiдних виробникiв.
+            Широкий асортимент i швидка доставка!
           </p>
           <HeroCta />
         </div>

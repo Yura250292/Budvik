@@ -6,7 +6,6 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
-import AiChatWidget from "@/components/ai/AiChatWidgetLoader";
 import PageTransition from "@/components/PageTransition";
 import TestBanner from "@/components/TestBanner";
 
@@ -68,7 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </PageTransition>
           <Footer />
           <BottomNav />
-          <AiChatWidget />
+          {/* AI-асистент «вікінг» прихований до готовності — компонент лишається в repo. */}
           <ServiceWorkerRegister />
         </Providers>
       </body>

@@ -52,9 +52,7 @@ export default function Footer() {
             <h4 className="font-semibold text-white mb-4 text-sm uppercase tracking-wide">Навігація</h4>
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/catalog" className="hover:text-[#FFD600] transition">Каталог товарів</Link></li>
-              <li><Link href="/ai/wizard" className="hover:text-[#FFD600] transition">AI Підбір інструментів</Link></li>
               <li><Link href="/dashboard/orders" className="hover:text-[#FFD600] transition">Мої замовлення</Link></li>
-              <li><Link href="/dashboard/loyalty" className="hover:text-[#FFD600] transition">Програма лояльності</Link></li>
               <li><Link href="/wishlist" className="hover:text-[#FFD600] transition">Обране</Link></li>
               <li><Link href="/compare" className="hover:text-[#FFD600] transition">Порівняння</Link></li>
             </ul>

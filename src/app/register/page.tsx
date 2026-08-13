@@ -66,9 +66,7 @@ export default function RegisterPage() {
       <div className="max-w-md w-full bg-white rounded-xl shadow-md p-8">
         <h1 className="text-2xl font-bold text-center text-bk mb-6">Реєстрація в Budvik</h1>
 
-        <div className="bg-primary/10 text-primary-dark border border-primary/30 p-3 rounded-lg mb-4 text-sm">
-          Отримайте 50 Болтів бонусу при реєстрації!
-        </div>
+        {/* Банер «50 Болтів бонусу» прихований разом із програмою лояльності. */}
 
         <button
           onClick={handleGoogle}

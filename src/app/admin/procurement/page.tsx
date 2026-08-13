@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { TableScroll } from "@/components/ui/TableScroll";
+import { ProductPanel } from "./ProductPanel";
 import type { LowStockItem, LowStockReport, LowStockSection } from "@/lib/procurement/low-stock";
 
 /**
@@ -48,6 +49,7 @@ export default function ProcurementPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showBrands, setShowBrands] = useState(false);
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: brandsData } = useSWR<{ brands: Brand[] }>("/api/admin/procurement/brands", fetcher);
 
@@ -351,6 +353,7 @@ export default function ProcurementPage() {
                     cart={cart}
                     onToggle={toggle}
                     onQty={setQty}
+                    onOpen={setOpenId}
                   />
                 ))}
               </tbody>
@@ -358,6 +361,8 @@ export default function ProcurementPage() {
           </TableScroll>
         </Card>
       ))}
+
+      {openId && <ProductPanel id={openId} onClose={() => setOpenId(null)} />}
 
       {cartIds.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-g100 bg-white/95 p-3 shadow-lg backdrop-blur md:left-64">
@@ -424,13 +429,14 @@ function Td({ children, align }: { children: React.ReactNode; align?: "right" })
 }
 
 function GroupRows({
-  group, showBrand, cart, onToggle, onQty,
+  group, showBrand, cart, onToggle, onQty, onOpen,
 }: {
   group: LowStockSection["groups"][number];
   showBrand: boolean;
   cart: Record<string, number>;
   onToggle: (item: LowStockItem) => void;
   onQty: (id: string, qty: number) => void;
+  onOpen: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const cols = showBrand ? 10 : 9;
@@ -460,7 +466,15 @@ function GroupRows({
                 <input type="checkbox" checked={inCart} onChange={() => onToggle(item)} />
               </Td>
               <Td>{item.sku ?? "—"}</Td>
-              <Td>{item.name}</Td>
+              <td style={{ padding: "8px 12px" }}>
+                <button
+                  onClick={() => onOpen(item.id)}
+                  className="text-left hover:underline"
+                  title="Показати опис і фото"
+                >
+                  {item.name}
+                </button>
+              </td>
               {showBrand && <Td>{item.brandName}</Td>}
               <Td align="right">
                 {item.price > 0 ? (

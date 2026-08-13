@@ -49,8 +49,13 @@ export function attachWheelGate(map: L.Map, onWheelChange?: (active: boolean) =>
  *
  * isolate створює власний стековий контекст: панелі Leaflet мають z-index до
  * 1000 і без цього перекривали б шапку та бічне меню при скролі — карта
- * «їздила» б поверх сторінки. contain: layout paint не дає її шарам
- * впливати на розкладку решти сторінки.
+ * «їздила» б поверх сторінки.
+ *
+ * contain тут свідомо НЕМАЄ. Спокуса додати `contain: layout paint` велика
+ * (він теж тримає шари всередині блока), але на довгих сторінках з картою
+ * посередині він з'їдає прокрутку: браузер перестає рахувати вміст під
+ * картою, і до всього, що нижче неї, вже не догортати. Стековий контекст
+ * від isolate вирішує ту саму задачу і без цієї ціни.
  */
 export function MapFrame({
   height,
@@ -70,7 +75,7 @@ export function MapFrame({
   return (
     <div
       className="relative isolate overflow-hidden"
-      style={{ height, width: "100%", borderRadius: rounded, contain: "layout paint" }}
+      style={{ height, width: "100%", borderRadius: rounded }}
     >
       {children}
       {hint && !wheelActive && (

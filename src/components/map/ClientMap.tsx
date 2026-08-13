@@ -379,9 +379,12 @@ export default function ClientMap({
     // z-index до 1000 і без цього перекривали б шапку та бічне меню при
     // скролі — карта «їздила» поверх сторінки. Тепер її шари лишаються
     // всередині блока, хай який у них z-index.
+    //
+    // contain: layout paint тут був і його прибрано: на довгій сторінці він
+    // з'їдав прокрутку — до списку під картою вже не догорталося.
     <div
       className="relative isolate overflow-hidden rounded-[12px] border border-line"
-      style={{ height, width: "100%", contain: "layout paint" }}
+      style={{ height, width: "100%" }}
     >
       <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
 

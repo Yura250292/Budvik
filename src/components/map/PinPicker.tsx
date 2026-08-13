@@ -108,9 +108,11 @@ export default function PinPicker({
   }, []);
 
   return (
+    // contain: layout paint тут був і його прибрано: він з'їдав прокрутку —
+    // до підказки про точність GPS і кнопки під картою не догорталося.
     <div
       className="relative isolate overflow-hidden"
-      style={{ height, width: "100%", borderRadius: "16px", contain: "layout paint" }}
+      style={{ height, width: "100%", borderRadius: "16px" }}
     >
       <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
     </div>

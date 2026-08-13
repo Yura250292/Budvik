@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import type { RouteLine, TabletStop } from "@/components/map/TabletDayMap";
@@ -378,6 +379,37 @@ export default function DriverTabletPage() {
                 {track.pending > 0 && <span style={{ color: "#FB923C" }}>+{track.pending}</span>}
               </p>
             </div>
+
+            {/* Вихід до решти кабінету. Нижнього меню тут немає навмисно —
+                воно з'їдало б висоту карти, — але без цієї кнопки водій
+                застрягав на карті дня: єдиним виходом лишалась апаратна
+                «назад», яка з домашнього екрана взагалі закриває вкладку. */}
+            <Link
+              href="/driver"
+              aria-label="Вийти з карти дня до кабінету"
+              className="flex shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors duration-200"
+              style={{
+                width: "44px",
+                height: "44px",
+                background: "rgba(255,255,255,0.08)",
+                color: "#fff",
+              }}
+            >
+              <svg
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                />
+              </svg>
+            </Link>
           </div>
         </div>
 

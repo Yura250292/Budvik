@@ -1,9 +1,19 @@
 "use client";
 
-import { signIn, useSession } from "next-auth/react";
+import { signIn, useSession, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+
+/** Куди веде роль після входу. Порожня роль — звичайний покупець. */
+function homeForRole(role: unknown): string {
+  if (role === "MANAGER") return "/manager";
+  if (role === "ADMIN") return "/admin";
+  if (role === "SALES") return "/sales";
+  if (role === "WAREHOUSE") return "/warehouse";
+  if (role === "DRIVER") return "/driver";
+  return "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,17 +23,15 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Redirect logged-in users based on role
+  const goHome = useCallback(
+    (role: unknown) => router.replace(homeForRole(role)),
+    [router],
+  );
+
+  // Уже залогінений (зайшов на /login з живою кукою) — не тримаємо на формі.
   useEffect(() => {
-    if (!session) return;
-    const role = (session.user as any)?.role;
-    if (role === "MANAGER") router.replace("/manager");
-    else if (role === "ADMIN") router.replace("/admin");
-    else if (role === "SALES") router.replace("/sales");
-    else if (role === "WAREHOUSE") router.replace("/warehouse");
-    else if (role === "DRIVER") router.replace("/driver");
-    else router.replace("/dashboard");
-  }, [session, router]);
+    if (session) goHome((session.user as any)?.role);
+  }, [session, goHome]);
 
   // Повертаємось на /login, а не одразу на /dashboard: розбір ролей вище
   // вже вміє відправити кожного куди треба. З хардкодом на /dashboard
@@ -38,8 +46,10 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
+    // Email чистимо тут, а не лише в authorize: з телефона перша літера
+    // приїжджає великою (автокапіталізація) і збігу з базою немає.
     const res = await signIn("credentials", {
-      email,
+      email: email.trim().toLowerCase(),
       password,
       redirect: false,
     });
@@ -47,10 +57,19 @@ export default function LoginPage() {
     if (res?.error) {
       setError("Невірний email або пароль");
       setLoading(false);
-    } else {
-      // Refresh router so useSession updates, then useEffect handles role-based redirect
-      router.refresh();
+      return;
     }
+
+    // Сесію питаємо явно, а не через router.refresh(): той перемальовує
+    // серверні компоненти, але useSession лишається порожнім, ефект нижче
+    // не спрацьовує — і людина стоїть на формі, ніби пароль не підійшов.
+    const fresh = await getSession();
+    if (!fresh) {
+      setError("Не вдалося створити сесію. Спробуйте ще раз");
+      setLoading(false);
+      return;
+    }
+    goHome((fresh.user as any)?.role);
   };
 
   return (
@@ -92,6 +111,10 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="your@email.com"
             />

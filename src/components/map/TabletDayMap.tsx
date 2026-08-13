@@ -7,15 +7,28 @@
  * був», точки маршруту — «куди мені треба», колір точки — «що я там уже
  * відмітив».
  *
+ * Чому MapLibre, а не Leaflet, як на решті карт сайту: це єдина карта, на
+ * яку дивляться на ходу. Leaflet растровий — зум у нього ступінчастий
+ * (13, 14, 15), карту не повернеш за курсом і не нахилиш. Для адмінських
+ * карт цього досить, для навігації — ні. MapLibre малює векторні тайли,
+ * тому зум плавний, поворот і нахил безкоштовні, а карта під час руху
+ * поводиться як у звичайному навігаторі.
+ *
+ * Базові тайли — OpenFreeMap: ті самі дані OSM, але векторні, без ключа
+ * й без ліміту. Пробки — окремим растровим шаром TomTom через наш проксі
+ * (/api/traffic), бо ключ не можна віддавати в браузер.
+ *
  * Окремо від SalesClientsMap, бо задача інша: там клієнти за станом
  * продажів (сплячий, втрачений), тут точки за статусом візиту. Спільне —
  * розмір маркерів під палець і відсутність зайвого керування.
  */
 
-import { useEffect, useMemo, useRef } from "react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import { clampToUkraine } from "@/components/map/MapFrame";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// MapLibre 4, а не 5/6: у нових версіях воркер створюється як ES-модуль з
+// blob-URL, і в Next.js він падає на старті — стиль просто не дозавантажується.
+// Четверта гілка збирає воркер класично і працює без бубна.
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 export type TabletStop = {
   key: string;
@@ -40,6 +53,12 @@ const STOP_COLOR = {
   DONE: "#16A34A",
   MISSED: "#DC2626",
 } as const;
+
+/** Векторний стиль OSM без ключа. */
+const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+
+/** Україна: далі карту не відпускаємо, як і на решті карт сайту. */
+const UA_BOUNDS: [number, number, number, number] = [22, 44, 40.3, 52.5];
 
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
@@ -119,38 +138,113 @@ function popupHtml(s: TabletStop): string {
 /** GeoJSON LineString у координатах OSRM: [lng, lat][] */
 export type RouteLine = { type: string; coordinates: [number, number][] } | null;
 
+/** Позиція + рух водія. Те, що віддає useTrackRecorder. */
+export type MapMotion = {
+  lat: number;
+  lng: number;
+  speedKmh: number | null;
+  headingDeg: number | null;
+  accuracyM: number | null;
+};
+
+/**
+ * Зум за швидкістю — головне, заради чого все це.
+ *
+ * Стоїш біля магазину — видно двір і під'їзд. Їдеш містом — видно
+ * наступні перехрестя. Вийшов на трасу — видно кілометри вперед, бо на
+ * 90 км/год карта зумом 17 просто пролітає повз.
+ *
+ * Проміжні значення інтерполюємо, щоб карта «дихала» плавно, а не
+ * клацала між двома станами на 39 і 41 км/год.
+ */
+const ZOOM_BY_SPEED: Array<{ kmh: number; zoom: number }> = [
+  { kmh: 0, zoom: 17 },
+  { kmh: 20, zoom: 16.3 },
+  { kmh: 50, zoom: 15.2 },
+  { kmh: 80, zoom: 14.3 },
+  { kmh: 110, zoom: 13.6 },
+];
+
+function zoomForSpeed(kmh: number | null): number {
+  if (kmh == null || !Number.isFinite(kmh)) return 16;
+  const v = Math.max(0, kmh);
+  const pts = ZOOM_BY_SPEED;
+  if (v <= pts[0].kmh) return pts[0].zoom;
+  for (let i = 1; i < pts.length; i++) {
+    if (v <= pts[i].kmh) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const t = (v - a.kmh) / (b.kmh - a.kmh);
+      return a.zoom + t * (b.zoom - a.zoom);
+    }
+  }
+  return pts[pts.length - 1].zoom;
+}
+
+/**
+ * Нахил камери: що швидше їдемо, то більше дивимось уперед, а не собі
+ * під колеса. Рівно так поводяться Google Maps і Waze у режимі руху.
+ */
+function pitchForSpeed(kmh: number | null): number {
+  if (kmh == null || kmh < 5) return 0;
+  return Math.min(50, 20 + (kmh / 110) * 30);
+}
+
+/** Режим карти: їдемо за водієм чи роздивляємось увесь маршрут. */
+export type MapMode = "follow" | "overview";
+
 export default function TabletDayMap({
   stops,
   trail,
   me,
+  motion,
   planned,
   nav,
   onNavigate,
+  mode = "overview",
+  onModeChange,
+  traffic = false,
   height = "100%",
 }: {
   stops: TabletStop[];
   /** Пройдений сьогодні шлях */
   trail: Array<[number, number]>;
   me?: { lat: number; lng: number } | null;
+  /** Швидкість і курс — керують зумом, поворотом і нахилом камери */
+  motion?: MapMotion | null;
   /** Лінія обраного маршруту дня — фон під точками */
   planned?: RouteLine;
   /** Активна навігація до однієї точки — малюється поверх усього */
   nav?: RouteLine;
   /** Тап «Навігація» в попапі точки */
   onNavigate?: (stopKey: string) => void;
+  /** follow — камера їде за водієм; overview — водій крутить карту сам */
+  mode?: MapMode;
+  /** Карта сама просить вимкнути слідування, коли водій торкнувся екрана */
+  onModeChange?: (mode: MapMode) => void;
+  /** Показувати шар пробок (потрібен TOMTOM_API_KEY на сервері) */
+  traffic?: boolean;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const stopsLayerRef = useRef<L.LayerGroup | null>(null);
-  const trailRef = useRef<L.Polyline | null>(null);
-  const plannedRef = useRef<L.Polyline | null>(null);
-  const navRef = useRef<L.Polyline | null>(null);
-  const meRef = useRef<L.CircleMarker | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const [ready, setReady] = useState(false);
+
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const meMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const arrowElRef = useRef<HTMLDivElement | null>(null);
   const fittedRef = useRef(false);
-  /** Колбек у ref, щоб зміна функції не перемальовувала маркери. */
+
+  /** Колбеки у ref, щоб зміна функції не перемальовувала карту. */
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
+  const onModeChangeRef = useRef(onModeChange);
+  onModeChangeRef.current = onModeChange;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  /** Останній відлік GPS — таймер слідування читає його звідси. */
+  const motionRef = useRef(motion);
+  motionRef.current = motion;
 
   // Перемальовуємо точки лише коли змінився склад або статуси — трек
   // оновлюється щохвилини, і тягнути за собою маркери марно.
@@ -159,179 +253,355 @@ export default function TabletDayMap({
     [stops]
   );
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    if (!mapRef.current) {
-      mapRef.current = L.map(containerRef.current, {
-        zoomControl: false, // зумлять пальцями
-        attributionControl: true,
-      }).setView([49.8397, 24.0297], 9);
-
-      clampToUkraine(mapRef.current);
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap",
-        maxZoom: 19,
-      }).addTo(mapRef.current);
-
-      stopsLayerRef.current = L.layerGroup().addTo(mapRef.current);
-
-      // Попапи — рядки HTML, React-обробник туди не почепиш: ловимо тап
-      // делегуванням на відкритому попапі (той самий патерн, що в картах
-      // торгового й адміна).
-      mapRef.current.on("popupopen", (e: L.PopupEvent) => {
-        const root = e.popup.getElement();
-        root?.querySelectorAll<HTMLElement>("[data-nav]").forEach((btn) => {
-          btn.onclick = () => {
-            const key = btn.dataset.nav;
-            if (!key) return;
-            mapRef.current?.closePopup();
-            onNavigateRef.current?.(key);
-          };
-        });
-      });
-    }
-
+  /** Проста лінія: джерело створене на load, тут лише оновлюємо дані. */
+  const setLine = useCallback((id: string, coords: Array<[number, number]> | null) => {
     const map = mapRef.current;
-    const group = stopsLayerRef.current;
-    if (!group) return;
+    if (!map) return;
+    const src = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: coords ?? [] },
+    });
+  }, []);
 
-    group.clearLayers();
-    const bounds = L.latLngBounds([]);
+  // Ініціалізація карти. Один раз на весь час життя компонента.
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
 
-    spread(stops).forEach((s) => {
-      const color = STOP_COLOR[statusOf(s)];
-      // Маркер — divIcon, а не circleMarker: номер точки має бути прямо
-      // на кружечку, щоб порядок об'їзду читався без тапу по кожній.
-      L.marker([s.lat, s.lng], {
-        icon: L.divIcon({
-          className: "",
-          html: `<div style="width:26px;height:26px;border-radius:50%;
-                   background:${color};border:2.5px solid #fff;
-                   box-shadow:0 1px 4px rgba(0,0,0,.4);
-                   color:#fff;font:700 12px/21px system-ui;text-align:center">
-                   ${escapeHtml(String(s.sequence))}
-                 </div>`,
-          iconSize: [26, 26],
-          iconAnchor: [13, 13],
-        }),
-      })
-        .bindPopup(popupHtml(s), { minWidth: 190 })
-        .addTo(group);
-      bounds.extend([s.lat, s.lng]);
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: STYLE_URL,
+      center: [24.0297, 49.8397], // Львів
+      zoom: 9,
+      maxBounds: UA_BOUNDS,
+      minZoom: 6,
+      attributionControl: false,
+      // Керування пальцями: зум щипком і поворот двома пальцями, але без
+      // кнопок — на них не поцілиш на ходу.
+      pitchWithRotate: true,
+      dragRotate: true,
+    });
+    mapRef.current = map;
+
+    // Атрибуція OSM обов'язкова за ліцензією, але на планшеті вона краде
+    // місце — тому згорнута в «i».
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+
+    map.on("load", () => {
+      // Порядок додавання = порядок малювання: пробки під усім нашим,
+      // далі план, трек і зверху активна навігація.
+      map.addSource("traffic", {
+        type: "raster",
+        tiles: [`${window.location.origin}/api/traffic/{z}/{x}/{y}`],
+        tileSize: 256,
+        minzoom: 6,
+        maxzoom: 18,
+      });
+      map.addLayer({
+        id: "traffic",
+        type: "raster",
+        source: "traffic",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 0.75 },
+      });
+
+      const emptyLine = {
+        type: "Feature" as const,
+        properties: {},
+        geometry: { type: "LineString" as const, coordinates: [] as number[][] },
+      };
+      for (const id of ["planned", "trail", "nav"]) {
+        map.addSource(id, { type: "geojson", data: emptyLine });
+      }
+
+      // Фіолетова пунктирна: суцільна зливалася б з треком. Пунктир
+      // одразу читається як «план», а не «пройдено».
+      map.addLayer({
+        id: "planned",
+        type: "line",
+        source: "planned",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#7C3AED",
+          "line-width": 5,
+          "line-opacity": 0.75,
+          "line-dasharray": [2, 1.6],
+        },
+      });
+
+      map.addLayer({
+        id: "trail",
+        type: "line",
+        source: "trail",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#2563EB", "line-width": 4, "line-opacity": 0.75 },
+      });
+
+      // Активна навігація — помаранчева, з темною облямівкою, щоб
+      // читалась і поверх пробок, і поверх плану.
+      map.addLayer({
+        id: "nav-casing",
+        type: "line",
+        source: "nav",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#7C2D12", "line-width": 10, "line-opacity": 0.5 },
+      });
+      map.addLayer({
+        id: "nav",
+        type: "line",
+        source: "nav",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#F97316", "line-width": 6, "line-opacity": 0.95 },
+      });
+
+      setReady(true);
     });
 
-    if (!fittedRef.current && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+    // Водій торкнувся карти — віддаємо керування йому. Слідування, яке
+    // перебиває палець, дратує найбільше: людина тягне карту подивитись
+    // наступну точку, а її щосекунди відкидає назад.
+    // Тільки СПРАВЖНІЙ дотик, не наша ж анімація. easeTo теж шле
+    // dragstart/rotatestart/pitchstart — без цієї перевірки слідування
+    // вимикало саме себе на першому ж повороті камери за курсом, і карта
+    // назавжди застигала на зумі тієї швидкості, з якою рушила.
+    const release = (e: { originalEvent?: unknown }) => {
+      if (!e?.originalEvent) return;
+      if (modeRef.current === "follow") onModeChangeRef.current?.("overview");
+    };
+    map.on("dragstart", release);
+    map.on("rotatestart", release);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      markersRef.current = [];
+      meMarkerRef.current = null;
+      arrowElRef.current = null;
+      setReady(false);
+    };
+  }, []);
+
+  // Точки маршруту. Маркер — DOM-елемент з номером просто на кружечку,
+  // щоб порядок об'їзду читався без тапу по кожній.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    const pts = spread(stops);
+    const bounds = new maplibregl.LngLatBounds();
+
+    pts.forEach((s) => {
+      const color = STOP_COLOR[statusOf(s)];
+      const el = document.createElement("div");
+      el.style.cssText = `width:28px;height:28px;border-radius:50%;background:${color};
+        border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);color:#fff;
+        font:700 12px/23px system-ui;text-align:center;cursor:pointer`;
+      el.textContent = String(s.sequence);
+
+      const popup = new maplibregl.Popup({ offset: 18, maxWidth: "280px" }).setHTML(
+        popupHtml(s)
+      );
+      // Попапи — рядки HTML, React-обробник туди не почепиш: ловимо тап
+      // на відкритому попапі (той самий патерн, що в картах торгового).
+      popup.on("open", () => {
+        popup
+          .getElement()
+          ?.querySelectorAll<HTMLElement>("[data-nav]")
+          .forEach((btn: HTMLElement) => {
+            btn.onclick = () => {
+              popup.remove();
+              onNavigateRef.current?.(s.key);
+            };
+          });
+      });
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([s.lng, s.lat])
+        .setPopup(popup)
+        .addTo(map);
+      markersRef.current.push(marker);
+      bounds.extend([s.lng, s.lat]);
+    });
+
+    // Підганяємо вікно один раз: далі камерою керує або водій, або
+    // режим слідування.
+    if (!fittedRef.current && pts.length > 0) {
+      map.fitBounds(bounds, { padding: 48, maxZoom: 13, duration: 600 });
       fittedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopsKey]);
+  }, [stopsKey, ready]);
 
-  // Лінія плану — сіра, під точками: це фон «куди їхати», а не подія.
+  // Лінія плану дня.
+  useEffect(() => {
+    if (!ready) return;
+    const coords = planned?.coordinates ?? null;
+    setLine("planned", coords);
+    // Показуємо план цілком, лише поки водій не поїхав: під час руху
+    // камера належить режиму слідування.
+    if (coords?.length && modeRef.current !== "follow") {
+      const b = new maplibregl.LngLatBounds();
+      coords.forEach((c) => b.extend(c));
+      mapRef.current?.fitBounds(b, { padding: 48, maxZoom: 14, duration: 700 });
+    }
+  }, [planned, ready, setLine]);
+
+  // Дорога до однієї точки: водій щойно попросив її — показуємо всю.
+  useEffect(() => {
+    if (!ready) return;
+    const coords = nav?.coordinates ?? null;
+    setLine("nav", coords);
+    if (coords?.length && modeRef.current !== "follow") {
+      const b = new maplibregl.LngLatBounds();
+      coords.forEach((c) => b.extend(c));
+      mapRef.current?.fitBounds(b, { padding: 60, maxZoom: 15, duration: 700 });
+    }
+  }, [nav, ready, setLine]);
+
+  // Трек: GeoJSON у [lng, lat], а приходить [lat, lng].
+  useEffect(() => {
+    if (!ready || trail.length < 2) return;
+    setLine(
+      "trail",
+      trail.map(([lat, lng]) => [lng, lat] as [number, number])
+    );
+  }, [trail, ready, setLine]);
+
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    if (!planned?.coordinates?.length) {
-      plannedRef.current?.remove();
-      plannedRef.current = null;
+    if (!map || !ready) return;
+    map.setLayoutProperty("traffic", "visibility", traffic ? "visible" : "none");
+  }, [traffic, ready]);
+
+  // Маркер водія: стрілка курсу в колі точності. Створюємо один раз,
+  // далі лише рухаємо й крутимо — перестворення давало б блимання.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    const pos =
+      motion ?? (me ? { ...me, speedKmh: null, headingDeg: null, accuracyM: null } : null);
+    if (!pos) {
+      meMarkerRef.current?.remove();
+      meMarkerRef.current = null;
+      arrowElRef.current = null;
       return;
     }
-    const line = planned.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
-    if (plannedRef.current) {
-      plannedRef.current.setLatLngs(line);
-    } else {
-      // Фіолетова пунктирна: сіра губилася серед доріг OSM, а суцільна
-      // зливалася з треком. Пунктир одразу читається як «план», а не
-      // «пройдено».
-      plannedRef.current = L.polyline(line, {
-        color: "#7C3AED",
-        weight: 5,
-        opacity: 0.75,
-        dashArray: "10, 8",
-      }).addTo(map);
-    }
-    // Підганяємо вікно під план: інакше лінія може виявитись за краєм
-    // екрана, і «прокласти маршрут» знову виглядає як «нічого не сталось».
-    map.fitBounds(L.latLngBounds(line), { padding: [40, 40], maxZoom: 14 });
-  }, [planned]);
 
-  // Навігація до точки — помаранчева, поверх усього, з підгонкою вікна:
-  // водій щойно попросив дорогу, і вона має бути перед очима вся.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (!nav?.coordinates?.length) {
-      navRef.current?.remove();
-      navRef.current = null;
-      return;
-    }
-    const line = nav.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
-    if (navRef.current) {
-      navRef.current.setLatLngs(line);
-    } else {
-      navRef.current = L.polyline(line, {
-        color: "#F97316",
-        weight: 5,
-        opacity: 0.9,
-      }).addTo(map);
-    }
-    map.fitBounds(L.latLngBounds(line), { padding: [50, 50], maxZoom: 15 });
-  }, [nav]);
+    if (!meMarkerRef.current) {
+      const wrap = document.createElement("div");
+      wrap.style.cssText =
+        "width:34px;height:34px;display:flex;align-items:center;justify-content:center";
 
-  // Трек окремим шаром: додається точка за точкою, без перемальовування
-  // маркерів.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (trail.length < 2) return;
+      // Пульсуючий ореол — «сигнал живий». Той самий прийом, що в
+      // мобільних навігаторах: спокійний, не миготить.
+      const halo = document.createElement("div");
+      halo.style.cssText = `position:absolute;width:34px;height:34px;border-radius:50%;
+        background:rgba(37,99,235,.22);animation:budvik-pulse 2s ease-out infinite`;
+      wrap.appendChild(halo);
 
-    if (trailRef.current) {
-      trailRef.current.setLatLngs(trail);
-    } else {
-      trailRef.current = L.polyline(trail, {
-        color: "#2563EB",
-        weight: 4,
-        opacity: 0.75,
-      }).addTo(map);
-    }
-  }, [trail]);
+      // Стрілка, а не крапка: одразу видно, куди дивиться машина.
+      const arrow = document.createElement("div");
+      arrow.style.cssText = `position:relative;width:0;height:0;
+        border-left:9px solid transparent;border-right:9px solid transparent;
+        border-bottom:20px solid #2563EB;
+        filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));
+        transition:transform .3s linear`;
+      wrap.appendChild(arrow);
+      arrowElRef.current = arrow;
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (!me) {
-      meRef.current?.remove();
-      meRef.current = null;
-      return;
-    }
-    if (meRef.current) {
-      meRef.current.setLatLng([me.lat, me.lng]);
-    } else {
-      meRef.current = L.circleMarker([me.lat, me.lng], {
-        radius: 8,
-        color: "#fff",
-        weight: 3,
-        fillColor: "#2563EB",
-        fillOpacity: 1,
-      })
-        .bindTooltip("Ви тут", { direction: "top" })
+      if (!document.getElementById("budvik-pulse-style")) {
+        const style = document.createElement("style");
+        style.id = "budvik-pulse-style";
+        style.textContent =
+          "@keyframes budvik-pulse{0%{transform:scale(.6);opacity:.9}100%{transform:scale(1.9);opacity:0}}";
+        document.head.appendChild(style);
+      }
+
+      meMarkerRef.current = new maplibregl.Marker({ element: wrap })
+        .setLngLat([pos.lng, pos.lat])
         .addTo(map);
+    } else {
+      meMarkerRef.current.setLngLat([pos.lng, pos.lat]);
     }
-  }, [me]);
 
+    // Коли карта повернута за курсом, стрілка має дивитись угору екрана,
+    // тож віднімаємо поворот самої карти.
+    const heading = pos.headingDeg ?? 0;
+    const screenAngle = modeRef.current === "follow" ? 0 : heading - map.getBearing();
+    if (arrowElRef.current) {
+      arrowElRef.current.style.transform = `rotate(${screenAngle}deg)`;
+    }
+  }, [me, motion, ready]);
+
+  /**
+   * Слідування: камера їде за водієм.
+   *
+   * Камеру рухає власний таймер, а не ефект на зміну motion. Причина —
+   * рівність за значенням: коли машина стоїть, GPS шле ту саму швидкість
+   * і ті самі координати, React вважає стан незмінним і ефект не
+   * запускає. Через це карта, розігнавшись до траси, лишалася на зумі
+   * траси й після зупинки — «доїхати назад» до зуму 17 не було кому.
+   *
+   * Таймер читає останній motion з ref, тож бачить кожен відлік GPS.
+   * Крок 700 мс — менший за інтервал GPS (секунда), щоб анімація
+   * встигала завершитись і не переривалась на півдорозі.
+   */
   useEffect(() => {
-    return () => {
-      mapRef.current?.remove();
-      mapRef.current = null;
-      stopsLayerRef.current = null;
-      trailRef.current = null;
-      plannedRef.current = null;
-      navRef.current = null;
-      meRef.current = null;
+    if (!ready || mode !== "follow") return;
+
+    const tick = () => {
+      const map = mapRef.current;
+      const m = motionRef.current;
+      if (!map || !m) return;
+
+      const speed = m.speedKmh;
+      const moving = speed != null && speed >= 3;
+      const targetZoom = zoomForSpeed(speed);
+      const targetPitch = pitchForSpeed(speed);
+      const targetBearing =
+        moving && m.headingDeg != null ? m.headingDeg : map.getBearing();
+
+      // Не смикаємо камеру, коли ціль практично досягнута: інакше карта
+      // безперервно «догойдується» і не дає торкнутись екрана.
+      const near =
+        Math.abs(map.getZoom() - targetZoom) < 0.05 &&
+        Math.abs(map.getPitch() - targetPitch) < 1 &&
+        Math.abs(((map.getBearing() - targetBearing + 540) % 360) - 180) < 1 &&
+        map.getCenter().distanceTo(new maplibregl.LngLat(m.lng, m.lat)) < 5;
+      if (near) return;
+
+      map.easeTo({
+        center: [m.lng, m.lat],
+        zoom: targetZoom,
+        bearing: targetBearing,
+        pitch: targetPitch,
+        duration: 700,
+        essential: true,
+      });
+      if (arrowElRef.current) arrowElRef.current.style.transform = "rotate(0deg)";
     };
-  }, []);
+
+    tick();
+    const id = window.setInterval(tick, 700);
+    return () => window.clearInterval(id);
+  }, [mode, ready]);
+
+  // Вихід зі слідування — повертаємо карту «північ угору» й прибираємо
+  // нахил, інакше водій лишається з поверненою картою і не розуміє, як її
+  // випрямити.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || mode !== "overview") return;
+    if (map.getBearing() !== 0 || map.getPitch() !== 0) {
+      map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+    }
+  }, [mode, ready]);
 
   return <div ref={containerRef} style={{ height, width: "100%" }} />;
 }

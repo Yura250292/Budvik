@@ -86,6 +86,27 @@ function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: n
   return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/**
+ * Рух «зараз» — для карти, а не для бази.
+ *
+ * Точки в базу пишемо проріджено (раз на 15 с), але карта має їхати
+ * плавно, тож ці дані оновлюються на КОЖЕН відлік GPS.
+ *
+ * heading браузер дає лише коли машина справді їде; на стоянці там
+ * NaN або null. Тому курс тримаємо останній відомий: інакше карта
+ * смикалася б у нуль щоразу, як водій пригальмував на світлофорі.
+ */
+export type Motion = {
+  lat: number;
+  lng: number;
+  /** Швидкість, км/год. null, якщо GPS її не дає */
+  speedKmh: number | null;
+  /** Курс, градуси від півночі. Останній відомий, не миттєвий */
+  headingDeg: number | null;
+  /** Радіус похибки GPS, м — «конус» точності навколо стрілки */
+  accuracyM: number | null;
+};
+
 export type UseTrackRecorder = {
   status: TrackStatus;
   /** Скільки точок чекає відправки */
@@ -94,11 +115,16 @@ export type UseTrackRecorder = {
   distanceKm: number;
   /** Остання позиція — щоб намалювати «ви тут» */
   position: { lat: number; lng: number } | null;
+  /** Позиція + швидкість + курс на кожен відлік GPS — для анімації карти */
+  motion: Motion | null;
   /** Свіжі точки цієї сесії для домальовування polyline */
   trail: Array<[number, number]>;
   start: () => void;
   stop: () => void;
 };
+
+/** Нижче цієї швидкості курс від GPS — шум, тримаємо попередній. */
+const HEADING_MIN_KMH = 3;
 
 export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorder {
   const { enabled } = options;
@@ -107,6 +133,7 @@ export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorde
   const [pending, setPending] = useState(0);
   const [distanceKm, setDistanceKm] = useState(0);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [motion, setMotion] = useState<Motion | null>(null);
   const [trail, setTrail] = useState<Array<[number, number]>>([]);
 
   const watchIdRef = useRef<number | null>(null);
@@ -150,6 +177,25 @@ export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorde
     const { latitude: lat, longitude: lng, accuracy, speed, heading } = pos.coords;
     setPosition({ lat, lng });
 
+    const speedKmh =
+      typeof speed === "number" && speed >= 0 && !Number.isNaN(speed) ? speed * 3.6 : null;
+    const freshHeading =
+      typeof heading === "number" && !Number.isNaN(heading) ? heading : null;
+
+    // Курс лишаємо попередній, поки машина повзе: на швидкості нижче
+    // 3 км/год GPS крутить стрілку як завгодно, і карта б смикалась.
+    const keepHeading = speedKmh != null && speedKmh < HEADING_MIN_KMH;
+    setMotion((prev) => ({
+      lat,
+      lng,
+      speedKmh,
+      headingDeg:
+        (keepHeading ? prev?.headingDeg ?? freshHeading : freshHeading) ??
+        prev?.headingDeg ??
+        null,
+      accuracyM: typeof accuracy === "number" ? accuracy : null,
+    }));
+
     const now = pos.timestamp || Date.now();
     const last = lastWrittenRef.current;
     // Проріджування: або минув інтервал, або реально зрушили з місця.
@@ -163,8 +209,8 @@ export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorde
       lat,
       lng,
       accuracyM: typeof accuracy === "number" ? Math.round(accuracy) : null,
-      speedKmh: typeof speed === "number" && speed >= 0 ? Math.round(speed * 3.6) : null,
-      headingDeg: typeof heading === "number" && !Number.isNaN(heading) ? Math.round(heading) : null,
+      speedKmh: speedKmh != null ? Math.round(speedKmh) : null,
+      headingDeg: freshHeading != null ? Math.round(freshHeading) : null,
       recordedAt: new Date(now).toISOString(),
     };
 
@@ -258,5 +304,5 @@ export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorde
     return () => window.removeEventListener("pagehide", onHide);
   }, [enabled, flush]);
 
-  return { status, pending, distanceKm, position, trail, start, stop };
+  return { status, pending, distanceKm, position, motion, trail, start, stop };
 }

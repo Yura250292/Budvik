@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import SalesBottomNav from "@/components/sales/SalesBottomNav";
-import SalesGate from "@/components/sales/SalesGate";
+import SalesSectionGate from "@/components/sales/SalesSectionGate";
 
 export const metadata: Metadata = {
   title: "Budvik — Торговий",
@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 
 export default function SalesLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SalesGate>
+    <SalesSectionGate>
       {/*
         Відступ під навбар живе тут, а не на кожній сторінці. SalesBottomNav —
         fixed h-16 плюс safe-area, і без цього він накриває останню картку.
@@ -34,6 +34,6 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
         {children}
       </div>
       <SalesBottomNav />
-    </SalesGate>
+    </SalesSectionGate>
   );
 }

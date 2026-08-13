@@ -17,11 +17,23 @@ import { useSession } from "next-auth/react";
  *
  * ADMIN пускаємо навмисно — щоб керівник міг подивитися на екран очима
  * торгового, не заводячи собі окремий обліковий запис.
+ *
+ * MANAGER за замовчуванням не пускаємо: у секції лежать персональні
+ * показники й заробіток конкретного торгового. Але окремі екрани — як
+ * каталог — самі по собі нічого приватного не показують, тож вони
+ * передають ширший `allow` своїм layout-ом.
  */
 
 const ALLOWED = ["SALES", "ADMIN"];
 
-export default function SalesGate({ children }: { children: React.ReactNode }) {
+export default function SalesGate({
+  children,
+  allow = ALLOWED,
+}: {
+  children: React.ReactNode;
+  /** Ролі, яким відкрито цю частину секції. За замовчуванням SALES + ADMIN. */
+  allow?: readonly string[];
+}) {
   const { data: session, status } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
 
@@ -47,7 +59,7 @@ export default function SalesGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!ALLOWED.includes(role)) {
+  if (!allow.includes(role)) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <p className="text-sm font-medium text-g600">Доступ заборонено</p>

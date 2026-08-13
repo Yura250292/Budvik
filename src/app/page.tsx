@@ -18,6 +18,7 @@ import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
 import HeroCta from "@/components/HeroCta";
 import { BRANDS } from "@/lib/brands";
+import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, DEFAULT_SEASONAL_KEYWORDS } from "@/lib/seasonal";
 
 export default async function HomePage() {
@@ -34,7 +35,7 @@ export default async function HomePage() {
 
   const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгова пил", "болгарк", "шліфмашин", "генератор", "дриль", "дрель", "перфоратор"];
 
-  const [featuredProducts, allProducts, topOrderedItems] = await Promise.all([
+  const [featuredProducts, topOrderedItems] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
@@ -46,11 +47,6 @@ export default async function HomePage() {
       include: { category: true },
       take: 8,
       orderBy: { price: "asc" },
-    }),
-    prisma.product.findMany({
-      where: { isActive: true },
-      select: { name: true },
-      take: 500,
     }),
     // Best sellers: products most ordered
     prisma.orderItem.groupBy({
@@ -131,19 +127,23 @@ export default async function HomePage() {
     .map((id) => bestSellers.find((p) => p.id === id))
     .filter(Boolean) as typeof bestSellers;
 
-  // Count products per brand
+  // Кількість товарів по бренду беремо з brandId, а не з підрядка в назві.
+  // Пошук «GROSS» у назві ловив і Grösser, і «gross» усередині чужих слів,
+  // а товари, де бренд у назві не згаданий, не рахувались зовсім — до того ж
+  // рахунок ішов по вибірці з 500 назв, тож числа під логотипами були
+  // випадковими.
+  const brandTree = await getBrandTree();
+  const countBySlug = new Map(
+    brandTree.main.concat(brandTree.tail).map((b) => [b.slug.toLowerCase(), b.count])
+  );
+
   const brandCounts: Record<string, number> = {};
-  for (const p of allProducts) {
-    const upper = p.name.toUpperCase();
-    for (const b of BRANDS) {
-      if (upper.includes(b.slug.toUpperCase())) {
-        brandCounts[b.slug] = (brandCounts[b.slug] || 0) + 1;
-        break;
-      }
-    }
+  for (const b of BRANDS) {
+    const n = countBySlug.get(b.slug.toLowerCase());
+    if (n) brandCounts[b.slug] = n;
   }
 
-  // Only show brands that have products, sorted by count
+  // Показуємо лише ті бренди з логотипами, у яких справді є товар
   const activeBrands = BRANDS
     .filter((b) => brandCounts[b.slug] > 0)
     .sort((a, b) => (brandCounts[b.slug] || 0) - (brandCounts[a.slug] || 0));

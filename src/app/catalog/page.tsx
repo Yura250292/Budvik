@@ -1,377 +1,111 @@
 export const revalidate = 60;
 
-import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import ProductCard from "@/components/ProductCard";
-import CatalogGrid from "@/components/CatalogGrid";
 import Link from "next/link";
+import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
-import CatalogSidebar from "@/components/CatalogSidebar";
-import { groupCategories, extractBrandsFromProducts } from "@/lib/category-tree";
-import { getCategoriesWithCounts } from "@/lib/categories-cache";
+import CatalogFilters from "@/components/catalog/CatalogFilters";
+import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
+import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
+import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
-const PAGE_SIZE = 24;
+type SP = Record<string, string | undefined>;
 
-export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ category?: string; search?: string; page?: string; brand?: string; sort?: string }> }) {
+/**
+ * Вітрина каталогу.
+ *
+ * Раніше бренди тут були фікцією: список із 50 зашитих назв, порахований
+ * підрядком у назвах 300 випадкових товарів, а фільтр робив
+ * `name contains «YATO»`. Це ловило чужі товари, де бренд згаданий у
+ * сумісності, і губило ті, де в назві його немає. Тепер бренд береться з
+ * таблиці Brand через brandId — тієї самої, якою вже користуються закупівлі
+ * й аналітика.
+ */
+export default async function CatalogPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
-  const categorySlug = params.category;
-  const search = params.search;
-  const brand = params.brand;
-  const sort = params.sort;
+  const filters = parseFilters(params);
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
-  const where: any = { isActive: true };
-  if (categorySlug) where.category = { slug: categorySlug };
-  if (search) {
-    // Search in product name and category name only (not description — too many false positives)
-    const searchTerms = search
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .split(/\s+/)
-      .filter((w: string) => w.length > 1);
+  const [{ products: rawProducts, total }, tree, priceBounds, session] = await Promise.all([
+    fetchCatalogPage(filters, page),
+    getBrandTree(),
+    getPriceBounds(),
+    getServerSession(authOptions),
+  ]);
 
-    if (searchTerms.length > 1) {
-      // Multi-word: require ALL terms to match in name or category
-      where.AND = [
-        ...(where.AND || []),
-        ...searchTerms.map((term: string) => ({
-          OR: [
-            { name: { contains: term, mode: "insensitive" } },
-            { category: { name: { contains: term, mode: "insensitive" } } },
-          ],
-        })),
-      ];
-    } else {
-      // Single word: match in name or category
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { category: { name: { contains: search, mode: "insensitive" } } },
-      ];
-    }
-  }
-  if (brand && !search) {
-    where.name = { contains: brand, mode: "insensitive" };
-  }
+  // Групи товарів показуємо в розрізі обраного бренда: «свердло» всередині
+  // YATO — осмислений фільтр, а «свердло» по всьому каталогу на 49 тис.
+  // позицій лише повторює пошук.
+  const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
+  const types = singleBrand ? await getBrandTypes(singleBrand) : [];
 
-  // If both search and brand, add brand filter
-  if (search && brand) {
-    where.AND = [
-      { name: { contains: brand, mode: "insensitive" } },
-    ];
-  }
-
-  // Build orderBy based on sort param
-  // All sort modes put in-stock first, then sort within each group
-  const orderByMap: Record<string, any[]> = {
-    "price-asc": [{ stock: "desc" }, { price: "asc" }],
-    "price-desc": [{ stock: "desc" }, { price: "desc" }],
-    "name-asc": [{ stock: "desc" }, { name: "asc" }],
-    "name-desc": [{ stock: "desc" }, { name: "desc" }],
-    "newest": [{ stock: "desc" }, { createdAt: "desc" }],
-  };
-  // Default: priority (high first) → in stock first → name
-  const orderBy = orderByMap[sort || ""] || [{ priority: "desc" }, { stock: "desc" }, { name: "asc" }];
-
-  // Daily rotation seed for default sort — shifts products so visitors see different items each day
-  const useRotation = !sort;
-  const daySeed = Math.floor(Date.now() / (1000 * 60 * 60 * 24)); // changes daily
-
-  const session = await getServerSession(authOptions);
   const isWholesale = session?.user?.role === "WHOLESALE";
   const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
 
-  // For default sort: fetch products with images first, then fill remaining slots
-  const isDefaultSort = !sort;
-  const skip = (page - 1) * PAGE_SIZE;
+  const products = rawProducts.map((p) => ({
+    ...p,
+    wholesalePrice: isWholesale ? getWholesalePrice(p.price, p.name, brandDiscounts) : undefined,
+  }));
 
-  let rawProducts: any[];
-  let total: number;
+  const totalPages = Math.ceil(total / CATALOG_PAGE_SIZE);
+  const allBrands = tree.main.concat(tree.tail);
+  const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
 
-  if (search && !sort) {
-    // Search with relevance ranking: name match > category-only match
-    // Fetch two groups separately for correct ordering across pages
-    const searchTerms = search
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .split(/\s+/)
-      .filter((w: string) => w.length > 1);
+  const title =
+    activeBrands.length === 1
+      ? activeBrands[0].name
+      : filters.search
+        ? `Пошук: «${filters.search}»`
+        : "Каталог інструментів";
 
-    // Build "name contains all terms" condition
-    const nameMatchWhere: any = { ...where };
-    if (searchTerms.length > 1) {
-      nameMatchWhere.AND = [
-        ...(nameMatchWhere.AND || []),
-        ...searchTerms.map((term: string) => ({ name: { contains: term, mode: "insensitive" } })),
-      ];
-    } else {
-      nameMatchWhere.name = { contains: search, mode: "insensitive" };
-    }
-
-    const [totalAll, totalNameMatch] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.count({ where: nameMatchWhere }),
-    ]);
-    total = totalAll;
-
-    const nameOrderBy: any[] = [{ stock: "desc" }, { priority: "desc" }, { name: "asc" }];
-
-    if (skip < totalNameMatch) {
-      // Page starts within name-match products
-      const nameProducts = await prisma.product.findMany({
-        where: nameMatchWhere,
-        include: { category: true },
-        orderBy: nameOrderBy,
-        skip,
-        take: PAGE_SIZE,
-      });
-      if (nameProducts.length < PAGE_SIZE) {
-        // Fill remaining with category-only matches (exclude name matches)
-        const nameIds = nameProducts.map((p: any) => p.id);
-        const remaining = PAGE_SIZE - nameProducts.length;
-        const categoryOnlyProducts = await prisma.product.findMany({
-          where: { ...where, id: { notIn: nameIds }, NOT: nameMatchWhere.name ? { name: nameMatchWhere.name } : { AND: searchTerms.map((t: string) => ({ name: { contains: t, mode: "insensitive" as const } })) } },
-          include: { category: true },
-          orderBy: nameOrderBy,
-          take: remaining,
-        });
-        rawProducts = [...nameProducts, ...categoryOnlyProducts];
-      } else {
-        rawProducts = nameProducts;
-      }
-    } else {
-      // Page is entirely in category-only match territory
-      const catSkip = skip - totalNameMatch;
-      // Exclude all name-match products
-      const excludeNameWhere = searchTerms.length > 1
-        ? { AND: searchTerms.map((t: string) => ({ name: { contains: t, mode: "insensitive" as const } })) }
-        : { name: { contains: search, mode: "insensitive" as const } };
-      rawProducts = await prisma.product.findMany({
-        where: { ...where, NOT: excludeNameWhere },
-        include: { category: true },
-        orderBy: nameOrderBy,
-        skip: catSkip,
-        take: PAGE_SIZE,
-      });
-    }
-  } else if (isDefaultSort) {
-    // Two-pass fetch: products with images first, then without
-    const whereHasImage = { ...where, AND: [...(where.AND || []), { image: { not: null } }, { NOT: { image: "" } }] };
-    const whereNoImage = { ...where, AND: [...(where.AND || []), { OR: [{ image: null }, { image: "" }] }] };
-
-    const [totalAll, totalWithImage] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.count({ where: whereHasImage }),
-    ]);
-    total = totalAll;
-
-    if (skip < totalWithImage) {
-      const withImageProducts = await prisma.product.findMany({
-        where: whereHasImage,
-        include: { category: true },
-        orderBy,
-        skip,
-        take: PAGE_SIZE,
-      });
-      if (withImageProducts.length < PAGE_SIZE) {
-        const remaining = PAGE_SIZE - withImageProducts.length;
-        const noImageProducts = await prisma.product.findMany({
-          where: whereNoImage,
-          include: { category: true },
-          orderBy,
-          take: remaining,
-        });
-        rawProducts = [...withImageProducts, ...noImageProducts];
-      } else {
-        rawProducts = withImageProducts;
-      }
-    } else {
-      const noImageSkip = skip - totalWithImage;
-      rawProducts = await prisma.product.findMany({
-        where: whereNoImage,
-        include: { category: true },
-        orderBy,
-        skip: noImageSkip,
-        take: PAGE_SIZE,
-      });
-    }
-  } else {
-    [rawProducts, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        include: { category: true },
-        orderBy,
-        skip,
-        take: PAGE_SIZE,
-      }),
-      prisma.product.count({ where }),
-    ]);
-  }
-
-  const [categories, activeCategory, brandProducts] = await Promise.all([
-    getCategoriesWithCounts(),
-    categorySlug
-      ? prisma.category.findUnique({ where: { slug: categorySlug } })
-      : null,
-    // Get products for brand extraction (from current category or all)
-    prisma.product.findMany({
-      where: {
-        isActive: true,
-        ...(categorySlug ? { category: { slug: categorySlug } } : {}),
-      },
-      select: { name: true },
-      take: 300,
-    }),
-  ]);
-
-  // Daily rotation: on default sort + page 1, shuffle non-priority products
-  let products = rawProducts;
-  if (useRotation && page === 1) {
-    const pinned = rawProducts.filter((p: any) => p.priority > 0);
-    const regular = rawProducts.filter((p: any) => p.priority === 0);
-    // Deterministic shuffle based on day — same order all day, different next day
-    const shuffled = regular
-      .map((p: any) => ({ p, sort: hashCode(p.id + daySeed) }))
-      .sort((a: any, b: any) => a.sort - b.sort)
-      .map(({ p }: any) => p);
-    // In-stock first within shuffled (images already prioritized by DB query)
-    const inStock = shuffled.filter((p: any) => p.stock > 0);
-    const outOfStock = shuffled.filter((p: any) => p.stock <= 0);
-    products = [...pinned, ...inStock, ...outOfStock];
-  }
-
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  // Group categories into tree
-  const { grouped, ungrouped } = groupCategories(categories);
-
-  // Extract brands
-  const brands = extractBrandsFromProducts(brandProducts);
-
-  // Build page URL
-  function pageUrl(p: number) {
-    const params = new URLSearchParams();
-    if (categorySlug) params.set("category", categorySlug);
-    if (search) params.set("search", search);
-    if (brand) params.set("brand", brand);
-    if (sort) params.set("sort", sort);
-    if (p > 1) params.set("page", String(p));
-    const qs = params.toString();
-    return `/catalog${qs ? `?${qs}` : ""}`;
-  }
-
-  // Flat list of all categories for mobile pills
-  const allCategories = [
-    ...grouped.flatMap((g) => g.categories),
-    ...ungrouped,
-  ].sort((a, b) => b._count.products - a._count.products);
-
-  // Build URL helper for sort/category pills
-  function buildSortUrl(p: { category?: string; brand?: string; sort?: string }) {
-    const sp = new URLSearchParams();
-    if (p.category) sp.set("category", p.category);
-    if (search) sp.set("search", search);
-    if (p.brand) sp.set("brand", p.brand);
-    if (p.sort) sp.set("sort", p.sort);
-    const qs = sp.toString();
-    return `/catalog${qs ? `?${qs}` : ""}`;
-  }
-
-  // Breadcrumb
-  const activeGroup = grouped.find((g) =>
-    g.categories.some((c) => c.slug === categorySlug)
-  );
+  const SORTS = [
+    { value: "", label: "За замовч." },
+    { value: "price-asc", label: "Дешевші" },
+    { value: "price-desc", label: "Дорожчі" },
+    { value: "newest", label: "Новинки" },
+    { value: "name-asc", label: "А → Я" },
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-      {/* Breadcrumb */}
-      <nav className="breadcrumb-scroll flex items-center gap-2 text-sm text-[#9E9E9E] mb-4 sm:mb-6">
-        <Link href="/" className="hover:text-[#FFB800] transition duration-200">Головна</Link>
+    <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-8">
+      <nav className="breadcrumb-scroll mb-4 flex items-center gap-2 text-sm text-[#9E9E9E] sm:mb-6">
+        <Link href="/" className="transition duration-200 hover:text-[#FFB800]">Головна</Link>
         <span className="text-[#DADADA]">/</span>
-        <Link href="/catalog" className={activeCategory ? "hover:text-[#FFB800] transition duration-200" : "text-[#0A0A0A] font-medium"}>
-          Каталог
-        </Link>
-        {activeGroup && (
+        <Link href="/catalog" className="font-medium text-[#0A0A0A]">Каталог</Link>
+        {activeBrands.length === 1 && (
           <>
             <span className="text-[#DADADA]">/</span>
-            <span className="text-[#9E9E9E]">{activeGroup.group}</span>
-          </>
-        )}
-        {activeCategory && (
-          <>
-            <span className="text-[#DADADA]">/</span>
-            <span className="text-[#0A0A0A] font-medium">{activeCategory.name}</span>
-          </>
-        )}
-        {search && (
-          <>
-            <span className="text-[#DADADA]">/</span>
-            <span className="text-[#0A0A0A] font-medium">Пошук</span>
+            <span className="font-medium text-[#0A0A0A]">{activeBrands[0].name}</span>
           </>
         )}
       </nav>
 
-      <h1 className="text-2xl sm:text-3xl font-bold text-[#0A0A0A] mb-1">
-        {search ? `Результати пошуку: "${search}"` : activeCategory ? activeCategory.name : "Каталог інструментів"}
-      </h1>
-      <p className="text-sm sm:text-base text-[#9E9E9E] mb-4 sm:mb-8">
-        {total > 0 ? `Знайдено ${total} товарів` : "Товарів не знайдено"}
-        {brand && <span className="ml-2 bg-[#FFD600]/15 text-[#0A0A0A] px-2.5 py-0.5 rounded-md text-xs font-semibold">{brand}</span>}
-      </p>
-
-      {/* AI Smart Search */}
-      <div className="mb-4 sm:mb-8">
-        <AiSmartSearch currentSearch={search} />
+      <div className="mb-4">
+        <h1 className="mb-1 text-2xl font-bold text-[#0A0A0A] sm:text-3xl">{title}</h1>
+        <p className="text-sm text-[#9E9E9E] sm:text-base">
+          {total > 0 ? `Знайдено ${total.toLocaleString("uk-UA")} товарів` : "Товарів не знайдено"}
+        </p>
       </div>
 
-      {/* Mobile: Category pills */}
-      <div className="md:hidden mb-3 -mx-3 px-3">
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          <Link
-            href={buildSortUrl({ sort })}
-            className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-semibold border transition ${
-              !categorySlug
-                ? "bg-[#0A0A0A] text-[#FFD600] border-[#0A0A0A]"
-                : "bg-white text-[#555] border-[#E0E0E0] active:bg-[#F5F5F5]"
-            }`}
-          >
-            Усі
-          </Link>
-          {allCategories.map((cat) => (
-            <Link
-              key={cat.id}
-              href={buildSortUrl({ category: cat.slug, sort })}
-              className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-semibold border transition whitespace-nowrap ${
-                categorySlug === cat.slug
-                  ? "bg-[#0A0A0A] text-[#FFD600] border-[#0A0A0A]"
-                  : "bg-white text-[#555] border-[#E0E0E0] active:bg-[#F5F5F5]"
-              }`}
-            >
-              {cat.name}
-            </Link>
-          ))}
-        </div>
+      <div className="mb-4 sm:mb-6">
+        <AiSmartSearch currentSearch={filters.search} />
       </div>
 
-      {/* Sort pills — visible on both mobile and desktop */}
-      <div className="mb-4 -mx-3 px-3 sm:mx-0 sm:px-0">
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
-          <span className="flex-shrink-0 text-xs text-[#9E9E9E] font-medium mr-1 hidden sm:inline">Сортування:</span>
-          {[
-            { value: "", label: "За замовч." },
-            { value: "price-asc", label: "Дешевші" },
-            { value: "price-desc", label: "Дорожчі" },
-            { value: "newest", label: "Новинки" },
-            { value: "name-asc", label: "А → Я" },
-          ].map((opt) => (
+      <div className="mb-4">
+        <div className="scrollbar-hide -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0">
+          <span className="mr-1 hidden flex-shrink-0 text-xs font-medium text-[#9E9E9E] sm:inline">
+            Сортування:
+          </span>
+          {SORTS.map((opt) => (
             <Link
               key={opt.value}
-              href={buildSortUrl({ category: categorySlug, brand, sort: opt.value })}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition whitespace-nowrap ${
-                (sort || "") === opt.value
-                  ? "bg-[#FFD600] text-[#0A0A0A] border-[#FFD600] font-semibold"
-                  : "bg-white text-[#555] border-[#E0E0E0] hover:bg-[#FAFAFA] active:bg-[#F0F0F0]"
+              href={`/catalog${filtersToQuery({ ...filters, sort: opt.value })}`}
+              className={`flex-shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                (filters.sort || "") === opt.value
+                  ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
+                  : "border-[#E0E0E0] bg-white text-[#555] hover:bg-[#FAFAFA]"
               }`}
             >
               {opt.label}
@@ -380,74 +114,67 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 sm:gap-8">
-        {/* Tree sidebar */}
-        <CatalogSidebar
-          grouped={grouped}
-          ungrouped={ungrouped}
-          brands={brands}
-          activeCategory={categorySlug}
-          activeBrand={brand}
-          search={search}
-          activeSort={sort}
-        />
+      <ActiveFilterChips filters={filters} brands={allBrands} unbranded={tree.unbranded} />
 
-        {/* Products Grid */}
-        <div className="flex-1 min-w-0">
+      <div className="flex flex-col gap-4 sm:gap-6 md:flex-row">
+        <aside className="w-full flex-shrink-0 md:w-72">
+          <CatalogFilters
+            brands={tree.main}
+            tailBrands={tree.tail}
+            unbranded={tree.unbranded}
+            types={types}
+            priceBounds={priceBounds}
+          />
+        </aside>
+
+        <div className="min-w-0 flex-1">
           {products.length === 0 ? (
-            <div className="text-center py-16 text-[#9E9E9E]">
+            <div className="py-16 text-center text-[#9E9E9E]">
               <p className="text-lg">Товарів не знайдено</p>
-              <Link href="/catalog" className="text-[#FFB800] hover:text-[#FFC400] font-medium mt-2 inline-block transition duration-200">
-                Переглянути всі товари
+              <Link
+                href="/catalog"
+                className="mt-2 inline-block font-medium text-[#FFB800] transition hover:text-[#FFC400]"
+              >
+                Скинути фільтри
               </Link>
             </div>
           ) : (
             <>
-              <CatalogGrid
-                products={products.map((product) => ({
-                  ...product,
-                  wholesalePrice: isWholesale
-                    ? getWholesalePrice(product.price, product.name, brandDiscounts)
-                    : undefined,
-                }))}
-              />
+              <CatalogGrid products={products} />
 
-              {/* Pagination */}
               {totalPages > 1 && (
-                <nav className="flex items-center justify-center gap-1.5 mt-12">
+                <nav className="mt-12 flex items-center justify-center gap-1.5">
                   {page > 1 && (
                     <Link
-                      href={pageUrl(page - 1)}
-                      className="px-4 py-2.5 rounded-[10px] border border-[#DADADA] bg-white text-sm hover:bg-[#FAFAFA] transition duration-200 font-medium text-[#1A1A1A]"
+                      href={`/catalog${filtersToQuery(filters, page - 1)}`}
+                      className="rounded-[10px] border border-[#DADADA] bg-white px-4 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA]"
                     >
-                      &larr; Назад
+                      ← Назад
                     </Link>
                   )}
-
                   {paginationRange(page, totalPages).map((p, i) =>
                     p === "..." ? (
-                      <span key={`dots-${i}`} className="px-2 py-2 text-[#9E9E9E] text-sm">...</span>
+                      <span key={`dots-${i}`} className="px-2 py-2 text-sm text-[#9E9E9E]">…</span>
                     ) : (
                       <Link
                         key={p}
-                        href={pageUrl(p as number)}
-                        className={`px-3.5 py-2.5 rounded-[10px] text-sm font-medium transition duration-200 ${
+                        href={`/catalog${filtersToQuery(filters, p as number)}`}
+                        className={`rounded-[10px] px-3.5 py-2.5 text-sm font-medium transition ${
                           p === page
                             ? "bg-[#0A0A0A] text-[#FFD600]"
-                            : "border border-[#DADADA] bg-white hover:bg-[#FAFAFA] text-[#1A1A1A]"
+                            : "border border-[#DADADA] bg-white text-[#1A1A1A] hover:bg-[#FAFAFA]"
                         }`}
                       >
                         {p}
                       </Link>
                     )
                   )}
-
                   {page < totalPages && (
                     <Link
-                      href={pageUrl(page + 1)}
-                      className="px-4 py-2.5 rounded-[10px] border border-[#DADADA] bg-white text-sm hover:bg-[#FAFAFA] transition duration-200 font-medium text-[#1A1A1A]"
+                      href={`/catalog${filtersToQuery(filters, page + 1)}`}
+                      className="rounded-[10px] border border-[#DADADA] bg-white px-4 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA]"
                     >
-                      Далі &rarr;
+                      Далі →
                     </Link>
                   )}
                 </nav>
@@ -460,29 +187,12 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   );
 }
 
-// Simple deterministic hash for daily rotation
-function hashCode(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return hash;
-}
-
 function paginationRange(current: number, total: number): (number | "...")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-
-  const items: (number | "...")[] = [];
-  items.push(1);
-
+  const items: (number | "...")[] = [1];
   if (current > 3) items.push("...");
-
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  for (let i = start; i <= end; i++) items.push(i);
-
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) items.push(i);
   if (current < total - 2) items.push("...");
-
   items.push(total);
   return items;
 }

@@ -225,38 +225,3 @@ export function groupCategories(categories: CategoryWithCount[]): {
 
   return { grouped, ungrouped };
 }
-
-// Extract brand from product name
-// Common patterns: "Product Type BRAND Model" or "BRAND Product..."
-const KNOWN_BRANDS = [
-  "Bosch", "Makita", "DeWalt", "Einhell", "SIGMA", "APRO", "DNIPRO-M",
-  "GRAD", "INTERTOOL", "ULTRA", "VOREL", "YATO", "TOPEX", "NEO",
-  "STANLEY", "MILWAUKEE", "METABO", "GRAPHITE", "PROLINE", "TOTAL",
-  "MASTERTOOL", "HOUSETOOLS", "MIOL", "ALLOID", "STORM", "POWER",
-  "TOPTUL", "JONNESWAY", "LICOTA", "KING TONY", "FORCE", "HANS",
-  "EXPERT", "REFCO", "VORTEX", "FLORA", "MAESTRO", "VITALS",
-  "FORTE", "TITAN", "WERK", "PATRIOT", "COMPASS", "USH",
-  "MAROLEX", "KARCHER", "STIHL", "HUSQVARNA", "GROSS", "Grosser",
-  "БРИГАДИР", "СИЛА", "ТРИТОН",
-];
-
-export function extractBrandsFromProducts(
-  products: { name: string }[]
-): { brand: string; count: number }[] {
-  const brandCounts: Record<string, number> = {};
-
-  for (const product of products) {
-    const nameUpper = product.name.toUpperCase();
-    for (const brand of KNOWN_BRANDS) {
-      if (nameUpper.includes(brand.toUpperCase())) {
-        const key = brand.toUpperCase() === brand ? brand : brand;
-        brandCounts[key] = (brandCounts[key] || 0) + 1;
-        break; // one brand per product
-      }
-    }
-  }
-
-  return Object.entries(brandCounts)
-    .map(([brand, count]) => ({ brand, count }))
-    .sort((a, b) => b.count - a.count);
-}

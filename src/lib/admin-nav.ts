@@ -55,6 +55,10 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "sales-docs",
     title: "Продажі та документи",
     items: [
+      // Каталог у «Продажах», а не в згорнутому «Інтернет-магазині»: його
+      // відкривають перед клієнтом, а не раз на місяць. Доступ усім трьом
+      // ролям — менеджер і адмін показують товар так само, як торговий.
+      { href: "/sales/catalog", title: "Каталог товарів", desc: "Номенклатура за брендами й групами", iconKey: "products", roles: ALL },
       { href: "/admin/erp/counterparties", title: "Контрагенти", desc: "Постачальники та покупці", iconKey: "counterparties", roles: ALL },
       { href: "/admin/procurement", title: "Закупівлі", desc: "Дефіцит на складі: що замовити", iconKey: "purchase", roles: AM },
       { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },

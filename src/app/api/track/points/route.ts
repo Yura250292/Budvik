@@ -15,8 +15,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { preparePoints, type RawPoint } from "@/lib/track/geo";
+import { findGaps, resolveGaps } from "@/lib/track/gaps";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +92,25 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  /**
+   * Розриви (планшет був офлайн) добираємо реальною дорогою: пряма між
+   * двома точками з різних кінців міста коротша за проїзд і занижує
+   * пробіг. OSRM повільний, тому чекаємо його ДО транзакції й лише коли
+   * розриви справді є — на щільному треку цей код не виконується взагалі.
+   */
+  const gaps = findGaps(prepared.points, last);
+  const resolved = gaps.length > 0 ? await resolveGaps(gaps) : [];
+  const byIndex = new Map(resolved.map((r) => [r.index, r]));
+
+  // Пробіг: замість хорди — довжина дорогою там, де її вдалося дістати.
+  const gapCorrectionM = resolved.reduce(
+    (sum, r) => sum + (r.roadM != null ? r.roadM - r.straightM : 0),
+    0
+  );
+
   const [, updated] = await prisma.$transaction([
     prisma.trackPoint.createMany({
-      data: prepared.points.map((p) => ({
+      data: prepared.points.map((p, i) => ({
         sessionId: sessionRow.id,
         userId,
         lat: p.lat,
@@ -103,14 +121,22 @@ export async function POST(req: NextRequest) {
         recordedAt: p.recordedAt,
         metersFromPrev: p.metersFromPrev,
         minutesFromPrev: p.minutesFromPrev,
+        roadMetersFromPrev:
+          byIndex.get(i)?.roadM != null ? Math.round(byIndex.get(i)!.roadM!) : null,
+        // Тип GeoJSON не збігається з InputJsonValue Prisma (немає індексної
+        // сигнатури), хоча по суті це той самий об'єкт.
+        gapGeometry: (byIndex.get(i)?.geometry ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
       })),
     }),
     prisma.trackSession.update({
       where: { id: sessionRow.id },
       data: {
         // Інкремент, а не перерахунок: сотні точок за день не варто
-        // агрегувати на кожному флаші.
-        distanceKm: { increment: prepared.addedKm },
+        // агрегувати на кожному флаші. Поправка — різниця «дорога мінус
+        // пряма» по розривах; на щільному треку вона нульова.
+        distanceKm: { increment: prepared.addedKm + gapCorrectionM / 1000 },
         pointsCount: { increment: prepared.points.length },
         lastPointAt: prepared.lastAt ?? undefined,
       },

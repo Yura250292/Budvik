@@ -13,6 +13,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
+import { buildTrackPath } from "@/lib/track/gaps";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,14 @@ export async function GET(
     prisma.trackPoint.findMany({
       where: { userId, session: { day: dayStart } },
       orderBy: { recordedAt: "asc" },
-      select: { lat: true, lng: true, recordedAt: true, speedKmh: true, accuracyM: true },
+      select: {
+        lat: true,
+        lng: true,
+        recordedAt: true,
+        speedKmh: true,
+        accuracyM: true,
+        gapGeometry: true,
+      },
     }),
     prisma.visit.findMany({
       where: { userId, day: dayStart },
@@ -78,6 +86,13 @@ export async function GET(
       startedAt: trackSession?.startedAt ?? null,
       lastPointAt: trackSession?.lastPointAt ?? null,
       points,
+      /**
+       * Готова лінія для карти: там, де планшет був офлайн, замість прямої
+       * через півміста вплетено реальну дорогу. Окремим полем, а не
+       * замість points: точки несуть швидкість і точність, які потрібні
+       * для розбору «стояв чи їхав».
+       */
+      path: buildTrackPath(points),
     },
     // Точки з приклеєними відмітками — карта фарбує їх за статусом візиту
     // так само, як планшет у водія.

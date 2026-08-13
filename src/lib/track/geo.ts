@@ -39,6 +39,20 @@ export const MAX_PLAUSIBLE_KMH = 150;
 /** Мінімальний зсув, який вважаємо рухом, а не дрейфом GPS на стоянці. */
 export const MIN_MOVE_M = 15;
 
+/**
+ * Відстань, з якої відрізок уже не можна вважати прямою дорогою.
+ *
+ * Трек — ламана між точками GPS. Поки точки йдуть кожні 15 секунд, відрізки
+ * короткі й пряма між ними майже збігається з дорогою. Але коли планшет був
+ * офлайн (у тримачі без інтернету, з вимкненим екраном), у треку виникає
+ * розрив — і дві точки з різних кінців міста з'єднуються прямою через дахи.
+ * Пробіг тоді занижений: реальна дорога довша за хорду.
+ *
+ * 800 м — межа, за якою різниця стає відчутною. Коротші розриви лишаємо як
+ * є: ганяти OSRM заради 200 метрів дорожче, ніж похибка, яку це виправить.
+ */
+export const GAP_M = 800;
+
 const EARTH_R = 6_371_000;
 
 /** Відстань по прямій між двома точками, метри. */
@@ -71,6 +85,11 @@ export type PreparedPoint = {
   minutesFromPrev: number | null;
   /** Чи додавати відстань до пробігу: false для стрибків і дрейфу на місці */
   countsToDistance: boolean;
+  /**
+   * Розрив у треку: попередня точка далеко, і пряма між ними — не дорога.
+   * Такі відрізки добиваємо реальним маршрутом OSRM, див. resolveGaps.
+   */
+  isGap: boolean;
 };
 
 export type PrepareResult = {
@@ -148,6 +167,7 @@ export function preparePoints(
     let metersFromPrev: number | null = null;
     let minutesFromPrev: number | null = null;
     let countsToDistance = false;
+    let isGap = false;
 
     if (cursor) {
       const meters = haversineM(cursor.lat, cursor.lng, p.lat, p.lng);
@@ -157,6 +177,9 @@ export function preparePoints(
 
       const kmh = minutes > 0 ? meters / 1000 / (minutes / 60) : Infinity;
       countsToDistance = meters >= MIN_MOVE_M && kmh <= MAX_PLAUSIBLE_KMH;
+      // Довгий відрізок — планшет був офлайн. Хорда занижує пробіг, тож
+      // позначаємо: справжню довжину дорогою добере resolveGaps.
+      isGap = countsToDistance && meters >= GAP_M;
       if (countsToDistance) addedM += meters;
     }
 
@@ -171,6 +194,7 @@ export function preparePoints(
       metersFromPrev,
       minutesFromPrev,
       countsToDistance,
+      isGap,
     });
 
     cursor = { lat: p.lat, lng: p.lng, recordedAt: at };

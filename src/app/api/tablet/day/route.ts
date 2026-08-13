@@ -17,6 +17,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
+import { buildTrackPath } from "@/lib/track/gaps";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
     prisma.trackPoint.findMany({
       where: { userId, session: { day: dayStart } },
       orderBy: { recordedAt: "asc" },
-      select: { lat: true, lng: true, recordedAt: true },
+      select: { lat: true, lng: true, recordedAt: true, gapGeometry: true },
     }),
   ]);
 
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
       pointsCount: trackSession?.pointsCount ?? 0,
       lastPointAt: trackSession?.lastPointAt ?? null,
       startedAt: trackSession?.startedAt ?? null,
-      path: points.map((p) => [p.lat, p.lng] as [number, number]),
+      path: buildTrackPath(points),
     },
     /** Візити поза планом — щоб UI показав їх окремим списком */
     extraVisits: visits.filter(

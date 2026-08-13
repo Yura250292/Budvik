@@ -2120,6 +2120,16 @@ model TrackPoint {
   metersFromPrev  Int?
   minutesFromPrev Int?
 
+  /// Довжина відрізка ДОРОГОЮ, м — заповнюється лише для розривів треку
+  /// (планшет був офлайн). metersFromPrev там — пряма через дахи, і саме
+  /// вона занижувала пробіг: на реальному дні дві прямі дали 15,74 км із
+  /// 15,76 км «пробігу». Коли поле заповнене, у пробіг іде воно.
+  roadMetersFromPrev Int?
+
+  /// Геометрія тієї дороги (GeoJSON LineString) — щоб карта малювала
+  /// реальний шлях замість прямої лінії через півміста.
+  gapGeometry Json?
+
   createdAt DateTime @default(now())
 
   session TrackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

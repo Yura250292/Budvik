@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { buildLowStockReport, DEFAULT_PARAMS } from "@/lib/procurement/low-stock";
 
 /**
- * Дані для сторінки закупівель.
+ * Звіт закупівель.
  *
- * Без brandId — список брендів з кількістю активних товарів (для селекта).
- * З brandId — звіт «чого мало» по бренду. Пороги приходять з форми,
- * дефолти — у DEFAULT_PARAMS.
+ * brandId необов'язковий: без нього — огляд по всьому складу зі зведенням
+ * по брендах, з ним — звіт по одному бренду. Список брендів для селекта
+ * віддає окремий /brands, щоб цей маршрут завжди повертав звіт.
  */
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -18,30 +17,18 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const brandId = searchParams.get("brandId");
-
-  if (!brandId) {
-    const brands = await prisma.brand.findMany({
-      select: { id: true, name: true, _count: { select: { products: { where: { isActive: true } } } } },
-      orderBy: { name: "asc" },
-    });
-    return NextResponse.json({
-      brands: brands
-        .filter((b) => b._count.products > 0)
-        .map((b) => ({ id: b.id, name: b.name, products: b._count.products })),
-    });
-  }
-
   const num = (key: keyof typeof DEFAULT_PARAMS) => {
     const raw = Number(searchParams.get(key));
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_PARAMS[key];
   };
 
   const report = await buildLowStockReport({
-    brandId,
+    brandId: searchParams.get("brandId") || null,
     expensivePrice: num("expensivePrice"),
     expensiveMin: num("expensiveMin"),
     cheapMin: num("cheapMin"),
+    includeDead: searchParams.get("includeDead") === "1",
+    search: searchParams.get("search") ?? undefined,
   });
   if (!report) return NextResponse.json({ error: "Бренд не знайдено" }, { status: 404 });
   return NextResponse.json({ report });

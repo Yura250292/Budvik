@@ -1,54 +1,92 @@
 import { prisma } from "@/lib/prisma";
 
 /**
- * Звіт закупівельника: чого мало на складі по бренду.
+ * Звіт закупівельника: що замовити.
  *
- * Пороги «мало» залежать від ціни, а не від категорії: дорога техніка
- * (≥ expensivePrice) обертається одиницями — дефіцит це < expensiveMin шт;
- * дешева оснастка йде пачками — дефіцит це < cheapMin шт. Значення за
- * замовчуванням підібрані по Grösser, але закупівельник може міняти їх
- * у формі — тому всі три параметри наскрізні.
+ * Головна ідея — дефіцит визначає ОБІГ, а не сам по собі малий залишок.
+ * У каталозі 40 159 товарів із брендом, і 33 418 із них мертві: нуль
+ * продажів за 90 днів і нуль на складі. Формальний поріг «менше 10 шт»
+ * записав би всіх їх у дефіцит і поховав би справжню роботу — 271 позицію,
+ * які продаються і скінчились. Тому мертві товари не потрапляють у звіт
+ * узагалі, а порядок задає severity (див. нижче).
  *
- * Групування — за ієрархією номенклатури 1С. Проблема: у частини товарів
- * категорія — звалище («Імпорт з 1С», «1972»), дерева там немає. Для них
- * групу відновлюємо за назвою товару: словник нижче — це загальні назви
- * інструменту (шуруповерт, болгарка, ланцюг…), тож правила працюють для
- * будь-якого бренду, не лише Grösser.
+ * Пороги лишаються, але як запасний варіант для позицій без історії
+ * продажів: дорога техніка обертається одиницями, оснастка йде пачками.
  */
 
+const VELOCITY_DAYS = 90;
+
 export type LowStockParams = {
-  brandId: string;
-  /** Ціна, від якої товар вважається «дорогим» (грн). */
+  /** null — усі бренди (огляд по складу). */
+  brandId: string | null;
   expensivePrice: number;
-  /** Мінімальний залишок для дорогих. */
   expensiveMin: number;
-  /** Мінімальний залишок для кількісних. */
   cheapMin: number;
+  /** Показувати позиції без продажів за 90 днів (за замовчуванням — ні). */
+  includeDead?: boolean;
+  /** Пошук за назвою або артикулом. */
+  search?: string;
 };
 
 export const DEFAULT_PARAMS = { expensivePrice: 1000, expensiveMin: 5, cheapMin: 10 };
+
+/**
+ * 0 — продається, але скінчилось (пекуче);
+ * 1 — продається, залишку менше ніж на місяць;
+ * 2 — залишок нижче норми (без історії продажів);
+ * 3 — усе гаразд.
+ */
+export type Severity = 0 | 1 | 2 | 3;
 
 export type LowStockItem = {
   id: string;
   sku: string | null;
   name: string;
+  brandName: string;
   price: number;
   stock: number;
   expensive: boolean;
   threshold: number;
-  /** 0 — залишок нуль, 1 — нижче норми, 2 — ок. */
-  severity: 0 | 1 | 2;
+  severity: Severity;
+  /** Продано за 90 днів (з урахуванням повернень). */
+  sold90: number;
+  /** Середній продаж на місяць. */
+  perMonth: number;
+  /** На скільки днів вистачить залишку; null — не продається. */
+  daysLeft: number | null;
+  /** Скільки радимо замовити, щоб вистачило на ~2 місяці (мінімум — норма). */
+  suggested: number;
 };
 
 export type LowStockGroup = { name: string; total: number; toOrder: number; items: LowStockItem[] };
 export type LowStockSection = { name: string; total: number; toOrder: number; groups: LowStockGroup[] };
 
+export type BrandSummary = {
+  id: string;
+  name: string;
+  total: number;
+  toOrder: number;
+  outOfStock: number;
+  /** Скільки грошей потрібно на рекомендовану закупівлю. */
+  orderCost: number;
+};
+
 export type LowStockReport = {
-  brand: { id: string; name: string };
+  brand: { id: string; name: string } | null;
   params: Omit<LowStockParams, "brandId">;
+  velocityDays: number;
   total: number;
   toOrder: number;
   zeroStock: number;
+  /** Пекучі: продаються і скінчились. */
+  urgent: number;
+  /** Орієнтовна сума рекомендованої закупівлі. */
+  orderCost: number;
+  /** Скільки мертвих позицій сховано (0 продажів і 0 залишку). */
+  hiddenDead: number;
+  /** Позицій до замовлення, у яких немає ціни — вони не входять в orderCost. */
+  noPrice: number;
+  brands: BrandSummary[];
   sections: LowStockSection[];
 };
 
@@ -72,7 +110,7 @@ const RULES: Array<[RegExp, string, string]> = [
   // «лацнюги» — не помилка тут, а одруківка в назвах товарів у базі.
   [/ланцюг пильний|(^|\s)шина(\s|\d)|ла[нц]{2}юги\+шина/i, SEC.ROZ, "Ланцюги і шини"],
   [/ліска для тримера|котушка для тримера|ніж .*(GGT|тример)|ніж \dт/i, SEC.ROZ, "Ліски і ножі для тримерів"],
-  [/диск з победіт|диск пильний|пильний диск/i, SEC.ROZ, "Пильні диски"],
+  [/диск з победіт|диск пильний|пильний диск|круг відрізний|круг зачисний/i, SEC.ROZ, "Диски і круги"],
   [/зварювальний пальник|пальник (mig|tig)/i, SEC.ZVAR, "Пальники"],
   [/маска звар|хамелеон/i, SEC.ZVAR, "Маски зварювальника"],
   [/зварюванн|зварювальн|напівавтомат|плазморіз|електрод|(^|\s)tig-|(^|\s)mig-/i, SEC.ZVAR, "Апарати, напівавтомати, плазморізи"],
@@ -126,20 +164,73 @@ function classify(name: string, categoryPath: string[]): { section: string; grou
   return { section: SEC.INS, group: "Некласифіковане" };
 }
 
-export async function buildLowStockReport(params: LowStockParams): Promise<LowStockReport | null> {
-  const brand = await prisma.brand.findUnique({ where: { id: params.brandId }, select: { id: true, name: true } });
-  if (!brand) return null;
+/** Продано за VELOCITY_DAYS днів по кожному товару (повернення вже з мінусом). */
+async function loadVelocity(): Promise<Map<string, number>> {
+  const rows = await prisma.$queryRaw<Array<{ productId: string; sold: bigint }>>`
+    SELECT i."productId", SUM(i.quantity)::bigint AS sold
+    FROM "SalesDocumentItem" i
+    JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
+    WHERE d."docType" IN ('REALIZATION','RETURN')
+      AND d.status = 'CONFIRMED'
+      AND d."createdAt" >= NOW() - INTERVAL '90 days'
+    GROUP BY i."productId"
+  `;
+  return new Map(rows.map((r) => [r.productId, Number(r.sold)]));
+}
 
-  const [products, categories] = await Promise.all([
+export async function buildLowStockReport(params: LowStockParams): Promise<LowStockReport | null> {
+  const brand = params.brandId
+    ? await prisma.brand.findUnique({ where: { id: params.brandId }, select: { id: true, name: true } })
+    : null;
+  if (params.brandId && !brand) return null;
+
+  const search = params.search?.trim();
+  const velocityPromise = loadVelocity();
+  // Мертві товари (0 продажів і 0 залишку) — 33 з 40 тисяч. Відсікаємо їх
+  // у SQL, а не в JS: інакше з бази щоразу їде 40 тис. рядків заради 7 тис.
+  // потрібних, і огляд по всіх брендах стає вчетверо повільнішим.
+  const soldIds = params.includeDead ? null : [...(await velocityPromise).keys()];
+
+  const [products, categories, velocity] = await Promise.all([
     prisma.product.findMany({
-      where: { brandId: params.brandId, isActive: true },
-      select: { id: true, sku: true, name: true, price: true, stock: true, categoryId: true },
+      where: {
+        isActive: true,
+        ...(params.brandId ? { brandId: params.brandId } : { brandId: { not: null } }),
+        ...(soldIds ? { OR: [{ stock: { gt: 0 } }, { id: { in: soldIds } }] } : {}),
+        ...(search
+          ? { AND: [{ OR: [{ name: { contains: search, mode: "insensitive" } }, { sku: { contains: search, mode: "insensitive" } }] }] }
+          : {}),
+      },
+      select: {
+        id: true, sku: true, name: true, price: true, stock: true, categoryId: true,
+        brandId: true, brand: { select: { name: true } },
+      },
     }),
     prisma.category.findMany({ select: { id: true, name: true, parentId: true } }),
+    velocityPromise,
   ]);
 
+  // Мертві відсіяні в SQL, тож рахуємо їх окремо — інакше цифра «сховано»
+  // мовчки показувала б нуль, і закупівельник не знав би, що звіт неповний.
+  const hiddenDead = soldIds
+    ? await prisma.product.count({
+        where: {
+          isActive: true,
+          ...(params.brandId ? { brandId: params.brandId } : { brandId: { not: null } }),
+          stock: 0,
+          id: { notIn: soldIds },
+          NOT: { name: { startsWith: "РЕМОНТ" } },
+        },
+      })
+    : 0;
+
   const catById = new Map(categories.map((c) => [c.id, c]));
+  // Кеш шляхів: товари тисячами сидять в одних і тих самих категоріях,
+  // а обхід дерева вгору для кожного з них — найдорожча частина звіту.
+  const pathCache = new Map<string, string[]>();
   const pathOf = (id: string): string[] => {
+    const cached = pathCache.get(id);
+    if (cached) return cached;
     const parts: string[] = [];
     // seen — не перестраховка: дерево приходить із 1С, і цикл A→B→A
     // (який sync не ловить) підвісив би запит у нескінченному циклі.
@@ -150,36 +241,74 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       parts.unshift(cur.name);
       cur = cur.parentId ? catById.get(cur.parentId) : undefined;
     }
+    pathCache.set(id, parts);
     return parts;
   };
+
 
   // Сервісні позиції «РЕМОНТ …» — не товар, який замовляють у постачальника.
   const goods = products.filter((p) => !/^РЕМОНТ/i.test(p.name.trim()));
 
   const sections = new Map<string, Map<string, LowStockItem[]>>();
+  const brandAgg = new Map<string, BrandSummary>();
   let toOrder = 0;
   let zeroStock = 0;
+  let urgent = 0;
+  let orderCost = 0;
+  let noPrice = 0;
 
   for (const p of goods) {
+    const sold90 = Math.max(0, velocity.get(p.id) ?? 0);
+    const perMonth = sold90 / 3;
+
     // Ціна 0 — це «ціна не приїхала з 1С», а не дешевий товар (див.
     // [[product-grouping-brand-not-category]]: 486 позицій без ціни).
-    // Рахувати таке за кількісний товар з нормою 10 шт — це вигадати
-    // дефіцит там, де про товар просто нічого не відомо.
     const priceKnown = p.price > 0;
     const expensive = p.price >= params.expensivePrice;
     const threshold = expensive ? params.expensiveMin : params.cheapMin;
-    const severity: 0 | 1 | 2 =
-      p.stock === 0 ? 0 : !priceKnown ? 2 : p.stock < threshold ? 1 : 2;
-    if (severity < 2) toOrder++;
-    if (severity === 0) zeroStock++;
+    const daysLeft = perMonth > 0 ? Math.round((p.stock / perMonth) * 30) : null;
+
+    // Одна продажа за квартал — це разове замовлення під клієнта, а не
+    // товар, який магазин тримає. Без цієї межі половина «термінових»
+    // виявлялась позиціями, проданими один раз, і ховала справжні дірки.
+    const REGULAR = 2;
+
+    let severity: Severity;
+    if (sold90 >= REGULAR && p.stock === 0) severity = 0;
+    else if (daysLeft !== null && daysLeft < 30) severity = 1;
+    else if (sold90 > 0 && sold90 < REGULAR && p.stock === 0) severity = 2;
+    else if (sold90 === 0 && priceKnown && p.stock < threshold) severity = 2;
+    else severity = 3;
+
+    // Рекомендація: закрити ~2 місяці продажів, але не менше норми.
+    const suggested =
+      severity === 3 ? 0 : Math.max(threshold - p.stock, Math.ceil(perMonth * 2) - p.stock, 0);
+
+    if (severity < 3) {
+      toOrder++;
+      orderCost += suggested * p.price;
+      if (!priceKnown) noPrice++;
+    }
+    if (p.stock === 0) zeroStock++;
+    if (severity === 0) urgent++;
+
+    if (p.brandId) {
+      const bName = p.brand?.name ?? "—";
+      const agg = brandAgg.get(p.brandId) ?? { id: p.brandId, name: bName, total: 0, toOrder: 0, outOfStock: 0, orderCost: 0 };
+      agg.total++;
+      if (severity < 3) { agg.toOrder++; agg.orderCost += suggested * p.price; }
+      if (p.stock === 0) agg.outOfStock++;
+      brandAgg.set(p.brandId, agg);
+    }
 
     const { section, group } = classify(p.name, pathOf(p.categoryId));
     if (!sections.has(section)) sections.set(section, new Map());
     const groups = sections.get(section)!;
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group)!.push({
-      id: p.id, sku: p.sku, name: p.name, price: p.price, stock: p.stock,
-      expensive, threshold, severity,
+      id: p.id, sku: p.sku, name: p.name, brandName: p.brand?.name ?? "—",
+      price: p.price, stock: p.stock, expensive, threshold, severity,
+      sold90, perMonth: Math.round(perMonth * 10) / 10, daysLeft, suggested,
     });
   }
 
@@ -189,14 +318,16 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       const groupList: LowStockGroup[] = [...groups.entries()]
         .sort((a, b) => a[0].localeCompare(b[0], "uk"))
         .map(([gName, items]) => {
-          // Дефіцит угорі: спочатку нулі й найменші залишки, дорожче — вище.
+          // Пекуче вгорі, далі — те, що швидше закінчиться, далі — дорожче.
           items.sort((a, b) =>
-            a.severity !== b.severity ? a.severity - b.severity : a.stock - b.stock || b.price - a.price,
+            a.severity !== b.severity
+              ? a.severity - b.severity
+              : (a.daysLeft ?? 9e9) - (b.daysLeft ?? 9e9) || b.sold90 - a.sold90 || b.price - a.price,
           );
           return {
             name: gName,
             total: items.length,
-            toOrder: items.filter((i) => i.severity < 2).length,
+            toOrder: items.filter((i) => i.severity < 3).length,
             items,
           };
         });
@@ -210,10 +341,19 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
 
   return {
     brand,
-    params: { expensivePrice: params.expensivePrice, expensiveMin: params.expensiveMin, cheapMin: params.cheapMin },
+    params: {
+      expensivePrice: params.expensivePrice, expensiveMin: params.expensiveMin,
+      cheapMin: params.cheapMin, includeDead: params.includeDead, search: params.search,
+    },
+    velocityDays: VELOCITY_DAYS,
     total: goods.length,
     toOrder,
     zeroStock,
+    urgent,
+    orderCost: Math.round(orderCost),
+    hiddenDead,
+    noPrice,
+    brands: [...brandAgg.values()].sort((a, b) => b.toOrder - a.toOrder || b.outOfStock - a.outOfStock),
     sections: sectionList,
   };
 }

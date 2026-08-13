@@ -407,7 +407,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                 products={products.map((product) => ({
                   ...product,
                   wholesalePrice: isWholesale
-                    ? getWholesalePrice(product.price, product.name, brandDiscounts, product.wholesalePrice)
+                    ? getWholesalePrice(product.price, product.name, brandDiscounts)
                     : undefined,
                 }))}
               />

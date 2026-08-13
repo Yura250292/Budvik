@@ -143,10 +143,24 @@ export default function DriverTabletPage() {
       money_: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE",
       extra?: { collectedAmount?: number; comment?: string }
     ) => {
-      if (!stop.counterpartyId) return;
+      // Бонусна поїздка не має клієнта, а візит без клієнта неможливий
+      // (@@unique [userId, day, counterpartyId]) — для неї станом служить
+      // сам DeliveryStop.
+      const isErrandStop = stop.kind !== "DELIVERY";
+      if (!isErrandStop && !stop.counterpartyId) return;
+
       setSaving(stop.key);
       try {
-        const res = await fetch("/api/visits", {
+        const res = isErrandStop
+          ? await fetch(`/api/erp/delivery-routes/stop/${stop.key.slice(3)}/mark`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                status: status === "DONE" ? "DELIVERED" : "FAILED",
+                comment: extra?.comment,
+              }),
+            })
+          : await fetch("/api/visits", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -597,11 +611,11 @@ export default function DriverTabletPage() {
           ) : stops.length === 0 ? (
             <div className="px-4 py-6">
               <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-                Списку точок на сьогодні немає
+                Маршрут на сьогодні ще не передано
               </p>
               <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-                Трек усе одно записується — карта пише ваш маршрут. Точки
-                зʼявляться, коли на сьогодні буде маршрут у системі.
+                Логіст ще складає список. Точки зʼявляться, щойно маршрут
+                передадуть вам — трек тим часом усе одно записується.
               </p>
             </div>
           ) : (
@@ -921,13 +935,16 @@ function StopRow({
 
   const done = stop.visit?.status === "DONE";
   const missed = stop.visit?.status === "MISSED";
-  const hasDebt = stop.debtAmount > 0;
+  // У бонусній поїздці нічого не везуть і нічого не забирають грішми:
+  // ховаємо суми й блок інкасації, лишаємо саму справу.
+  const isErrand = stop.kind !== "DELIVERY";
+  const hasDebt = !isErrand && stop.debtAmount > 0;
 
   return (
     <div
       style={{
         borderBottom: "1px solid #F3F4F6",
-        background: done ? "#F0FDF4" : missed ? "#FEF2F2" : "#fff",
+        background: done ? "#F0FDF4" : missed ? "#FEF2F2" : isErrand ? "#FFFDF5" : "#fff",
       }}
     >
       <button
@@ -955,6 +972,7 @@ function StopRow({
             className="block truncate"
             style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}
           >
+            {isErrand && <span style={{ marginRight: "5px" }}>{stop.kind === "PICKUP" ? "↩️" : "✳️"}</span>}
             {stop.name}
           </span>
           {stop.address && (
@@ -965,8 +983,30 @@ function StopRow({
               {stop.address}
             </span>
           )}
+          {stop.notes && (
+            <span
+              className="block"
+              style={{ fontSize: "12px", color: "#92400E", marginTop: "2px" }}
+            >
+              {stop.notes}
+            </span>
+          )}
           <span className="flex flex-wrap items-center gap-2" style={{ marginTop: "3px" }}>
-            {stop.amount > 0 && (
+            {isErrand && (
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "#92400E",
+                  background: "#FEF3C7",
+                  padding: "1px 6px",
+                  borderRadius: "4px",
+                }}
+              >
+                {stop.kind === "PICKUP" ? "ЗАБРАТИ" : "ДОРУЧЕННЯ"}
+              </span>
+            )}
+            {!isErrand && stop.amount > 0 && (
               <span style={{ fontSize: "12px", color: "#374151" }}>
                 {money.format(stop.amount)} грн
               </span>
@@ -1012,7 +1052,11 @@ function StopRow({
                 opacity: saving ? 0.5 : 1,
               }}
             >
-              {hasDebt ? `Приїхав, забрав ${money.format(stop.debtAmount)}` : "Приїхав"}
+              {hasDebt
+                ? `Приїхав, забрав ${money.format(stop.debtAmount)}`
+                : isErrand
+                  ? "Зробив"
+                  : "Приїхав"}
             </button>
             <button
               type="button"
@@ -1030,7 +1074,7 @@ function StopRow({
                 opacity: saving ? 0.5 : 1,
               }}
             >
-              Не потрапив
+              {isErrand ? "Не вийшло" : "Не потрапив"}
             </button>
           </div>
 

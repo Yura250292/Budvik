@@ -21,9 +21,14 @@
  *   немає маршруту сайту. Зворотний порядок означав би, що порожня
  *   шапка з 1С перекриває реальний маршрут.
  *
- * Зона точки НЕ зберігається в базі навмисно: адмін може перемкнути
- * місто/область на контрагенті заднім числом, і зарплата за минулий
- * місяць має перерахуватися сама. Збережений кеш довелося б інвалідовувати.
+ * Зона точки НЕ зберігається як обчислений факт: адмін може перемкнути
+ * місто/область заднім числом, і зарплата за минулий місяць має
+ * перерахуватися сама. Збережений кеш довелося б інвалідовувати. Ручні ж
+ * override'и (DeliveryStop.zoneOverride, Counterparty.deliveryZone) — це не
+ * кеш, а рішення людини, і вони зберігаються.
+ *
+ * Оплачується лише передана робота: маршрут у статусі PLANNED — чернетка
+ * логіста, водій її не бачив, і ставка за неї не нараховується.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -52,6 +57,12 @@ export interface StopWithZone {
   pointKey: string;
   /** true — саме цей рядок оплачується; решта дублів адреси йдуть безкоштовно */
   paid: boolean;
+  /** DELIVERY / PICKUP / ERRAND — бонусні поїздки видно в деталі окремо */
+  kind: "DELIVERY" | "PICKUP" | "ERRAND";
+  /** Назва бонусної поїздки; для доставки порожня */
+  title: string | null;
+  /** Ручна ціна саме за цю точку, ₴ — перебиває тариф місто/область */
+  payOverride: number | null;
 }
 
 type SheetRow = {
@@ -82,6 +93,11 @@ type SheetRow = {
     address: string | null;
     amount: number;
     debtAmount: number;
+    /** Лише в маршрутів сайту; у листах 1С точка завжди звичайна доставка */
+    kind?: "DELIVERY" | "PICKUP" | "ERRAND";
+    title?: string | null;
+    payOverride?: number | null;
+    zoneOverride?: "CITY" | "OBLAST" | null;
     counterparty: {
       id: string;
       name: string;
@@ -145,18 +161,26 @@ export function resolveStops(sheet: SheetRow): StopWithZone[] {
 
   return sheet.stops.map((stop) => {
     const cp = stop.counterparty;
+    const kind = stop.kind ?? "DELIVERY";
+    const isErrand = kind !== "DELIVERY";
     // Адреса рядка з 1С пріоритетніша за картку клієнта: у листі вона
     // стосується саме цієї доставки, а в картці — остання відома.
     const address = stop.address?.trim() || cp?.deliveryAddress?.trim() || cp?.address?.trim() || null;
 
     const { zone, source } = classifyZone({
-      override: cp?.deliveryZone ?? null,
+      // Зона точки б'є зону контрагента: той самий клієнт сьогодні в місті,
+      // а завтра на заміській філії, і платити треба за фактом виїзду.
+      override: stop.zoneOverride ?? cp?.deliveryZone ?? null,
       lat: cp?.deliveryLat ?? null,
       lng: cp?.deliveryLng ?? null,
       address,
     });
 
-    const pointKey = addressKey(address, stop.counterpartyId, stop.id);
+    // Бонусна поїздка не дедуплікується за адресою: «забрати ремонт» і
+    // доставка за тією ж адресою — дві різні справи, обидві оплачувані.
+    const pointKey = isErrand
+      ? `extra:${stop.id}`
+      : addressKey(address, stop.counterpartyId, stop.id);
     const paid = !seen.has(pointKey);
     if (paid) seen.add(pointKey);
 
@@ -173,13 +197,29 @@ export function resolveStops(sheet: SheetRow): StopWithZone[] {
       zoneSource: source,
       pointKey,
       paid,
+      kind,
+      title: stop.title ?? null,
+      payOverride: stop.payOverride ?? null,
     };
   });
 }
 
 /** Лист → факти для калькулятора. */
 export function sheetToFacts(sheet: SheetRow): RouteSheetFacts {
-  const stops = resolveStops(sheet).filter((s) => s.paid);
+  const allPaid = resolveStops(sheet).filter((s) => s.paid);
+
+  // Точка з ручною ціною виходить із тарифної сітки: вона вже має свою суму,
+  // і рахувати її ще й як «точку в місті» означало б заплатити двічі.
+  // Бонусна поїздка без указаної ціни — теж не тарифна точка: платити за
+  // «відвезти на пошту» 25 ₴ як за вигрузку неправильно, тому вона просто
+  // не потрапляє в оплату, поки логіст не проставить суму.
+  const stops = allPaid.filter((s) => s.kind === "DELIVERY" && s.payOverride == null);
+  const paidExtras = allPaid
+    .filter((s) => s.payOverride != null && s.payOverride !== 0)
+    .map((s) => ({
+      label: s.title ?? s.counterpartyName ?? s.address ?? "Точка",
+      amount: s.payOverride as number,
+    }));
 
   return {
     routeSheetId: sheet.id,
@@ -199,6 +239,7 @@ export function sheetToFacts(sheet: SheetRow): RouteSheetFacts {
     cityPoints: stops.filter((s) => s.zone === "CITY").length,
     oblastPoints: stops.filter((s) => s.zone === "OBLAST").length,
     unknownZonePoints: stops.filter((s) => s.zoneSource === "UNKNOWN").length,
+    paidExtras,
     ordersTotal: sheet.ordersTotal,
     debtsTotal: sheet.debtsTotal,
   };
@@ -255,6 +296,10 @@ const ROUTE_SELECT = {
       counterpartyId: true,
       salesDocumentId: true,
       address: true,
+      kind: true,
+      title: true,
+      payOverride: true,
+      zoneOverride: true,
       salesDocument: { select: { totalAmount: true } },
       counterparty: {
         select: {
@@ -298,7 +343,9 @@ export async function loadRouteRows(
   const routes = await prisma.deliveryRoute.findMany({
     where: {
       date: { gte: from, lte: cappedTo },
-      status: { not: "CANCELLED" },
+      // Чернетка логіста (PLANNED) — ще не робота: водій її навіть не бачив.
+      // Скасовані теж не платяться.
+      status: { in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
       ...(driverId ? { driverId } : {}),
     },
     orderBy: [{ date: "asc" }, { number: "asc" }],
@@ -373,6 +420,10 @@ export async function loadRouteRows(
         address: s.address,
         amount: s.salesDocument?.totalAmount ?? 0,
         debtAmount,
+        kind: s.kind,
+        title: s.title,
+        payOverride: s.payOverride,
+        zoneOverride: s.zoneOverride,
         counterparty: s.counterparty,
       };
     });

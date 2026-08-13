@@ -18,9 +18,14 @@ export async function GET(req: NextRequest) {
   if (status) where.status = status;
   if (driverId) where.driverId = driverId;
 
-  // Drivers see only their own routes
+  // Drivers see only their own routes — і лише передані їм. Чернетка
+  // логіста (PLANNED) для водія не існує: він побачив би напівскладений
+  // список і поїхав би за ним.
   if (session.user.role === "DRIVER") {
     where.driverId = session.user.id;
+    where.status = status && status !== "PLANNED"
+      ? status
+      : { in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] };
   }
 
   const routes = await prisma.deliveryRoute.findMany({

@@ -35,6 +35,10 @@ type Stop = {
   zone: "CITY" | "OBLAST";
   zoneSource: "OVERRIDE" | "POLYGON" | "ADDRESS" | "UNKNOWN";
   paid: boolean;
+  kind: "DELIVERY" | "PICKUP" | "ERRAND";
+  title: string | null;
+  /** Ручна ціна за точку — перебиває тариф місто/область */
+  payOverride: number | null;
 };
 
 type SheetsResponse = {
@@ -312,20 +316,34 @@ export function SheetsTab({ period }: { period: Period }) {
                                   >
                                     <span className="min-w-0 text-g600">
                                       <span className="mr-1.5 text-g400">{s.sequence || "·"}</span>
-                                      {s.counterpartyName ?? "—"}
+                                      {s.title ?? s.counterpartyName ?? "—"}
+                                      {s.kind !== "DELIVERY" && (
+                                        <span className="ml-1.5 rounded-[var(--radius-badge)] bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
+                                          {s.kind === "PICKUP" ? "забрати" : "доручення"}
+                                        </span>
+                                      )}
                                       {s.address && <span className="ml-1.5 text-g400">{s.address}</span>}
                                       {!s.paid && (
                                         <span className="ml-1.5 text-g400">(дубль адреси, не оплачується)</span>
                                       )}
                                     </span>
                                     <span className="flex flex-shrink-0 items-center gap-2">
-                                      <span className="text-g500">
-                                        {s.zone === "CITY" ? "місто" : "область"}
-                                        <span className="ml-1 text-g400">
-                                          ({ZONE_SOURCE_LABEL[s.zoneSource]})
+                                      {/* Ручна ціна перебиває тариф, тому зона для такої
+                                          точки нічого не вирішує — показувати її означало б
+                                          збивати з пантелику. */}
+                                      {s.payOverride != null ? (
+                                        <span className="rounded-[var(--radius-badge)] bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
+                                          оплата вручну
                                         </span>
-                                      </span>
-                                      {data.canEdit && s.counterpartyId && (
+                                      ) : (
+                                        <span className="text-g500">
+                                          {s.zone === "CITY" ? "місто" : "область"}
+                                          <span className="ml-1 text-g400">
+                                            ({ZONE_SOURCE_LABEL[s.zoneSource]})
+                                          </span>
+                                        </span>
+                                      )}
+                                      {data.canEdit && s.counterpartyId && s.payOverride == null && (
                                         <select
                                           value={s.zoneSource === "OVERRIDE" ? s.zone : ""}
                                           disabled={busy}
@@ -344,7 +362,9 @@ export function SheetsTab({ period }: { period: Period }) {
                                         </select>
                                       )}
                                       <span className="w-20 text-right tabular-nums text-g600">
-                                        {money(s.amount)}
+                                        {/* Для бонусної поїздки сума накладної — нуль;
+                                            показуємо те, що реально платимо водію. */}
+                                        {s.payOverride != null ? money(s.payOverride) : money(s.amount)}
                                       </span>
                                     </span>
                                   </li>

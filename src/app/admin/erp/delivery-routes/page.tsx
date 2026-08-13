@@ -5,16 +5,25 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 import RouteOptimizer from "@/components/routes/RouteOptimizer";
+import RouteStopsEditor from "@/components/routes/RouteStopsEditor";
+import AssignDriverBar from "@/components/routes/AssignDriverBar";
 
+// PLANNED — чернетка логіста, водій її НЕ бачить; ASSIGNED — передано.
 const ROUTE_STATUS_LABELS: Record<string, string> = {
-  PLANNED: "Запланований", IN_PROGRESS: "В дорозі", COMPLETED: "Завершений", CANCELLED: "Скасований",
+  PLANNED: "Чернетка", ASSIGNED: "Передано водію", IN_PROGRESS: "В дорозі",
+  COMPLETED: "Завершений", CANCELLED: "Скасований",
 };
 const ROUTE_STATUS_COLOR: Record<string, string> = {
-  PLANNED: "#2563EB", IN_PROGRESS: "#D97706", COMPLETED: "#16A34A", CANCELLED: "#DC2626",
+  PLANNED: "#6B7280", ASSIGNED: "#2563EB", IN_PROGRESS: "#D97706",
+  COMPLETED: "#16A34A", CANCELLED: "#DC2626",
 };
 const ROUTE_STATUS_BG: Record<string, string> = {
-  PLANNED: "#EFF6FF", IN_PROGRESS: "#FFFBEB", COMPLETED: "#F0FDF4", CANCELLED: "#FEF2F2",
+  PLANNED: "#F3F4F6", ASSIGNED: "#EFF6FF", IN_PROGRESS: "#FFFBEB",
+  COMPLETED: "#F0FDF4", CANCELLED: "#FEF2F2",
 };
+
+/** Точки можна правити, поки водій не поїхав (дзеркало lib/routes/editable.ts) */
+const EDITABLE = ["PLANNED", "ASSIGNED"];
 
 export default function DeliveryRoutesPage() {
   const { data: session } = useSession();
@@ -52,6 +61,17 @@ export default function DeliveryRoutesPage() {
     setDrivers(Array.isArray(usersData) ? usersData.filter((u: any) => u.role === "DRIVER") : []);
     setLoading(false);
   }, []);
+
+  // Замовлення, які ще нікуди не поставлені: одна накладна живе рівно в
+  // одному маршруті, тож пропонувати зайняті — значить ловити 409.
+  const takenOrderIds = new Set<string>(
+    routes.flatMap((r: any) =>
+      (r.stops ?? [])
+        .map((s: any) => s.salesDocument?.id)
+        .filter(Boolean)
+    )
+  );
+  const freeOrders = confirmedOrders.filter((o: any) => !takenOrderIds.has(o.id));
 
   useEffect(() => {
     if (["ADMIN", "MANAGER"].includes(role)) fetchData();
@@ -187,13 +207,13 @@ export default function DeliveryRoutesPage() {
 
             {/* Select orders */}
             <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#6B7280" }}>
-              Підтверджені замовлення ({confirmedOrders.length})
+              Підтверджені замовлення ({freeOrders.length})
             </h3>
-            {confirmedOrders.length === 0 ? (
+            {freeOrders.length === 0 ? (
               <p style={{ fontSize: "13px", color: "#9CA3AF", padding: "12px 0" }}>Немає замовлень для маршруту</p>
             ) : (
               <div className="space-y-2 mb-4 max-h-60 overflow-auto" style={{ border: "1px solid #E5E7EB", borderRadius: "8px", padding: "8px" }}>
-                {confirmedOrders.map((o) => (
+                {freeOrders.map((o) => (
                   <label key={o.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
                     <input type="checkbox" checked={selectedOrderIds.includes(o.id)}
                       onChange={() => toggleOrder(o.id)}
@@ -256,33 +276,33 @@ export default function DeliveryRoutesPage() {
                     {r.totalFuelCost && ` | Паливо: ${formatPrice(r.totalFuelCost)}`}
                   </div>
                 )}
+                {/* Передача водію — головна дія картки: поки її не зробили,
+                    маршруту для водія не існує. */}
+                <AssignDriverBar
+                  routeId={r.id}
+                  status={r.status}
+                  driverId={r.driverId}
+                  driverName={r.driver?.name ?? null}
+                  date={r.date}
+                  assignedAt={r.assignedAt ?? null}
+                  stopsCount={r.stops?.length ?? 0}
+                  drivers={drivers}
+                  onChanged={fetchData}
+                />
                 {/* Побудова маршруту: реальні кілометри з OSRM і вибір
                     між найдешевшим та варіантом з пріоритетами. Раніше тут
                     був виклик LLM, який ВИГАДУВАВ кілометраж, і саме та
                     вигадана цифра лягала у вартість пального. */}
-                {r.status === "PLANNED" && r.stops?.length >= 2 && (
+                {EDITABLE.includes(r.status) && r.stops?.length >= 2 && (
                   <RouteOptimizer routeId={r.id} driverId={r.driverId} date={r.date} onApplied={fetchData} />
                 )}
-                {/* Stops */}
-                <div>
-                  {r.stops?.map((stop: any, idx: number) => (
-                    <div key={stop.id} className="flex items-center gap-3" style={{ padding: "10px 20px", borderBottom: "1px solid #F9FAFB" }}>
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                        style={{ background: stop.status === "DELIVERED" ? "#F0FDF4" : "#EFF6FF", fontSize: "12px", fontWeight: 700,
-                          color: stop.status === "DELIVERED" ? "#16A34A" : "#2563EB" }}>
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p style={{ fontSize: "14px", fontWeight: 500 }}>{stop.counterparty?.name || "—"}</p>
-                        {stop.address && <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{stop.address}</p>}
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p style={{ fontSize: "13px", fontWeight: 600 }}>{stop.salesDocument?.number}</p>
-                        <p style={{ fontSize: "13px", color: "#6B7280" }}>{formatPrice(stop.salesDocument?.totalAmount || 0)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <RouteStopsEditor
+                  routeId={r.id}
+                  stops={r.stops ?? []}
+                  editable={EDITABLE.includes(r.status)}
+                  availableOrders={freeOrders}
+                  onChanged={fetchData}
+                />
               </div>
             ))}
           </div>

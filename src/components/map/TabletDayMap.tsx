@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { clampToUkraine } from "@/components/map/MapFrame";
 
 export type TabletStop = {
   key: string;
@@ -27,6 +28,9 @@ export type TabletStop = {
   sequence: number;
   amount: number;
   debtAmount: number;
+  /** PICKUP/ERRAND — бонусна поїздка: без товару й без інкасації */
+  kind: "DELIVERY" | "PICKUP" | "ERRAND";
+  notes: string | null;
   visit: { status: string; money: string; collectedAmount: number | null } | null;
 };
 
@@ -163,6 +167,8 @@ export default function TabletDayMap({
         zoomControl: false, // зумлять пальцями
         attributionControl: true,
       }).setView([49.8397, 24.0297], 9);
+
+      clampToUkraine(mapRef.current);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap",

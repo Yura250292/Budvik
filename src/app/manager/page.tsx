@@ -56,7 +56,11 @@ export default function ManagerDashboard() {
         todayDelivered: todayDelivered.length,
         todayRevenue: todayDelivered.reduce((s: number, d: any) => s + d.totalAmount, 0),
         activeRoutes: routes.filter((r: any) => r.status === "IN_PROGRESS").length,
-        plannedRoutes: routes.filter((r: any) => r.status === "PLANNED").length,
+        // Чернетки й передані разом: для зведення важливо «скільки маршрутів
+        // на підході», а не в якій вони стадії підготовки.
+        plannedRoutes: routes.filter(
+          (r: any) => r.status === "PLANNED" || r.status === "ASSIGNED"
+        ).length,
       });
       setPending(draft.slice(0, 5));
       setLoading(false);

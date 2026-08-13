@@ -80,12 +80,18 @@ function OrdersContent() {
     setRouteMode("existing");
     setSelectedRouteId("");
     const [routesRes, usersRes] = await Promise.all([
-      fetch("/api/erp/delivery-routes?status=PLANNED"),
+      fetch("/api/erp/delivery-routes"),
       fetch("/api/admin/users"),
     ]);
     const routes = await routesRes.json();
     const users = await usersRes.json();
-    setPlannedRoutes(Array.isArray(routes) ? routes : []);
+    // Докинути замовлення можна і в чернетку, і у вже переданий маршрут —
+    // поки водій не поїхав. Ті самі статуси, що EDITABLE на сервері.
+    setPlannedRoutes(
+      Array.isArray(routes)
+        ? routes.filter((r: any) => r.status === "PLANNED" || r.status === "ASSIGNED")
+        : []
+    );
     setDrivers(Array.isArray(users) ? users.filter((u: any) => u.role === "DRIVER") : []);
   };
 

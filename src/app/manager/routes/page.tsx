@@ -99,7 +99,9 @@ export default function ManagerRoutesPage() {
     return <div className="p-8 text-center font-bold">Доступ заборонено</div>;
   }
 
-  const activeRoutes = routes.filter((r) => r.status === "PLANNED" || r.status === "IN_PROGRESS");
+  const activeRoutes = routes.filter(
+    (r) => r.status === "PLANNED" || r.status === "ASSIGNED" || r.status === "IN_PROGRESS"
+  );
   const doneRoutes = routes.filter((r) => r.status === "COMPLETED" || r.status === "CANCELLED");
 
   return (

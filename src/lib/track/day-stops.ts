@@ -31,6 +31,14 @@
 import { prisma } from "@/lib/prisma";
 import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 
+/** Відмітка, приклеєна до точки маршруту. */
+export type StopVisit = {
+  status: string;
+  money: string;
+  collectedAmount: number | null;
+  comment: string | null;
+};
+
 export type DayStop = {
   /** Стабільний ключ рядка в UI */
   key: string;
@@ -46,6 +54,20 @@ export type DayStop = {
   amount: number;
   /** Скільки боргу треба забрати, ₴ */
   debtAmount: number;
+  /**
+   * DELIVERY — звичайна доставка; PICKUP/ERRAND — бонусна поїздка без
+   * накладної (забрати товар, пошта). Планшет ховає для них суми й
+   * інкасацію: там нічого не везуть і нічого не забирають грішми.
+   */
+  kind: "DELIVERY" | "PICKUP" | "ERRAND";
+  /** Примітка логіста до точки — водій читає її в розгорнутому рядку */
+  notes: string | null;
+  /**
+   * Готова відмітка бонусної поїздки. Візит її нести не може: він
+   * прив'язаний до клієнта, а поїздка «на пошту» клієнта не має. Тому для
+   * PICKUP/ERRAND стан живе в самому DeliveryStop і приїжджає сюди.
+   */
+  ownVisit: StopVisit | null;
   routeSheetStopId: string | null;
   deliveryStopId: string | null;
 };
@@ -82,6 +104,14 @@ function mergeByAddress(stops: DayStop[]): DayStop[] {
   const byKey = new Map<string, DayStop>();
 
   for (const s of stops) {
+    // Бонусна поїздка ніколи не зливається: «забрати ремонт» за тією самою
+    // адресою, куди їде доставка, — це окрема справа, і водій має бачити
+    // її окремим рядком, інакше просто забуде.
+    if (s.kind !== "DELIVERY") {
+      byKey.set(s.key, { ...s });
+      continue;
+    }
+
     // Контрагент надійніший за адресу (та сама точка буває записана
     // по-різному), адреса — запасний ключ для рядків без контрагента.
     const dedupKey =
@@ -138,6 +168,9 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
     sequence: s.sequence || i + 1,
     amount: s.amount,
     debtAmount: s.debtAmount,
+    kind: "DELIVERY",
+    notes: null,
+    ownVisit: null,
     routeSheetStopId: s.id,
     deliveryStopId: null,
   }));
@@ -159,7 +192,10 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
     where: {
       driverId,
       date: { gte: kyivDayStart(day), lte: kyivDayEnd(day) },
-      status: { not: "CANCELLED" },
+      // Тільки передані маршрути. PLANNED — чернетка логіста: він ще
+      // складає точки, і водієві її показувати зарано. До появи статусу
+      // ASSIGNED планшет брав будь-який PLANNED, і водій бачив недороблене.
+      status: { in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
     },
     orderBy: { createdAt: "desc" },
     include: {
@@ -186,30 +222,55 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
 
   if (!route || route.stops.length === 0) return null;
 
-  const stops: DayStop[] = route.stops.map((s, i) => ({
-    key: `ds:${s.id}`,
-    counterpartyId: s.counterpartyId,
-    name: s.counterparty?.name ?? s.address ?? "Без назви",
-    address: s.address ?? s.counterparty?.deliveryAddress ?? s.counterparty?.address ?? null,
-    lat: s.counterparty?.deliveryLat ?? null,
-    lng: s.counterparty?.deliveryLng ?? null,
-    geoSource: s.counterparty?.geoSource ?? null,
-    sequence: s.sequence || i + 1,
-    amount: s.salesDocument?.totalAmount ?? 0,
-    /**
-     * Планувальник сайту борг у точку не кладе, тому беремо сальдо з
-     * картки контрагента — те саме число з 1С, просто прочитане з іншого
-     * місця. Без цього водій на маршруті сайту не побачив би кнопок
-     * інкасації взагалі, а маршрут сайту тепер головне джерело.
-     *
-     * Це БОРГ КЛІЄНТА ЗАГАЛОМ, а не «за цю накладну»: 1С не розкладає
-     * сальдо по документах доставки. Тому кнопка «забрав усе» ставить
-     * саме цю суму, і водій за потреби виправляє її вручну.
-     */
-    debtAmount: Math.max(0, s.counterparty?.receivableBalance ?? 0),
-    routeSheetStopId: null,
-    deliveryStopId: s.id,
-  }));
+  const stops: DayStop[] = route.stops.map((s, i) => {
+    const isErrand = s.kind !== "DELIVERY";
+
+    return {
+      key: `ds:${s.id}`,
+      counterpartyId: s.counterpartyId,
+      // Бонусна поїздка звучить своєю назвою («Забрати ремонт»), а не
+      // іменем клієнта: клієнта в ній може не бути взагалі.
+      name: isErrand
+        ? (s.title ?? "Додаткова поїздка")
+        : (s.counterparty?.name ?? s.address ?? "Без назви"),
+      address: s.address ?? s.counterparty?.deliveryAddress ?? s.counterparty?.address ?? null,
+      // Своя координата — лише в точок без контрагента. Для доставки пін
+      // завжди з картки клієнта, щоб уточнення відбивалося на всіх маршрутах.
+      lat: s.counterparty?.deliveryLat ?? s.lat ?? null,
+      lng: s.counterparty?.deliveryLng ?? s.lng ?? null,
+      geoSource: s.counterparty?.geoSource ?? (s.lat != null ? "MANUAL" : null),
+      sequence: s.sequence || i + 1,
+      amount: isErrand ? 0 : (s.salesDocument?.totalAmount ?? 0),
+      /**
+       * Планувальник сайту борг у точку не кладе, тому беремо сальдо з
+       * картки контрагента — те саме число з 1С, просто прочитане з іншого
+       * місця. Без цього водій на маршруті сайту не побачив би кнопок
+       * інкасації взагалі, а маршрут сайту тепер головне джерело.
+       *
+       * Це БОРГ КЛІЄНТА ЗАГАЛОМ, а не «за цю накладну»: 1С не розкладає
+       * сальдо по документах доставки. Тому кнопка «забрав усе» ставить
+       * саме цю суму, і водій за потреби виправляє її вручну.
+       *
+       * У бонусній поїздці грошей немає: там нічого не везуть.
+       */
+      debtAmount: isErrand ? 0 : Math.max(0, s.counterparty?.receivableBalance ?? 0),
+      kind: s.kind,
+      notes: s.notes,
+      // Стан бонусної поїздки живе в самій точці: DELIVERED — зроблено,
+      // FAILED — не вийшло. Для доставки лишаємо null: там правда у Visit.
+      ownVisit:
+        isErrand && s.status !== "PENDING"
+          ? {
+              status: s.status === "DELIVERED" ? "DONE" : "MISSED",
+              money: "NOT_APPLICABLE",
+              collectedAmount: null,
+              comment: s.notes,
+            }
+          : null,
+      routeSheetStopId: null,
+      deliveryStopId: s.id,
+    };
+  });
 
   const geometry = route.routeGeometry as DayRoute["geometry"];
   return {
@@ -233,19 +294,14 @@ export async function resolveDriverDay(driverId: string, day: string): Promise<D
   return EMPTY;
 }
 
-/** Відмітка, приклеєна до точки маршруту. */
-export type StopVisit = {
-  status: string;
-  money: string;
-  collectedAmount: number | null;
-  comment: string | null;
-};
-
 /**
  * Приклеює відмітки до точок за клієнтом.
  *
  * Спільне для планшета і адмінки: обидва малюють точку кольором статусу,
  * і різні реалізації давали б різні кольори на тих самих даних.
+ *
+ * Бонусна поїздка приносить свою відмітку з собою (ownVisit) — шукати її
+ * серед візитів немає сенсу, бо клієнта в неї немає.
  */
 export function attachVisits<V extends StopVisit & { counterpartyId: string }>(
   stops: DayStop[],
@@ -254,6 +310,7 @@ export function attachVisits<V extends StopVisit & { counterpartyId: string }>(
   const byClient = new Map(visits.map((v) => [v.counterpartyId, v]));
   return stops.map((s) => ({
     ...s,
-    visit: s.counterpartyId ? (byClient.get(s.counterpartyId) ?? null) : null,
+    visit:
+      s.ownVisit ?? (s.counterpartyId ? (byClient.get(s.counterpartyId) ?? null) : null),
   }));
 }

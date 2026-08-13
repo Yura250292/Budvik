@@ -44,7 +44,7 @@ export async function POST(
       where: { id: stop.deliveryRouteId },
       data: { status: "COMPLETED" },
     });
-  } else if (stop.deliveryRoute.status === "PLANNED") {
+  } else if (stop.deliveryRoute.status === "ASSIGNED") {
     await prisma.deliveryRoute.update({
       where: { id: stop.deliveryRouteId },
       data: { status: "IN_PROGRESS" },

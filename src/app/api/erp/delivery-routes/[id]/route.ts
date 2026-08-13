@@ -48,7 +48,16 @@ export async function GET(
   return NextResponse.json(route);
 }
 
-// PATCH — update optimized stop order + total distance from route planner
+/**
+ * PATCH — шапка маршруту і порядок точок.
+ *
+ * Два різні сценарії в одному ендпоінті:
+ *   — планувальник зберігає порядок (stopSequences + підсумкові км/паливо);
+ *   — логіст править шапку: водій, дата, авто, паливо, примітка, скасування.
+ *
+ * Водія й дату можна міняти й після передачі: маршрут переїхав на іншу
+ * людину — це нормальна ситуація дня, а не привід усе перестворювати.
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -60,14 +69,61 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await req.json();
-  const { stopSequences, totalDistanceKm, totalFuelCost } = body;
+  const {
+    stopSequences,
+    totalDistanceKm,
+    totalFuelCost,
+    driverId,
+    date,
+    vehicleInfo,
+    fuelConsumption,
+    fuelPricePer,
+    notes,
+    actualKm,
+    status,
+  } = body;
   // stopSequences: [{ stopId: string, sequence: number, distanceKm?: number }]
+
+  const route = await prisma.deliveryRoute.findUnique({
+    where: { id },
+    select: { id: true, status: true, driverId: true, date: true },
+  });
+  if (!route) return NextResponse.json({ error: "Маршрут не знайдено" }, { status: 404 });
+
+  // Зміна водія — тільки на того, хто справді водій: інакше маршрут осів би
+  // на менеджері й не з'явився б у жодному планшеті.
+  if (driverId !== undefined && driverId !== null && driverId !== route.driverId) {
+    const driver = await prisma.user.findUnique({
+      where: { id: driverId },
+      select: { role: true, name: true },
+    });
+    if (!driver) return NextResponse.json({ error: "Водія не знайдено" }, { status: 404 });
+    if (driver.role !== "DRIVER") {
+      return NextResponse.json(
+        { error: `${driver.name ?? "Користувач"} не має ролі «Водій»` },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (status !== undefined && status !== "CANCELLED") {
+    return NextResponse.json(
+      { error: "Статус міняється передачею водію та відмітками точок, вручну — лише скасування" },
+      { status: 400 }
+    );
+  }
+
+  const parsedDate = date !== undefined ? new Date(date) : undefined;
+  if (parsedDate && Number.isNaN(parsedDate.getTime())) {
+    return NextResponse.json({ error: "Невірна дата" }, { status: 400 });
+  }
 
   await prisma.$transaction(async (tx) => {
     if (stopSequences && Array.isArray(stopSequences)) {
       for (const s of stopSequences) {
-        await tx.deliveryStop.update({
-          where: { id: s.stopId },
+        // where з deliveryRouteId: точка з чужого маршруту не переставиться
+        await tx.deliveryStop.updateMany({
+          where: { id: s.stopId, deliveryRouteId: id },
           data: {
             sequence: s.sequence,
             ...(s.distanceKm !== undefined && { distanceKm: s.distanceKm }),
@@ -75,14 +131,21 @@ export async function PATCH(
         });
       }
     }
-    if (totalDistanceKm !== undefined || totalFuelCost !== undefined) {
-      await tx.deliveryRoute.update({
-        where: { id },
-        data: {
-          ...(totalDistanceKm !== undefined && { totalDistanceKm }),
-          ...(totalFuelCost !== undefined && { totalFuelCost }),
-        },
-      });
+
+    const data: Record<string, unknown> = {};
+    if (totalDistanceKm !== undefined) data.totalDistanceKm = totalDistanceKm;
+    if (totalFuelCost !== undefined) data.totalFuelCost = totalFuelCost;
+    if (driverId !== undefined) data.driverId = driverId || null;
+    if (parsedDate) data.date = parsedDate;
+    if (vehicleInfo !== undefined) data.vehicleInfo = vehicleInfo || null;
+    if (fuelConsumption !== undefined) data.fuelConsumption = fuelConsumption ?? null;
+    if (fuelPricePer !== undefined) data.fuelPricePer = fuelPricePer ?? null;
+    if (notes !== undefined) data.notes = notes || null;
+    if (actualKm !== undefined) data.actualKm = actualKm ?? null;
+    if (status === "CANCELLED") data.status = "CANCELLED";
+
+    if (Object.keys(data).length > 0) {
+      await tx.deliveryRoute.update({ where: { id }, data });
     }
   });
 

@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import NotificationsBell from "@/components/admin/NotificationsBell";
 
 const STOP_STATUS_LABELS: Record<string, string> = {
   PENDING: "Очікує", LOADED: "Завантажено", DELIVERED: "Доставлено", FAILED: "Не доставлено",
@@ -28,7 +29,7 @@ export default function DriverPage() {
     setRoutes(Array.isArray(data) ? data : []);
     setLoading(false);
     // Auto-expand first active route
-    const active = (Array.isArray(data) ? data : []).find((r: any) => r.status === "IN_PROGRESS" || r.status === "PLANNED");
+    const active = (Array.isArray(data) ? data : []).find((r: any) => r.status === "IN_PROGRESS" || r.status === "ASSIGNED");
     if (active) setExpandedRoute(active.id);
   }, []);
 
@@ -52,7 +53,7 @@ export default function DriverPage() {
   // стану "loading". Тут вона стояла без нього, і поки сесія їхала,
   // сторінка встигала показати «Доступ заборонено» самому водієві.
 
-  const activeRoutes = routes.filter((r) => r.status === "PLANNED" || r.status === "IN_PROGRESS");
+  const activeRoutes = routes.filter((r) => r.status === "ASSIGNED" || r.status === "IN_PROGRESS");
   const completedRoutes = routes.filter((r) => r.status === "COMPLETED");
 
   return (
@@ -76,6 +77,12 @@ export default function DriverPage() {
             </p>
           </div>
 
+          {/* Дзвіночок: без нього про переданий маршрут можна дізнатися,
+              лише самому відкривши планшет. Компонент спільний з адмінкою,
+              тому тут перефарбовуємо його під темну шапку. */}
+          <div className="[&_button]:text-white/80 [&_button:hover]:bg-white/10 [&_button:hover]:text-white">
+            <NotificationsBell />
+          </div>
         </div>
       </header>
 

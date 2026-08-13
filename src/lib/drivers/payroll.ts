@@ -61,6 +61,13 @@ export interface RouteSheetFacts {
   oblastPoints: number;
   /** Точки, для яких зону визначити не вдалося — оплачені як область */
   unknownZonePoints?: number;
+  /**
+   * Точки з ручною ціною: бонусні поїздки (забрати товар, пошта) і ті
+   * доставки, де логіст перебив тариф. Вони не рахуються серед city/oblast,
+   * бо мають власну суму, і йдуть окремим рядком — щоб водій бачив, за що
+   * саме доплата.
+   */
+  paidExtras?: { label: string; amount: number }[];
   ordersTotal: number;
   debtsTotal: number;
 }
@@ -77,6 +84,7 @@ export type PayrollLineKind =
   | "KM_BASE"
   | "CITY_POINTS"
   | "OBLAST_POINTS"
+  | "EXTRA_POINTS"
   | "TURNOVER_PERCENT"
   | "MANUAL_BONUS";
 
@@ -173,6 +181,20 @@ export function calculateRouteSheetPay(
       explanation:
         `${facts.oblastPoints} × ${money(rates.oblastPointRate)} за точку` +
         (unknown > 0 ? ` (з них ${unknown} без визначеної зони)` : ""),
+    });
+  }
+
+  // Точки з ручною ціною: бонусні поїздки і перебиті тарифи. Одним рядком,
+  // але з переліком у поясненні — інакше «доплата 250 ₴» виглядає з неба.
+  const extras = facts.paidExtras ?? [];
+  if (extras.length > 0) {
+    const amount = extras.reduce((s, e) => s + e.amount, 0);
+    lines.push({
+      kind: "EXTRA_POINTS",
+      label: "Додаткові поїздки",
+      base: extras.length,
+      amount,
+      explanation: extras.map((e) => `${e.label} — ${money(e.amount)}`).join("; "),
     });
   }
 

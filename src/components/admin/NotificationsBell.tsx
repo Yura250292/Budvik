@@ -18,9 +18,12 @@ type Notification = {
 const POLL_MS = 60_000;
 
 function hrefFor(n: Notification) {
+  // Переданий маршрут веде водія одразу в карту дня, а не в документ:
+  // relatedId тут — id маршруту, і в /admin/erp/sales його нема чого шукати.
+  if (n.type === "ROUTE_ASSIGNED") return "/driver/tablet";
   if (!n.relatedId) return "/admin";
-  // Обидва наявні типи (WHOLESALE_ORDER_REQUEST, SALES_DOC_CONFIRMED) кладуть у relatedId
-  // id документа продажу.
+  // Решта типів (WHOLESALE_ORDER_REQUEST, SALES_DOC_CONFIRMED) кладуть у
+  // relatedId id документа продажу.
   return `/admin/erp/sales/${n.relatedId}`;
 }
 

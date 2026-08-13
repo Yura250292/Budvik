@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState } from "react";
-import { useApi } from "@/app/admin/sales-analytics/components/useApi";
+import { useApi } from "@/components/ui/useApi";
 import { kyivToday, type Period } from "@/components/ui/PeriodPicker";
 import type { AdminRole } from "@/lib/admin-nav";
 

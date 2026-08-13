@@ -7,8 +7,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { TableScroll } from "@/components/ui/TableScroll";
 import type { Period } from "@/components/ui/PeriodPicker";
 import type { ZoneOverlay, ZonePoint } from "@/components/map/RoutesOverviewMap";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Зона напрямку — те, що торговий може зачепити по дорозі.

@@ -7,7 +7,7 @@ import { CardSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { num } from "@/components/ui/Stat";
 import { STATUS } from "@/lib/analytics/colors";
 import { InsightSections, SOURCE_META, type SourceResolver } from "../../components/InsightCard";
-import { ErrorBox } from "../../components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { Insight } from "@/lib/ai/insights";
 
 /**

@@ -16,8 +16,8 @@ import {
   STAGE_COLORS,
   type WorkingStage,
 } from "@/lib/erp/receivables";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Зведена по торгових: усі залежності в одному рядку.

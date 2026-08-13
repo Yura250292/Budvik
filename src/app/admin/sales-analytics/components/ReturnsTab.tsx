@@ -20,8 +20,8 @@ import { StatCard, money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { TableScroll } from "@/components/ui/TableScroll";
 import { Badge } from "@/components/ui/Badge";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 type ReturnsResponse = {
   period: { from: string; to: string; days: number };

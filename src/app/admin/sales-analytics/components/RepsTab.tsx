@@ -6,8 +6,8 @@ import type { Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { ProgressBar, money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { categoricalColor } from "@/lib/analytics/colors";
 

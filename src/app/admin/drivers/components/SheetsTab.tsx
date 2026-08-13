@@ -6,8 +6,8 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Журнал маршрутних листів: маршрути планувальника сайту + листи 1С.
@@ -152,7 +152,7 @@ function ActualKmEditor({
   );
 }
 
-export function DriverSheetsTab({ period }: { period: Period }) {
+export function SheetsTab({ period }: { period: Period }) {
   const { data, loading, error, reload } = useApi<SheetsResponse>(
     `/api/admin/drivers/route-sheets?from=${period.from}&to=${period.to}`
   );

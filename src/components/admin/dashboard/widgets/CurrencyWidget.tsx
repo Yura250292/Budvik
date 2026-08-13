@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useApi } from "@/app/admin/sales-analytics/components/useApi";
+import { useApi } from "@/components/ui/useApi";
 import type { CurrencyResponse } from "@/app/api/admin/tools/currency/route";
 import { WidgetBody } from "./parts";
 

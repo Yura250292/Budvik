@@ -7,7 +7,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money } from "@/components/ui/Stat";
 import { TableScroll } from "@/components/ui/TableScroll";
 import { PeriodPicker, type Period, PRESETS } from "@/components/ui/PeriodPicker";
-import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { useProfile } from "@/lib/useProfile";
 import {
   BUCKET_LABELS,

@@ -7,7 +7,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { RankBar, StatCard, money, num } from "@/components/ui/Stat";
 import { CardSkeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
 import { CATEGORICAL } from "@/lib/analytics/colors";
-import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { AnalyticsHeader } from "../components/AnalyticsHeader";
 import { EarningsBreakdown } from "../components/EarningsBreakdown";
 import { ReceivablesList } from "../components/ReceivablesList";

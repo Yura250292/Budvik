@@ -6,8 +6,8 @@ import { money, num } from "@/components/ui/Stat";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { STATUS, CATEGORICAL } from "@/lib/analytics/colors";
-import { useApi } from "../../components/useApi";
-import { ErrorBox } from "../../components/ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { ClientState } from "@/lib/analytics/clients";
 
 /**

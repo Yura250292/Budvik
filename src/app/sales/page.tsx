@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { Skeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
 import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
-import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { MetricGrid } from "./analytics/components/MetricGrid";

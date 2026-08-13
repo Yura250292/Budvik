@@ -7,8 +7,8 @@ import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPick
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { ProgressBar, StatCard, money, num } from "@/components/ui/Stat";
 import { CardSkeleton, StatCardSkeleton, Skeleton } from "@/components/ui/Skeleton";
-import { useApi } from "../../components/useApi";
-import { ErrorBox } from "../../components/ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { PortfolioSection } from "./PortfolioSection";
 import { InsightsPanel } from "../../components/InsightsPanel";
 import { Badge } from "@/components/ui/Badge";

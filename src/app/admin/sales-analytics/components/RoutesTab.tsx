@@ -14,8 +14,8 @@ import type {
   ZoneOverlay,
   MapClientPoint,
 } from "@/components/map/RoutesOverviewMap";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ZonePanel } from "./ZonePanel";
 
 /**

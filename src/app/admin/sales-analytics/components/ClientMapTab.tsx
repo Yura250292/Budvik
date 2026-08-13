@@ -10,8 +10,8 @@ import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
 import { colorForRep } from "@/lib/routes/colors";
 import type { OverviewRoute } from "@/components/map/RoutesOverviewMap";
 import type { ClientPoint, MapAction, MapMode, ProspectPoint } from "@/components/map/ClientMap";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ClientCommentsModal } from "./ClientCommentsModal";
 import { ClientOrderModal } from "./ClientOrderModal";
 

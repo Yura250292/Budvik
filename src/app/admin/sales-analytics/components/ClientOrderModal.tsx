@@ -6,8 +6,8 @@ import { Badge, ColorDot } from "@/components/ui/Badge";
 import { money } from "@/components/ui/Stat";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import type { LastOrder, RecoReason, Recommendation } from "@/lib/analytics/clientOrder";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Що клієнт брав минулого разу і що йому запропонувати.

@@ -5,8 +5,8 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { ProgressBar, StatCard, money } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { kyivToday } from "@/components/ui/PeriodPicker";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ColorDot } from "@/components/ui/Badge";
 import { CATEGORICAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
 

@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { TableSkeleton } from "@/components/ui/Skeleton";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Налаштування водіїв: прив'язка до 1С і ставки.
@@ -56,7 +56,7 @@ const RATE_FIELDS: Array<{ key: keyof RatesResponse["rates"]; label: string; hin
   { key: "turnoverPercent", label: "Відсоток від суми в листі, %" },
 ];
 
-export function DriverSettingsTab() {
+export function SettingsTab() {
   const mapping = useApi<MappingResponse>("/api/admin/drivers/mapping");
   const rates = useApi<RatesResponse>("/api/admin/drivers/rates");
 

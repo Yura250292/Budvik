@@ -13,8 +13,8 @@ import {
   SUPPORTED_PLAN_METRICS,
   PLAN_METRIC_LABELS,
 } from "@/lib/motivation/labels";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Налаштування мотивації: з чого торговий заробляє.

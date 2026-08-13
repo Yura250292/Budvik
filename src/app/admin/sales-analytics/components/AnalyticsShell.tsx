@@ -25,10 +25,6 @@ import { ClientMapTab } from "./ClientMapTab";
 import { FuelTab } from "./FuelTab";
 import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
-import { DriverPayrollTab } from "./DriverPayrollTab";
-import { DriverSheetsTab } from "./DriverSheetsTab";
-import { DriverSettingsTab } from "./DriverSettingsTab";
-import { LiveTrackTab } from "./LiveTrackTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -36,7 +32,6 @@ const TABS = [
   { key: "reps", label: "Торгові" },
   { key: "kpi", label: "КПІ та мотивація" },
   { key: "logistics", label: "Логістика" },
-  { key: "drivers", label: "Водії" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -62,15 +57,6 @@ const SUBTABS = {
     { key: "clients", label: "Карта клієнтів" },
     { key: "fuel", label: "Паливо" },
   ],
-  // Водії живуть окремо від «Логістики»: там витрати компанії на поїздки
-  // торгових, тут — зарплата за маршрутними листами з 1С. Спільного, крім
-  // слова «маршрут», у них нічого немає.
-  drivers: [
-    { key: "payroll", label: "Зарплата" },
-    { key: "live", label: "На маршруті" },
-    { key: "sheets", label: "Маршрутні листи" },
-    { key: "driver-settings", label: "Налаштування" },
-  ],
 } as const;
 
 type ViewKey = (typeof SUBTABS)[keyof typeof SUBTABS][number]["key"];
@@ -87,8 +73,20 @@ const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
   fuel: { tab: "logistics", view: "fuel" },
 };
 
+/**
+ * Водії переїхали у власний розділ /admin/drivers — тут лишилися торгові.
+ * Старі підвкладки мапимо на нові ключі, бо колишній «driver-settings»
+ * там зветься просто «settings».
+ */
+const DRIVER_VIEW_MOVED: Record<string, string> = {
+  payroll: "payroll",
+  live: "live",
+  sheets: "sheets",
+  "driver-settings": "settings",
+};
+
 /** Вкладки, доступні лише керівництву: там видно всю команду. */
-const MANAGER_ONLY: TabKey[] = ["kpi", "logistics", "drivers"];
+const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
 
 /**
  * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
@@ -162,24 +160,35 @@ export function AnalyticsShell() {
     setTarget({ tab: "logistics", view: "routes" });
   }, []);
 
+  // Закладка на ?tab=drivers — розділ переїхав. Читаємо параметр з URL, а
+  // не з target: resolveTarget уже підмінив невідому вкладку на зведену.
+  const leavingToDrivers = searchParams.get("tab") === "drivers";
+
   // Торговий за старим посиланням потрапляє у власний кабінет: зведена на
   // 1180px не читається з телефона, а показники там ті самі. Період
   // переносимо, інакше він мовчки скинувся б на типовий.
   // replace, а не push — щоб «Назад» не кидало в цикл редіректів.
-  const leavingToCabinet = status === "authenticated" && role === "SALES";
+  const leavingToCabinet = status === "authenticated" && role === "SALES" && !leavingToDrivers;
+
+  const leaving = leavingToCabinet || leavingToDrivers;
 
   useEffect(() => {
+    if (leavingToDrivers) {
+      const v = DRIVER_VIEW_MOVED[searchParams.get("view") ?? ""] ?? "payroll";
+      router.replace(`/admin/drivers?tab=${v}&from=${period.from}&to=${period.to}`);
+      return;
+    }
     if (leavingToCabinet) {
       router.replace(`/sales/analytics?from=${period.from}&to=${period.to}`);
     }
-  }, [leavingToCabinet, period.from, period.to, router]);
+  }, [leavingToCabinet, leavingToDrivers, searchParams, period.from, period.to, router]);
 
   // Стан у querystring: replace, а не push — інакше кожна зміна фільтра
   // додавала б запис в історію і «Назад» гортало б власні кліки.
   useEffect(() => {
-    // Для торгового цей ефект не спрацьовує: він переписав би URL назад на
-    // /admin/sales-analytics і переміг редірект у кабінет.
-    if (leavingToCabinet) return;
+    // Поки триває редірект, ефект не спрацьовує: він переписав би URL назад
+    // на /admin/sales-analytics і переміг би перехід.
+    if (leaving) return;
 
     const params = new URLSearchParams();
     if (tab !== "summary") params.set("tab", tab);
@@ -189,13 +198,13 @@ export function AnalyticsShell() {
     params.set("to", period.to);
     if (rep) params.set("rep", rep);
     router.replace(`/admin/sales-analytics?${params.toString()}`, { scroll: false });
-  }, [tab, view, period, rep, router, leavingToCabinet]);
+  }, [tab, view, period, rep, router, leaving]);
 
   const onPeriodChange = useCallback((p: Period) => setPeriod(p), []);
 
   // Поки редірект у кабінет не відпрацював, показуємо спінер, а не зведену:
   // інакше торговий на мить бачив би таблицю на 1180px, у яку його не пускають.
-  if (status === "loading" || leavingToCabinet) {
+  if (status === "loading" || leaving) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-g300 border-t-bk motion-reduce:animate-none" />
@@ -233,11 +242,9 @@ export function AnalyticsShell() {
                   Аналітика торгових
                 </h1>
                 <p className="truncate text-xs text-g400">
-                  {tab === "drivers"
-                    ? "Зарплата водіїв за маршрутними листами"
-                    : isManager
-                      ? "Продажі з 1С, поїздки, КПІ та логістика"
-                      : "Ваші продажі та поїздки"}
+                  {isManager
+                    ? "Продажі з 1С, поїздки, КПІ та логістика"
+                    : "Ваші продажі та поїздки"}
                 </p>
               </div>
             </div>
@@ -324,15 +331,6 @@ export function AnalyticsShell() {
         {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
         {tab === "logistics" && view === "clients" && <ClientMapTab period={period} />}
         {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
-        {tab === "drivers" && view === "payroll" && (
-          <DriverPayrollTab
-            period={period}
-            onOpenSettings={() => setTarget({ tab: "drivers", view: "driver-settings" })}
-          />
-        )}
-        {tab === "drivers" && view === "live" && <LiveTrackTab />}
-        {tab === "drivers" && view === "sheets" && <DriverSheetsTab period={period} />}
-        {tab === "drivers" && view === "driver-settings" && <DriverSettingsTab />}
       </div>
     </div>
   );

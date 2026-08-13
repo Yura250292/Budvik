@@ -7,8 +7,8 @@ import { StatCard, money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { CATEGORICAL } from "@/lib/analytics/colors";
-import { useApi } from "./useApi";
-import { ErrorBox } from "./ErrorBox";
+import { useApi } from "@/components/ui/useApi";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 /**
  * Зарплата водіїв за маршрутними листами.
@@ -78,7 +78,7 @@ type PayrollResponse = {
   };
 };
 
-export function DriverPayrollTab({
+export function PayrollTab({
   period,
   onOpenSettings,
 }: {

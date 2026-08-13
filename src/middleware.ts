@@ -38,6 +38,10 @@ export default withAuth(
          // торговому нема чого бачити закупівельні ціни й дефіцит складу.
          pathname.startsWith("/admin/procurement") ||
          pathname.startsWith("/admin/warehouse-reports") ||
+         // Водії — зарплата чужих людей і трек по місту. Торговому туди
+         // нема чого: розділ виїхав із «Аналітики торгових», де він жив
+         // під MANAGER_ONLY, тож блокування має переїхати разом із ним.
+         pathname.startsWith("/admin/drivers") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {

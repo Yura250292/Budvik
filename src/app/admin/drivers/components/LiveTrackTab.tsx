@@ -176,7 +176,9 @@ export function LiveTrackTab() {
         </div>
       ) : (
         <>
-          <div className="overflow-hidden rounded-xl" style={{ border: "1px solid #E5E7EB" }}>
+          {/* Рамку й скруглення тримає сама карта (MapFrame) — другий
+              контейнер із overflow тут лише подвоював би заокруглення. */}
+          <div style={{ border: "1px solid #E5E7EB", borderRadius: "12px" }}>
             <TrackDayMap
               people={people}
               selectedId={selected}

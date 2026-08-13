@@ -7,7 +7,7 @@ import { money, num } from "@/components/ui/Stat";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { STATUS } from "@/lib/analytics/colors";
 import { BUCKET_LABELS, BUCKET_COLORS } from "@/lib/erp/receivables";
-import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { formatDate, useMyReceivables } from "./useSalesAnalytics";
 
 /**

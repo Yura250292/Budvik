@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { useApi } from "@/app/admin/sales-analytics/components/useApi";
+import { useApi } from "@/components/ui/useApi";
 import type { WeatherResponse } from "@/app/api/admin/tools/weather/route";
 import { WidgetBody } from "./parts";
 

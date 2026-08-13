@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import type { ReceivableBucket } from "@prisma/client";
 import { kyivToday, type Period } from "@/components/ui/PeriodPicker";
-import { useApi } from "@/app/admin/sales-analytics/components/useApi";
+import { useApi } from "@/components/ui/useApi";
 
 /**
  * Дані кабінету торгового.

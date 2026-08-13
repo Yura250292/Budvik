@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton, CardSkeleton } from "@/components/ui/Skeleton";
 import { Gauge } from "@/components/ui/Gauge";
 import { money } from "@/components/ui/Stat";
-import { ErrorBox } from "@/app/admin/sales-analytics/components/ErrorBox";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { AnalyticsHeader } from "../components/AnalyticsHeader";
 import { BrandPlanList } from "../components/BrandPlanList";
 import { EarningsBreakdown } from "../components/EarningsBreakdown";

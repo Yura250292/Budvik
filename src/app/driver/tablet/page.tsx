@@ -14,7 +14,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import type { RouteLine, TabletStop } from "@/components/map/TabletDayMap";
@@ -331,8 +330,14 @@ export default function DriverTabletPage() {
 
   return (
     <div
-      className="fixed inset-0 flex flex-col"
-      style={{ background: "#F3F4F6", overscrollBehavior: "none" }}
+      className="fixed inset-x-0 top-0 flex flex-col"
+      style={{
+        // Низ — над нижнім меню водія. Раніше карта займала весь екран, і
+        // меню на ній не було взагалі: водій не мав куди піти з карти дня.
+        bottom: "calc(4rem + env(safe-area-inset-bottom, 0px))",
+        background: "#F3F4F6",
+        overscrollBehavior: "none",
+      }}
     >
       {/* Шапка: маршрут, прогрес, стан треку.
           Цифри великі — на них дивляться скоса, тримаючи кермо. */}
@@ -394,43 +399,8 @@ export default function DriverTabletPage() {
               </p>
             </div>
 
-            {/* Вихід до решти кабінету. Нижнього меню тут немає навмисно —
-                воно з'їдало б висоту карти, — але без цієї кнопки водій
-                застрягав на карті дня: єдиним виходом лишалась апаратна
-                «назад», яка з домашнього екрана взагалі закриває вкладку.
-
-                Стрілка з підписом, а не три смужки: «гамбургер» на планшеті
-                читається як «меню, яке зараз висунеться», і водій його
-                просто не тисне, не здогадуючись, що це вихід. */}
-            <Link
-              href="/driver"
-              aria-label="Вийти з карти дня до кабінету"
-              className="flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl transition-colors duration-200"
-              style={{
-                minWidth: "44px",
-                height: "44px",
-                padding: "0 12px",
-                background: "#FFD600",
-                color: "#0A0A0A",
-                textDecoration: "none",
-              }}
-            >
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.4}
-                aria-hidden
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 19.5L8.25 12l7.5-7.5"
-                />
-              </svg>
-              <span style={{ fontSize: "14px", fontWeight: 700 }}>Кабінет</span>
-            </Link>
+            {/* Кнопки виходу тут немає: перехід між розділами водій робить
+                нижнім меню, однаковим на всіх екранах. */}
           </div>
         </div>
 
@@ -758,7 +728,9 @@ function RoutePlanner({
           background: "#F8FAFC",
           borderTopLeftRadius: "18px",
           borderTopRightRadius: "18px",
-          padding: "14px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
+          // Нижнє меню водія накриває низ екрана — піднімаємо над ним,
+          // інакше остання кнопка вибору опиняється під навбаром.
+          padding: "14px 16px calc(16px + 4rem + env(safe-area-inset-bottom, 0px))",
           boxShadow: "0 -4px 24px rgba(0,0,0,0.3)",
         }}
       >

@@ -135,7 +135,7 @@ export default function ProcurementPage() {
         <div>
           <h1 className="text-xl font-bold">Закупівлі</h1>
           <p className="text-sm text-g400">
-            Що замовити: сигнал дає обіг за {report?.velocityDays ?? 90} днів, а не просто малий залишок.
+            Що замовити: сигнал дає обіг за {report?.velocityDays ?? 90} днів. Лише номенклатура з 1С.
           </p>
         </div>
         <a

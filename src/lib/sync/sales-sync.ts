@@ -306,7 +306,7 @@ export async function applySalesDocSync(
               productId: product.id,
               quantity: item.quantity,
               sellingPrice: item.sellingPrice,
-              purchasePrice: item.purchasePrice || product.wholesalePrice || 0,
+              purchasePrice: item.purchasePrice || 0,
             },
           });
         }

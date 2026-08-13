@@ -37,16 +37,20 @@ export function extractBrand(productName: string): string | null {
   return null;
 }
 
+/**
+ * Оптова ціна для клієнта = роздрібна ціна з 1С мінус знижка по бренду.
+ *
+ * Поле Product.wholesalePrice більше не використовується як джерело ціни:
+ * 1С його не передає взагалі (агент тягне лише один тип цін — роздріб,
+ * запит pricesRetail), тож ті 5 646 значень у базі — залишки з магазину
+ * невідомого походження. Єдина істина про ціни — база 1С, а знижка по
+ * бренду принаймні є свідомим рішенням, записаним в адмінці.
+ */
 export function getWholesalePrice(
   price: number,
   productName: string,
   brandDiscounts: Map<string, number>,
-  explicitWholesalePrice?: number | null
 ): number {
-  // Explicit wholesale price takes priority
-  if (explicitWholesalePrice != null) {
-    return explicitWholesalePrice;
-  }
   // Try brand discount
   const brand = extractBrand(productName);
   if (brand) {

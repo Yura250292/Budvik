@@ -195,6 +195,10 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     prisma.product.findMany({
       where: {
         isActive: true,
+        // Тільки те, що є в базі 1С: externalId — це Ref_Key номенклатури.
+        // Позиції без нього — старі записи магазину, яких в обліку немає,
+        // і ціни в них синхронізація ніколи не оновлює. Єдина істина — 1С.
+        externalId: { not: null },
         ...(params.brandId ? { brandId: params.brandId } : { brandId: { not: null } }),
         ...(soldIds ? { OR: [{ stock: { gt: 0 } }, { id: { in: soldIds } }] } : {}),
         ...(search
@@ -216,6 +220,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     ? await prisma.product.count({
         where: {
           isActive: true,
+          externalId: { not: null },
           ...(params.brandId ? { brandId: params.brandId } : { brandId: { not: null } }),
           stock: 0,
           id: { notIn: soldIds },

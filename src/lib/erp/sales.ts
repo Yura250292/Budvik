@@ -177,17 +177,12 @@ export async function cancelSalesDocument(id: string) {
   });
 }
 
-/** Get latest purchase price for a product (from SupplierProduct or Product.wholesalePrice) */
+/** Собівартість товару — лише з SupplierProduct: wholesalePrice виведене
+ * з обігу (1С його не передає, у базі старі значення з магазину). */
 export async function getLatestPurchasePrice(productId: string): Promise<number> {
   const sp = await prisma.supplierProduct.findFirst({
     where: { productId },
     orderBy: { lastUpdated: "desc" },
   });
-  if (sp?.purchasePrice) return sp.purchasePrice;
-
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: { wholesalePrice: true },
-  });
-  return product?.wholesalePrice || 0;
+  return sp?.purchasePrice ?? 0;
 }

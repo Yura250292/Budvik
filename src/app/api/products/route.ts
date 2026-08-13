@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 import { prisma } from "@/lib/prisma";
 
 const PAGE_SIZE = 24;
@@ -32,11 +33,13 @@ export async function GET(req: Request) {
 
   const isWholesale = session?.user?.role === "WHOLESALE";
 
-  const mappedProducts = products.map((p) => ({
-    ...p,
-    displayPrice: isWholesale && p.wholesalePrice ? p.wholesalePrice : p.price,
-    hasWholesalePrice: isWholesale && p.wholesalePrice != null,
-  }));
+  // Опт рахуємо зі знижки по бренду, а не з поля wholesalePrice: 1С його не
+  // передає, тож у базі там старі значення з магазину.
+  const brandDiscounts = isWholesale ? await getBrandDiscounts() : null;
+  const mappedProducts = products.map((p) => {
+    const wholesale = brandDiscounts ? getWholesalePrice(p.price, p.name, brandDiscounts) : p.price;
+    return { ...p, displayPrice: wholesale, hasWholesalePrice: isWholesale && wholesale < p.price };
+  });
 
   return NextResponse.json({
     products: mappedProducts,

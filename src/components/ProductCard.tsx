@@ -31,7 +31,8 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const isWholesale = role === "WHOLESALE";
-  const showBothPrices = role === "ADMIN" || role === "SALES";
+  // wholesalePrice сюди приходить уже порахованим (роздріб із 1С мінус
+  // знижка по бренду) — власного поля з бази компонент не читає.
   const basePrice = isWholesale && wholesalePrice ? wholesalePrice : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
@@ -115,9 +116,6 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     </span>
                     {hasDiscount && (
                       <span className="text-[9px] sm:text-xs text-[#9E9E9E] line-through">{formatPrice(price)}</span>
-                    )}
-                    {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
-                      <span className="text-[9px] sm:text-[10px] text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                     )}
                   </>
                 ) : (
@@ -206,9 +204,6 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     )}
                     {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                       <span className="block text-[10px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
-                    )}
-                    {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
-                      <span className="block text-[10px] sm:text-xs text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                     )}
                   </>
                 ) : (
@@ -334,9 +329,6 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                   )}
                   {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
                     <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
-                  )}
-                  {showBothPrices && wholesalePrice != null && wholesalePrice > 0 && (
-                    <span className="block text-[8px] sm:text-[10px] text-[#F59E0B] font-medium">опт: {formatPrice(wholesalePrice)}</span>
                   )}
                 </>
               ) : (

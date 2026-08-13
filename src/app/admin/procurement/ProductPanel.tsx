@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 
 /**
@@ -18,7 +19,7 @@ type Detail = {
   product: {
     id: string; sku: string | null; name: string; slug: string;
     description: string; image: string | null;
-    price: number; wholesalePrice: number | null; stock: number;
+    price: number; stock: number;
     brandName: string | null; categoryName: string | null;
   };
   months: Array<{ month: string; sold: number }>;
@@ -57,10 +58,18 @@ export function ProductPanel({ id, onClose }: { id: string; onClose: () => void 
     return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
+  // Портал на body: <main> адмінки має клас isolate (він тримає sticky-хедери
+  // сторінок), а всередині такого контейнера position:fixed рахується від
+  // нього, а не від вікна — панель зрізало згори на висоту шапки і вкладок.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const p = data?.product;
   const maxSold = Math.max(1, ...(data?.months ?? []).map((m) => m.sold));
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-g100 bg-white shadow-xl">
@@ -100,9 +109,6 @@ export function ProductPanel({ id, onClose }: { id: string; onClose: () => void 
                 )}
                 <div className="min-w-0 space-y-1 text-sm">
                   <Row label="Ціна" value={p.price > 0 ? `${p.price.toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ₴` : "нема ціни"} />
-                  {p.wholesalePrice != null && (
-                    <Row label="Опт" value={`${p.wholesalePrice.toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ₴`} />
-                  )}
                   <Row label="Залишок" value={`${p.stock} шт`} strong={p.stock === 0} />
                   {p.categoryName && <Row label="Категорія" value={p.categoryName} />}
                 </div>
@@ -168,7 +174,8 @@ export function ProductPanel({ id, onClose }: { id: string; onClose: () => void 
           )}
         </div>
       </aside>
-    </>
+    </>,
+    document.body,
   );
 }
 

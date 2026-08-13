@@ -1911,6 +1911,15 @@ model RouteSheetStop {
   amount     Float @default(0)
   debtAmount Float @default(0)
 
+  /// Точку додав адмін на сайті, а не обмін. Такі рядки прийом не чіпає:
+  /// у 1С їх немає, і переливання точок їх би щоразу стирало.
+  manual Boolean @default(false)
+
+  /// Точку прибрали руками. Не видаляємо: наступний обмін привіз би її
+  /// назад (реалізація в 1С нікуди не ділася), і «прибрана» точка щодня
+  /// відроджувалася б. Прихована точка не показується і не оплачується.
+  hidden Boolean @default(false)
+
   routeSheet    RouteSheet     @relation(fields: [routeSheetId], references: [id], onDelete: Cascade)
   counterparty  Counterparty?  @relation(fields: [counterpartyId], references: [id])
   salesDocument SalesDocument? @relation("routeSheetStops", fields: [salesDocumentId], references: [id])

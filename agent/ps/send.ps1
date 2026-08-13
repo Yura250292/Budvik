@@ -154,7 +154,10 @@ $plan = @(
     @{ file = "return_doc.ndjson";   entity = "return_doc"   },
     @{ file = "debt.ndjson";         entity = "debt"         },
     @{ file = "payment.ndjson";      entity = "payment"      },
-    @{ file = "route_sheet.ndjson";  entity = "route_sheet"  }
+    @{ file = "route_sheet.ndjson";  entity = "route_sheet"  },
+    # Stops after their sheets, for the same reason counterparties precede
+    # documents: a stop whose sheet is not there yet has nothing to attach to.
+    @{ file = "route_sheet_stop.ndjson"; entity = "route_sheet_stop" }
 )
 
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }

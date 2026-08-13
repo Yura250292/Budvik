@@ -1146,6 +1146,71 @@ try {
             $stats.routeSheetsFailed = $_.Exception.Message
             Log ("route sheets: SKIPPED -- " + $_.Exception.Message)
         }
+
+        # Stops of those sheets.
+        #
+        # MarshrutnyjLyst has no tabular section of its own -- the rows the
+        # manager sees are realizations pointing back at the sheet through the
+        # MarshrutnyjLyst attribute. Verified on live data: of 68 209
+        # realizations, 28 778 carry the link, and 33 point at sheet 000001820,
+        # which is exactly what its form displays.
+        #
+        # Grouping happens here rather than in the query: filtering by a
+        # reference throws NullReference on this build, so we read realizations
+        # by date and bucket them by the sheet GUID in PowerShell.
+        #
+        # The date filter is on the REALIZATION, not the sheet -- and the two
+        # differ: sheet 000001820 is dated 13.08 while its rows are shipments
+        # from 12.08. docsFrom already reaches back far enough for both.
+        Log "reading route sheet stops..."
+        $w2 = $null
+        try {
+            $w2 = NewWriter (Join-Path $OutDir "route_sheet_stop.ndjson")
+            $n = 0
+            $skipped = 0
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.routeSheetStopsSince
+            $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on route sheet stops query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                # No link -- an ordinary shipment that never rode a route.
+                # RefId already maps the all-zero GUID to null.
+                $sheetId = RefId $ib $r.Get(1)
+                if (-not $sheetId) { $skipped++; continue }
+
+                $rec = [ordered]@{
+                    routeSheetExternalId = $sheetId
+                    salesDocExternalId   = RefId $ib $r.Get(0)
+                }
+                $cp = RefId $ib $r.Get(2)
+                if ($cp) { $rec.counterpartyExternalId = $cp }
+                $addr = Str $r.Get(3)
+                if ($addr) { $rec.address = $addr }
+                # Zero-sum rows exist (the form hides them) but are still real
+                # stops the driver visited, so they are sent, not dropped.
+                $rec.amount = Num $r.Get(4)
+
+                WriteRecord $w2 $rec
+                $n++
+            }
+            $w2.Close()
+            $stats.routeSheetStops = $n
+            Log "route sheet stops: $n (no-link realizations skipped: $skipped)"
+        }
+        catch {
+            if ($w2) { try { $w2.Close() } catch { } }
+            Remove-Item (Join-Path $OutDir "route_sheet_stop.ndjson") -Force -EA 0
+            if (IsConnectionLost $_) {
+                Log ("route sheet stops: connection lost -- aborting attempt")
+                throw
+            }
+            # Best-effort: headers already went out, and stops arriving a cycle
+            # later is far better than losing the whole sync over them.
+            $stats.routeSheetStopsFailed = $_.Exception.Message
+            Log ("route sheet stops: SKIPPED -- " + $_.Exception.Message)
+        }
     }
 
     # Manifest doubles as the success marker: the sender refuses to run

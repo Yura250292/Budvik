@@ -24,6 +24,7 @@ export type SyncEntityType =
   | "return_doc"
   | "purchase_doc"
   | "route_sheet"
+  | "route_sheet_stop"
   | "debt"
   | "payment";
 
@@ -167,6 +168,23 @@ export interface RouteSheetStopRecord {
 }
 
 /**
+ * Точка листа, що приїхала окремим потоком.
+ *
+ * Документ.МаршрутнийЛист не має власної табличної частини: рядки, які
+ * менеджер бачить у формі, — це реалізації з реквізитом МаршрутнийЛист.
+ * Агент віддає їх окремим файлом, бо в 1С вони лежать в іншому документі,
+ * і кожна несе посилання на свій лист.
+ *
+ * Порядок точок 1С не зберігає — тільки склад. Послідовність (sequence)
+ * проставляє прийом, і саме тому її можна вільно перевпорядковувати на
+ * сайті: затирати з 1С нічого.
+ */
+export interface RouteSheetStopArrival extends RouteSheetStopRecord {
+  /** externalId листа, до якого належить точка. */
+  routeSheetExternalId: string;
+}
+
+/**
  * Маршрутний лист — факт виїзду водія за день; основа його зарплати.
  *
  * `distanceKm` критичний: саме за ним рахується ставка за лист, і лист без
@@ -275,6 +293,7 @@ export interface SyncRecordMap {
   return_doc: DocumentRecord;
   purchase_doc: DocumentRecord;
   route_sheet: RouteSheetRecord;
+  route_sheet_stop: RouteSheetStopArrival;
   debt: DebtRecord;
   payment: PaymentRecord;
 }

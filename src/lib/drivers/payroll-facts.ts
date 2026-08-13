@@ -125,6 +125,10 @@ const SHEET_SELECT = {
   debtsTotal: true,
   posted: true,
   stops: {
+    // Прибрана руками точка не оплачується і не показується. Видалити її
+    // не можна: реалізація в 1С лишається, і обмін привозив би точку назад
+    // щодня — тому позначка, а не видалення.
+    where: { hidden: false },
     orderBy: { sequence: "asc" as const },
     select: {
       id: true,

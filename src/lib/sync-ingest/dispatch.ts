@@ -14,6 +14,7 @@ import type {
   PriceRecord,
   ProductRecord,
   RouteSheetRecord,
+  RouteSheetStopArrival,
   StockRecord,
   SyncEntityType,
   WarehouseRecord,
@@ -27,6 +28,7 @@ import { applyCounterparties, applyDebts } from "./apply-counterparties";
 import { applySalesDocuments, applyPurchaseDocuments } from "./apply-documents";
 import { applyPayments } from "./apply-payments";
 import { applyRouteSheets } from "./apply-route-sheets";
+import { applyRouteSheetStops } from "./apply-route-sheet-stops";
 
 export async function dispatchBatch(
   batch: BatchRequest,
@@ -65,6 +67,9 @@ export async function dispatchBatch(
       break;
     case "route_sheet":
       await applyRouteSheets(batch.records as RouteSheetRecord[], ctx);
+      break;
+    case "route_sheet_stop":
+      await applyRouteSheetStops(batch.records as RouteSheetStopArrival[], ctx);
       break;
     case "debt":
       await applyDebts(batch.records as DebtRecord[], ctx);

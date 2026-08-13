@@ -397,32 +397,39 @@ export default function DriverTabletPage() {
             {/* Вихід до решти кабінету. Нижнього меню тут немає навмисно —
                 воно з'їдало б висоту карти, — але без цієї кнопки водій
                 застрягав на карті дня: єдиним виходом лишалась апаратна
-                «назад», яка з домашнього екрана взагалі закриває вкладку. */}
+                «назад», яка з домашнього екрана взагалі закриває вкладку.
+
+                Стрілка з підписом, а не три смужки: «гамбургер» на планшеті
+                читається як «меню, яке зараз висунеться», і водій його
+                просто не тисне, не здогадуючись, що це вихід. */}
             <Link
               href="/driver"
               aria-label="Вийти з карти дня до кабінету"
-              className="flex shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors duration-200"
+              className="flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl transition-colors duration-200"
               style={{
-                width: "44px",
+                minWidth: "44px",
                 height: "44px",
-                background: "rgba(255,255,255,0.08)",
-                color: "#fff",
+                padding: "0 12px",
+                background: "#FFD600",
+                color: "#0A0A0A",
+                textDecoration: "none",
               }}
             >
               <svg
-                className="h-6 w-6"
+                className="h-5 w-5"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-                strokeWidth={1.8}
+                strokeWidth={2.4}
                 aria-hidden
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                  d="M15.75 19.5L8.25 12l7.5-7.5"
                 />
               </svg>
+              <span style={{ fontSize: "14px", fontWeight: 700 }}>Кабінет</span>
             </Link>
           </div>
         </div>

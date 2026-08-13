@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
+import { clampToUkraine } from "@/components/map/MapFrame";
 
 /** Що торговий може зробити з точки, крім переходу в картку. */
 export type SalesMapAction =
@@ -187,6 +188,8 @@ export default function SalesClientsMap({
         zoomControl: false, // на телефоні зумлять пальцями
         attributionControl: true,
       }).setView([49.8397, 24.0297], 9);
+
+      clampToUkraine(mapRef.current);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; OpenStreetMap',

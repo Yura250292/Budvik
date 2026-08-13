@@ -220,8 +220,12 @@ if ($doCatalogs) {
     $filesThisScope += @("category.ndjson", "product.ndjson", "warehouse.ndjson")
 }
 if ($config.scope.documents) {
+    # route_sheet* belong here too: without them a run whose sheet query fails
+    # would leave the previous run's file in place, and send.ps1 would ship
+    # those rows again as if they were fresh.
     $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "realization_doc.ndjson",
-                         "debt.ndjson", "payment.ndjson")
+                         "return_doc.ndjson", "debt.ndjson", "payment.ndjson",
+                         "route_sheet.ndjson", "route_sheet_stop.ndjson")
 }
 foreach ($f in $filesThisScope) {
     Remove-Item (Join-Path $OutDir $f) -Force -EA 0

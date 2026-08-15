@@ -18,6 +18,7 @@ import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
 import { ReturnsTab } from "./ReturnsTab";
+import { AbcTab } from "./AbcTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
@@ -26,6 +27,7 @@ import { FuelTab } from "./FuelTab";
 import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
 import { PayrollTab } from "./PayrollTab";
+import { ShiftsTab } from "./ShiftsTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -43,6 +45,10 @@ type TabKey = (typeof TABS)[number]["key"];
  * тримати його трьома верхніми вкладками означало губити зв'язок між ними.
  */
 const SUBTABS = {
+  overview: [
+    { key: "sales", label: "Продажі" },
+    { key: "abc", label: "ABC / XYZ" },
+  ],
   reps: [
     { key: "list", label: "Показники" },
     { key: "benchmark", label: "Порівняння" },
@@ -55,6 +61,7 @@ const SUBTABS = {
   ],
   logistics: [
     { key: "trips", label: "Поїздки" },
+    { key: "shifts", label: "Зміни" },
     { key: "routes", label: "Маршрути" },
     { key: "clients", label: "Карта клієнтів" },
     { key: "fuel", label: "Паливо" },
@@ -323,7 +330,10 @@ export function AnalyticsShell() {
         )}
 
         {tab === "summary" && <SummaryTab period={period} />}
-        {tab === "overview" && <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />}
+        {tab === "overview" && view === "sales" && (
+          <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />
+        )}
+        {tab === "overview" && view === "abc" && <AbcTab period={period} rep={rep} />}
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
@@ -333,6 +343,7 @@ export function AnalyticsShell() {
         {tab === "logistics" && view === "trips" && (
           <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
         )}
+        {tab === "logistics" && view === "shifts" && <ShiftsTab period={period} />}
         {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
         {tab === "logistics" && view === "clients" && <ClientMapTab period={period} />}
         {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}

@@ -303,9 +303,14 @@ Log "----------------------------------------"
 # -- upserts are keyed by Ref_Key, so re-sending costs time, not correctness.
 if (-not $sendError -and $complete.status -eq "completed") {
     $statePath = Join-Path $scriptDir "state.json"
+    # Cost rides inside the realization records, so a delivered realization
+    # batch is a delivered cost batch -- same counter, own flag. It needs the
+    # separate flag because realizations were backfilled long before cost
+    # existed, and their stamp would otherwise pin cost to the 90-day window.
     $backfills = @(
         @{ flag = "realizationsBackfilledAt"; sent = $realizationsSent; label = "realization" },
-        @{ flag = "returnsBackfilledAt";      sent = $returnsSent;      label = "returns"     }
+        @{ flag = "returnsBackfilledAt";      sent = $returnsSent;      label = "returns"     },
+        @{ flag = "costBackfilledAt";         sent = $realizationsSent; label = "cost of sales" }
     )
     foreach ($bf in $backfills) {
         if ($bf.sent -le 0) { continue }

@@ -160,11 +160,16 @@ $realBackfillRan  = $false
 # Returns joined the exchange later still, and need their own flag: they carry
 # three years of history the watermark passed long ago.
 $returnsBackfilledAt = $null
+# Cost of sales joined last of all, when realizations had long been backfilled
+# and their flag already pinned the window to ~90 days. Its own flag lets it
+# catch up on the same history exactly once.
+$costBackfilledAt = $null
 if (Test-Path $statePath) {
     try {
         $s = ReadJsonUtf8 $statePath
         if ($s.realizationsBackfilledAt) { $realBackfilledAt = [string]$s.realizationsBackfilledAt }
         if ($s.returnsBackfilledAt) { $returnsBackfilledAt = [string]$s.returnsBackfilledAt }
+        if ($s.costBackfilledAt) { $costBackfilledAt = [string]$s.costBackfilledAt }
     } catch {
         # Unreadable state means the backfill simply repeats -- upserts by
         # Ref_Key, so a repeat costs time, not correctness.
@@ -821,8 +826,14 @@ try {
         # Read from a separate date, not the shared watermark: realizations
         # joined the exchange later, so the first run has to reach back for
         # history the watermark has already passed. See $realBackfilledAt.
+        # Either flag missing pulls the window back: realizations needed the
+        # backfill first, cost needed it later (it joined the exchange after
+        # realizations had already been stamped, so their flag alone would
+        # pin cost to the 90-day window and leave older documents at zero
+        # margin). Clearing costBackfilledAt in state.json re-runs the reach-
+        # back for both, which is exactly what a cost catch-up needs.
         $realFrom = $docsFrom
-        if (-not $realBackfilledAt) {
+        if ((-not $realBackfilledAt) -or (-not $costBackfilledAt)) {
             $bf = "2026-01-01"
             if ($config.documents -and $config.documents.realizationsFrom) {
                 $bf = [string]$config.documents.realizationsFrom
@@ -885,11 +896,25 @@ try {
         # Non-fatal by design: if this query fails, the run still ships
         # documents and revenue, just without margin. Losing today's sales
         # because cost was unavailable would be a bad trade.
+        # Cost is read for exactly the window the realizations above cover.
+        #
+        # It cannot usefully reach further back on its own: cost attaches to
+        # lines of documents in THIS batch, so a register row whose document
+        # was not read has nothing to attach to. Widening only the cost query
+        # would burn time reading rows that get discarded.
+        #
+        # Catching up on history is therefore a realization-side job: clear
+        # costBackfilledAt in state.json and $realFrom below reaches back to
+        # realizationsFrom again, carrying cost with it. That is what the
+        # first run needed -- it covered June onwards and left everything
+        # earlier at zero margin (measured: 26.8% of lines).
+        $costFrom = $realFrom
+
         $costByDocProduct = @{}
         try {
             $q = $ib.NewObject("Query")
             $q.Text = [string]$queries.costOfSalesSince
-            $q.SetParameter([string]$queries.paramFrom, $realFrom)
+            $q.SetParameter([string]$queries.paramFrom, $costFrom)
             $rs = $q.Execute()
             if ($null -eq $rs) { throw "Execute() returned null on cost query" }
             $r = $rs.Choose()
@@ -1309,6 +1334,9 @@ try {
     }
     if ($returnsBackfilledAt) {
         $newState.returnsBackfilledAt = $returnsBackfilledAt
+    }
+    if ($costBackfilledAt) {
+        $newState.costBackfilledAt = $costBackfilledAt
     }
     [IO.File]::WriteAllText(
         $statePath,

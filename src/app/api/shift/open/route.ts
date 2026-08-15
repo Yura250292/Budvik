@@ -76,10 +76,35 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      /**
+       * Незакрита вчорашня зміна буває у двох станах:
+       *
+       *   OPEN — торговий просто забув про неї;
+       *   ABANDONED + closedLate — увечері згадав і вказав час, але
+       *   одометра тоді сфотографувати не міг.
+       *
+       * Обидві треба добити стартовим одометром цього ранку: у першої
+       * немає ні часу, ні пробігу, у другої — лише пробігу.
+       */
       const forgotten = await tx.shift.findFirst({
-        where: { userId, status: "OPEN" },
+        where: {
+          userId,
+          OR: [
+            { status: "OPEN" },
+            { status: "ABANDONED", closedLate: true, endOdometer: null },
+          ],
+        },
         orderBy: { startedAt: "desc" },
-        select: { id: true, startOdometer: true, startedAt: true },
+        select: {
+          id: true,
+          startOdometer: true,
+          startedAt: true,
+          // Якщо зміну вже закрили ввечері «без фото, вказавши час», ми
+          // знаємо, скільки з пробігу — вечір: його треба відняти.
+          closedLate: true,
+          afterWorkKm: true,
+          endedAt: true,
+        },
       });
 
       /**

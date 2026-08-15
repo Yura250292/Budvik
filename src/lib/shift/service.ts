@@ -89,7 +89,16 @@ export async function gpsDistanceForShift(shiftId: string): Promise<number | nul
  */
 export async function autoCloseForgotten(
   tx: Prisma.TransactionClient,
-  forgotten: { id: string; startOdometer: number; startedAt: Date },
+  forgotten: {
+    id: string;
+    startOdometer: number;
+    startedAt: Date;
+    /** Чи торговий уже закрив її ввечері, вказавши час без фото */
+    closedLate?: boolean;
+    /** Кілометри після закінчення роботи за GPS — якщо час відомий */
+    afterWorkKm?: number | null;
+    endedAt?: Date | null;
+  },
   nextStartOdometer: number,
   /**
    * id зміни, яка її закрила. null, коли та ще не створена: часткового
@@ -97,9 +106,30 @@ export async function autoCloseForgotten(
    * зміна мусила закритися ПЕРШОЮ, а посилання дописалося другим кроком.
    */
   nextShiftId: string | null
-): Promise<{ id: string; distanceKm: number | null; startedAt: Date }> {
-  const distanceKm = nextStartOdometer - forgotten.startOdometer;
-  const plausible = distanceKm >= 0 && distanceKm <= 5000;
+): Promise<{
+  id: string;
+  distanceKm: number | null;
+  startedAt: Date;
+  afterWorkKm: number | null;
+}> {
+  const totalKm = nextStartOdometer - forgotten.startOdometer;
+  const plausible = totalKm >= 0 && totalKm <= 5000;
+
+  /**
+   * Якщо торговий увечері закрив зміну «без фото, вказавши час», ми вже
+   * знаємо за GPS, скільки з цього пробігу — дорога додому й вечір.
+   * Віднімаємо їх, і в distanceKm лишається саме робоче.
+   *
+   * Без цього кроку весь вечір ліг би в робочий пробіг — і людину
+   * питали б за кілометри, яких вона не намотувала по клієнтах.
+   *
+   * GPS занижений (трек іде по прямій між точками), тому віднімаємо
+   * обережно: якщо оцінка більша за половину пробігу, щось не так —
+   * краще лишити все як є й розібратися очима.
+   */
+  const after = forgotten.closedLate ? (forgotten.afterWorkKm ?? 0) : 0;
+  const trustAfter = after > 0 && plausible && after < totalKm / 2;
+  const workKm = trustAfter ? Math.round(totalKm - after) : totalKm;
 
   await tx.shift.update({
     where: { id: forgotten.id },
@@ -111,16 +141,21 @@ export async function autoCloseForgotten(
       // Джерела «AI» тут немає — число прийшло з наступної зміни, а не
       // з фото цієї. MANUAL найчесніше описує походження.
       endOdometerSource: "MANUAL" as OdometerSource,
-      distanceKm: plausible ? distanceKm : null,
+      distanceKm: plausible ? workKm : null,
       odometerSuspicious: true,
-      endedAt: new Date(),
+      // Час закінчення не чіпаємо, якщо торговий уже вказав його сам:
+      // його «о 17:20 я був удома» точніше за «зараз».
+      ...(forgotten.endedAt ? {} : { endedAt: new Date() }),
+      ...(trustAfter ? { afterWorkKm: after } : {}),
     },
   });
 
   return {
     id: forgotten.id,
-    distanceKm: plausible ? distanceKm : null,
+    distanceKm: plausible ? workKm : null,
     startedAt: forgotten.startedAt,
+    /** Скільки вечірніх кілометрів вдалося відняти від робочих */
+    afterWorkKm: trustAfter ? after : null,
   };
 }
 

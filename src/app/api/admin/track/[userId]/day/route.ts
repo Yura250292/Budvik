@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
+import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,16 @@ export async function GET(
     select: { number: true, distanceKm: true, ordersTotal: true, debtsTotal: true },
   });
 
+  /**
+   * Порівняння з призначеним маршрутом. Рахується щоразу заново — план
+   * можна перепризначити заднім числом, і збережений колись результат
+   * розійшовся б із тим, що бачить керівник на карті.
+   *
+   * У водіїв призначень зазвичай немає (їхній план — маршрутний лист із
+   * 1С, він уже в route), тому plan просто буде null і блок не з'явиться.
+   */
+  const planVsFact = await resolvePlanVsFact(userId, day, points);
+
   return NextResponse.json({
     day,
     user,
@@ -97,6 +108,11 @@ export async function GET(
     // Точки з приклеєними відмітками — карта фарбує їх за статусом візиту
     // так само, як планшет у водія.
     route: { ...route, stops: attachVisits(route.stops, visits) },
+    // Плановий маршрут торгового і відхилення від нього. Для водія — null.
+    plan: planVsFact.plan,
+    deviation: planVsFact.deviation,
+    corridorM: planVsFact.corridorM,
+    planFromGeometry: planVsFact.planFromGeometry,
     visits,
     sheet1C: sheet
       ? {

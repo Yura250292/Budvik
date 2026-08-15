@@ -12,6 +12,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayEnd, kyivDayStart, kyivTime } from "@/lib/date/kyiv";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
+import { comparePlanWithTrack } from "@/lib/track/plan-vs-fact";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,9 @@ export async function GET(req: NextRequest) {
         // не потрібні, а accuracy потрібна аналізу, не мапі.
         trackPoints: {
           orderBy: { recordedAt: "asc" },
-          select: { lat: true, lng: true, recordedAt: true },
+          // accuracyM потрібна аналізу відхилень: погана точність
+          // розширює коридор, щоб шум GPS не читався як виїзд убік.
+          select: { lat: true, lng: true, recordedAt: true, accuracyM: true },
         },
       },
       orderBy: { startedAt: "asc" },
@@ -102,45 +105,70 @@ export async function GET(req: NextRequest) {
     prisma.user.findUnique({ where: { id: repId }, select: { id: true, name: true } }),
   ]);
 
-  const actual = trips.map((t) => ({
-    id: t.id,
-    status: t.status,
-    startedAt: t.startedAt.toISOString(),
-    startTime: kyivTime(t.startedAt),
-    endedAt: t.endedAt?.toISOString() ?? null,
-    endTime: t.endedAt ? kyivTime(t.endedAt) : null,
-    distanceKm: t.distanceKm,
-    durationMinutes: t.durationMinutes,
-    // Контроль маршруту: рахувалося при закритті поїздки, тут лише віддаємо
-    trackDistanceKm: t.trackDistanceKm,
-    trackMinutes: t.trackMinutes,
-    trackCoverage: t.trackCoverage,
-    onRouteRatio: t.onRouteRatio,
-    offRouteKm: t.offRouteKm,
-    // Час епізодів форматуємо тут: kyivTime живе на сервері, і тягнути
-    // таймзонні перетворення в клієнт заради двох підписів немає сенсу.
-    excursions: ((t.excursions as Excursion[] | null) ?? []).map((e) => ({
-      ...e,
-      fromTime: kyivTime(new Date(e.from)),
-      toTime: kyivTime(new Date(e.to)),
-    })),
-    track: thinTrack(t.trackPoints),
-    start: t.startLat != null && t.startLng != null
-      ? { lat: t.startLat, lng: t.startLng, address: t.startAddress }
-      : null,
-    end: t.endLat != null && t.endLng != null
-      ? { lat: t.endLat, lng: t.endLng, address: t.endAddress }
-      : null,
-    checkpoints: t.checkpoints.map((c) => ({
-      id: c.id,
-      lat: c.lat,
-      lng: c.lng,
-      address: c.address,
-      seq: c.seq,
-      time: kyivTime(c.createdAt),
-      minutesFromPrev: c.minutesFromPrev,
-    })),
-  }));
+  const actual = trips.map((t) => {
+    /**
+     * Відхилення рахуємо тут, а не читаємо з поїздки.
+     *
+     * Поля onRouteRatio/offRouteKm/excursions у SalesTrip існують з
+     * самого початку, але їх ніхто ніколи не заповнював — код, який мав
+     * рахувати їх при закритті поїздки, так і не написали. Тому в базі
+     * там завжди null, і вся ця панель роками показувала нулі.
+     *
+     * Рахунок на льоту заразом лікує головну ваду збереженого результату:
+     * маршрут можна перепризначити заднім числом, і стара цифра стала б
+     * брехнею. Ціна — мілісекунди на сотні точок.
+     */
+    const live = comparePlanWithTrack(t.trackPoints, planned);
+    const dev = live.deviation;
+
+    return {
+      id: t.id,
+      status: t.status,
+      startedAt: t.startedAt.toISOString(),
+      startTime: kyivTime(t.startedAt),
+      endedAt: t.endedAt?.toISOString() ?? null,
+      endTime: t.endedAt ? kyivTime(t.endedAt) : null,
+      distanceKm: t.distanceKm,
+      durationMinutes: t.durationMinutes,
+      trackDistanceKm: t.trackDistanceKm,
+      trackMinutes: t.trackMinutes,
+      trackCoverage: t.trackCoverage,
+      // Порахованому щойно віддаємо перевагу; збережене лишається
+      // запасним варіантом на випадок, якщо колись його почнуть писати.
+      onRouteRatio: dev?.onRouteRatio ?? t.onRouteRatio,
+      offRouteKm: dev?.offRouteKm ?? t.offRouteKm,
+      // Час епізодів форматуємо тут: kyivTime живе на сервері, і тягнути
+      // таймзонні перетворення в клієнт заради двох підписів немає сенсу.
+      excursions: (dev
+        ? dev.excursions.map((e) => ({
+            ...e,
+            from: e.from.toISOString(),
+            to: e.to.toISOString(),
+          }))
+        : ((t.excursions as Excursion[] | null) ?? [])
+      ).map((e) => ({
+        ...e,
+        fromTime: kyivTime(new Date(e.from)),
+        toTime: kyivTime(new Date(e.to)),
+      })),
+      track: thinTrack(t.trackPoints),
+      start: t.startLat != null && t.startLng != null
+        ? { lat: t.startLat, lng: t.startLng, address: t.startAddress }
+        : null,
+      end: t.endLat != null && t.endLng != null
+        ? { lat: t.endLat, lng: t.endLng, address: t.endAddress }
+        : null,
+      checkpoints: t.checkpoints.map((c) => ({
+        id: c.id,
+        lat: c.lat,
+        lng: c.lng,
+        address: c.address,
+        seq: c.seq,
+        time: kyivTime(c.createdAt),
+        minutesFromPrev: c.minutesFromPrev,
+      })),
+    };
+  });
 
   return NextResponse.json({
     day,

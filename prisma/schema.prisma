@@ -286,6 +286,7 @@ model User {
   // Планшет у машині: веб-трек і відмітки візитів
   trackSessions TrackSession[] @relation("trackSessionUser")
   trackPoints   TrackPoint[]   @relation("trackPointUser")
+  deviceTokens  DeviceToken[]  @relation("deviceTokenUser")
   visits        Visit[]        @relation("visitUser")
 }
 
@@ -2313,4 +2314,39 @@ model Visit {
   @@unique([userId, day, counterpartyId])
   @@index([day])
   @@index([counterpartyId, day])
+}
+
+/// Токен пристрою для нативного застосунку торгового.
+///
+/// Веб шле точки під cookie NextAuth, і для планшета в тримачі це
+/// працює: браузер відкритий, сесія жива. Але фонова служба Android
+/// мусить слати координати місяцями без жодного дотику до екрана, а
+/// cookie протухає — торговий вилітав би посеред дня, і трек губився б
+/// саме тоді, коли ніхто не дивиться.
+///
+/// Тому пристрій отримує окремий довгий токен: логін один раз при
+/// видачі планшета. У базі лежить лише SHA-256 — витік дампа не дає
+/// доступу до заливки координат.
+model DeviceToken {
+  id     String @id @default(cuid())
+  userId String
+
+  /// SHA-256 від токена у hex. Сам токен існує лише на пристрої.
+  tokenHash String @unique
+
+  /// Модель планшета — щоб адмін бачив, який саме пристрій відкликає.
+  deviceName String?
+
+  /// Останнє використання: мертвий пристрій видно без перегляду точок.
+  lastUsedAt DateTime?
+
+  /// Відкликання: втрачений планшет або звільнений торговий. Рядок не
+  /// видаляємо, щоб лишалась історія, у кого і коли був пристрій.
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation("deviceTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

@@ -1,0 +1,304 @@
+"use client";
+
+/**
+ * Картка самоперевірки треку — інструмент на час обкатки застосунку.
+ *
+ * Карта дня показує лінію, і лінія майже завжди виглядає нормально:
+ * дві точки з різних кінців дня з'єднаються прямою, і на око це той
+ * самий маршрут. Тут навпаки — цифри, за якими видно, чи пристрій
+ * справді писав увесь день, чи половину проспав.
+ *
+ * Головна цифра — покриття. Саме її варто порівнювати з тим, що давав
+ * бот: там точка йшла раз на 3 хвилини, лише в робочі години і лише
+ * всередині відкритої поїздки.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+
+type Health = {
+  day: string;
+  user: { id: string; name: string; role: string };
+  hasTrack: boolean;
+  summary: {
+    pointsCount: number;
+    distanceKm: number;
+    firstAt: string | null;
+    lastAt: string | null;
+    spanMinutes: number;
+    coverage: number | null;
+    gapMinutes: number;
+    gapsCount: number;
+    avgIntervalSec: number | null;
+    accuracyAvgM: number | null;
+    goodAccuracyPct: number | null;
+    movingPct: number | null;
+    maxDeliveryLagMin: number;
+    clockSkewSeconds: number | null;
+  };
+  gaps: Array<{ from: string; to: string; minutes: number }>;
+  devices: Array<{
+    deviceName: string | null;
+    lastUsedAt: string | null;
+    revoked: boolean;
+    createdAt: string;
+  }>;
+};
+
+function clock(iso: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+function dateTime(iso: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+/** Оцінка одним словом — щоб не читати всі цифри, коли все добре. */
+function verdict(s: Health["summary"]): { text: string; color: string; hint: string } {
+  if (s.coverage == null) {
+    return { text: "Немає даних", color: "#6B7280", hint: "точок замало для висновку" };
+  }
+  if (s.coverage >= 95) {
+    return { text: "Трек рівний", color: "#16A34A", hint: "пристрій писав без відчутних пауз" };
+  }
+  if (s.coverage >= 80) {
+    return {
+      text: "Є паузи",
+      color: "#D97706",
+      hint: "невеликі дірки — імовірно, зв'язок або тунелі",
+    };
+  }
+  return {
+    text: "Трек рваний",
+    color: "#DC2626",
+    hint: "перевірте економію батареї й дозвіл «Завжди»",
+  };
+}
+
+export function TrackHealthCard({ userId, day }: { userId: string; day: string }) {
+  const [data, setData] = useState<Health | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/track/${userId}/health?day=${day}`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      setData(json);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити");
+    }
+  }, [userId, day]);
+
+  useEffect(() => {
+    if (open) void load();
+  }, [open, load]);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        style={{
+          fontSize: "13px",
+          color: "#2563EB",
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          textDecoration: "underline",
+        }}
+      >
+        Перевірити якість треку
+      </button>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl p-4" style={{ border: "1px solid #FECACA", background: "#FEF2F2" }}>
+        <p style={{ fontSize: "13px", color: "#991B1B" }}>{error}</p>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
+        <p style={{ fontSize: "13px", color: "#6B7280" }}>Рахую…</p>
+      </div>
+    );
+  }
+
+  const s = data.summary;
+  const v = verdict(s);
+
+  return (
+    <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2" style={{ marginBottom: "12px" }}>
+        <span style={{ fontSize: "14px", fontWeight: 700 }}>
+          Якість треку: {data.user.name}
+        </span>
+        <button
+          onClick={() => setOpen(false)}
+          style={{
+            fontSize: "12px",
+            color: "#6B7280",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+          }}
+        >
+          Згорнути
+        </button>
+      </div>
+
+      {!data.hasTrack ? (
+        <div>
+          <p style={{ fontSize: "14px", fontWeight: 600, color: "#DC2626", marginBottom: "8px" }}>
+            Цього дня точок немає
+          </p>
+          {data.devices.length === 0 ? (
+            <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+              У цієї людини немає жодного пристрою — застосунок ще не встановлений
+              або вхід не виконано.
+            </p>
+          ) : (
+            <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.6 }}>
+              <p style={{ marginBottom: "6px" }}>Пристрої є, отже вхід виконувався:</p>
+              {data.devices.map((d, i) => (
+                <p key={i} style={{ color: d.revoked ? "#9CA3AF" : "#374151" }}>
+                  • {d.deviceName ?? "без назви"}
+                  {d.revoked && " (відкликаний)"}
+                  {d.lastUsedAt
+                    ? ` — востаннє озивався ${dateTime(d.lastUsedAt)}`
+                    : " — жодного разу не слав точок"}
+                </p>
+              ))}
+              <p style={{ marginTop: "8px", color: "#6B7280" }}>
+                Якщо пристрій давно мовчить — найімовірніша причина в економії
+                батареї або дозволі «Дозволяти завжди».
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div
+            className="rounded-lg p-3"
+            style={{ background: "#F9FAFB", marginBottom: "12px" }}
+          >
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <span style={{ fontSize: "17px", fontWeight: 700, color: v.color }}>
+                {v.text}
+              </span>
+              {s.coverage != null && (
+                <span style={{ fontSize: "15px", fontWeight: 600 }}>
+                  покриття {s.coverage}%
+                </span>
+              )}
+              <span style={{ fontSize: "12px", color: "#6B7280" }}>{v.hint}</span>
+            </div>
+          </div>
+
+          <div
+            className="grid gap-x-6 gap-y-2"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", fontSize: "13px" }}
+          >
+            <Row label="Точок за день" value={String(s.pointsCount)} />
+            <Row
+              label="Проміжок між точками"
+              value={s.avgIntervalSec != null ? `${s.avgIntervalSec} с` : "—"}
+              // Очікуємо ~60 с. Помітно більше — пристрій засинав.
+              warn={s.avgIntervalSec != null && s.avgIntervalSec > 150}
+            />
+            <Row
+              label="Писав з — до"
+              value={
+                s.firstAt && s.lastAt
+                  ? `${clock(s.firstAt)}—${clock(s.lastAt)} (${Math.floor(s.spanMinutes / 60)} год ${s.spanMinutes % 60} хв)`
+                  : "—"
+              }
+            />
+            <Row
+              label="Мовчав сумарно"
+              value={s.gapMinutes > 0 ? `${s.gapMinutes} хв у ${s.gapsCount} паузах` : "не мовчав"}
+              warn={s.gapMinutes > 30}
+            />
+            <Row
+              label="Точність GPS"
+              value={
+                s.accuracyAvgM != null
+                  ? `${s.accuracyAvgM} м у середньому, ${s.goodAccuracyPct}% придатних`
+                  : "—"
+              }
+              warn={s.goodAccuracyPct != null && s.goodAccuracyPct < 80}
+            />
+            <Row label="У русі" value={s.movingPct != null ? `${s.movingPct}% точок` : "—"} />
+            <Row
+              label="Найдовша затримка"
+              value={s.maxDeliveryLagMin > 0 ? `${s.maxDeliveryLagMin} хв у буфері` : "надсилав одразу"}
+            />
+            <Row
+              label="Годинник пристрою"
+              value={
+                s.clockSkewSeconds == null
+                  ? "—"
+                  : s.clockSkewSeconds < -60
+                    ? `поспішає на ${Math.abs(s.clockSkewSeconds)} с`
+                    : "у нормі"
+              }
+              warn={s.clockSkewSeconds != null && s.clockSkewSeconds < -60}
+            />
+          </div>
+
+          {data.gaps.length > 0 && (
+            <div style={{ marginTop: "12px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+                Найдовші паузи
+              </p>
+              <div className="space-y-1">
+                {data.gaps.map((g, i) => (
+                  <p key={i} style={{ fontSize: "13px", color: "#374151" }}>
+                    {clock(g.from)} — {clock(g.to)}{" "}
+                    <span style={{ color: g.minutes >= 30 ? "#DC2626" : "#6B7280" }}>
+                      ({g.minutes} хв)
+                    </span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "12px", lineHeight: 1.5 }}>
+            Пауза рахується від 5 хвилин без жодної точки. Короткі паузи нормальні
+            (тунель, підземний паркінг), а от години — це майже завжди економія
+            батареї або дозвіл «Завжди», якого не дали.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span style={{ color: "#6B7280" }}>{label}</span>
+      <span style={{ fontWeight: 600, color: warn ? "#DC2626" : "#111827", textAlign: "right" }}>
+        {value}
+      </span>
+    </div>
+  );
+}

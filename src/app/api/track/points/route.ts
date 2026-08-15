@@ -19,22 +19,37 @@ import type { Prisma } from "@prisma/client";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { preparePoints, type RawPoint } from "@/lib/track/geo";
 import { findGaps, resolveGaps } from "@/lib/track/gaps";
+import { verifyDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
 
 export const dynamic = "force-dynamic";
 
 /** Хто возить планшет. Решті ролей трек ні до чого. */
-const ALLOWED_ROLES = ["DRIVER", "SALES", "ADMIN", "MANAGER"];
+const ALLOWED_ROLES = TRACK_ROLES;
 
 /** Стеля на пачку: більше — це вже не буфер, а спроба залити історію. */
 const MAX_BATCH = 500;
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
+  /**
+   * Два способи входу в один ендпоінт: cookie для веб-планшета в
+   * браузері й Bearer-токен для нативного застосунку. Токен перевіряємо
+   * першим — у застосунку cookie немає взагалі, і зайвий getServerSession
+   * на кожній пачці нічого б не дав.
+   */
+  const device = await verifyDeviceToken(req.headers.get("authorization"));
+
+  let userId: string;
+  if (device) {
+    userId = device.userId;
+  } else {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+    }
+    if (!ALLOWED_ROLES.includes(session.user.role)) {
+      return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
+    }
+    userId = session.user.id;
   }
 
   let body: { points?: RawPoint[] };
@@ -55,12 +70,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const userId = session.user.id;
   // Доба визначається за часом ПРИЙОМУ, а не за recordedAt точок: пачка,
   // надіслана о 00:05 після офлайну, все одно належить робочому дню, який
   // щойно закінчився... але планшет о 00:05 уже не в машині. Тому беремо
   // добу першої точки пачки — вона завжди з правильного дня.
-  const day = kyivDate(new Date(raw[0].recordedAt ?? Date.now()));
+  //
+  // Час першої точки перевіряємо окремо: без цього крива пачка (null
+  // замість об'єкта, сміття в recordedAt) валила б upsert по ключу
+  // userId_day і поверталася б як 500 замість зрозумілого 400.
+  const firstAt = new Date(raw[0]?.recordedAt ?? NaN);
+  if (Number.isNaN(firstAt.getTime())) {
+    return NextResponse.json(
+      { error: "Перша точка пачки без коректного recordedAt" },
+      { status: 400 }
+    );
+  }
+  const day = kyivDate(firstAt);
   const dayStart = kyivDayStart(day);
 
   const sessionRow = await prisma.trackSession.upsert({

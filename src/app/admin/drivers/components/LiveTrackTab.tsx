@@ -16,6 +16,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+// Пороги епізоду — з того самого модуля, що й рахує: підпис під
+// відхиленнями не має розходитися з логікою.
+import { EXCURSION_MIN_MINUTES, EXCURSION_MIN_KM } from "@/lib/sales/deviation";
+import { TrackHealthCard } from "./TrackHealthCard";
 
 const TrackDayMap = dynamic(() => import("@/components/map/TrackDayMap"), {
   ssr: false,
@@ -45,7 +49,37 @@ type DayDetail = {
     startedAt: string | null;
     lastPointAt: string | null;
     points: Array<{ lat: number; lng: number; recordedAt: string; speedKmh: number | null }>;
+    /** Лінія з добитими розривами — нею й малюємо трек. */
+    path: Array<[number, number]>;
   };
+  /** Призначений маршрут торгового на цей день. У водія null. */
+  plan: {
+    templateId: string;
+    name: string;
+    color: string | null;
+    totalDistanceKm: number | null;
+    geometry: unknown;
+    stops: Array<{ settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
+    source: "DATE" | "WEEKDAY";
+  } | null;
+  deviation: {
+    hasRoute: boolean;
+    onRouteRatio: number | null;
+    offRouteKm: number;
+    excursions: Array<{
+      from: string;
+      to: string;
+      minutes: number;
+      km: number;
+      maxDistanceM: number;
+      lat: number;
+      lng: number;
+    }>;
+    pointsAnalyzed: number;
+  } | null;
+  corridorM: number;
+  /** Чи план мав справжню геометрію доріг, а не прямі між пунктами */
+  planFromGeometry: boolean;
   route: {
     source: string;
     number: string | null;
@@ -83,6 +117,15 @@ const POLL_MS = 30_000;
 
 function kyivToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
+}
+
+/** Час епізоду в «14:05» за Києвом. */
+function kyivClock(iso: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
 }
 
 export function LiveTrackTab() {
@@ -184,12 +227,101 @@ export function LiveTrackTab() {
               selectedId={selected}
               detail={
                 detail
-                  ? { points: detail.track.points, stops: detail.route.stops }
+                  ? {
+                      points: detail.track.points,
+                      path: detail.track.path,
+                      stops: detail.route.stops,
+                      plan: detail.plan,
+                      excursions: detail.deviation?.excursions ?? [],
+                    }
                   : null
               }
               onSelect={setSelected}
             />
           </div>
+
+          {/* Самоперевірка треку — згорнута, поки не знадобиться. На час
+              обкатки застосунку це головна діагностика: чи писав пристрій
+              рівно, чи половину дня спав. */}
+          {selected && <TrackHealthCard userId={selected} day={day} />}
+
+          {detail?.plan && (
+            <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" style={{ marginBottom: "10px" }}>
+                <span style={{ fontSize: "14px", fontWeight: 700 }}>
+                  План: {detail.plan.name}
+                </span>
+                <span style={{ fontSize: "12px", color: "#6B7280" }}>
+                  {detail.plan.source === "DATE" ? "разове призначення" : "постійний розклад"}
+                  {detail.plan.totalDistanceKm != null && ` · ${detail.plan.totalDistanceKm} км`}
+                  {` · ${detail.plan.stops.length} пунктів`}
+                </span>
+              </div>
+
+              {/* Три цифри, які й відповідають на питання «чи їздив за планом» */}
+              <div className="flex flex-wrap gap-x-6 gap-y-2" style={{ fontSize: "13px" }}>
+                <span>
+                  У коридорі:{" "}
+                  <b
+                    style={{
+                      color:
+                        detail.deviation?.onRouteRatio == null
+                          ? "#6B7280"
+                          : detail.deviation.onRouteRatio < 0.6
+                            ? "#DC2626"
+                            : "#16A34A",
+                    }}
+                  >
+                    {detail.deviation?.onRouteRatio == null
+                      ? "—"
+                      : `${Math.round(detail.deviation.onRouteRatio * 100)}%`}
+                  </b>
+                </span>
+                <span>
+                  Поза маршрутом:{" "}
+                  <b style={{ color: (detail.deviation?.offRouteKm ?? 0) > 0 ? "#DC2626" : "#16A34A" }}>
+                    {detail.deviation?.offRouteKm ?? 0} км
+                  </b>
+                </span>
+                <span style={{ color: "#6B7280" }}>
+                  Коридор: {Math.round(detail.corridorM / 100) / 10} км
+                </span>
+              </div>
+
+              {detail.deviation && detail.deviation.excursions.length > 0 && (
+                <div
+                  className="rounded-lg p-3"
+                  style={{ background: "#FEF2F2", border: "1px solid #FECACA", marginTop: "12px" }}
+                >
+                  <p style={{ fontSize: "13px", fontWeight: 700, color: "#991B1B", marginBottom: "6px" }}>
+                    Виїзди за межі маршруту: {detail.deviation.excursions.length}
+                  </p>
+                  <div className="space-y-1">
+                    {detail.deviation.excursions.map((e, i) => (
+                      <p key={i} style={{ fontSize: "13px", color: "#7F1D1D" }}>
+                        {kyivClock(e.from)}—{kyivClock(e.to)} · {e.minutes} хв · {e.km} км ·
+                        найдалі {Math.round(e.maxDistanceM / 100) / 10} км від маршруту
+                      </p>
+                    ))}
+                  </div>
+                  {/* Дисклеймер обов'язковий: цифри — привід спитати, а не доказ */}
+                  <p style={{ fontSize: "12px", color: "#9F1239", marginTop: "8px", lineHeight: 1.5 }}>
+                    Корки й короткі об&apos;їзди сюди не потрапляють: епізод рахується
+                    від {EXCURSION_MIN_MINUTES} хв і {EXCURSION_MIN_KM} км поза коридором.
+                    Це привід уточнити в торгового, а не готовий висновок.
+                  </p>
+                </div>
+              )}
+
+              {!detail.planFromGeometry && (
+                <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", lineHeight: 1.5 }}>
+                  У цього напрямку немає збереженої геометрії доріг, тому план —
+                  прямі між пунктами, а коридор розширено вдвічі. Відхилення на
+                  вигинах траси тут не рахуються.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid #E5E7EB" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>

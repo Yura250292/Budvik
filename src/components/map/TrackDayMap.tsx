@@ -29,6 +29,12 @@ export type TrackPerson = {
 
 export type TrackDetail = {
   points: Array<{ lat: number; lng: number; recordedAt: string; speedKmh: number | null }>;
+  /**
+   * Лінія з добитими розривами: там, де планшет був офлайн, замість
+   * прямої через півміста вплетено реальну дорогу. Якщо не передана,
+   * малюємо по points — тоді розриви видно як хорди.
+   */
+  path?: Array<[number, number]>;
   stops: Array<{
     key: string;
     name: string;
@@ -37,7 +43,36 @@ export type TrackDetail = {
     sequence: number;
     visit: { status: string } | null;
   }>;
+  /** Призначений маршрут на цей день — те, куди торговий мав їхати. */
+  plan?: {
+    name: string;
+    color: string | null;
+    geometry: unknown;
+    stops: Array<{ settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
+  } | null;
+  /** Епізоди виходу за коридор маршруту. */
+  excursions?: Array<{
+    from: string;
+    to: string;
+    minutes: number;
+    km: number;
+    maxDistanceM: number;
+    lat: number;
+    lng: number;
+  }>;
 };
+
+/** Колір планової лінії за замовчуванням — той самий, що на вкладці торгових. */
+const PLAN_COLOR = "#FFB800";
+
+/** Час епізоду в «14:05» за Києвом: сервер віддає ISO. */
+function kyivClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function escapeHtml(v: string): string {
   return v
@@ -158,8 +193,56 @@ export default function TrackDayMap({
 
     const bounds = L.latLngBounds([]);
 
+    /**
+     * План малюємо ПЕРШИМ, щоб він лишився підкладкою: важливий не він,
+     * а те, наскільки від нього відхилилися. Жовта широка лінія під
+     * синім треком читається як «коридор, у якому мали їхати».
+     */
+    const plan = detail.plan;
+    if (plan) {
+      const planColor = plan.color || PLAN_COLOR;
+      const geo = plan.geometry as { coordinates?: [number, number][] } | null;
+
+      if (geo?.coordinates && geo.coordinates.length >= 2) {
+        // GeoJSON — [lng, lat], Leaflet чекає [lat, lng]
+        const planLine = geo.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+        L.polyline(planLine, { color: planColor, weight: 7, opacity: 0.35 }).addTo(group);
+        planLine.forEach((c) => bounds.extend(c));
+      } else if (plan.stops.length >= 2) {
+        // Геометрії доріг немає — пунктир між пунктами, щоб не видавати
+        // пряму через поля за справжній маршрут.
+        const planLine = plan.stops.map((s) => [s.lat, s.lng] as [number, number]);
+        L.polyline(planLine, {
+          color: planColor,
+          weight: 5,
+          opacity: 0.35,
+          dashArray: "8 6",
+        }).addTo(group);
+        planLine.forEach((c) => bounds.extend(c));
+      }
+
+      // Пункти плану — квадратами, щоб не плутати з круглими точками
+      // фактичного маршруту й відмітками.
+      plan.stops.forEach((s) => {
+        L.marker([s.lat, s.lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="width:24px;height:24px;border-radius:6px;background:${planColor};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font:600 11px/1 system-ui;color:#1F2937;transform:translate(-12px,-12px)">${s.seq + 1}</div>`,
+            iconSize: [0, 0],
+          }),
+        })
+          .bindTooltip(`За планом: ${escapeHtml(s.settlement)}`, { direction: "top" })
+          .addTo(group);
+        bounds.extend([s.lat, s.lng]);
+      });
+    }
+
     if (detail.points.length > 1) {
-      const line = detail.points.map((p) => [p.lat, p.lng] as [number, number]);
+      // path уже з добитими розривами; points — запасний варіант.
+      const line =
+        detail.path && detail.path.length > 1
+          ? detail.path
+          : detail.points.map((p) => [p.lat, p.lng] as [number, number]);
       L.polyline(line, { color: "#2563EB", weight: 4, opacity: 0.8 }).addTo(group);
       line.forEach((c) => bounds.extend(c));
 
@@ -190,6 +273,35 @@ export default function TrackDayMap({
         .bindTooltip(`${s.sequence}. ${s.name}`, { direction: "top" })
         .addTo(group);
       bounds.extend([s.lat, s.lng]);
+    });
+
+    /**
+     * Відхилення — колом, а не маркером: епізод це область і тривалість,
+     * а не одна точка. Малюємо останніми, поверх усього, бо саме заради
+     * них керівник і відкриває цей день.
+     */
+    (detail.excursions ?? []).forEach((e, i) => {
+      L.circle([e.lat, e.lng], {
+        // Стеля й підлога радіуса: без них епізод на 40 км залив би пів
+        // області, а короткий став би невидимою цяткою.
+        radius: Math.max(600, Math.min(e.maxDistanceM, 15_000)),
+        color: "#DC2626",
+        fillColor: "#DC2626",
+        fillOpacity: 0.12,
+        weight: 2,
+        dashArray: "6 4",
+      })
+        .bindPopup(
+          `<div style="font:13px/1.5 system-ui">
+             <b>Відхилення №${i + 1}</b><br/>
+             ${kyivClock(e.from)} — ${kyivClock(e.to)}<br/>
+             Тривалість: ${e.minutes} хв<br/>
+             Поза маршрутом: ${e.km} км<br/>
+             Найдалі від маршруту: ${Math.round(e.maxDistanceM / 100) / 10} км
+           </div>`
+        )
+        .addTo(group);
+      bounds.extend([e.lat, e.lng]);
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });

@@ -9,6 +9,7 @@ import { Skeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
 import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import {
@@ -49,6 +50,7 @@ function HomeSkeleton() {
 function HeaderActions() {
   const [notifications, setNotifications] = useState<{ id: string; title: string; body: string; isRead: boolean; createdAt: string; relatedId?: string }[]>([]);
   const [open, setOpen] = useState(false);
+  const isApp = useIsNativeApp();
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   useEffect(() => {
@@ -98,7 +100,9 @@ function HeaderActions() {
       </button>
 
       <button
-        onClick={() => signOut({ callbackUrl: "/" })}
+        // У застосунку виходить натив: signOut стер би кукі, але лишив
+        // токен пристрою, і трек писався б далі.
+        onClick={() => (isApp ? window.BudvikApp?.logout() : signOut({ callbackUrl: "/" }))}
         title="Вийти"
         aria-label="Вийти з акаунту"
         style={{

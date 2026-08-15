@@ -287,6 +287,7 @@ model User {
   trackSessions TrackSession[] @relation("trackSessionUser")
   trackPoints   TrackPoint[]   @relation("trackPointUser")
   deviceTokens  DeviceToken[]  @relation("deviceTokenUser")
+  shifts        Shift[]        @relation("shiftUser")
   visits        Visit[]        @relation("visitUser")
 }
 
@@ -2243,13 +2244,25 @@ model TrackPoint {
   /// реальний шлях замість прямої лінії через півміста.
   gapGeometry Json?
 
+  /// До якої зміни належить точка. Незалежно від доби: зміна може
+  /// перетнути північ, і тоді її точки лежать у двох TrackSession, але
+  /// в одному shiftId. Карта зміни фільтрує саме по ньому.
+  shiftId String?
+  /// У зміні точка чи після неї. null — старий трек водіїв, який про
+  /// зміни нічого не знає.
+  phase   TrackPhase?
+
   createdAt DateTime @default(now())
 
   session TrackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user    User         @relation("trackPointUser", fields: [userId], references: [id], onDelete: Cascade)
+  /// SetNull, а не Cascade: видалена зміна не має забирати з собою трек —
+  /// точки лишаються свідченням про день.
+  shift   Shift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   @@index([sessionId, recordedAt])
   @@index([userId, recordedAt])
+  @@index([shiftId, recordedAt])
 }
 
 /// Чи потрапив на точку.
@@ -2349,4 +2362,141 @@ model DeviceToken {
   user User @relation("deviceTokenUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Стан зміни торгового.
+enum ShiftStatus {
+  OPEN /// відкрита: фото стартового одометра підтверджене, трек пишеться
+  CLOSED /// закрита нормально — обидва одометри є, пробіг порахований
+  ABANDONED /// торговий забув закрити; пробіг узято зі старту наступної зміни
+}
+
+/// До чого належить точка треку.
+enum TrackPhase {
+  SHIFT /// у робочій зміні
+  AFTER_SHIFT /// після закриття зміни — «чи не таксував»
+}
+
+/// Робоча зміна торгового: від фото одометра до фото одометра.
+///
+/// Свідомо окрема модель, а не SalesTrip. Та наполовину телеграмна —
+/// startTelegramFileId, liveMessageId, liveChatId, — і половина її полів
+/// у застосунку лишалася б мертвою. До того ж її трек живе в
+/// SalesTrackPoint(tripId), а застосунок пише в TrackPoint. Бот тим
+/// часом продовжує писати у свою модель, і цифри в його звітах не
+/// попливуть.
+///
+/// Поля day немає навмисно: зміна може перетнути північ, і прив'язка до
+/// доби зробила б із неї дві. Точки належать добі (через TrackSession) і
+/// зміні (через shiftId) незалежно.
+model Shift {
+  id     String      @id @default(cuid())
+  userId String
+  status ShiftStatus @default(OPEN)
+
+  // --- Відкриття ---
+  startedAt DateTime @default(now())
+  startLat  Float?
+  startLng  Float?
+
+  /// Показання одометра. Int, а не Float: одометри цілочисельні в км, а
+  /// Float спокушає AI повернути 123456.7 з добового лічильника (TRIP).
+  startOdometer           Int
+  startOdometerSource     OdometerSource
+  /// Що сказав AI до правки людини — метрика якості моделі
+  startOdometerAiValue    Int?
+  startOdometerConfidence Float?
+  startPhotoUrl           String?
+  startPhotoKey           String?
+  /// SHA-256 фото: заміна telegramFileId. Той самий знімок удруге —
+  /// привід придивитися, а не технічна помилка.
+  startPhotoSha256        String?
+  startConfirmedAt        DateTime?
+
+  // --- Закриття ---
+  endedAt               DateTime?
+  endLat                Float?
+  endLng                Float?
+  endOdometer           Int?
+  endOdometerSource     OdometerSource?
+  endOdometerAiValue    Int?
+  endOdometerConfidence Float?
+  endPhotoUrl           String?
+  endPhotoKey           String?
+  endPhotoSha256        String?
+  endConfirmedAt        DateTime?
+
+  // --- Похідні ---
+  /// endOdometer - startOdometer
+  distanceKm      Int?
+  durationMinutes Int?
+  /// Пробіг за GPS-треком зміни — завжди НИЖЧА межа: трек іде по прямій
+  /// між точками, дорога довша.
+  gpsDistanceKm   Float?
+  /// Одометр / GPS. ~1.2-1.6 — норма; сильно більше означає, що
+  /// кілометри були, а треку до них немає.
+  odometerToGpsRatio Float?
+  /// Кілометри між кінцем минулої зміни й початком цієї. НЕ порушення
+  /// саме собою: дорога додому теж рахується.
+  personalKm      Int?
+  /// Різниця від'ємна, нульова або неправдоподібна
+  odometerSuspicious Boolean @default(false)
+
+  // --- Забута зміна ---
+  /// Закрита автоматично при відкритті наступної, а не людиною
+  closedAutomatically Boolean @default(false)
+  /// Яка саме зміна її закрила — щоб було видно ланцюжок
+  autoClosedByShiftId String?
+
+  /// Ключ ідемпотентності від пристрою: повтор запиту після таймауту
+  /// має віддати ту саму зміну, а не створити другу.
+  clientRequestId String? @unique
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User         @relation("shiftUser", fields: [userId], references: [id], onDelete: Cascade)
+  points TrackPoint[]
+  reads  ShiftOdometerRead[]
+
+  @@index([userId, startedAt])
+  @@index([status])
+}
+
+/// Кожна спроба розпізнати одометр — навіть та, що не стала зміною.
+///
+/// Фото завантажується й розпізнається ДО створення зміни: інакше
+/// перефотографування плодило б порожні зміни. Заразом це єдиний спосіб
+/// побачити, скільки разів торговий перезнімав, поки не «вийшло
+/// потрібне число».
+model ShiftOdometerRead {
+  id      String  @id @default(cuid())
+  shiftId String?
+  userId  String
+
+  /// START або END — для якого краю зміни знімок
+  phase String
+
+  photoUrl    String?
+  photoKey    String?
+  photoSha256 String?
+
+  aiValue      Int?
+  aiConfidence Float?
+  /// Цифри так, як їх побачила модель: «0 9 1 3 0 0» — за ними видно,
+  /// де саме вона помилилася.
+  aiDigitsRead String?
+  aiIsTripMeter Boolean @default(false)
+  /// Чому вердикт негативний: not_read, trip_meter, too_far…
+  rejectedReason String?
+  /// Повна відповідь моделі — для розбору польотів
+  rawJson      Json?
+
+  createdAt DateTime @default(now())
+
+  shift Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([shiftId])
 }

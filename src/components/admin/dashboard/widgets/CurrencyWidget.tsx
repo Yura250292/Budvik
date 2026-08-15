@@ -11,10 +11,11 @@ const rate = (n: number | null, digits = 2) =>
   n == null ? "—" : n.toLocaleString("uk-UA", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 /**
- * Курси валют: офіційний НБУ і готівковий банків.
+ * Курси валют: офіційний НБУ, готівковий «Мінфіну» і внутрішній «Будвік».
  *
- * Дві колонки, бо це два різні числа для двох різних задач: за курсом
- * НБУ рахують документи, за готівковим — реально міняють гроші.
+ * Три колонки, бо це три різні числа для трьох різних задач: за курсом
+ * НБУ рахують документи, за готівковим — реально міняють гроші, а
+ * «Будвік» (продаж + 55 коп.) — курс, до якого надалі привʼяжуться ціни.
  */
 export function CurrencyRates() {
   const { data, loading, error } = useApi<CurrencyResponse>("/api/admin/tools/currency");
@@ -25,10 +26,13 @@ export function CurrencyRates() {
       )
     : null;
 
+  // Підпис відповідає тому, звідки насправді прийшла готівка цього разу.
+  const cashSource = data?.sources.minfin ? "Мінфін" : "банки";
+
   return (
     <WidgetBody
       title="Курс валют"
-      hint={dateLabel ? `НБУ на ${dateLabel} · готівка банків` : "НБУ та готівковий курс"}
+      hint={dateLabel ? `НБУ на ${dateLabel} · готівка: ${cashSource}` : "НБУ та готівковий курс"}
       loading={loading && !data}
       error={error}
       empty={!!data && data.rates.every((r) => r.official == null && r.buy == null)}
@@ -38,8 +42,9 @@ export function CurrencyRates() {
           <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-g400">
             <span>Валюта</span>
             <span className="flex gap-3">
-              <span className="w-[62px] text-right">НБУ</span>
-              <span className="w-[92px] text-right">Купівля / Продаж</span>
+              <span className="w-[52px] text-right">НБУ</span>
+              <span className="w-[88px] text-right">Купівля / Продаж</span>
+              <span className="w-[52px] text-right">Budvik</span>
             </span>
           </div>
 
@@ -63,12 +68,10 @@ export function CurrencyRates() {
               </span>
 
               <span className="flex flex-shrink-0 gap-3">
-                <span className="w-[62px] text-right text-[13px] font-semibold tabular-nums text-bk">
-                  {rate(r.official)}
-                </span>
+                <span className="w-[52px] text-right text-[13px] tabular-nums text-g600">{rate(r.official)}</span>
                 {/* Банки котирують не всі валюти (напр. злотий) — тоді один
                     прочерк замість «— / —»: так видно, що даних просто немає. */}
-                <span className="w-[92px] text-right text-[13px] tabular-nums text-g600">
+                <span className="w-[88px] text-right text-[13px] tabular-nums text-g600">
                   {r.buy == null && r.sell == null ? (
                     "—"
                   ) : (
@@ -76,6 +79,10 @@ export function CurrencyRates() {
                       {rate(r.buy)} <span className="text-g300">/</span> {rate(r.sell)}
                     </>
                   )}
+                </span>
+                {/* Свій курс — головне число рядка, тому єдиний жирний. */}
+                <span className="w-[52px] text-right text-[13px] font-semibold tabular-nums text-bk">
+                  {rate(r.budvik)}
                 </span>
               </span>
             </div>

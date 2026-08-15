@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { readShiftState, useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
  * Нижня навігація кабінету торгового: чотири рівні вкладки.
@@ -54,8 +56,23 @@ const tabs = [
   },
 ];
 
+/** Спідометр — вхід у нативний екран зміни. */
+const SHIFT_ICON =
+  "M12 3a9 9 0 100 18 9 9 0 000-18zm0 0v3m6.364.636l-2.121 2.121M21 12h-3M12 12l4.5-4.5";
+
 export default function SalesBottomNav() {
   const pathname = usePathname();
+  const isApp = useIsNativeApp();
+  const [shiftOpen, setShiftOpen] = useState(false);
+
+  /**
+   * Стан зміни перечитуємо при кожній навігації: торговий міг щойно
+   * відкрити зміну на нативному екрані й повернутись у кабінет.
+   */
+  useEffect(() => {
+    if (!isApp) return;
+    setShiftOpen(readShiftState()?.open ?? false);
+  }, [isApp, pathname]);
 
   const isActive = (href: string, exact?: boolean) => {
     if (exact) return pathname === href;
@@ -73,6 +90,7 @@ export default function SalesBottomNav() {
     >
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-1">
         {tabs.map((tab) => {
+          const minW = isApp ? "min-w-[56px]" : "min-w-[64px]";
           const active = isActive(tab.href, tab.exact);
 
           return (
@@ -82,7 +100,7 @@ export default function SalesBottomNav() {
               aria-current={active ? "page" : undefined}
               // min-h-12: ціль дотику 48px. Раніше py-2 давало ~40px —
               // у машині в це не потрапляли без прицілювання.
-              className="flex min-h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-xl px-1"
+              className={`flex min-h-12 ${minW} flex-col items-center justify-center gap-0.5 rounded-xl px-1`}
             >
               <svg
                 className="h-6 w-6"
@@ -106,6 +124,62 @@ export default function SalesBottomNav() {
             </Link>
           );
         })}
+
+        {/*
+          Шоста вкладка живе тільки в застосунку. Стеля з п'яти вкладок
+          писалась для телефона у звичайному браузері; тут інший випадок —
+          без цієї кнопки нативний екран зміни не має входу взагалі, бо
+          іншої навігації в застосунку немає. Цілі дотику лишаються 48px,
+          звужується лише горизонтальний запас (56px замість 64px).
+
+          Це кнопка, а не Link: вона нікуди не веде в межах сайту, а
+          гукає натив через міст. Активною не буває — нативний екран
+          відкривається поверх, і кабінет лишається на тій самій сторінці.
+        */}
+        {isApp && (
+          <button
+            type="button"
+            onClick={() => window.BudvikApp?.openShift()}
+            aria-label="Зміна"
+            className="relative flex min-h-12 min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-xl px-1"
+          >
+            <svg
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d={SHIFT_ICON} />
+            </svg>
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 500,
+                color: "rgba(255,255,255,0.4)",
+              }}
+            >
+              Зміна
+            </span>
+            {/* Крапка, поки зміна відкрита: єдиний спосіб побачити з
+                кабінету, що трек пишеться. */}
+            {shiftOpen && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: 6,
+                  right: 12,
+                  width: 8,
+                  height: 8,
+                  borderRadius: 9999,
+                  background: "#FFD600",
+                }}
+              />
+            )}
+          </button>
+        )}
       </div>
     </nav>
   );

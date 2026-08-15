@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/lib/useProfile";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
  * Аватарка з меню у шапці торгового.
@@ -17,6 +18,7 @@ import { useProfile } from "@/lib/useProfile";
 export default function SalesProfileMenu() {
   const profile = useProfile();
   const pathname = usePathname();
+  const isApp = useIsNativeApp();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -99,22 +101,33 @@ export default function SalesProfileMenu() {
             Змінити пароль
           </Link>
 
-          <Link
-            href="/"
-            role="menuitem"
-            className="flex min-h-11 items-center gap-2.5 border-t border-g200 px-4 text-[14px] font-medium text-bk active:bg-g100"
-            onClick={() => setOpen(false)}
-          >
-            <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            На сайт
-          </Link>
+          {/* У застосунку вітрини магазину немає — назад у кабінет з неї
+              не було б чим повернутись. */}
+          {!isApp && (
+            <Link
+              href="/"
+              role="menuitem"
+              className="flex min-h-11 items-center gap-2.5 border-t border-g200 px-4 text-[14px] font-medium text-bk active:bg-g100"
+              onClick={() => setOpen(false)}
+            >
+              <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              На сайт
+            </Link>
+          )}
 
           <button
             type="button"
             role="menuitem"
-            onClick={() => signOut({ callbackUrl: "/" })}
+            /*
+             * У застосунку вихід веде через натив: signOut стер би лише
+             * кукі, а токен пристрою лишився б — застосунок опинився б
+             * «наполовину залогіненим» і мовчки писав би трек далі.
+             */
+            onClick={() =>
+              isApp ? window.BudvikApp?.logout() : signOut({ callbackUrl: "/" })
+            }
             className="flex min-h-11 w-full items-center gap-2.5 border-t border-g200 px-4 text-left text-[14px] font-medium text-red-600 active:bg-red-50"
           >
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">

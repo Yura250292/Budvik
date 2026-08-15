@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Avatar } from "@/components/ui/Avatar";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
  * Профіль торгового: свої дані і зміна пароля.
@@ -50,6 +51,7 @@ const cardStyle = {
 
 export default function SalesProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const isApp = useIsNativeApp();
 
   // Дані
   const [email, setEmail] = useState("");
@@ -327,8 +329,10 @@ export default function SalesProfilePage() {
               )}
             </div>
 
-            {/* === ВИХІД === */}
-            <button onClick={() => signOut({ callbackUrl: "/" })}
+            {/* === ВИХІД ===
+                У застосунку виходить натив: signOut прибрав би кукі, але
+                лишив токен пристрою, і трек писався б далі. */}
+            <button onClick={() => (isApp ? window.BudvikApp?.logout() : signOut({ callbackUrl: "/" }))}
               style={{
                 width: "100%", padding: "14px", borderRadius: "12px", fontWeight: 600, fontSize: "15px",
                 background: "white", color: "#DC2626", border: "1px solid #FECACA",

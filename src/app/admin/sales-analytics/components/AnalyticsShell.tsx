@@ -25,6 +25,7 @@ import { ClientMapTab } from "./ClientMapTab";
 import { FuelTab } from "./FuelTab";
 import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
+import { PayrollTab } from "./PayrollTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -50,6 +51,7 @@ const SUBTABS = {
   kpi: [
     { key: "plans", label: "Плани" },
     { key: "motivation", label: "Мотивація" },
+    { key: "payroll", label: "Розрахунок" },
   ],
   logistics: [
     { key: "trips", label: "Поїздки" },
@@ -327,6 +329,7 @@ export function AnalyticsShell() {
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
+        {tab === "kpi" && view === "payroll" && <PayrollTab />}
         {tab === "logistics" && view === "trips" && (
           <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
         )}

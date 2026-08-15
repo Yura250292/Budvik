@@ -258,6 +258,8 @@ model User {
   salesPlansCreated     SalesPlan[]            @relation("salesPlanAuthor")
   motivationAssignments MotivationAssignment[] @relation("motivationRep")
   paymentAllocations    PaymentAllocation[]    @relation("paymentAllocations")
+  payrollEntries        MotivationPayrollEntry[] @relation("payrollEntries")
+  individualTermsEntries IndividualTermsEntry[]  @relation("individualTermsEntries")
 
   // Маршрути торгових і авто
   routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
@@ -1598,6 +1600,107 @@ model MotivationAssignment {
   scheme MotivationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
 
   @@index([repId, validFrom])
+}
+
+/// ========== Розрахунок мотивації по валу ==========
+/// Дзеркало таблиці «Мотивація Торговий Відділ»: вал по валютах з 1С-звіту
+/// «Валовая прибыль вал», курси місяця, сходинки бонусу за виконання плану
+/// і «фірми за дужками» з індивідуальними умовами.
+///
+/// Вал зараз вноситься вручну (обмін з 1С собівартість не передає — див.
+/// apply-documents.ts). Коли обмін навчиться передавати собівартість і
+/// валюту закупівлі, ці ж поля заповнюватимуться автоматично.
+
+/// Місяць розрахунку: курси валют і сходинки бонусу. Курси фіксуються на
+/// місяць (як «Курс валют на вересень» у таблиці), а не тягнуться з НБУ:
+/// зарплата не має стрибати від того, що курс змінився після нарахування.
+model MotivationPayrollMonth {
+  id    String   @id @default(cuid())
+  /// Перше число місяця — так само, як periodStart у SalesPlan
+  month DateTime @unique
+
+  usdRate Float @default(0)
+  eurRate Float @default(0)
+  plnRate Float @default(0)
+
+  /// Сходинки «% виконання плану → % від валу»:
+  /// { "steps": [{ "limit": 100, "percent": 30 }, { "limit": 120, "percent": 35 }], "topPercent": 40 }
+  /// Читається: < 100% → 30, 100–120% → 35, > 120% → 40.
+  tiers Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries     MotivationPayrollEntry[]
+  termEntries IndividualTermsEntry[]
+}
+
+/// Рядок таблиці: показники одного торгового за місяць.
+/// Розрахункові колонки (K, застосований %, бонуси) не зберігаються —
+/// вони чиста функція від цих полів і налаштувань місяця (payroll.ts).
+model MotivationPayrollEntry {
+  id      String @id @default(cuid())
+  monthId String
+  repId   String
+
+  workDays      Int   @default(0)
+  /// План і факт (грн) фіксуються в рядку, а не читаються з SalesPlan:
+  /// план могли змінити заднім числом, а зарплата має лишитись як була
+  planAmount    Float @default(0)
+  factAmount    Float @default(0)
+  /// Вал по валютах закупівлі, без ПДВ і без груп з індивідуальними умовами
+  grossUah      Float @default(0)
+  grossUsd      Float @default(0)
+  grossEur      Float @default(0)
+  grossPln      Float @default(0)
+  /// Бонуси, віддані клієнтам — віднімаються від загального валу
+  clientBonuses Float @default(0)
+
+  month MotivationPayrollMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  rep   User                   @relation("payrollEntries", fields: [repId], references: [id], onDelete: Cascade)
+
+  @@unique([monthId, repId])
+}
+
+/// «Фірми за дужками»: група брендів з індивідуальними умовами співпраці
+/// (APRO + Сила + UNIFIX + 12Atelie). Їхній вал не входить у загальний
+/// котел — бонус рахується окремо від продажів групи.
+model IndividualTermsGroup {
+  id        String  @id @default(cuid())
+  name      String
+  /// Довідково: перелік брендів групи текстом, як у групі 1С
+  brands    String  @default("")
+  /// Валюта, в якій вносяться продажі групи: UAH | USD | EUR | PLN
+  currency  String  @default("USD")
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  entries IndividualTermsEntry[]
+}
+
+/// Продажі торгового по групі за місяць. Відсоток бонусу — РУЧНИЙ:
+/// торговий сам вирішує, де прогнутись по ціні заради обороту, а де
+/// продати з більшою рентабельністю, тож фіксованої шкали немає —
+/// адмін ставить відсоток, дивлячись на коефіцієнт рентабельності.
+model IndividualTermsEntry {
+  id      String @id @default(cuid())
+  monthId String
+  groupId String
+  repId   String
+
+  /// Продажі групи за місяць у валюті групи, без ПДВ
+  salesAmount  Float  @default(0)
+  /// Коеф. рентабельності з 1С — довідковий, на формулу не впливає
+  rentCoef     Float?
+  /// % для бонусу: бонус = продажі × % × курс валюти групи
+  bonusPercent Float  @default(0)
+
+  month MotivationPayrollMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  group IndividualTermsGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  rep   User                   @relation("individualTermsEntries", fields: [repId], references: [id], onDelete: Cascade)
+
+  @@unique([monthId, groupId, repId])
+  @@index([monthId, repId])
 }
 
 /// Рознесення оплати на торгового. Payment сам по собі не знає, хто

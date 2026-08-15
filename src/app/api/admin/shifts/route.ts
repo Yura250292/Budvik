@@ -10,7 +10,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
+import { resolveRouteForDay } from "@/lib/routes/resolve";
+import { computeOverrun } from "@/lib/shift/plan-overrun";
 
 export const dynamic = "force-dynamic";
 
@@ -64,19 +66,52 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({
-    shifts: shifts.map((s) => ({
+  /**
+   * Планові кілометри на кожну зміну.
+   *
+   * Резолвимо по УНІКАЛЬНІЙ парі (торговий, день), а не на кожен рядок:
+   * у списку буває дві сотні змін, і серед них десятки припадають на той
+   * самий день того самого напрямку. Без дедуплікації екран робив би
+   * двісті однакових запитів до бази заради двадцяти відповідей.
+   *
+   * День беремо за початком зміни — та сама причина, що й у картці:
+   * зміна може перетнути північ, а маршрут призначений на день виїзду.
+   */
+  const planKeys = new Map<string, { repId: string; day: string }>();
+  for (const s of shifts) {
+    const day = kyivDate(s.startedAt);
+    planKeys.set(`${s.userId}|${day}`, { repId: s.userId, day });
+  }
+
+  const plans = new Map<string, number | null>();
+  await Promise.all(
+    [...planKeys].map(async ([key, { repId, day }]) => {
+      const route = await resolveRouteForDay(repId, day);
+      plans.set(key, route?.totalDistanceKm ?? null);
+    })
+  );
+
+  const rows = shifts.map((s) => {
+    const plannedKm = plans.get(`${s.userId}|${kyivDate(s.startedAt)}`) ?? null;
+    return {
       ...s,
       name: s.user.name,
       pointsCount: s._count.points,
+      // Одометр — база порівняння; GPS лише коли зміна ще не закрита.
+      overrun: computeOverrun(s.distanceKm ?? s.gpsDistanceKm, plannedKm),
       user: undefined,
       _count: undefined,
-    })),
+    };
+  });
+
+  return NextResponse.json({
+    shifts: rows,
     summary: {
       count: shifts.length,
       totalKm: shifts.reduce((sum, s) => sum + (s.distanceKm ?? 0), 0),
       suspicious: shifts.filter((s) => s.odometerSuspicious).length,
       autoClosed: shifts.filter((s) => s.closedAutomatically).length,
+      overrunning: rows.filter((r) => r.overrun?.exceeded).length,
     },
   });
 }

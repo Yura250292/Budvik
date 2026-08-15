@@ -40,6 +40,14 @@ type ShiftRow = {
   startPhotoUrl: string | null;
   endPhotoUrl: string | null;
   pointsCount: number;
+  /** Перевитрата проти призначеного маршруту; null — маршруту на день немає */
+  overrun: {
+    plannedKm: number;
+    actualKm: number;
+    extraKm: number;
+    overrunPct: number;
+    exceeded: boolean;
+  } | null;
 };
 
 type Detail = {
@@ -59,6 +67,40 @@ type Detail = {
   track: {
     shift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
     afterShift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
+  };
+  plan: {
+    day: string;
+    route: {
+      templateId: string;
+      name: string;
+      totalDistanceKm: number | null;
+      geometry: { type?: string; coordinates?: [number, number][] } | null;
+      stops: Array<{ settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
+      source: "DATE" | "WEEKDAY";
+    } | null;
+    overrun: {
+      plannedKm: number;
+      actualKm: number;
+      extraKm: number;
+      overrunPct: number;
+      exceeded: boolean;
+    } | null;
+    thresholdPct: number;
+    deviation: {
+      onRouteRatio: number | null;
+      offRouteKm: number;
+      excursions: Array<{
+        minutes: number;
+        km: number;
+        maxDistanceM: number;
+        lat: number;
+        lng: number;
+        fromTime: string;
+        toTime: string;
+      }>;
+    } | null;
+    corridorM: number;
+    planFromGeometry: boolean;
   };
 };
 
@@ -86,7 +128,13 @@ function time(iso: string): string {
 
 export function ShiftsTab({ period }: { period: Period }) {
   const [rows, setRows] = useState<ShiftRow[]>([]);
-  const [summary, setSummary] = useState<{ count: number; totalKm: number; suspicious: number; autoClosed: number } | null>(null);
+  const [summary, setSummary] = useState<{
+    count: number;
+    totalKm: number;
+    suspicious: number;
+    autoClosed: number;
+    overrunning: number;
+  } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +203,11 @@ export function ShiftsTab({ period }: { period: Period }) {
               Закриті автоматично: <b>{summary.autoClosed}</b>
             </span>
           )}
+          {summary.overrunning > 0 && (
+            <span style={{ color: "#DC2626" }}>
+              Понад план: <b>{summary.overrunning}</b>
+            </span>
+          )}
           <label className="flex items-center gap-2" style={{ marginLeft: "auto", fontSize: 13, cursor: "pointer" }}>
             <input
               type="checkbox"
@@ -185,6 +238,7 @@ export function ShiftsTab({ period }: { period: Period }) {
                 <th style={thR}>Пробіг</th>
                 <th style={thR}>GPS</th>
                 <th style={thR}>Одометр/GPS</th>
+                <th style={thR}>План</th>
                 <th style={th}>Стан</th>
               </tr>
             </thead>
@@ -226,6 +280,22 @@ export function ShiftsTab({ period }: { period: Period }) {
                       }}
                     >
                       {s.odometerToGpsRatio != null ? s.odometerToGpsRatio.toFixed(2) : "—"}
+                    </td>
+                    <td
+                      style={{
+                        ...tdR,
+                        color: s.overrun == null ? "#9CA3AF" : s.overrun.exceeded ? "#DC2626" : "#16A34A",
+                        fontWeight: s.overrun?.exceeded ? 700 : 400,
+                      }}
+                      title={
+                        s.overrun
+                          ? `План ${s.overrun.plannedKm} км · Факт ${s.overrun.actualKm} км`
+                          : "На цей день маршрут не призначений"
+                      }
+                    >
+                      {s.overrun
+                        ? `${s.overrun.overrunPct >= 0 ? "+" : ""}${s.overrun.overrunPct}%`
+                        : "—"}
                     </td>
                     <td style={td}>
                       {STATUS_LABEL[s.status] ?? s.status}
@@ -311,11 +381,24 @@ export function ShiftsTab({ period }: { period: Period }) {
             })}
           </div>
 
+          {/* План проти факту: вирок словами й цифрою, до того як дивитись на карту */}
+          {detail.plan.route ? (
+            <PlanVerdict plan={detail.plan} route={detail.plan.route} />
+          ) : (
+            <p style={{ fontSize: 13, color: "#9CA3AF" }}>
+              На {detail.plan.day} цьому торговому маршрут не призначений — накладати
+              нема чого. Призначення живуть у вкладці «Огляд».
+            </p>
+          )}
+
           {detail.track.shift.pointsCount > 0 || detail.track.afterShift.pointsCount > 0 ? (
             <>
               <ShiftTrackMap
                 shiftPath={detail.track.shift.path}
                 afterShiftPath={detail.track.afterShift.path}
+                planGeometry={detail.plan.route?.geometry ?? null}
+                planStops={detail.plan.route?.stops ?? []}
+                excursions={detail.plan.deviation?.excursions ?? []}
                 height="420px"
               />
               <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: 13 }}>
@@ -329,6 +412,19 @@ export function ShiftsTab({ period }: { period: Period }) {
                     Після зміни ({detail.track.afterShift.pointsCount} точок)
                   </span>
                 )}
+                {detail.plan.route && (
+                  <span>
+                    <span style={{ display: "inline-block", width: 22, height: 5, background: "#16A34A", opacity: 0.45, verticalAlign: "middle", marginRight: 6 }} />
+                    Маршрут за планом
+                    {!detail.plan.planFromGeometry && " (прямі між пунктами)"}
+                  </span>
+                )}
+                {(detail.plan.deviation?.excursions.length ?? 0) > 0 && (
+                  <span>
+                    <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px dashed #DC2626", verticalAlign: "middle", marginRight: 6 }} />
+                    Відхилення від маршруту ({detail.plan.deviation!.excursions.length})
+                  </span>
+                )}
               </div>
             </>
           ) : (
@@ -337,6 +433,90 @@ export function ShiftsTab({ period }: { period: Period }) {
             </p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Вирок за пробігом: скільки мав проїхати, скільки проїхав, наскільки більше.
+ *
+ * Блок свідомо великий і кольоровий лише коли поріг перетнуто. Жовта чи
+ * червона панель на кожній зміні перестала б означати будь-що вже за
+ * тиждень — тривожити має саме виняток.
+ */
+function PlanVerdict({
+  plan,
+  route,
+}: {
+  plan: Detail["plan"];
+  route: NonNullable<Detail["plan"]["route"]>;
+}) {
+  const { overrun, deviation, thresholdPct } = plan;
+  const exceeded = overrun?.exceeded ?? false;
+
+  return (
+    <div
+      className="rounded-lg p-3"
+      style={{
+        background: exceeded ? "#FEF2F2" : "#F0FDF4",
+        border: `1px solid ${exceeded ? "#FECACA" : "#BBF7D0"}`,
+      }}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{route.name}</span>
+        <span style={{ fontSize: 12, color: "#6B7280" }}>
+          {route.source === "DATE" ? "разове призначення" : "постійний розклад"}
+          {route.stops.length > 0 && ` · ${route.stops.length} пункт(ів)`}
+        </span>
+      </div>
+
+      {overrun ? (
+        <>
+          <p style={{ fontSize: 14, marginTop: 8 }}>
+            План <b>{overrun.plannedKm} км</b> · Факт <b>{overrun.actualKm} км</b> ·{" "}
+            <span style={{ color: exceeded ? "#DC2626" : "#16A34A", fontWeight: 700 }}>
+              {overrun.extraKm >= 0 ? "+" : ""}
+              {overrun.extraKm} км ({overrun.overrunPct >= 0 ? "+" : ""}
+              {overrun.overrunPct}%)
+            </span>
+          </p>
+          <p
+            style={{
+              fontSize: 13,
+              marginTop: 4,
+              color: exceeded ? "#991B1B" : "#166534",
+              lineHeight: 1.5,
+            }}
+          >
+            {exceeded
+              ? `Перевищення понад ${thresholdPct}% — пробіг зміни не пояснюється призначеним маршрутом.`
+              : `У межах норми (до ${thresholdPct}% понад план).`}
+          </p>
+        </>
+      ) : (
+        <p style={{ fontSize: 13, color: "#6B7280", marginTop: 8 }}>
+          {/* Без планових км порівнювати нема з чим — і мовчати про це не можна:
+              інакше «немає перевищення» читалося б як «усе добре». */}
+          У маршруту не пораховані планові кілометри, тож перевитрату не
+          порахувати. Карта нижче все одно накладе плановий напрямок.
+        </p>
+      )}
+
+      {deviation && (deviation.excursions.length > 0 || deviation.offRouteKm > 0) && (
+        <p style={{ fontSize: 13, marginTop: 8, color: "#374151", lineHeight: 1.5 }}>
+          Поза коридором ±{(plan.corridorM / 1000).toFixed(1)} км:{" "}
+          <b>{deviation.offRouteKm} км</b>
+          {deviation.excursions.length > 0 && (
+            <>
+              {" "}· значущих епізодів: <b>{deviation.excursions.length}</b> (
+              {deviation.excursions
+                .map((e) => `${e.fromTime}—${e.toTime}, ${e.km} км`)
+                .join("; ")}
+              )
+            </>
+          )}
+        </p>
       )}
     </div>
   );

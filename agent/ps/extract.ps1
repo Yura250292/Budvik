@@ -869,6 +869,60 @@ try {
         }
         Log ("  realization items: {0} rows in {1} documents" -f $itemRows, $realItemsByDoc.Count)
 
+        # --- cost of goods for those same lines ---
+        #
+        # Until now every realization line went out with cost = 0, on the
+        # belief that 1C does not hand cost out. That was wrong: the register
+        # Prodazhi does not exist in this build, but ProdazhiSebestoimost does
+        # -- it is what the "Valovaya pribyl val" report reads, the one the
+        # office was retyping into payroll by hand.
+        #
+        # Keyed by document+product, so it attaches to the lines already read
+        # above. The query groups by the same pair (one product can be written
+        # off from several batches inside one shipment) and filters to
+        # realizations only -- returns write into this register too.
+        #
+        # Non-fatal by design: if this query fails, the run still ships
+        # documents and revenue, just without margin. Losing today's sales
+        # because cost was unavailable would be a bad trade.
+        $costByDocProduct = @{}
+        try {
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.costOfSalesSince
+            $q.SetParameter([string]$queries.paramFrom, $realFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on cost query" }
+            $r = $rs.Choose()
+            $costRows = 0
+            while ($r.Next()) {
+                $docId  = RefId $ib $r.Get(0)
+                $prodId = RefId $ib $r.Get(1)
+                if (-not $docId -or -not $prodId) { continue }
+                $costByDocProduct[($docId + "|" + $prodId)] = Num $r.Get(3)
+                $costRows++
+            }
+            Log ("  cost of sales: {0} rows" -f $costRows)
+        } catch {
+            Log ("  cost of sales FAILED (documents still go out without margin): " + $_.Exception.Message.Split("`n")[0])
+        }
+
+        # Attach cost to the lines. A line with no match keeps no cost field at
+        # all rather than a zero: the server tells "not supplied" from "sold at
+        # cost" only if the field is absent.
+        if ($costByDocProduct.Count -gt 0) {
+            $matched = 0
+            foreach ($docId in @($realItemsByDoc.Keys)) {
+                foreach ($item in $realItemsByDoc[$docId]) {
+                    $key = $docId + "|" + $item.productExternalId
+                    if ($costByDocProduct.ContainsKey($key)) {
+                        $item.cost = $costByDocProduct[$key]
+                        $matched++
+                    }
+                }
+            }
+            Log ("  cost matched to {0} of {1} line(s)" -f $matched, $itemRows)
+        }
+
         $w = NewWriter (Join-Path $OutDir "realization_doc.ndjson")
         $n = 0
         $q = $ib.NewObject("Query")

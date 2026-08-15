@@ -71,7 +71,7 @@ async function resolveItems(
   ctx: ApplyContext,
   documentNumber: string,
   sign: 1 | -1 = 1
-): Promise<{ productId: string; quantity: number; price: number }[]> {
+): Promise<{ productId: string; quantity: number; price: number; purchasePrice: number }[]> {
   if (items.length === 0) return [];
 
   const products = await prisma.product.findMany({
@@ -80,7 +80,7 @@ async function resolveItems(
   });
   const byExternalId = new Map(products.map((p) => [p.externalId!, p.id]));
 
-  const resolved: { productId: string; quantity: number; price: number }[] = [];
+  const resolved: { productId: string; quantity: number; price: number; purchasePrice: number }[] = [];
 
   for (const item of items) {
     const productId = byExternalId.get(item.productExternalId);
@@ -101,14 +101,49 @@ async function resolveItems(
     // (перевірено пробою), а якби трапилась — знак усе одно задає тип
     // документа, і подвійне заперечення зробило б з повернення продаж.
     const magnitude = Math.max(0, Math.round(Math.abs(item.quantity)));
+
+    // 1С віддає собівартість СУМОЮ НА РЯДОК (13 шт → 638,43), а
+    // SalesDocumentItem.purchasePrice — ціна за одиницю, як і sellingPrice.
+    // Тому ділимо. Кількість 0 не буває (magnitude ≥ 0 і рядки з нулем 1С не
+    // пише), але перевірка стоїть: ділення на нуль дало б Infinity, і воно
+    // б тихо поїхало в базу як собівартість.
+    //
+    // Поле відсутнє → 0, як і раніше. Нуль тут чесний: доти обмін ставив
+    // його всім рядкам, тож «0» уже означає «невідомо», і жоден звіт не
+    // читає його як «продали за собівартістю» — маржа рахується лише там,
+    // де purchasePrice > 0.
+    const lineCost = Number.isFinite(item.cost) ? Math.abs(item.cost as number) : 0;
+    const unitCost = lineCost > 0 && magnitude > 0 ? lineCost / magnitude : 0;
+
     resolved.push({
       productId,
       quantity: sign * magnitude,
       price: Number.isFinite(item.price) ? item.price : 0,
+      purchasePrice: unitCost,
     });
   }
 
   return resolved;
+}
+
+/**
+ * Валовий прибуток документа: Σ (ціна − собівартість) × кількість.
+ *
+ * Рахується лише по рядках, де собівартість справді приїхала. Рядок без неї
+ * (purchasePrice = 0) додав би до прибутку всю свою виручку — тобто документ
+ * із половиною незіставлених рядків показав би маржу, вищу за реальну. Краще
+ * недорахувати прибуток, ніж вигадати його.
+ *
+ * Знак підтримується сам собою: у повернень quantity від'ємна, тож
+ * повернення зменшує прибуток рівно на маржу, яку скасовує.
+ */
+function profitOf(items: { quantity: number; price: number; purchasePrice: number }[]): number {
+  let profit = 0;
+  for (const i of items) {
+    if (i.purchasePrice <= 0) continue;
+    profit += (i.price - i.purchasePrice) * i.quantity;
+  }
+  return Math.round(profit * 100) / 100;
 }
 
 /**
@@ -332,12 +367,13 @@ export async function applySalesDocuments(
           createdById,
           createdAt: new Date(rec.date),
           confirmedAt: new Date(rec.date),
+          profitAmount: profitOf(items),
           items: {
             create: items.map((i) => ({
               productId: i.productId,
               quantity: i.quantity,
               sellingPrice: i.price,
-              purchasePrice: 0, // собівартість 1С у цьому обміні не передає
+              purchasePrice: i.purchasePrice,
             })),
           },
         };
@@ -376,12 +412,13 @@ export async function applySalesDocuments(
           // розібратись, а не показувати її як живий продаж.
           ...(liveOnSite && posted ? {} : { status: nextStatus }),
           totalAmount,
+          profitAmount: profitOf(items),
           items: {
             create: items.map((i) => ({
               productId: i.productId,
               quantity: i.quantity,
               sellingPrice: i.price,
-              purchasePrice: 0,
+              purchasePrice: i.purchasePrice,
             })),
           },
         };

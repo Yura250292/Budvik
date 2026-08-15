@@ -5,17 +5,21 @@
  * зараз 6 789 позицій із залишком, і 4 120 із них (14,5 млн ₴ у цінах
  * продажу) не рухалися жодного разу за 90 днів. Половина складу лежить.
  *
- * ВАЖЛИВО про гроші. Оцінка ведеться в ЦІНАХ ПРОДАЖУ, а не в собівартості:
- * 1С у цьому обміні собівартість не передає взагалі (див. коментар
- * apply-documents.ts про purchasePrice = 0), тож SupplierProduct порожня і
- * взяти закупівельну ціну нізвідки. Тому всі суми тут — «скільки цей запас
- * коштуватиме, якщо продати за прайсом», а не вкладені гроші. Цифра завищена
- * на маржу, і в інтерфейсі це має бути сказано прямо. Коли обмін навчиться
- * віддавати собівартість, поміняється лише вираз вартості — решта логіки
- * лишиться.
+ * ВАЖЛИВО про гроші. Запас оцінюється за СОБІВАРТІСТЮ там, де вона відома, і
+ * за ціною продажу там, де ні. Собівартість береться з останнього продажу
+ * товару (SalesDocumentItem.purchasePrice, який тепер приходить з
+ * РегистрНакопления.ПродажиСебестоимость) — це найближче до «скільки грошей
+ * у цій позиції лежить».
+ *
+ * Змішувати дві бази довелося б у будь-якому разі: товар, який ніколи не
+ * продавався, собівартості не має, а саме таких на складі 3 099 позицій —
+ * викинути їх зі звіту означало б сховати найбільшу частину неліквіду.
+ * Тому звіт віддає `costKnownValue` / `priceOnlyValue` окремо, і інтерфейс
+ * зобов'язаний показати, яка частина оцінки чого варта.
  *
  * Оборотність рахуємо в ШТУКАХ (скільки разів запас обернувся за період), а
- * не класичним COGS / середній запас — з тієї самої причини.
+ * не класичним COGS / середній запас: у знаменнику мав би стояти середній
+ * запас за період, а ми маємо лише зріз «на зараз».
  */
 
 import { Prisma } from "@prisma/client";
@@ -79,11 +83,19 @@ export type StaleItem = {
 
 export type TurnoverReport = {
   velocityDays: number;
-  /** Оцінка в цінах продажу — фронт зобов'язаний це підписати. */
-  valuedAt: "sale_price";
+  /**
+   * Змішана оцінка: собівартість там, де відома, ціна продажу — де ні.
+   * Фронт зобов'язаний показати розклад (costKnownValue / priceOnlyValue).
+   */
+  valuedAt: "cost_where_known";
   totals: {
     items: number;
     stockValue: number;
+    /** Скільки позицій оцінено за реальною собівартістю, і на яку суму. */
+    costKnownItems: number;
+    costKnownValue: number;
+    /** Решта — оцінені за прайсом, тобто завищені на маржу. */
+    priceOnlyValue: number;
     stale: number;
     staleValue: number;
     /** Частка «мертвих» грошей у складі, %. */
@@ -106,6 +118,8 @@ type RawProduct = {
   brandName: string | null;
   stock: number;
   price: number;
+  /** Собівартість за одиницю з останнього продажу; 0 — невідома. */
+  unitCost: number;
   sold90: number;
   lastSale: Date | null;
 };
@@ -153,18 +167,35 @@ export async function buildTurnoverReport(
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
         AND s."docType" = 'REALIZATION'
       GROUP BY i."productId"
+    ),
+    last_cost AS (
+      -- Собівартість з ОСТАННЬОГО продажу, де вона відома. DISTINCT ON бере
+      -- перший рядок кожної групи в заданому порядку — тобто найсвіжіший.
+      -- Рядки з нулем відсіяні: нуль тут означає «не приїхало», і брати його
+      -- за собівартість означало б оцінити запас у нуль гривень.
+      SELECT DISTINCT ON (i."productId")
+        i."productId",
+        i."purchasePrice" AS cost
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+        AND s."docType" = 'REALIZATION'
+        AND i."purchasePrice" > 0
+      ORDER BY i."productId", s."createdAt" DESC
     )
     SELECT
       p.id, p.sku, p.name, p."brandId",
       b.name AS "brandName",
       p.stock::float AS stock,
       p.price::float AS price,
+      COALESCE(lc.cost, 0)::float AS "unitCost",
       COALESCE(sd.qty, 0)::float AS "sold90",
       ls.ts AS "lastSale"
     FROM "Product" p
     LEFT JOIN "Brand" b ON b.id = p."brandId"
     LEFT JOIN sold sd ON sd."productId" = p.id
     LEFT JOIN last_sale ls ON ls."productId" = p.id
+    LEFT JOIN last_cost lc ON lc."productId" = p.id
     WHERE p."isActive"
       -- Тільки номенклатура з 1С: позиції без externalId — старі записи
       -- магазину, яких в обліку немає, і залишок у них фіктивний.
@@ -187,9 +218,22 @@ export async function buildTurnoverReport(
   let overstock = 0;
   let overstockValue = 0;
   let soldTotal = 0;
+  let costKnownItems = 0;
+  let costKnownValue = 0;
+  let priceOnlyValue = 0;
 
   for (const p of goods) {
-    const value = p.stock * p.price;
+    // Собівартість, якщо товар колись продавався і вона приїхала з 1С;
+    // інакше прайс — завищено на маржу, і саме тому обидві суми віддаються
+    // окремо (див. коментар угорі файлу).
+    const hasCost = p.unitCost > 0;
+    const value = p.stock * (hasCost ? p.unitCost : p.price);
+    if (hasCost) {
+      costKnownItems++;
+      costKnownValue += value;
+    } else {
+      priceOnlyValue += value;
+    }
     // Повернення можуть перекрити продажі — тоді нетто від'ємне, і для
     // швидкості це те саме, що нуль: товар нікуди не поїхав.
     const sold = Math.max(0, p.sold90);
@@ -285,10 +329,13 @@ export async function buildTurnoverReport(
 
   return {
     velocityDays: VELOCITY_DAYS,
-    valuedAt: "sale_price",
+    valuedAt: "cost_where_known",
     totals: {
       items: goods.length,
       stockValue,
+      costKnownItems,
+      costKnownValue,
+      priceOnlyValue,
       stale: staleCount,
       staleValue,
       staleShare: stockValue > 0 ? (staleValue / stockValue) * 100 : 0,

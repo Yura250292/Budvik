@@ -10,7 +10,7 @@ import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ColorDot } from "@/components/ui/Badge";
 import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
 import { CATEGORICAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
-import { attainmentPercent } from "@/lib/motivation/engine";
+import { attainmentPercent, runRate } from "@/lib/motivation/engine";
 
 /**
  * КПІ: місячні плани обороту, торговий × фірма (бренд).
@@ -40,6 +40,12 @@ type AttainmentResponse = {
     attainment: number;
   }>;
   totals: { target: number; actual: number; attainment: number };
+  /**
+   * Скільки днів місяця минуло — потрібне для темпу. Сам темп рахуємо тут,
+   * а не беремо серверний: картки згори звужуються фільтром торгових, і
+   * серверне число по всій команді з ними б розійшлося.
+   */
+  runRate: { daysPassed: number; daysTotal: number; daysLeft: number; finished: boolean };
 };
 
 const cellKey = (repId: string, brandId: string | null) => `${repId}::${brandId ?? ""}`;
@@ -92,6 +98,15 @@ export function PlansTab() {
     }
     return { target, actual, attainment: attainmentPercent("REVENUE", actual, target) };
   }, [attainment.data, hiddenIds]);
+
+  // Темп: чи витягне команда місяць, якщо так і піде далі. Підсумковий
+  // відсоток усередині місяця сам по собі не відповідає на це питання —
+  // 40% виконання 12 числа і 28 числа означають протилежне.
+  const pace = useMemo(() => {
+    const rr = attainment.data?.runRate;
+    if (!totals || !rr || totals.target <= 0) return null;
+    return runRate(totals.actual, totals.target, rr.daysPassed, rr.daysTotal);
+  }, [totals, attainment.data]);
 
   async function save() {
     if (!plans.data) return;
@@ -186,8 +201,27 @@ export function PlansTab() {
             label="Виконання"
             value={`${Math.round(totals.attainment)}%`}
             tone={attainmentStatus(totals.attainment, totals.target > 0)}
+            hint={
+              pace && !pace.finished
+                ? `мало б бути ${money(pace.expected)} грн на цей день`
+                : undefined
+            }
           />
-          <StatCard label="Залишилось" value={money(Math.max(0, totals.target - totals.actual))} unit="грн" />
+          {pace && !pace.finished ? (
+            <StatCard
+              label="Прогноз на місяць"
+              value={money(pace.projected)}
+              unit="грн"
+              tone={attainmentStatus(pace.projectedAttainment, true)}
+              hint={
+                pace.requiredPerDay === null
+                  ? `план закрито, лишилось ${pace.daysLeft} дн.`
+                  : `${Math.round(pace.projectedAttainment)}% плану · треба ${money(pace.requiredPerDay)} грн/день за ${pace.daysLeft} дн.`
+              }
+            />
+          ) : (
+            <StatCard label="Залишилось" value={money(Math.max(0, totals.target - totals.actual))} unit="грн" />
+          )}
         </div>
       )}
 

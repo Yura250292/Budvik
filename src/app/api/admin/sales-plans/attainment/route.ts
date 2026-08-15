@@ -11,8 +11,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseMonth } from "@/lib/analytics/period";
+import { kyivDate } from "@/lib/date/kyiv";
 import { revenueByRep, revenueByRepBrand } from "@/lib/analytics/facts";
-import { attainmentPercent } from "@/lib/motivation/engine";
+import { attainmentPercent, runRate } from "@/lib/motivation/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,16 @@ export async function GET(req: NextRequest) {
   const teamTarget = rows.filter((r) => !r.brandId).reduce((s, r) => s + r.target, 0);
   const teamActual = rows.filter((r) => !r.brandId).reduce((s, r) => s + r.actual, 0);
 
+  // Темп: скільки днів місяця минуло на СЬОГОДНІ за Києвом.
+  //
+  // Довжину місяця беремо з kyivDate(to): parseMonth уже поставив у `to`
+  // останній день, тож рахувати її повторно через Date.UTC не треба.
+  // Для МИНУЛОГО місяця днів «минуло» рівно стільки, скільки в ньому є —
+  // тоді runRate зводить прогноз до факту сам, і окремої гілки не потрібно.
+  const daysTotal = Number(kyivDate(to).slice(8, 10));
+  const today = kyivDate(new Date());
+  const daysPassed = today.slice(0, 7) === month ? Number(today.slice(8, 10)) : daysTotal;
+
   return NextResponse.json({
     month,
     scope: isFullAccess ? (repFilter ? "single" : "all") : "own",
@@ -126,5 +137,13 @@ export async function GET(req: NextRequest) {
       actual: teamActual,
       attainment: attainmentPercent("REVENUE", teamActual, teamTarget),
     },
+    // Темп рахуємо по команді загалом і по кожному торговому: керівник
+    // дивиться, чи витягне місяць відділ, торговий — чи витягне він сам.
+    runRate: runRate(teamActual, teamTarget, daysPassed, daysTotal),
+    runRateByRep: Object.fromEntries(
+      rows
+        .filter((r) => !r.brandId && r.target > 0)
+        .map((r) => [r.repId, runRate(r.actual, r.target, daysPassed, daysTotal)])
+    ),
   });
 }

@@ -258,3 +258,80 @@ export function attainmentPercent(
   }
   return (actual / target) * 100;
 }
+
+/** Темп виконання плану всередині місяця. */
+export type RunRate = {
+  /** Днів місяця минуло (включно з поточним) і скільки їх усього. */
+  daysPassed: number;
+  daysTotal: number;
+  /** Скільки лишилось, включаючи сьогодні. */
+  daysLeft: number;
+  /** Скільки мало б бути зроблено на цей день, якби темп був рівний. */
+  expected: number;
+  /**
+   * Прогноз на кінець місяця в поточному темпі.
+   * Саме він відповідає на питання «чи встигає».
+   */
+  projected: number;
+  /** Прогнозоване виконання, %. */
+  projectedAttainment: number;
+  /** Скільки лишилось добрати до плану; 0 — план уже закритий. */
+  remaining: number;
+  /**
+   * Потрібний темп на день, щоб закрити план вчасно.
+   * null — або план уже закритий, або місяць завершився і добирати нікуди.
+   */
+  requiredPerDay: number | null;
+  /** Фактичний темп на день на цей момент. */
+  actualPerDay: number;
+  /** true — місяць завершився, прогноз дорівнює факту. */
+  finished: boolean;
+};
+
+/**
+ * Темп виконання місячного плану: чи встигає торговий.
+ *
+ * Підсумковий відсоток усередині місяця нікому не каже правди — 40%
+ * виконання 12 числа це добре, а 28 числа це провал. Тут той самий факт
+ * перераховується в «скільки вийде, якщо так і піде далі».
+ *
+ * Лінійна екстраполяція навмисно: сезонності всередині місяця в нас поки
+ * не виміряти (історія реалізацій починається з січня 2026), а вигадана
+ * крива була б точнішою на вигляд і гіршою по суті. Робочі дні теж не
+ * враховуємо окремо — торгові працюють і в суботу, і календарний день
+ * лишається чеснішим знаменником, ніж вгаданий графік.
+ *
+ * `daysPassed` рахується включно з поточним днем: інакше першого числа
+ * знаменник був би нулем, а прогноз — нескінченністю.
+ */
+export function runRate(
+  actual: number,
+  target: number,
+  daysPassed: number,
+  daysTotal: number
+): RunRate {
+  const passed = Math.max(1, Math.min(daysPassed, daysTotal));
+  const left = Math.max(0, daysTotal - passed);
+  const finished = passed >= daysTotal;
+
+  const actualPerDay = actual / passed;
+  const projected = finished ? actual : actualPerDay * daysTotal;
+  const remaining = Math.max(0, target - actual);
+
+  return {
+    daysPassed: passed,
+    daysTotal,
+    daysLeft: left,
+    expected: target > 0 ? (target / daysTotal) * passed : 0,
+    projected,
+    projectedAttainment: target > 0 ? (projected / target) * 100 : 0,
+    remaining,
+    // Ділимо на дні, що ЛИШИЛИСЬ, не рахуючи сьогодні: до кінця сьогодні
+    // добрати вже нереально. Коли місяць завершився — null, а не залишок:
+    // «треба 10 тис. на день» в останній день місяця виглядає як вимога,
+    // хоча насправді добирати вже нікуди.
+    requiredPerDay: remaining <= 0 || left <= 0 ? null : remaining / left,
+    actualPerDay,
+    finished,
+  };
+}

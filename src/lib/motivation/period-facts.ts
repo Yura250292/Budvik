@@ -17,7 +17,7 @@
 import type { PlanMetric } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseMonth, type Period } from "@/lib/analytics/period";
-import { revenueByRep, revenueByRepBrand } from "@/lib/analytics/facts";
+import { revenueByRep, revenueByRepBrand, skuCountByRep } from "@/lib/analytics/facts";
 import {
   collectedByRepBrand,
   collectedTotals,
@@ -114,10 +114,14 @@ export type PreloadedFacts = {
 /**
  * Виконання планів за місяць: `${metric}:${brandId ?? "ALL"}` → відсоток.
  *
- * Наразі реально рахуються REVENUE (оборот) і COLLECTED_AMOUNT (зібране)
- * — решта метрик є в enum, але їх ніде не планують. Правило, що
- * посилається на непораховану метрику, просто не дає рядка: рушій
- * трактує відсутній ключ як «плану немає».
+ * Рахуються REVENUE (оборот), COLLECTED_AMOUNT (зібране), CLIENTS_COUNT
+ * (охоплені клієнти) і SKU_COUNT (пропрацьовані позиції). Останні дві
+ * беруться з тих самих фактів, що й оборот, — окремих запитів не треба.
+ *
+ * Не рахуються PROFIT (собівартість із 1С не приходить, profitAmount ≈ 0 —
+ * план по прибутку показував би нуль виконання завжди), CHECKPOINTS і
+ * OVERDUE_RATIO. Правило, що посилається на непораховану метрику, просто
+ * не дає рядка: рушій трактує відсутній ключ як «плану немає».
  */
 async function planAttainmentByRep(
   month: string,
@@ -126,16 +130,20 @@ async function planAttainmentByRep(
 ): Promise<Map<string, Map<string, number>>> {
   const { periodStart, from, to } = parseMonth(month);
 
-  const [plans, revByRep, revByBrand] = await Promise.all([
+  const [plans, revByRep, revByBrand, skuByRep] = await Promise.all([
     prisma.salesPlan.findMany({
       where: { period: "MONTH", periodStart, repId: { in: repIds } },
       select: { repId: true, brandId: true, metric: true, targetValue: true },
     }),
     revenueByRep(from, to),
     revenueByRepBrand(from, to),
+    skuCountByRep(from, to),
   ]);
 
   const revenueTotal = new Map(revByRep.map((r) => [r.repId, r.amount]));
+  // Клієнтів усього беремо з revenueByRep: там той самий COUNT DISTINCT за
+  // тими самими фільтрами, тож другого джерела для цього числа не заводимо.
+  const clientsTotal = new Map(revByRep.map((r) => [r.repId, r.clients]));
   const revenueBrand = new Map<string, number>();
   for (const row of revByBrand) {
     if (!row.brandId) continue;
@@ -150,6 +158,22 @@ async function planAttainmentByRep(
     collectedBrand.set(key, (collectedBrand.get(key) ?? 0) + row.amount);
   }
 
+  const skuTotal = new Map<string, number>();
+  const skuBrand = new Map<string, number>();
+  const clientsBrand = new Map<string, number>();
+  for (const row of skuByRep) {
+    // isTotal, а не «brandId порожній»: рядок товарів без проставленого
+    // бренду має порожній brandId так само, як підсумковий (див.
+    // RepSkuCount). Без цієї перевірки підсумок SKU затирався б рядком
+    // «без бренду» — у липні це 3 позиції замість 203.
+    if (row.isTotal) {
+      skuTotal.set(row.repId, row.sku);
+    } else if (row.brandId) {
+      skuBrand.set(`${row.repId}::${row.brandId}`, row.sku);
+      clientsBrand.set(`${row.repId}::${row.brandId}`, row.clients);
+    }
+  }
+
   const actualFor = (metric: PlanMetric, repId: string, brandId: string | null): number | null => {
     const key = `${repId}::${brandId ?? ""}`;
     if (metric === "REVENUE") {
@@ -158,7 +182,16 @@ async function planAttainmentByRep(
     if (metric === "COLLECTED_AMOUNT") {
       return brandId ? collectedBrand.get(key) ?? 0 : collectedTotal.get(repId)?.amount ?? 0;
     }
-    return null; // метрику поки не рахуємо
+    if (metric === "SKU_COUNT") {
+      return brandId ? skuBrand.get(key) ?? 0 : skuTotal.get(repId) ?? 0;
+    }
+    if (metric === "CLIENTS_COUNT") {
+      return brandId ? clientsBrand.get(key) ?? 0 : clientsTotal.get(repId) ?? 0;
+    }
+    // PROFIT свідомо не рахуємо: собівартість із 1С не приходить, і план
+    // по прибутку показував би нуль виконання незалежно від роботи.
+    // CHECKPOINTS та OVERDUE_RATIO — ще не заведені.
+    return null;
   };
 
   const result = new Map<string, Map<string, number>>();

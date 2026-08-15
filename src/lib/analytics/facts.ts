@@ -10,6 +10,8 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { kyivDayStart } from "@/lib/date/kyiv";
+import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 
 /** Дефолти авто, якщо для торгового ще не заведено SalesVehicle. */
 export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
@@ -58,9 +60,25 @@ export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status 
  */
 export const SALES_ONLY = Prisma.sql`s."docType" <> 'RETURN'`;
 
+/**
+ * Нижня межа аналітики — див. ANALYTICS_SINCE_DAY у lib/analytics/since.ts.
+ *
+ * parsePeriod уже обрізає період на вході, але межа продубльована тут
+ * навмисно: facts викликають і в обхід parsePeriod (мотивація, інсайти,
+ * бенчмарк рахують місяці самі), і без цієї страховки такий виклик
+ * повернув би від'ємний оборот за 2023–2025.
+ */
+export const ANALYTICS_SINCE = kyivDayStart(ANALYTICS_SINCE_DAY);
+
+/** Підтягує початок періоду до межі історії. */
+export function clampFrom(from: Date): Date {
+  return from < ANALYTICS_SINCE ? ANALYTICS_SINCE : from;
+}
+
 /** Оборот по кожному торговому за період. */
 export async function revenueByRep(from: Date, to: Date, repId?: string | null): Promise<RepRevenue[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
 
   const rows = await prisma.$queryRaw<RepRevenue[]>`
     SELECT
@@ -122,6 +140,7 @@ export async function returnsByClient(
   limit = 20
 ): Promise<ClientReturns[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
 
   return prisma.$queryRaw<ClientReturns[]>`
     SELECT
@@ -154,6 +173,7 @@ export async function returnDocs(
   limit = 200
 ): Promise<ReturnDoc[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
 
   return prisma.$queryRaw<ReturnDoc[]>`
     SELECT
@@ -192,6 +212,7 @@ export async function returnedProducts(
   limit = 20
 ): Promise<ReturnedProduct[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
 
   return prisma.$queryRaw<ReturnedProduct[]>`
     SELECT
@@ -224,6 +245,7 @@ export async function returnedProducts(
  */
 export async function revenueByRepBrand(from: Date, to: Date, repId?: string | null): Promise<RepBrandRevenue[]> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
 
   return prisma.$queryRaw<RepBrandRevenue[]>`
     SELECT
@@ -242,6 +264,58 @@ export async function revenueByRepBrand(from: Date, to: Date, repId?: string | n
       ${repCondition}
     GROUP BY s."salesRepId", p."brandId", b.name
     ORDER BY amount DESC NULLS LAST
+  `;
+}
+
+/**
+ * Скільки різних позицій і клієнтів пропрацював торговий — усього і в
+ * розрізі бренду (рядок з brandId = null несе підсумок по всіх).
+ *
+ * Потрібне планам (метрики SKU_COUNT і CLIENTS_COUNT): «продати не менше
+ * ніж на стільки» і «продати не менше стількох різних позицій» — різні
+ * задачі, і друга штовхає торгового розширювати матрицю, а не догружати
+ * одного клієнта.
+ *
+ * Рахується по SALES_ONLY: повернення не додає ні позиції, ні клієнта.
+ */
+export type RepSkuCount = {
+  repId: string;
+  brandId: string | null;
+  /**
+   * true — рядок є ПІДСУМКОМ по торговому (усі бренди разом).
+   *
+   * Без цього прапорця підсумок неможливо відрізнити від рядка товарів,
+   * у яких бренд не проставлений: в обох brandId порожній. У липні це
+   * давало б 3 SKU замість 203 — рядок «без бренду» затирав би підсумок.
+   */
+  isTotal: boolean;
+  sku: number;
+  clients: number;
+};
+
+export async function skuCountByRep(from: Date, to: Date, repId?: string | null): Promise<RepSkuCount[]> {
+  const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  from = clampFrom(from);
+
+  return prisma.$queryRaw<RepSkuCount[]>`
+    SELECT
+      s."salesRepId" AS "repId",
+      p."brandId"    AS "brandId",
+      GROUPING(p."brandId") = 1 AS "isTotal",
+      COUNT(DISTINCT i."productId")::int      AS sku,
+      COUNT(DISTINCT s."counterpartyId")::int AS clients
+    FROM "SalesDocumentItem" i
+    JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+    JOIN "Product" p ON p.id = i."productId"
+    WHERE ${SOURCE_FILTER}
+      AND ${SALES_ONLY}
+      AND s."salesRepId" IS NOT NULL
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+      ${repCondition}
+    -- GROUPING SETS дає підсумок по торговому і розбивку по брендах одним
+    -- проходом: рахувати «різних SKU всього» додаванням брендових не можна,
+    -- бо той самий товар не подвоюється, а от клієнт у двох брендах — так.
+    GROUP BY GROUPING SETS ((s."salesRepId"), (s."salesRepId", p."brandId"))
   `;
 }
 

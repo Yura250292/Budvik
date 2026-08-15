@@ -8,6 +8,7 @@
  */
 
 import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 
 export type Period = {
   /** YYYY-MM-DD за Києвом, включно */
@@ -18,6 +19,11 @@ export type Period = {
   to: Date;
   /** Скільки календарних днів у періоді (включно) — для «в середньому за день» */
   days: number;
+  /**
+   * true, якщо початок періоду підтягнули до межі історії. Фронт показує
+   * підпис, інакше обрізаний період мовчки читався б як «стільки й продали».
+   */
+  clamped: boolean;
 };
 
 const DAY_MS = 86_400_000;
@@ -50,6 +56,13 @@ export function parsePeriod(params: URLSearchParams, defaultDays = 30): Period {
     fromDay = shiftDay(today, -(days - 1));
   }
 
+  // Початок підтягуємо до межі історії: раніше за неї лежать самі повернення
+  // без реалізацій, і період віддав би від'ємний оборот. Робимо це тут, бо
+  // parsePeriod — єдиний вхід для всієї аналітики; правити кожен роут окремо
+  // означало б рано чи пізно забути один і повернути мінуси назад.
+  const clamped = fromDay < ANALYTICS_SINCE_DAY;
+  if (clamped) fromDay = ANALYTICS_SINCE_DAY;
+
   const from = kyivDayStart(fromDay);
   const to = kyivDayEnd(toDay);
 
@@ -58,7 +71,10 @@ export function parsePeriod(params: URLSearchParams, defaultDays = 30): Period {
     toDay,
     from,
     to,
+    // days рахуємо ВЖЕ по обрізаному періоду: інакше «в середньому за день»
+    // ділило б реальний оборот на дні, яких у вибірці немає.
     days: Math.max(1, Math.round((kyivDayStart(toDay).getTime() - from.getTime()) / DAY_MS) + 1),
+    clamped,
   };
 }
 

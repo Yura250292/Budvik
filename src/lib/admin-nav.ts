@@ -61,6 +61,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/sales/catalog", title: "Каталог товарів", desc: "Номенклатура за брендами й групами", iconKey: "products", roles: ALL },
       { href: "/admin/erp/counterparties", title: "Контрагенти", desc: "Постачальники та покупці", iconKey: "counterparties", roles: ALL },
       { href: "/admin/procurement", title: "Закупівлі", desc: "Дефіцит на складі: що замовити", iconKey: "purchase", roles: AM },
+      // Зворотний бік закупівель: там «чого бракує», тут «що лежить».
+      { href: "/admin/procurement/turnover", title: "Оборотність складу", desc: "Неліквіди та надлишки: що не рухається", iconKey: "report", roles: AM },
       { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },
       { href: "/admin/erp/sales", title: "Продаж", desc: "Документи B2B/оффлайн", iconKey: "money", roles: ALL },
       { href: "/admin/erp/invoices", title: "Видаткові накладні", desc: "Генерація та оплати", iconKey: "invoice", roles: AM },

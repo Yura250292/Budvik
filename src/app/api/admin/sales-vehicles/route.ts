@@ -8,8 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { geocodeAddress } from "@/lib/geo/nominatim";
 import { parsePeriod } from "@/lib/analytics/period";
 import { fuelCost, tripFactsByRep, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 
@@ -41,7 +43,15 @@ export async function GET(req: NextRequest) {
     }),
     prisma.salesVehicle.findMany({
       where: repScope ? { repId: repScope } : {},
-      select: { repId: true, label: true, fuelConsumption: true, fuelPricePerL: true },
+      select: {
+        repId: true,
+        label: true,
+        fuelConsumption: true,
+        fuelPricePerL: true,
+        baseAddress: true,
+        baseLat: true,
+        baseLng: true,
+      },
     }),
     tripFactsByRep(period.from, period.to, repScope),
   ]);
@@ -59,6 +69,10 @@ export async function GET(req: NextRequest) {
       repName: rep.name,
       label: vehicle?.label ?? null,
       hasVehicle: !!vehicle,
+      baseAddress: vehicle?.baseAddress ?? null,
+      // Координати кажуть, чи адреса ЗНАЙШЛАСЯ: введений рядок без них
+      // означає, що геокодер промахнувся, і подача не рахується.
+      hasBase: vehicle?.baseLat != null && vehicle?.baseLng != null,
       fuelConsumption: fuel.fuelConsumption,
       fuelPricePerL: fuel.fuelPricePerL,
       totalKm: t?.totalKm ?? 0,
@@ -96,6 +110,7 @@ export async function PUT(req: NextRequest) {
     label?: string | null;
     fuelConsumption?: number;
     fuelPricePerL?: number;
+    baseAddress?: string | null;
   } | null;
 
   if (!body?.repId) {
@@ -118,13 +133,79 @@ export async function PUT(req: NextRequest) {
 
   const label = body.label?.trim() || null;
 
+  /**
+   * База: адресу геокодуємо тут, при збереженні, а не при кожному показі.
+   *
+   * Поле baseAddress передається лише тоді, коли форма його редагувала —
+   * інакше збереження норми пального стирало б адресу. Тому undefined і
+   * порожній рядок означають різне: перше «не чіпати», друге «прибрати».
+   */
+  const existing = await prisma.salesVehicle.findUnique({
+    where: { repId: body.repId },
+    select: { baseAddress: true, baseLat: true, baseLng: true },
+  });
+
+  let baseFields: {
+    baseAddress: string | null;
+    baseLat: number | null;
+    baseLng: number | null;
+    baseLegsKm: typeof Prisma.DbNull;
+  } | null = null;
+  let baseNotFound = false;
+
+  if (body.baseAddress !== undefined) {
+    const address = body.baseAddress?.trim() || null;
+
+    if (!address) {
+      baseFields = { baseAddress: null, baseLat: null, baseLng: null, baseLegsKm: Prisma.DbNull };
+    } else if (address === existing?.baseAddress && existing.baseLat != null) {
+      // Адреса не змінилася — не смикаємо Nominatim і не гасимо кеш подачі.
+      baseFields = null;
+    } else {
+      const found = await geocodeAddress(address);
+      baseNotFound = !found;
+      baseFields = {
+        baseAddress: address,
+        baseLat: found?.lat ?? null,
+        baseLng: found?.lng ?? null,
+        // База переїхала — старі плечі подачі більше не правда.
+        baseLegsKm: Prisma.DbNull,
+      };
+    }
+  }
+
   // Тут upsert безпечний: ключ repId — not null, NULLS DISTINCT не заважає.
   const vehicle = await prisma.salesVehicle.upsert({
     where: { repId: body.repId },
-    create: { repId: body.repId, label, fuelConsumption: consumption, fuelPricePerL: price },
-    update: { label, fuelConsumption: consumption, fuelPricePerL: price },
-    select: { repId: true, label: true, fuelConsumption: true, fuelPricePerL: true },
+    create: {
+      repId: body.repId,
+      label,
+      fuelConsumption: consumption,
+      fuelPricePerL: price,
+      ...(baseFields ?? {}),
+    },
+    update: {
+      label,
+      fuelConsumption: consumption,
+      fuelPricePerL: price,
+      ...(baseFields ?? {}),
+    },
+    select: {
+      repId: true,
+      label: true,
+      fuelConsumption: true,
+      fuelPricePerL: true,
+      baseAddress: true,
+      baseLat: true,
+      baseLng: true,
+    },
   });
 
-  return NextResponse.json({ ok: true, vehicle });
+  return NextResponse.json({
+    ok: true,
+    vehicle,
+    // Адресу зберегли, але на карті не знайшли: подача не рахуватиметься,
+    // і мовчати про це не можна — інакше план тихо лишиться заниженим.
+    baseNotFound,
+  });
 }

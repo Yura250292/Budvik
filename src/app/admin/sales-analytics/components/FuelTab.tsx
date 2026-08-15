@@ -26,6 +26,9 @@ type FuelResponse = {
     repName: string;
     label: string | null;
     hasVehicle: boolean;
+    baseAddress: string | null;
+    /** Адреса геокодувалася успішно — без цього подача не рахується */
+    hasBase: boolean;
     fuelConsumption: number;
     fuelPricePerL: number;
     totalKm: number;
@@ -45,7 +48,12 @@ export function FuelTab({ period }: { period: Period }) {
     `/api/admin/sales-vehicles?from=${period.from}&to=${period.to}`
   );
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ label: "", fuelConsumption: "", fuelPricePerL: "" });
+  const [form, setForm] = useState({
+    label: "",
+    fuelConsumption: "",
+    fuelPricePerL: "",
+    baseAddress: "",
+  });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -61,11 +69,19 @@ export function FuelTab({ period }: { period: Period }) {
           label: form.label || null,
           fuelConsumption: Number(form.fuelConsumption),
           fuelPricePerL: Number(form.fuelPricePerL),
+          baseAddress: form.baseAddress || null,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти");
       setEditing(null);
+      // Адреса збереглася, але Nominatim її не знайшов — подача не
+      // рахуватиметься, і про це треба сказати вголос.
+      setMessage(
+        json.baseNotFound
+          ? "Збережено, але адресу бази не знайдено на карті — подача не рахуватиметься. Спробуйте вказати вулицю з містом і областю."
+          : null
+      );
       reload();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Помилка збереження");
@@ -105,16 +121,17 @@ export function FuelTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Авто та витрати на пальне"
-            hint={`Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л.`}
+            hint={`Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л. База — звідки торговий виїжджає вранці: без неї «План» у Логістиці не враховує дорогу до маршруту й назад.`}
           />
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="px-4 py-2.5">Торговий</th>
                 <th className="px-4 py-2.5">Авто</th>
+                <th className="px-4 py-2.5">База (звідки виїжджає)</th>
                 <th className="px-4 py-2.5 text-right">Норма</th>
                 <th className="px-4 py-2.5 text-right">Ціна</th>
                 <th className="px-4 py-2.5 text-right">Робочі км</th>
@@ -150,6 +167,15 @@ export function FuelTab({ period }: { period: Period }) {
                             className="w-40 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
                           />
                         </td>
+                        <td className="px-4 py-2">
+                          <input
+                            value={form.baseAddress}
+                            onChange={(e) => setForm((f) => ({ ...f, baseAddress: e.target.value }))}
+                            placeholder="Стрий, вул. Шевченка 1"
+                            aria-label="Адреса бази: звідки торговий виїжджає"
+                            className="w-52 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+                          />
+                        </td>
                         <td className="px-4 py-2 text-right">
                           <input
                             type="number"
@@ -177,6 +203,22 @@ export function FuelTab({ period }: { period: Period }) {
                       <>
                         <td className="px-4 py-3 text-g600">
                           {r.label ?? <span className="text-g400">не вказано</span>}
+                        </td>
+                        <td className="px-4 py-3 text-g600">
+                          {r.baseAddress ? (
+                            <>
+                              <span className="text-xs">{r.baseAddress}</span>
+                              {/* Адреса є, а координат немає: геокодер промахнувся,
+                                  і подача мовчки не рахується — треба показати. */}
+                              {!r.hasBase && (
+                                <span className="ml-1.5 inline-block align-middle">
+                                  <Badge status="warn">не знайдено</Badge>
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-g400">не вказано</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-g600">
                           {num(r.fuelConsumption, 1)}
@@ -228,6 +270,7 @@ export function FuelTab({ period }: { period: Period }) {
                                 label: r.label ?? "",
                                 fuelConsumption: String(r.fuelConsumption),
                                 fuelPricePerL: String(r.fuelPricePerL),
+                                baseAddress: r.baseAddress ?? "",
                               });
                             }}
                             className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"

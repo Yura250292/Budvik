@@ -71,6 +71,7 @@ export default function ShiftTrackMap({
   planGeometry = null,
   planStops = [],
   excursions = [],
+  base = null,
   height = "420px",
 }: {
   shiftPath: Array<[number, number]>;
@@ -79,6 +80,8 @@ export default function ShiftTrackMap({
   planGeometry?: { type?: string; coordinates?: [number, number][] } | null;
   planStops?: PlanStop[];
   excursions?: PlanExcursion[];
+  /** База торгового — точка відліку подачі */
+  base?: { lat: number; lng: number; address: string | null } | null;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,35 @@ export default function ShiftTrackMap({
         .bindTooltip("Маршрут за планом (прямі між пунктами)", { sticky: true })
         .addTo(group);
       line.forEach((c) => bounds.extend(c));
+    }
+
+    // База — точка відліку подачі. Домик, а не номер: це не пункт
+    // маршруту, і нумерувати його разом із ними означало б збити рахунок.
+    if (base) {
+      L.marker([base.lat, base.lng], {
+        icon: L.divIcon({
+          className: "",
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+          popupAnchor: [0, -13],
+          html: `<div style="
+            width:26px;height:26px;border-radius:50%;
+            background:#fff;border:2px solid ${PLAN_COLOR};
+            display:flex;align-items:center;justify-content:center;
+            font-size:13px;
+            box-shadow:0 2px 6px rgba(0,0,0,0.25);
+          ">🏠</div>`,
+        }),
+      })
+        .bindPopup(
+          `<div style="font-family:system-ui;font-size:13px;min-width:170px">
+            <strong>База</strong><br/>
+            <span style="color:#6B7280">Звідки торговий виїжджає</span>
+            ${base.address ? `<br/><span style="color:#9CA3AF;font-size:11px">${escapeHtml(base.address)}</span>` : ""}
+          </div>`
+        )
+        .addTo(group);
+      bounds.extend([base.lat, base.lng]);
     }
 
     planStops.forEach((stop, i) => {
@@ -203,7 +235,7 @@ export default function ShiftTrackMap({
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [shiftPath, afterShiftPath, planGeometry, planStops, excursions]);
+  }, [shiftPath, afterShiftPath, planGeometry, planStops, excursions, base]);
 
   useEffect(() => {
     return () => {

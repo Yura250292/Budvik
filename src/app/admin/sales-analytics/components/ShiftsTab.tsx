@@ -86,6 +86,10 @@ type Detail = {
       exceeded: boolean;
     } | null;
     thresholdPct: number;
+    base: { lat: number; lng: number; address: string | null } | null;
+    legs: { toFirstKm: number; fromLastKm: number; totalKm: number } | null;
+    routeKm: number | null;
+    coverage: { visited: number; total: number; missed: string[] } | null;
     deviation: {
       onRouteRatio: number | null;
       offRouteKm: number;
@@ -399,6 +403,7 @@ export function ShiftsTab({ period }: { period: Period }) {
                 planGeometry={detail.plan.route?.geometry ?? null}
                 planStops={detail.plan.route?.stops ?? []}
                 excursions={detail.plan.deviation?.excursions ?? []}
+                base={detail.plan.base}
                 height="420px"
               />
               <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: 13 }}>
@@ -471,10 +476,33 @@ function PlanVerdict({
         </span>
       </div>
 
+      {/* Скільки пунктів проїхав — окремим рядком від кілометрів.
+          Недоїзд і перевитрата провини різні, і один відсоток приховав би
+          обидві: можна об'їхати все й накрутити зайвого, а можна не
+          перевищити жодного кілометра просто нікуди не поїхавши. */}
+      {plan.coverage && (
+        <p style={{ fontSize: 14, marginTop: 8 }}>
+          Пунктів: <b>{plan.coverage.visited} з {plan.coverage.total}</b>
+          {plan.coverage.missed.length > 0 && (
+            <span style={{ color: "#B45309" }}>
+              {" "}· не доїхав: {plan.coverage.missed.join(", ")}
+            </span>
+          )}
+        </p>
+      )}
+
       {overrun ? (
         <>
           <p style={{ fontSize: 14, marginTop: 8 }}>
-            План <b>{overrun.plannedKm} км</b> · Факт <b>{overrun.actualKm} км</b> ·{" "}
+            План <b>{overrun.plannedKm} км</b>
+            {/* Показуємо саму арифметику: інакше 264 км виглядали б числом
+                нізвідки, і перевірити його було б нічим. */}
+            {plan.legs && plan.routeKm != null && (
+              <span style={{ color: "#6B7280", fontSize: 13 }}>
+                {" "}({plan.routeKm} маршрут + {plan.legs.totalKm} подача)
+              </span>
+            )}{" "}
+            · Факт <b>{overrun.actualKm} км</b> ·{" "}
             <span style={{ color: exceeded ? "#DC2626" : "#16A34A", fontWeight: 700 }}>
               {overrun.extraKm >= 0 ? "+" : ""}
               {overrun.extraKm} км ({overrun.overrunPct >= 0 ? "+" : ""}
@@ -500,6 +528,23 @@ function PlanVerdict({
               інакше «немає перевищення» читалося б як «усе добре». */}
           У маршруту не пораховані планові кілометри, тож перевитрату не
           порахувати. Карта нижче все одно накладе плановий напрямок.
+        </p>
+      )}
+
+      {/* Без бази план занижений рівно на подачу — і мовчати про це не
+          можна: інакше кожен, хто живе не в першому пункті, виглядав би
+          винним просто за дорогу на роботу. */}
+      {!plan.base && (
+        <p style={{ fontSize: 13, marginTop: 8, color: "#B45309", lineHeight: 1.5 }}>
+          Подача не врахована: у торгового не вказана база (звідки виїжджає).
+          План занижений на дорогу до маршруту й назад. Адреса заводиться у
+          вкладці «Логістика → Пальне».
+        </p>
+      )}
+      {plan.base && !plan.legs && (
+        <p style={{ fontSize: 13, marginTop: 8, color: "#B45309", lineHeight: 1.5 }}>
+          Подачу не порахували: OSRM не відповів. План показано без неї —
+          відкрийте зміну ще раз, щоб спробувати знову.
         </p>
       )}
 

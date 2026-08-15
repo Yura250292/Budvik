@@ -18,7 +18,12 @@ import { buildTrackPath } from "@/lib/track/gaps";
 import { kyivDate, kyivTime } from "@/lib/date/kyiv";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { comparePlanWithTrack } from "@/lib/track/plan-vs-fact";
-import { computeOverrun, OVERRUN_THRESHOLD_PCT } from "@/lib/shift/plan-overrun";
+import {
+  computeOverrun,
+  computeStopCoverage,
+  OVERRUN_THRESHOLD_PCT,
+} from "@/lib/shift/plan-overrun";
+import { resolveLegs } from "@/lib/shift/base-legs";
 
 export const dynamic = "force-dynamic";
 
@@ -104,13 +109,54 @@ export async function GET(
   const planVsFact = comparePlanWithTrack(shiftPoints, planned);
 
   /**
+   * Подача — дорога з дому/складу до маршруту й назад. Без неї план
+   * занижений рівно на ті кілометри, які торговий чесно намотав, доїжджаючи
+   * до першого пункту, і кожен, хто живе не в ньому, виглядав би винним.
+   */
+  const vehicle = await prisma.salesVehicle.findUnique({
+    where: { repId: shift.userId },
+    select: { baseAddress: true, baseLat: true, baseLng: true, baseLegsKm: true },
+  });
+
+  const base =
+    vehicle?.baseLat != null && vehicle.baseLng != null
+      ? { lat: vehicle.baseLat, lng: vehicle.baseLng }
+      : null;
+
+  const legs = planned
+    ? await resolveLegs(
+        shift.userId,
+        planned.templateId,
+        base,
+        planned.stops,
+        vehicle?.baseLegsKm ?? null
+      )
+    : null;
+
+  /**
+   * Повний план = маршрут + подача. Якщо бази немає, план лишається голим
+   * маршрутом, і UI про це прямо попереджає: краще визнати неповноту
+   * цифри, ніж мовчки видати занижений план за істину.
+   */
+  const plannedTotalKm =
+    planned?.totalDistanceKm != null
+      ? Math.round((planned.totalDistanceKm + (legs?.totalKm ?? 0)) * 10) / 10
+      : null;
+
+  /**
    * Перевитрата рахується від одометра, а якщо його немає (зміна ще
    * триває, фінішного фото немає) — від GPS. Друге гірше: трек із дірками
    * занижений, — але «нічого не показати» гірше за приблизну цифру з
    * підписом, звідки вона.
    */
   const actualKm = shift.distanceKm ?? shift.gpsDistanceKm;
-  const overrun = computeOverrun(actualKm, planned?.totalDistanceKm ?? null);
+  const overrun = computeOverrun(actualKm, plannedTotalKm);
+
+  /**
+   * Скільки пунктів плану трек реально зачепив. Рахуємо по РОБОЧИХ точках:
+   * заїзд у село після закриття зміни — не виконання маршруту.
+   */
+  const coverage = planned ? computeStopCoverage(planned.stops, shiftPoints) : null;
 
   return NextResponse.json({
     shift: {
@@ -147,6 +193,17 @@ export async function GET(
         : null,
       overrun,
       thresholdPct: OVERRUN_THRESHOLD_PCT,
+      /**
+       * База й подача віддаються окремо від overrun, щоб панель могла
+       * показати САМУ АРИФМЕТИКУ: 246 км маршруту + 18 км подачі. Інакше
+       * підсумкові 264 виглядали б числом, яке взялося нізвідки.
+       */
+      base: base
+        ? { lat: base.lat, lng: base.lng, address: vehicle?.baseAddress ?? null }
+        : null,
+      legs,
+      routeKm: planned?.totalDistanceKm ?? null,
+      coverage,
       /**
        * Епізоди виходу вбік ідуть поруч із перевитратою, бо відповідають
        * на різні питання: перевитрата каже СКІЛЬКИ зайвого, епізоди — ДЕ.

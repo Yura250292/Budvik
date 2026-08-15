@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { computeOverrun } from "@/lib/shift/plan-overrun";
+import { readCachedLegs } from "@/lib/shift/base-legs";
 
 export const dynamic = "force-dynamic";
 
@@ -83,11 +84,31 @@ export async function GET(req: NextRequest) {
     planKeys.set(`${s.userId}|${day}`, { repId: s.userId, day });
   }
 
+  /**
+   * Подача береться ЛИШЕ з кешу — без походів до OSRM.
+   *
+   * Список — це двісті рядків, і рахувати плечі для кожного нового
+   * маршруту наживо означало б чекати хвилини й покласти публічний
+   * демо-сервер. Кеш наповнює картка зміни (її відкривають по одній) і
+   * збереження бази в довіднику. Поки плечей немає, у списку показується
+   * план без подачі — з тим самим підписом, що й у картці.
+   */
+  const vehicles = await prisma.salesVehicle.findMany({
+    where: { repId: { in: [...new Set(shifts.map((s) => s.userId))] } },
+    select: { repId: true, baseLegsKm: true },
+  });
+  const legsByRep = new Map(vehicles.map((v) => [v.repId, v.baseLegsKm]));
+
   const plans = new Map<string, number | null>();
   await Promise.all(
     [...planKeys].map(async ([key, { repId, day }]) => {
       const route = await resolveRouteForDay(repId, day);
-      plans.set(key, route?.totalDistanceKm ?? null);
+      if (route?.totalDistanceKm == null) {
+        plans.set(key, null);
+        return;
+      }
+      const legs = readCachedLegs(legsByRep.get(repId) ?? null, route.templateId);
+      plans.set(key, route.totalDistanceKm + (legs?.totalKm ?? 0));
     })
   );
 

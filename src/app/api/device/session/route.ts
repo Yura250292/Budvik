@@ -144,7 +144,21 @@ export async function GET(req: NextRequest) {
     safeRelativePath(req.nextUrl.searchParams.get("redirect")) ??
     defaultTargetFor(user.role);
 
-  const res = NextResponse.redirect(new URL(target, req.nextUrl.origin), 302);
+  /**
+   * Location лишаємо відносним, щоб клієнт підставив той хост, з якого
+   * прийшов.
+   *
+   * NextResponse.redirect вимагає абсолютний URL і бере його з
+   * req.nextUrl.origin, а там у dev завжди localhost:3000 — незалежно
+   * від того, хто стукав. Емулятор ходить на 10.0.2.2:3000, отримував
+   * редірект на localhost, і WebView відкидав його як чужий хост:
+   * замість кабінету відкривався системний браузер. За проксі на проді
+   * origin так само може розійтися з реальним доменом.
+   */
+  const res = new NextResponse(null, {
+    status: 302,
+    headers: { Location: target },
+  });
   res.headers.set("Cache-Control", "no-store");
 
   for (const name of cookieNames) {

@@ -194,7 +194,27 @@ export function PayrollTab() {
   }, [data]);
 
   const activeGroups = useMemo(() => (data?.groups ?? []).filter((g) => g.isActive), [data]);
-  const visibleReps = repFilter.apply(data?.reps ?? []);
+
+  /**
+   * Фокус на одному торговому. Окремо від repFilter: той ховає давно
+   * неактивні акаунти надовго (лежить у localStorage), а це — разовий
+   * «покажи мені лише його», щоб внести цифри одній людині й не
+   * промахнутись рядком у широкій таблиці.
+   */
+  const [focusRep, setFocusRep] = useState<string | null>(null);
+  const allReps = useMemo(() => data?.reps ?? [], [data]);
+  const filteredReps = repFilter.apply(allReps);
+  const focusedName = focusRep ? allReps.find((r) => r.id === focusRep)?.name : null;
+  // Торговий, якого сховали фільтром, фокус не воскрешає — інакше два
+  // фільтри сперечалися б, і було б незрозуміло, який переміг.
+  const visibleReps = focusRep ? filteredReps.filter((r) => r.id === focusRep) : filteredReps;
+  const hiddenCount = allReps.length - filteredReps.length;
+
+  // Фокус на комусь, кого прибрали фільтром або хто зник зі списку,
+  // мовчки скидається: порожня таблиця без пояснень читається як помилка.
+  useEffect(() => {
+    if (focusRep && !filteredReps.some((r) => r.id === focusRep)) setFocusRep(null);
+  }, [focusRep, filteredReps]);
 
   const parsedRates = {
     usdRate: parseNum(rates.usd),
@@ -398,8 +418,32 @@ export function PayrollTab() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Швидкий вибір одного торгового: найчастіший сценарій — внести
+              цифри конкретній людині, а не читати всю команду. */}
+          <label className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-g500">Показати:</span>
+            <select
+              value={focusRep ?? ""}
+              onChange={(e) => setFocusRep(e.target.value || null)}
+              disabled={filteredReps.length === 0}
+              aria-label="Показати одного торгового"
+              className={`max-w-[190px] cursor-pointer rounded-[var(--radius-btn)] border px-2.5 py-2 text-[13px] transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+                focusRep ? "border-bk bg-bk font-medium text-white" : "border-g200 bg-white text-g600 hover:border-g300"
+              }`}
+            >
+              <option value="">
+                Усі торгові{filteredReps.length ? ` (${filteredReps.length})` : ""}
+              </option>
+              {filteredReps.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <RepFilter
-            reps={data?.reps ?? []}
+            reps={allReps}
             hiddenIds={repFilter.hiddenIds}
             onChange={repFilter.setHidden}
           />
@@ -431,6 +475,31 @@ export function PayrollTab() {
           </button>
         </div>
       </div>
+
+      {/* Що саме зараз на екрані: підсумки нижче рахуються лише по видимих,
+          тож стан фільтрів має бути видно, а не здогадуватись про нього. */}
+      {(focusRep || hiddenCount > 0) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-g500">
+          <span>Показано:</span>
+          {focusedName && (
+            <button
+              type="button"
+              onClick={() => setFocusRep(null)}
+              className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bk bg-bk px-2.5 py-1 font-medium text-white transition-opacity hover:opacity-80"
+            >
+              {focusedName}
+              <span aria-hidden>✕</span>
+              <span className="sr-only">Показати всіх торгових</span>
+            </button>
+          )}
+          {hiddenCount > 0 && (
+            <span className="rounded-full border border-g200 bg-g50 px-2.5 py-1">
+              приховано фільтром: {hiddenCount}
+            </span>
+          )}
+          <span className="text-g400">— підсумки й «Разом» рахуються лише по видимих рядках</span>
+        </div>
+      )}
 
       {showGroups && <GroupsEditor groups={data?.groups ?? []} onChanged={reload} />}
 
@@ -665,7 +734,16 @@ export function PayrollTab() {
                   return (
                     <tr key={rep.id} className="group hover:bg-g50">
                       <td className="sticky left-0 z-10 bg-white px-4 py-2 font-medium text-bk shadow-[1px_0_0_var(--color-g200,#e5e5e5)] group-hover:bg-g50">
-                        {rep.name}
+                        {/* Клік по імені лишає в таблиці лише цього торгового —
+                            найкоротший шлях до «внести цифри одному». */}
+                        <button
+                          type="button"
+                          onClick={() => setFocusRep(focusRep === rep.id ? null : rep.id)}
+                          title={focusRep === rep.id ? "Показати всіх" : `Показати лише «${rep.name}»`}
+                          className="cursor-pointer text-left transition-colors hover:text-g600"
+                        >
+                          {rep.name}
+                        </button>
                       </td>
                       <td className="border-l border-g100 px-2 py-2 align-top">
                         <input

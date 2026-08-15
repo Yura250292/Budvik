@@ -15,6 +15,7 @@ import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
+import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +87,18 @@ export async function GET(
    * У водіїв призначень зазвичай немає (їхній план — маршрутний лист із
    * 1С, він уже в route), тому plan просто буде null і блок не з'явиться.
    */
-  const planVsFact = await resolvePlanVsFact(userId, day, points);
+  /**
+   * Показуємо лише робочі години. Пристрій пише цілодобово — щоб не
+   * втратити ранній виїзд і не мати дірок, — але на карті нічний дрейф
+   * GPS у дворі торгового малював би поїздки, яких не було.
+   *
+   * Скільки саме сховано, віддаємо окремим числом: тиха фільтрація, про
+   * яку ніхто не знає, гірша за відсутність фільтра.
+   */
+  const workPoints = onlyWorkingHours(points);
+  const hiddenPoints = points.length - workPoints.length;
+
+  const planVsFact = await resolvePlanVsFact(userId, day, workPoints);
 
   return NextResponse.json({
     day,
@@ -96,14 +108,17 @@ export async function GET(
       pointsCount: trackSession?.pointsCount ?? 0,
       startedAt: trackSession?.startedAt ?? null,
       lastPointAt: trackSession?.lastPointAt ?? null,
-      points,
+      points: workPoints,
       /**
        * Готова лінія для карти: там, де планшет був офлайн, замість прямої
        * через півміста вплетено реальну дорогу. Окремим полем, а не
        * замість points: точки несуть швидкість і точність, які потрібні
        * для розбору «стояв чи їхав».
        */
-      path: buildTrackPath(points),
+      path: buildTrackPath(workPoints),
+      /** Скільки точок сховано як неробочі — щоб фільтр не був таємним */
+      hiddenPoints,
+      workHours: WORK_HOURS_LABEL,
     },
     // Точки з приклеєними відмітками — карта фарбує їх за статусом візиту
     // так само, як планшет у водія.

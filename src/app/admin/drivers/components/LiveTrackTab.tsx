@@ -51,6 +51,9 @@ type DayDetail = {
     points: Array<{ lat: number; lng: number; recordedAt: string; speedKmh: number | null }>;
     /** Лінія з добитими розривами — нею й малюємо трек. */
     path: Array<[number, number]>;
+    /** Точки поза робочим вікном: записані, але не показані */
+    hiddenPoints: number;
+    workHours: string;
   };
   /** Призначений маршрут торгового на цей день. У водія null. */
   plan: {
@@ -239,6 +242,14 @@ export function LiveTrackTab() {
               onSelect={setSelected}
             />
           </div>
+
+          {detail && detail.track.hiddenPoints > 0 && (
+            <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.5 }}>
+              На карті лише робочі години ({detail.track.workHours}). Ще{" "}
+              {detail.track.hiddenPoints} точок цього дня записано поза вікном —
+              вони збережені, але не показані.
+            </p>
+          )}
 
           {/* Самоперевірка треку — згорнута, поки не знадобиться. На час
               обкатки застосунку це головна діагностика: чи писав пристрій

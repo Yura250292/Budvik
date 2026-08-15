@@ -19,6 +19,8 @@ type Health = {
   day: string;
   user: { id: string; name: string; role: string };
   hasTrack: boolean;
+  workHours: string;
+  hiddenPoints: number;
   summary: {
     pointsCount: number;
     distanceKm: number;
@@ -282,6 +284,9 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
           )}
 
           <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "12px", lineHeight: 1.5 }}>
+            Рахуємо лише робочі години ({data.workHours}).
+            {data.hiddenPoints > 0 &&
+              ` Ще ${data.hiddenPoints} точок записано поза цим вікном — вони збережені, але в статистику й на карту не йдуть.`}{" "}
             Пауза рахується від 5 хвилин без жодної точки. Короткі паузи нормальні
             (тунель, підземний паркінг), а от години — це майже завжди економія
             батареї або дозвіл «Завжди», якого не дали.

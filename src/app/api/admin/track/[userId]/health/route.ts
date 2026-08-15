@@ -15,6 +15,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
+import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ export async function GET(
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const dayStart = kyivDayStart(day);
 
-  const [user, trackSession, points, devices] = await Promise.all([
+  const [user, trackSession, allPoints, devices] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, role: true },
@@ -80,6 +81,16 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "Користувача не знайдено" }, { status: 404 });
   }
+
+  /**
+   * Рахуємо якість лише по робочих годинах.
+   *
+   * Інакше нічна пауза (пристрій лежить удома, служба зупинена) лягла б
+   * у статистику як багатогодинна дірка, і покриття завжди виглядало б
+   * жахливо навіть при бездоганній роботі застосунку.
+   */
+  const points = onlyWorkingHours(allPoints);
+  const hiddenPoints = allPoints.length - points.length;
 
   const gaps: Array<{ from: string; to: string; minutes: number }> = [];
   let goodAccuracy = 0;
@@ -148,6 +159,9 @@ export async function GET(
     day,
     user,
     hasTrack: points.length > 0,
+    workHours: WORK_HOURS_LABEL,
+    /** Точки поза робочим вікном: записані, але в статистику не йдуть */
+    hiddenPoints,
     summary: {
       pointsCount: points.length,
       distanceKm: trackSession ? Math.round(trackSession.distanceKm * 10) / 10 : 0,

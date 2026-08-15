@@ -7,6 +7,9 @@ import { kyivToday } from "@/components/ui/PeriodPicker";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
+import { TableScroll } from "@/components/ui/TableScroll";
+import { StatCard, money } from "@/components/ui/Stat";
+import { STATUS, attainmentStatus } from "@/lib/analytics/colors";
 import {
   computeRow,
   CURRENCY_LABELS,
@@ -81,11 +84,13 @@ const parseNum = (v: string): number => {
 const fmt = (n: number) =>
   n.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fmtPct = (n: number | null) => (n === null ? "—" : `${n.toFixed(2)}%`);
+const fmtPct = (n: number | null) => (n === null ? "—" : `${n.toFixed(1)}%`);
 
 const inputClass =
-  "w-full rounded-[var(--radius-btn)] border border-g200 px-2 py-1.5 text-sm text-right focus:border-g400 focus:outline-none";
-const cellInput = `${inputClass} min-w-[88px]`;
+  "w-full rounded-[var(--radius-btn)] border border-g200 bg-white px-2 py-1.5 text-right text-sm tabular-nums transition-colors placeholder:text-g300 hover:border-g300 focus:border-g400 focus:outline-none";
+
+const toolbarBtn =
+  "flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-2 text-[13px] font-medium text-g600 transition-colors hover:bg-g100 hover:text-bk disabled:cursor-not-allowed disabled:opacity-50";
 
 const emptyEntry = (): EntryDraft => ({
   workDays: "",
@@ -102,6 +107,37 @@ const emptyTerm = (): TermDraft => ({ salesAmount: "", rentCoef: "", bonusPercen
 
 /** Числове поле в чернетку: нуль показуємо порожнім, щоб не друкувати поверх нього. */
 const draft = (n: number): string => (n === 0 ? "" : String(n));
+
+/** Іконки — SVG, як усюди в адмінці. */
+const RefreshIcon = (
+  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+    />
+  </svg>
+);
+
+const TrashIcon = (
+  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+    />
+  </svg>
+);
+
+const BuildingIcon = (
+  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"
+    />
+  </svg>
+);
 
 export function PayrollTab() {
   const [month, setMonth] = useState(() => kyivToday().slice(0, 7));
@@ -121,7 +157,8 @@ export function PayrollTab() {
   const [showGroups, setShowGroups] = useState(false);
 
   // Свіжі дані місяця → чернетки. Незбережені правки при зміні місяця
-  // губляться свідомо: тягнути чернетку травня у червень було б гірше.
+  // губляться свідомо (з попередженням у switchMonth): тягнути чернетку
+  // травня у червень було б гірше.
   useEffect(() => {
     if (!data) return;
     setRates({
@@ -179,6 +216,16 @@ export function PayrollTab() {
     setDirty(true);
   };
 
+  /** Зміна місяця з захистом від втрати незбережених правок. */
+  const switchMonth = (next: string) => {
+    if (dirty && !confirm("Є незбережені зміни — при зміні місяця вони зникнуть. Продовжити?")) {
+      return;
+    }
+    setNotice(null);
+    setFailure(null);
+    setMonth(next || kyivToday().slice(0, 7));
+  };
+
   // Розрахунок наживо тими самими функціями, що й сервер
   const rows = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeRow>>();
@@ -226,6 +273,7 @@ export function PayrollTab() {
       gross = 0,
       base = 0,
       total = 0;
+    const perGroup = new Map<string, number>();
     for (const rep of visibleReps) {
       const e = entryOf(rep.id);
       const r = rows.get(rep.id);
@@ -234,8 +282,11 @@ export function PayrollTab() {
       gross += r?.totalGrossUah ?? 0;
       base += r?.baseBonus ?? 0;
       total += r?.total ?? 0;
+      for (const b of r?.termBonuses ?? []) {
+        perGroup.set(b.groupId, (perGroup.get(b.groupId) ?? 0) + b.bonusUah);
+      }
     }
-    return { plan, fact, gross, base, total, attainment: plan > 0 ? (fact / plan) * 100 : null };
+    return { plan, fact, gross, base, total, perGroup, attainment: plan > 0 ? (fact / plan) * 100 : null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleReps, rows, entries]);
 
@@ -315,15 +366,18 @@ export function PayrollTab() {
 
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
+  const teamStatus = totals.attainment === null ? "neutral" : attainmentStatus(totals.attainment);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-16">
       {failure && <ErrorBox message={failure} />}
-      {notice && (
+      {notice && !dirty && (
         <div className="rounded-[var(--radius-card)] border border-g200 bg-g50 px-4 py-2.5 text-sm text-g600">
           {notice}
         </div>
       )}
 
+      {/* Панель керування місяцем */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <label htmlFor="payroll-month" className="text-xs font-medium text-g500">
@@ -333,11 +387,13 @@ export function PayrollTab() {
             id="payroll-month"
             type="month"
             value={month}
-            onChange={(e) => setMonth(e.target.value || kyivToday().slice(0, 7))}
-            className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-1.5 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+            onChange={(e) => switchMonth(e.target.value)}
+            className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-2 text-[13px] text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
           />
           {data && !data.exists && (
-            <span className="text-xs text-g400">місяць ще не зберігався</span>
+            <span className="rounded-full border border-g200 bg-g50 px-2.5 py-1 text-[11px] font-medium text-g500">
+              чернетка — ще не зберігався
+            </span>
           )}
         </div>
 
@@ -351,66 +407,110 @@ export function PayrollTab() {
             type="button"
             onClick={pullSuggested}
             disabled={!data || busy}
-            className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-1.5 text-xs font-medium text-g600 transition-colors hover:bg-g100 hover:text-bk disabled:cursor-not-allowed disabled:opacity-50"
+            className={toolbarBtn}
             title="План — з вкладки «Плани», факт — оборот по відвантаженню з документів 1С"
           >
-            ⟳ План і факт із сайту
+            {RefreshIcon}
+            <span className="hidden sm:inline">План і факт із сайту</span>
+            <span className="sm:hidden">План/факт</span>
           </button>
           <button
             type="button"
             onClick={() => setShowGroups((v) => !v)}
-            className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-1.5 text-xs font-medium text-g600 transition-colors hover:bg-g100 hover:text-bk"
+            aria-expanded={showGroups}
+            className={`${toolbarBtn} ${showGroups ? "border-g400 bg-g100 text-bk" : ""}`}
           >
-            Індивідуальні умови фірм{activeGroups.length ? ` (${activeGroups.length})` : ""}
-          </button>
-          <button
-            type="button"
-            onClick={save}
-            disabled={!data || busy || !dirty}
-            className="cursor-pointer rounded-[var(--radius-btn)] bg-primary px-3.5 py-1.5 text-xs font-semibold text-bk transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {busy ? "Збереження…" : dirty ? "Зберегти зміни" : "Збережено"}
+            {BuildingIcon}
+            <span className="hidden sm:inline">Індивідуальні умови</span>
+            <span className="sm:hidden">Інд. умови</span>
+            {activeGroups.length > 0 && (
+              <span className="rounded-full bg-bk px-1.5 text-[10px] font-semibold leading-4 text-white">
+                {activeGroups.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
       {showGroups && <GroupsEditor groups={data?.groups ?? []} onChanged={reload} />}
 
-      <Card>
-        <CardHeader
-          title="Курси та сходинки місяця"
-          hint="Курси фіксуються на місяць нарахування. Сходинка — % від валу залежно від виконання плану."
+      {/* Підсумки місяця: скільки виплатимо і з чого воно складається */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Разом до виплати"
+          value={money(totals.total)}
+          unit="₴"
+          accent="var(--color-primary, #FFD600)"
+          hint="Бонус за вал + індивідуальні умови"
         />
-        <div className="flex flex-wrap items-end gap-4">
-          {(
-            [
-              ["usd", "Курс $"],
-              ["eur", "Курс €"],
-              ["pln", "Курс zł"],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="block">
-              <span className="mb-1 block text-xs text-g500">{label}</span>
-              <input
-                value={rates[key]}
-                onChange={(e) => {
-                  setRates((r) => ({ ...r, [key]: e.target.value }));
-                  setDirty(true);
-                }}
-                inputMode="decimal"
-                placeholder="0"
-                className={`${inputClass} w-24`}
-              />
-            </label>
-          ))}
+        <StatCard
+          label="Бонус за вал"
+          value={money(totals.base)}
+          unit="₴"
+          hint="K × ставка сходинки"
+        />
+        <StatCard
+          label="Вал загальний"
+          value={money(totals.gross)}
+          unit="₴"
+          hint="Після курсів, мінус бонуси клієнтам"
+        />
+        <StatCard
+          label="Виконання плану"
+          value={totals.attainment === null ? "—" : totals.attainment.toFixed(1)}
+          unit={totals.attainment === null ? undefined : "%"}
+          tone={teamStatus}
+          hint={`Команда: ${money(totals.fact)} із ${money(totals.plan)} ₴`}
+        />
+      </div>
 
-          <div className="flex flex-wrap items-end gap-2">
-            {tiers.steps.map((s, i) => (
-              <div key={i} className="flex items-end gap-1">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-g500">
-                    {i === 0 ? "до, %" : "до, % включно"}
-                  </span>
+      {/* Курси і сходинки: два компактні блоки в одній карті */}
+      <Card>
+        <div className="grid gap-5 sm:grid-cols-[auto_1px_1fr]">
+          <div>
+            <h3 className="text-sm font-semibold text-bk">Курси місяця</h3>
+            <p className="mt-0.5 text-xs text-g500">Фіксуються на місяць нарахування.</p>
+            <div className="mt-3 flex gap-3">
+              {(
+                [
+                  ["usd", "$"],
+                  ["eur", "€"],
+                  ["pln", "zł"],
+                ] as const
+              ).map(([key, symbol]) => (
+                <label key={key} className="block">
+                  <span className="mb-1 block text-center text-xs font-medium text-g500">{symbol}</span>
+                  <input
+                    value={rates[key]}
+                    onChange={(e) => {
+                      setRates((r) => ({ ...r, [key]: e.target.value }));
+                      setDirty(true);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    inputMode="decimal"
+                    placeholder="0"
+                    aria-label={`Курс ${symbol}`}
+                    className={`${inputClass} w-20 text-center`}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="hidden bg-g200 sm:block" aria-hidden />
+
+          <div>
+            <h3 className="text-sm font-semibold text-bk">Сходинки бонусу</h3>
+            <p className="mt-0.5 text-xs text-g500">
+              Відсоток від валу залежно від виконання плану.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {tiers.steps.map((s, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-g50 px-2.5 py-1.5"
+                >
+                  <span className="text-xs text-g500">{i === 0 ? "до" : `${tiers.steps[i - 1].limit}–`}</span>
                   <input
                     value={String(s.limit)}
                     onChange={(e) => {
@@ -421,12 +521,12 @@ export function PayrollTab() {
                       }));
                       setDirty(true);
                     }}
+                    onFocus={(e) => e.target.select()}
                     inputMode="decimal"
-                    className={`${inputClass} w-16`}
+                    aria-label={`Межа сходинки ${i + 1}, %`}
+                    className={`${inputClass} w-12 px-1 text-center`}
                   />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-g500">→ %</span>
+                  <span className="text-xs text-g500">% →</span>
                   <input
                     value={String(s.percent)}
                     onChange={(e) => {
@@ -437,43 +537,42 @@ export function PayrollTab() {
                       }));
                       setDirty(true);
                     }}
+                    onFocus={(e) => e.target.select()}
                     inputMode="decimal"
-                    className={`${inputClass} w-16`}
+                    aria-label={`Ставка сходинки ${i + 1}, %`}
+                    className={`${inputClass} w-12 px-1 text-center font-semibold`}
                   />
-                </label>
+                  <span className="text-xs font-medium text-g500">%</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-g50 px-2.5 py-1.5">
+                <span className="text-xs text-g500">
+                  понад {tiers.steps[tiers.steps.length - 1]?.limit ?? 120}% →
+                </span>
+                <input
+                  value={String(tiers.topPercent)}
+                  onChange={(e) => {
+                    setTiers((t) => ({ ...t, topPercent: parseNum(e.target.value) }));
+                    setDirty(true);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  inputMode="decimal"
+                  aria-label="Ставка понад останню межу, %"
+                  className={`${inputClass} w-12 px-1 text-center font-semibold`}
+                />
+                <span className="text-xs font-medium text-g500">%</span>
               </div>
-            ))}
-            <label className="block">
-              <span className="mb-1 block text-xs text-g500">понад → %</span>
-              <input
-                value={String(tiers.topPercent)}
-                onChange={(e) => {
-                  setTiers((t) => ({ ...t, topPercent: parseNum(e.target.value) }));
-                  setDirty(true);
-                }}
-                inputMode="decimal"
-                className={`${inputClass} w-16`}
-              />
-            </label>
+            </div>
           </div>
         </div>
-        <p className="mt-2 text-xs text-g400">
-          Читається: виконання менше {tiers.steps[0]?.limit ?? 100}% →{" "}
-          {tiers.steps[0]?.percent ?? 30}%
-          {tiers.steps.slice(1).map((s, i) => (
-            <span key={i}>
-              , {tiers.steps[i].limit}–{s.limit}% → {s.percent}%
-            </span>
-          ))}
-          , понад {tiers.steps[tiers.steps.length - 1]?.limit ?? 120}% → {tiers.topPercent}%.
-        </p>
       </Card>
 
+      {/* Головна таблиця */}
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Вал і бонус за місяць"
-            hint="Вал по валютах — з 1С-звіту «Валовая прибыль вал», без ПДВ і без фірм з індивідуальними умовами. Бонуси клієнтам віднімаються від валу."
+            hint="Вал — з 1С: Отчеты → Продажи → Анализ продаж → «Валовая прибыль вал», без ПДВ і без фірм з індивідуальними умовами."
           />
         </div>
         {loading && !data ? (
@@ -481,103 +580,157 @@ export function PayrollTab() {
             <TableSkeleton />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1280px] text-sm">
+          <TableScroll minWidth={1280}>
+            <table className="w-full text-sm">
               <thead>
-                <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
-                  <th className="sticky left-0 bg-g50 px-4 py-2.5">Торговий</th>
-                  <th className="px-2 py-2.5 text-right">Дні</th>
+                {/* Груповий рядок: що вводиться, а що рахується само */}
+                <tr className="border-y border-g200 bg-g50 text-[11px] font-semibold uppercase tracking-wide text-g400">
+                  <th className="sticky left-0 z-10 bg-g50 px-4 py-2" aria-label="Торговий" />
+                  <th colSpan={4} className="border-l border-g200 px-2 py-2 text-left">
+                    План
+                  </th>
+                  <th colSpan={5} className="border-l border-g200 px-2 py-2 text-left">
+                    Вал із 1С за валютами
+                  </th>
+                  <th
+                    colSpan={3 + activeGroups.length + 1}
+                    className="border-l border-g200 px-2 py-2 text-left"
+                  >
+                    Рахується само
+                  </th>
+                </tr>
+                <tr className="border-b border-g200 bg-g50 text-left text-xs font-medium text-g500">
+                  <th className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Торговий</th>
+                  <th className="border-l border-g200 px-2 py-2.5 text-right">Дні</th>
                   <th className="px-2 py-2.5 text-right">План, ₴</th>
                   <th className="px-2 py-2.5 text-right">Факт, ₴</th>
-                  <th className="px-2 py-2.5 text-right">% вик.</th>
-                  <th className="px-2 py-2.5 text-right">Вал ₴</th>
-                  <th className="px-2 py-2.5 text-right">Вал $</th>
-                  <th className="px-2 py-2.5 text-right">Вал €</th>
-                  <th className="px-2 py-2.5 text-right">Вал zł</th>
+                  <th className="px-2 py-2.5 text-right">Вик.</th>
+                  <th className="border-l border-g200 px-2 py-2.5 text-right">₴</th>
+                  <th className="px-2 py-2.5 text-right">$</th>
+                  <th className="px-2 py-2.5 text-right">€</th>
+                  <th className="px-2 py-2.5 text-right">zł</th>
                   <th className="px-2 py-2.5 text-right">Бонуси кл., ₴</th>
-                  <th className="px-2 py-2.5 text-right">Вал загал., ₴</th>
-                  <th className="px-2 py-2.5 text-right">Ставка</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">Бонус за вал, ₴</th>
+                  <th className="border-l border-g200 px-2 py-2.5 text-right">Вал загал., ₴</th>
+                  <th className="px-2 py-2.5 text-center">Ставка</th>
+                  <th className="px-2 py-2.5 text-right">Бонус за вал, ₴</th>
                   {activeGroups.map((g) => (
-                    <th key={g.id} className="px-2 py-2.5 text-right">
-                      {g.name}, ₴
+                    <th key={g.id} className="px-2 py-2.5 text-right" title={g.brands || g.name}>
+                      {g.name.length > 14 ? `${g.name.slice(0, 13)}…` : g.name}, ₴
                     </th>
                   ))}
-                  <th className="px-4 py-2.5 text-right font-semibold">Разом, ₴</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-bk">Разом, ₴</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-g100">
+                {visibleReps.length === 0 && (
+                  <tr>
+                    <td colSpan={14 + activeGroups.length} className="px-4 py-8 text-center text-xs text-g500">
+                      {data?.reps.length === 0
+                        ? "Немає жодного торгового з роллю SALES."
+                        : "Усіх торгових приховано фільтром."}
+                    </td>
+                  </tr>
+                )}
                 {visibleReps.map((rep) => {
                   const e = entryOf(rep.id);
                   const r = rows.get(rep.id);
-                  const num = (field: EntryField, title?: string) => (
+                  const att = r?.attainment ?? null;
+                  const attTone = att === null ? null : STATUS[attainmentStatus(att)];
+                  const numInput = (field: EntryField, width = "w-[92px]") => (
                     <input
                       value={e[field]}
                       onChange={(ev) => setEntryField(rep.id, field, ev.target.value)}
+                      onFocus={(ev) => ev.target.select()}
                       inputMode="decimal"
                       placeholder="0"
-                      title={title}
-                      className={cellInput}
+                      aria-label={`${rep.name}: ${field}`}
+                      className={`${inputClass} ${width}`}
                     />
                   );
-                  const suggestedPlan = data?.suggested.plan[rep.id];
-                  const suggestedFact = data?.suggested.fact[rep.id];
+                  const hint = (suggested: number | undefined, field: EntryField) => {
+                    if (suggested === undefined) return null;
+                    const rounded = Math.round(suggested * 100) / 100;
+                    if (parseNum(e[field]) === rounded) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setEntryField(rep.id, field, draft(rounded))}
+                        title="Підставити значення з сайту"
+                        className="mt-0.5 block w-full cursor-pointer truncate text-right text-[10px] leading-3 text-g400 transition-colors hover:text-bk"
+                      >
+                        сайт: {money(rounded)}
+                      </button>
+                    );
+                  };
                   return (
-                    <tr key={rep.id} className="hover:bg-g50">
-                      <td className="sticky left-0 bg-white px-4 py-2 font-medium text-bk">
+                    <tr key={rep.id} className="group hover:bg-g50">
+                      <td className="sticky left-0 z-10 bg-white px-4 py-2 font-medium text-bk shadow-[1px_0_0_var(--color-g200,#e5e5e5)] group-hover:bg-g50">
                         {rep.name}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="border-l border-g100 px-2 py-2 align-top">
                         <input
                           value={e.workDays}
                           onChange={(ev) => setEntryField(rep.id, "workDays", ev.target.value)}
+                          onFocus={(ev) => ev.target.select()}
                           inputMode="numeric"
                           placeholder="0"
+                          aria-label={`${rep.name}: робочі дні`}
                           className={`${inputClass} w-14`}
                         />
                       </td>
-                      <td className="px-2 py-2">
-                        {num(
-                          "planAmount",
-                          suggestedPlan !== undefined ? `З вкладки «Плани»: ${fmt(suggestedPlan)}` : undefined
+                      <td className="px-2 py-2 align-top">
+                        {numInput("planAmount", "w-[104px]")}
+                        {hint(data?.suggested.plan[rep.id], "planAmount")}
+                      </td>
+                      <td className="px-2 py-2 align-top">
+                        {numInput("factAmount", "w-[104px]")}
+                        {hint(data?.suggested.fact[rep.id], "factAmount")}
+                      </td>
+                      <td className="px-2 py-2 text-right align-middle">
+                        {att === null ? (
+                          <span className="text-g400">—</span>
+                        ) : (
+                          <span
+                            className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums"
+                            style={{ color: attTone!.fg, backgroundColor: attTone!.bg }}
+                          >
+                            {fmtPct(att)}
+                          </span>
                         )}
                       </td>
-                      <td className="px-2 py-2">
-                        {num(
-                          "factAmount",
-                          suggestedFact !== undefined ? `Оборот із сайту: ${fmt(suggestedFact)}` : undefined
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-g600">
-                        {fmtPct(r?.attainment ?? null)}
-                      </td>
-                      <td className="px-2 py-2">{num("grossUah")}</td>
-                      <td className="px-2 py-2">{num("grossUsd")}</td>
-                      <td className="px-2 py-2">{num("grossEur")}</td>
-                      <td className="px-2 py-2">{num("grossPln")}</td>
-                      <td className="px-2 py-2">{num("clientBonuses")}</td>
+                      <td className="border-l border-g100 px-2 py-2 align-top">{numInput("grossUah")}</td>
+                      <td className="px-2 py-2 align-top">{numInput("grossUsd", "w-[84px]")}</td>
+                      <td className="px-2 py-2 align-top">{numInput("grossEur", "w-[76px]")}</td>
+                      <td className="px-2 py-2 align-top">{numInput("grossPln", "w-[76px]")}</td>
+                      <td className="px-2 py-2 align-top">{numInput("clientBonuses")}</td>
                       <td
-                        className={`px-2 py-2 text-right tabular-nums ${
-                          (r?.totalGrossUah ?? 0) < 0 ? "text-red-600" : "text-bk"
+                        className={`border-l border-g100 bg-g50/60 px-2 py-2 text-right tabular-nums ${
+                          (r?.totalGrossUah ?? 0) < 0 ? "font-medium text-red-600" : "text-bk"
                         }`}
                       >
                         {fmt(r?.totalGrossUah ?? 0)}
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-g600">
-                        {r?.appliedPercent ? `${r.appliedPercent}%` : "—"}
+                      <td className="bg-g50/60 px-2 py-2 text-center">
+                        {r?.appliedPercent ? (
+                          <span className="inline-block rounded-full bg-bk px-2 py-0.5 text-xs font-semibold text-white">
+                            {r.appliedPercent}%
+                          </span>
+                        ) : (
+                          <span className="text-g400">—</span>
+                        )}
                       </td>
-                      <td className="px-2 py-2 text-right font-semibold tabular-nums text-bk">
+                      <td className="bg-g50/60 px-2 py-2 text-right font-medium tabular-nums text-bk">
                         {fmt(r?.baseBonus ?? 0)}
                       </td>
                       {activeGroups.map((g) => {
                         const b = r?.termBonuses.find((x) => x.groupId === g.id);
                         return (
-                          <td key={g.id} className="px-2 py-2 text-right tabular-nums text-g600">
+                          <td key={g.id} className="bg-g50/60 px-2 py-2 text-right tabular-nums text-g600">
                             {fmt(b?.bonusUah ?? 0)}
                           </td>
                         );
                       })}
-                      <td className="px-4 py-2 text-right font-semibold tabular-nums text-bk">
+                      <td className="bg-g50/60 px-4 py-2 text-right font-semibold tabular-nums text-bk">
                         {fmt(r?.total ?? 0)}
                       </td>
                     </tr>
@@ -586,83 +739,146 @@ export function PayrollTab() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-g200 bg-g50 text-xs font-semibold text-bk">
-                  <td className="sticky left-0 bg-g50 px-4 py-2.5">Разом</td>
-                  <td />
+                  <td className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Разом</td>
+                  <td className="border-l border-g200" />
                   <td className="px-2 py-2.5 text-right tabular-nums">{fmt(totals.plan)}</td>
                   <td className="px-2 py-2.5 text-right tabular-nums">{fmt(totals.fact)}</td>
                   <td className="px-2 py-2.5 text-right tabular-nums">{fmtPct(totals.attainment)}</td>
-                  <td colSpan={5} />
-                  <td className="px-2 py-2.5 text-right tabular-nums">{fmt(totals.gross)}</td>
+                  <td colSpan={5} className="border-l border-g200" />
+                  <td className="border-l border-g200 px-2 py-2.5 text-right tabular-nums">
+                    {fmt(totals.gross)}
+                  </td>
                   <td />
                   <td className="px-2 py-2.5 text-right tabular-nums">{fmt(totals.base)}</td>
-                  <td colSpan={activeGroups.length} />
+                  {activeGroups.map((g) => (
+                    <td key={g.id} className="px-2 py-2.5 text-right tabular-nums">
+                      {fmt(totals.perGroup.get(g.id) ?? 0)}
+                    </td>
+                  ))}
                   <td className="px-4 py-2.5 text-right tabular-nums">{fmt(totals.total)}</td>
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </TableScroll>
         )}
       </Card>
 
-      {activeGroups.map((g) => (
-        <Card key={g.id} padded={false}>
-          <div className="p-4 sm:p-5">
-            <CardHeader
-              title={`Індивідуальні умови — ${g.name}`}
-              hint={`Продажі групи в ${CURRENCY_LABELS[g.currency]} без ПДВ. Відсоток — ручний: коефіцієнт рентабельності поруч підказує, чи прогинався торговий по ціні. Бонус = продажі × % × курс.${
-                g.brands ? ` Бренди: ${g.brands}.` : ""
-              }`}
-            />
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
-                  <th className="px-4 py-2.5">Торговий</th>
-                  <th className="px-2 py-2.5 text-right">
-                    Продажі, {CURRENCY_LABELS[g.currency]}
-                  </th>
-                  <th className="px-2 py-2.5 text-right">Коеф. рент.</th>
-                  <th className="px-2 py-2.5 text-right">% для бонусу</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Бонус, ₴</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-g100">
-                {visibleReps.map((rep) => {
-                  const t = termOf(g.id, rep.id);
-                  const b = rows.get(rep.id)?.termBonuses.find((x) => x.groupId === g.id);
-                  return (
-                    <tr key={rep.id} className="hover:bg-g50">
-                      <td className="px-4 py-2 font-medium text-bk">{rep.name}</td>
-                      {TERM_FIELDS.map((field) => (
-                        <td key={field} className="px-2 py-2">
-                          <input
-                            value={t[field]}
-                            onChange={(ev) => setTermField(g.id, rep.id, field, ev.target.value)}
-                            inputMode="decimal"
-                            placeholder={field === "rentCoef" ? "—" : "0"}
-                            className={cellInput}
-                          />
+      {/* Таблиці груп «за дужками» */}
+      {activeGroups.map((g) => {
+        const groupTotal = { sales: 0, bonus: 0 };
+        for (const rep of visibleReps) {
+          const t = termOf(g.id, rep.id);
+          groupTotal.sales += parseNum(t.salesAmount);
+          groupTotal.bonus += rows.get(rep.id)?.termBonuses.find((x) => x.groupId === g.id)?.bonusUah ?? 0;
+        }
+        return (
+          <Card key={g.id} padded={false}>
+            <div className="p-4 sm:p-5">
+              <CardHeader
+                title={`Індивідуальні умови — ${g.name}`}
+                hint={`Продажі групи в ${CURRENCY_LABELS[g.currency]} без ПДВ. Відсоток — ручний: коефіцієнт рентабельності поруч підказує, чи прогинався торговий по ціні. Бонус = продажі × % × курс.${
+                  g.brands ? ` Бренди: ${g.brands}.` : ""
+                }`}
+              />
+            </div>
+            <TableScroll minWidth={640}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
+                    <th className="px-4 py-2.5">Торговий</th>
+                    <th className="px-2 py-2.5 text-right">
+                      Продажі, {CURRENCY_LABELS[g.currency]}
+                    </th>
+                    <th className="px-2 py-2.5 text-right">Коеф. рент.</th>
+                    <th className="px-2 py-2.5 text-right">% для бонусу</th>
+                    <th className="px-4 py-2.5 text-right font-semibold text-bk">Бонус, ₴</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-g100">
+                  {visibleReps.map((rep) => {
+                    const t = termOf(g.id, rep.id);
+                    const b = rows.get(rep.id)?.termBonuses.find((x) => x.groupId === g.id);
+                    return (
+                      <tr key={rep.id} className="hover:bg-g50">
+                        <td className="px-4 py-2 font-medium text-bk">{rep.name}</td>
+                        {TERM_FIELDS.map((field) => (
+                          <td key={field} className="px-2 py-2">
+                            <input
+                              value={t[field]}
+                              onChange={(ev) => setTermField(g.id, rep.id, field, ev.target.value)}
+                              onFocus={(ev) => ev.target.select()}
+                              inputMode="decimal"
+                              placeholder={field === "rentCoef" ? "—" : "0"}
+                              aria-label={`${rep.name}: ${
+                                field === "salesAmount"
+                                  ? "продажі"
+                                  : field === "rentCoef"
+                                    ? "коефіцієнт рентабельності"
+                                    : "% для бонусу"
+                              }`}
+                              className={`${inputClass} min-w-[88px]`}
+                            />
+                          </td>
+                        ))}
+                        <td className="bg-g50/60 px-4 py-2 text-right font-semibold tabular-nums text-bk">
+                          {fmt(b?.bonusUah ?? 0)}
                         </td>
-                      ))}
-                      <td className="px-4 py-2 text-right font-semibold tabular-nums text-bk">
-                        {fmt(b?.bonusUah ?? 0)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-g200 bg-g50 text-xs font-semibold text-bk">
+                    <td className="px-4 py-2.5">Разом</td>
+                    <td className="px-2 py-2.5 text-right tabular-nums">{fmt(groupTotal.sales)}</td>
+                    <td colSpan={2} />
+                    <td className="px-4 py-2.5 text-right tabular-nums">{fmt(groupTotal.bonus)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </TableScroll>
+          </Card>
+        );
+      })}
+
+      {/* Липка панель збереження: таблиця довга, кнопка завжди під рукою */}
+      {dirty && (
+        <div className="sticky bottom-4 z-30">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3 rounded-[var(--radius-card)] border border-g200 bg-white px-4 py-3 shadow-lg">
+            <span className="text-sm text-g600">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-primary align-middle" aria-hidden />
+              Є незбережені зміни
+            </span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (confirm("Відкинути всі незбережені зміни?")) reload();
+                }}
+                className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-2 text-[13px] font-medium text-g600 transition-colors hover:bg-g100 hover:text-bk disabled:opacity-50"
+              >
+                Скасувати
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={save}
+                className="cursor-pointer rounded-[var(--radius-btn)] bg-primary px-4 py-2 text-[13px] font-semibold text-bk transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? "Збереження…" : "Зберегти"}
+              </button>
+            </span>
           </div>
-        </Card>
-      ))}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
  * Редактор груп «за дужками». Зміни застосовуються одразу (це довідник,
- * а не місячні цифри), тому тут свої запити, окремо від «Зберегти зміни».
+ * а не місячні цифри), тому тут свої запити, окремо від «Зберегти».
  */
 function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () => void }) {
   const [name, setName] = useState("");
@@ -692,6 +908,9 @@ function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () =>
     }
   }
 
+  const fieldClass =
+    "w-full rounded-[var(--radius-btn)] border border-g200 px-2.5 py-2 text-sm transition-colors placeholder:text-g300 hover:border-g300 focus:border-g400 focus:outline-none";
+
   return (
     <Card>
       <CardHeader
@@ -714,7 +933,9 @@ function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () =>
             <span className={`text-sm font-medium ${g.isActive ? "text-bk" : "text-g400 line-through"}`}>
               {g.name}
             </span>
-            <span className="text-xs text-g400">{CURRENCY_LABELS[g.currency]}</span>
+            <span className="rounded-full bg-g100 px-2 py-0.5 text-[11px] font-medium text-g500">
+              {CURRENCY_LABELS[g.currency]}
+            </span>
             {g.brands && <span className="truncate text-xs text-g500">({g.brands})</span>}
             <span className="ml-auto flex gap-1.5">
               <button
@@ -730,6 +951,7 @@ function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () =>
               <button
                 type="button"
                 disabled={busy}
+                aria-label={`Видалити групу «${g.name}»`}
                 onClick={() => {
                   if (
                     !confirm(
@@ -739,23 +961,23 @@ function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () =>
                     return;
                   call(`/api/admin/motivation/term-groups/${g.id}`, "DELETE");
                 }}
-                className="cursor-pointer rounded-[var(--radius-btn)] px-2 py-1 text-xs text-g400 transition-colors hover:bg-g100 hover:text-bk disabled:opacity-50"
+                className="cursor-pointer rounded-[var(--radius-btn)] px-2 py-1 text-g400 transition-colors hover:bg-g100 hover:text-red-600 disabled:opacity-50"
               >
-                ✕
+                {TrashIcon}
               </button>
             </span>
           </div>
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-g100 pt-3">
+      <div className="mt-3 grid gap-2 border-t border-g100 pt-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
         <label className="block">
           <span className="mb-1 block text-xs text-g500">Назва групи</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="APRO + Сила + UNIFIX + 12Atelie"
-            className="w-64 rounded-[var(--radius-btn)] border border-g200 px-2 py-1.5 text-sm focus:border-g400 focus:outline-none"
+            className={fieldClass}
           />
         </label>
         <label className="block">
@@ -764,15 +986,15 @@ function GroupsEditor({ groups, onChanged }: { groups: Group[]; onChanged: () =>
             value={brands}
             onChange={(e) => setBrands(e.target.value)}
             placeholder="APRO, Сила, UNIFIX, 12Atelie"
-            className="w-64 rounded-[var(--radius-btn)] border border-g200 px-2 py-1.5 text-sm focus:border-g400 focus:outline-none"
+            className={fieldClass}
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs text-g500">Валюта продажів</span>
+          <span className="mb-1 block text-xs text-g500">Валюта</span>
           <select
             value={currency}
             onChange={(e) => setCurrency(e.target.value as PayrollCurrency)}
-            className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-2 py-1.5 text-sm focus:border-g400 focus:outline-none"
+            className={`${fieldClass} cursor-pointer`}
           >
             {PAYROLL_CURRENCIES.map((c) => (
               <option key={c} value={c}>

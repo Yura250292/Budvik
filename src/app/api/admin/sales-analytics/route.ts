@@ -213,6 +213,9 @@ export async function GET(req: Request) {
       days: period.days,
       from: period.fromDay,
       to: period.toDay,
+      // Початок підтягнули до межі історії — фронт мусить це підписати,
+      // інакше обрізаний період читається як «стільки й продали».
+      clamped: period.clamped,
     },
     scope: isFullAccess ? (repFilter ? "single" : "all") : "own",
     totals: {

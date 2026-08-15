@@ -29,6 +29,25 @@ function shift(day: string, deltaDays: number): string {
 
 export type Period = { from: string; to: string };
 
+/**
+ * Найраніша дата, за яку аналітика має дані.
+ *
+ * Реалізації з 1С бекфілились із січня 2026, а повернення — із 2023-го, тож
+ * раніші місяці складаються з самих мінусів. Сервер усе одно підтягує початок
+ * періоду (parsePeriod), але без цієї межі календар пропонував би обрати
+ * 2024 рік і мовчки повертав би січень 2026 — вибір, який нікуди не веде.
+ *
+ * Значення дублює ANALYTICS_SINCE_DAY із lib/analytics/since.ts: клієнтський
+ * компонент не може імпортувати серверний модуль, тож при зміні межі
+ * (після глибокого бекфілу реалізацій) правити треба обидва місця.
+ */
+export const ANALYTICS_SINCE_DAY = "2026-01-01";
+
+/** Не даємо пресету зазирнути глибше за наявну історію. */
+function clampDay(day: string): string {
+  return day < ANALYTICS_SINCE_DAY ? ANALYTICS_SINCE_DAY : day;
+}
+
 export const PRESETS: Array<{ key: string; label: string; make: () => Period }> = [
   { key: "today", label: "Сьогодні", make: () => ({ from: kyivToday(), to: kyivToday() }) },
   { key: "week", label: "7 днів", make: () => ({ from: shift(kyivToday(), -6), to: kyivToday() }) },
@@ -38,8 +57,8 @@ export const PRESETS: Array<{ key: string; label: string; make: () => Period }> 
     label: "Цей місяць",
     make: () => ({ from: `${kyivToday().slice(0, 7)}-01`, to: kyivToday() }),
   },
-  { key: "quarter", label: "90 днів", make: () => ({ from: shift(kyivToday(), -89), to: kyivToday() }) },
-  { key: "year", label: "Рік", make: () => ({ from: shift(kyivToday(), -364), to: kyivToday() }) },
+  { key: "quarter", label: "90 днів", make: () => ({ from: clampDay(shift(kyivToday(), -89)), to: kyivToday() }) },
+  { key: "year", label: "Рік", make: () => ({ from: clampDay(shift(kyivToday(), -364)), to: kyivToday() }) },
 ];
 
 export function PeriodPicker({
@@ -100,8 +119,9 @@ export function PeriodPicker({
             id="period-from"
             type="date"
             value={value.from}
+            min={ANALYTICS_SINCE_DAY}
             max={value.to}
-            onChange={(e) => onChange({ ...value, from: e.target.value })}
+            onChange={(e) => onChange({ ...value, from: clampDay(e.target.value) })}
             className="rounded-[var(--radius-btn)] border border-g200 bg-white px-2 py-1.5 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
           />
           <span className="text-xs text-g400">—</span>
@@ -118,6 +138,12 @@ export function PeriodPicker({
             className="rounded-[var(--radius-btn)] border border-g200 bg-white px-2 py-1.5 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
           />
         </div>
+      )}
+
+      {value.from === ANALYTICS_SINCE_DAY && (
+        <span className="text-xs text-g400" title="Реалізації з 1С завантажені з січня 2026. За раніші місяці в базі є лише повернення, тож оборот за них показувати не можна.">
+          дані з січня 2026
+        </span>
       )}
     </div>
   );

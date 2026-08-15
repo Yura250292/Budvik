@@ -62,8 +62,23 @@ export type AccountingReport = {
   /**
    * Відвантаження за період — метод нарахування: зобов'язання виникло,
    * коли товар поїхав, незалежно від того, чи прийшли гроші.
+   *
+   * БРУТТО: повернення сюди не входять — бухгалтерію цікавить факт
+   * відвантаження. Щоб число не читалося як оборот, поруч іде `returned`
+   * і `shippedNet` (див. нижче).
    */
   shipped: { total: number; count: number; clients: number };
+
+  /**
+   * Повернення від покупця за період, сума ДОДАТНА (у базі вона від'ємна).
+   *
+   * Окрема стаття, а не мінус усередині shipped: інакше звіт мовчки
+   * розходився б з аналітикою торгових, де оборот рахується нетто.
+   */
+  returned: { total: number; count: number; clients: number };
+
+  /** shipped − returned. Саме це число зіставне з оборотом в аналітиці торгових. */
+  shippedNet: number;
 
   /**
    * Гроші в касу за період — касовий метод. Друга колонка того самого
@@ -124,6 +139,30 @@ async function shippedTotals(from: Date, to: Date) {
            COUNT(DISTINCT "counterpartyId")::int AS clients
     FROM "SalesDocument"
     WHERE ${SHIPMENT_FILTER}
+      AND "createdAt" >= ${from}
+      AND "createdAt" <= ${to}
+  `;
+  return rows[0] ?? { total: 0, count: 0, clients: 0 };
+}
+
+/**
+ * Повернення за період — дзеркало shipped.
+ *
+ * Знак перевертаємо тут, як і для авансів: у базі сума від'ємна (щоб SUM в
+ * аналітиці віднімав її сам), а в звіті окрема стаття має бути додатною —
+ * мінус несе назва рядка, а не число.
+ */
+async function returnedTotals(from: Date, to: Date) {
+  const rows = await prisma.$queryRaw<
+    Array<{ total: number; count: number; clients: number }>
+  >`
+    SELECT COALESCE(-SUM("totalAmount"), 0)::float8 AS total,
+           COUNT(*)::int AS count,
+           COUNT(DISTINCT "counterpartyId")::int AS clients
+    FROM "SalesDocument"
+    WHERE "docType" = 'RETURN'
+      AND status = 'CONFIRMED'
+      AND "externalId" IS NOT NULL
       AND "createdAt" >= ${from}
       AND "createdAt" <= ${to}
   `;
@@ -235,8 +274,9 @@ export async function getAccountingReport(period: Period): Promise<AccountingRep
   const { from, to } = period;
 
   // Дебіторка не залежить від періоду, решта — залежить.
-  const [shipped, collected, months, receivableRows, adv] = await Promise.all([
+  const [shipped, returned, collected, months, receivableRows, adv] = await Promise.all([
     shippedTotals(from, to),
+    returnedTotals(from, to),
     collectedTotals(from, to),
     monthlyFlows(),
     receivableRowsByRep(),
@@ -248,8 +288,13 @@ export async function getAccountingReport(period: Period): Promise<AccountingRep
   return {
     period: { from: period.fromDay, to: period.toDay, days: period.days },
     shipped,
+    returned,
+    shippedNet: shipped.total - returned.total,
     collected,
-    gap: shipped.total - collected.total,
+    // Розрив рахуємо від НЕТТО: повернення зменшує борг клієнта так само,
+    // як оплата, тож без нього «відвантажили мінус зібрали» завищувало б
+    // приріст дебіторки рівно на суму повернень.
+    gap: shipped.total - returned.total - collected.total,
     months,
     receivables: {
       ...aging,

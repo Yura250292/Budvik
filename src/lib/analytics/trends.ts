@@ -13,7 +13,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, SALES_ONLY, ANALYTICS_SINCE, clampFrom } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
 
 /**
@@ -63,14 +63,23 @@ export type RepTrend = {
   momentum: Momentum;
 };
 
-/** Найраніша реалізація в базі — межа, за якою порівнювати нема з чим. */
+/**
+ * Найраніша реалізація в базі — межа, за якою порівнювати нема з чим.
+ *
+ * Рахуємо по SALES_ONLY, а не по всьому SOURCE_FILTER: повернення бекфілились
+ * глибше за реалізації (з 2023-го проти 2026-го), тож MIN по всіх документах
+ * давав би січень 2023 і оголошував порівняння коректним там, де під ним самі
+ * мінуси. Нижня межа аналітики страхує зверху, але чесніше спитати дані.
+ */
 async function earliestDoc(): Promise<Date | null> {
   const rows = await prisma.$queryRaw<Array<{ first: Date | null }>>`
     SELECT MIN(s."createdAt") AS first
     FROM "SalesDocument" s
-    WHERE ${SOURCE_FILTER}
+    WHERE ${SOURCE_FILTER} AND ${SALES_ONLY}
   `;
-  return rows[0]?.first ?? null;
+  const first = rows[0]?.first ?? null;
+  if (!first) return null;
+  return first < ANALYTICS_SINCE ? ANALYTICS_SINCE : first;
 }
 
 /**
@@ -88,6 +97,7 @@ async function bucketsByRep(
 ): Promise<Map<string, TrendBucket[]>> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
   const truncUnit = unit === "week" ? Prisma.sql`'week'` : Prisma.sql`'month'`;
+  from = clampFrom(from);
 
   const rows = await prisma.$queryRaw<
     Array<{ repId: string; bucket: string; amount: number; docs: number; clients: number }>
@@ -143,6 +153,10 @@ async function momentumWindows(
   repId?: string | null
 ): Promise<Map<string, { recent: WindowRow | null; previous: WindowRow | null }>> {
   const repCondition = repId ? Prisma.sql`AND s."salesRepId" = ${repId}` : Prisma.empty;
+  // Вікна відлічуються від кінця періоду назад і легко з'їжджають за межу
+  // історії. Саму межу переносити не можна — вона задає CASE recent/previous,
+  // — тож обрізаємо лише нижню границю вибірки.
+  previousFrom = clampFrom(previousFrom);
 
   const rows = await prisma.$queryRaw<WindowRow[]>`
     SELECT

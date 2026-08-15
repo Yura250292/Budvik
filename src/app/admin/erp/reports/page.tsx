@@ -52,6 +52,10 @@ type Debtor = {
 type Report = {
   period: { from: string; to: string; days: number };
   shipped: { total: number; count: number; clients: number };
+  /** Сума повернень за період, додатна. */
+  returned: { total: number; count: number; clients: number };
+  /** shipped − returned: число, зіставне з оборотом в аналітиці торгових. */
+  shippedNet: number;
   collected: { total: number; count: number; clients: number };
   gap: number;
   months: MonthRow[];
@@ -115,9 +119,11 @@ export default function AccountingReportsPage() {
       ["Період", `${report.period.from} — ${report.period.to}`],
       [""],
       ["Показник", "Сума (грн)", "Документів"],
-      ["Відвантажено (реалізації)", Math.round(report.shipped.total), report.shipped.count],
+      ["Відвантажено (реалізації, брутто)", Math.round(report.shipped.total), report.shipped.count],
+      ["Повернення від покупців", -Math.round(report.returned.total), report.returned.count],
+      ["Відвантажено нетто", Math.round(report.shippedNet), ""],
       ["Зібрано грошей (каса)", Math.round(report.collected.total), report.collected.count],
-      ["Розрив (відвантажено − зібрано)", Math.round(report.gap), ""],
+      ["Розрив (нетто − зібрано)", Math.round(report.gap), ""],
       [""],
       ["Дебіторська заборгованість (на зараз)", Math.round(report.receivables.total), ""],
       ["у т.ч. робоча", Math.round(report.receivables.total - report.receivables.overdue), ""],
@@ -212,7 +218,7 @@ export default function AccountingReportsPage() {
               title="Рух коштів за період"
               hint={`${report.period.from} — ${report.period.to}`}
             />
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <p className="text-xs font-medium text-g500">Відвантажено</p>
                 <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-bk">
@@ -220,6 +226,22 @@ export default function AccountingReportsPage() {
                 </p>
                 <p className="mt-1 text-xs text-g500">
                   {report.shipped.count} реалізацій · {report.shipped.clients} клієнтів
+                </p>
+              </div>
+              {/* Повернення окремою статтею: відвантажено вище — брутто, і без
+                  цього рядка звіт мовчки розходився б з оборотом торгових,
+                  який рахується нетто. */}
+              <div>
+                <p className="text-xs font-medium text-g500">Повернення</p>
+                <p
+                  className="mt-1 text-2xl font-semibold tabular-nums tracking-tight"
+                  style={{ color: report.returned.total > 0 ? BUCKET_COLORS.OVERDUE_60 : undefined }}
+                >
+                  {report.returned.total > 0 ? "−" : ""}
+                  {money(report.returned.total)}
+                </p>
+                <p className="mt-1 text-xs text-g500">
+                  {report.returned.count} документів · нетто {money(report.shippedNet)}
                 </p>
               </div>
               <div>
@@ -232,7 +254,7 @@ export default function AccountingReportsPage() {
                 </p>
               </div>
               <div>
-                <p className="text-xs font-medium text-g500">Розрив</p>
+                <p className="text-xs font-medium text-g500">Розрив (нетто − зібрано)</p>
                 <p
                   className="mt-1 text-2xl font-semibold tabular-nums tracking-tight"
                   style={{ color: report.gap > 0 ? BUCKET_COLORS.OVERDUE_60 : STAGE_COLORS.AWAITING_PAYMENT }}

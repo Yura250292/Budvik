@@ -19,7 +19,7 @@ import { categoricalColor } from "@/lib/analytics/colors";
  */
 
 type AnalyticsResponse = {
-  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number; returns: number }>;
+  byRep: Array<{ id: string; name: string; docs: number; amount: number; sku: number; returns: number; profit: number; costedAmount: number }>;
 };
 
 type FuelResponse = {
@@ -49,7 +49,7 @@ export function RepsTab({ period }: { period: Period }) {
   const rows = useMemo(() => {
     const byId = new Map<
       string,
-      { id: string; name: string; amount: number; docs: number; sku: number; returns: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
+      { id: string; name: string; amount: number; docs: number; sku: number; returns: number; profit: number; costedAmount: number; km: number; trips: number; days: number; fuelCost: number; attainment: number; target: number }
     >();
 
     for (const r of sales.data?.byRep ?? []) {
@@ -60,6 +60,8 @@ export function RepsTab({ period }: { period: Period }) {
         docs: r.docs,
         sku: r.sku ?? 0,
         returns: r.returns ?? 0,
+        profit: r.profit ?? 0,
+        costedAmount: r.costedAmount ?? 0,
         km: 0,
         trips: 0,
         days: 0,
@@ -85,6 +87,8 @@ export function RepsTab({ period }: { period: Period }) {
           docs: 0,
           sku: 0,
           returns: 0,
+          profit: 0,
+          costedAmount: 0,
           km: f.workKm,
           trips: f.trips,
           days: f.daysWorked,
@@ -147,11 +151,17 @@ export function RepsTab({ period }: { period: Period }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] text-sm">
+        <table className="w-full min-w-[900px] text-sm">
           <thead>
             <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
               <th className="px-4 py-2.5">Торговий</th>
               <th className="px-4 py-2.5 text-right">Оборот, грн</th>
+              <th
+                className="px-4 py-2.5 text-right"
+                title="Виручка мінус собівартість із 1С. Відсоток рахується від тієї частини обороту, для якої собівартість відома."
+              >
+                Вал, грн
+              </th>
               <th className="px-4 py-2.5 text-right">Док.</th>
               <th className="px-4 py-2.5 text-right">SKU</th>
               <th className="px-4 py-2.5 text-right">Робочі км</th>
@@ -190,6 +200,30 @@ export function RepsTab({ period }: { period: Period }) {
                     <span className="block text-[11px] font-normal text-red-600">
                       −{money(r.returns)} поверн.
                     </span>
+                  )}
+                </td>
+                {/* Вал і рентабельність. Відсоток рахується від costedAmount —
+                    виручки тих рядків, де собівартість відома, а не від усього
+                    обороту: інакше торговий із половиною незіставлених рядків
+                    виглядав би вдвічі менш рентабельним, ніж він є. */}
+                <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">
+                  {r.profit !== 0 ? (
+                    <>
+                      {money(r.profit)}
+                      <span className="block text-[11px] font-normal text-g500">
+                        {r.costedAmount > 0 ? `${num((r.profit / r.costedAmount) * 100, 1)}%` : ""}
+                        {r.costedAmount > 0 && r.amount > 0 && r.costedAmount < r.amount * 0.9 && (
+                          <span
+                            className="ml-1 text-g400"
+                            title={`Собівартість відома для ${num((r.costedAmount / r.amount) * 100, 0)}% обороту`}
+                          >
+                            (з {num((r.costedAmount / r.amount) * 100, 0)}%)
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="font-normal text-g400">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.docs)}</td>

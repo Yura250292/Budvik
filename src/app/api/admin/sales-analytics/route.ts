@@ -60,12 +60,46 @@ export async function GET(req: Request) {
     // --- по торгових ---
     // Сирий SQL, а не groupBy: потрібен FILTER, щоб повернення віднімалися
     // від суми, але не рахувались як ще один проданий документ.
-    prisma.$queryRaw<Array<{ salesRepId: string | null; docs: number; amount: number; returns: number }>>`
+    prisma.$queryRaw<
+      Array<{
+        salesRepId: string | null;
+        docs: number;
+        amount: number;
+        returns: number;
+        profit: number;
+        costedAmount: number;
+      }>
+    >`
       SELECT
         s."salesRepId" AS "salesRepId",
         COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         COALESCE(SUM(s."totalAmount"), 0)::float AS amount,
-        COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
+        COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns,
+        -- Вал рахується з ПОЗИЦІЙ, а не з SalesDocument.profitAmount: там
+        -- підсумок по документу, а нам потрібна ще й база, від якої він
+        -- рахувався. Без неї «вал 15%» неможливо відрізнити від «вал 15%,
+        -- але собівартість відома лише для третини рядків».
+        COALESCE((
+          SELECT SUM((i."sellingPrice" - i."purchasePrice") * i.quantity)
+          FROM "SalesDocumentItem" i
+          JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
+          WHERE d."salesRepId" = s."salesRepId"
+            AND d."externalId" IS NOT NULL AND d.status = 'CONFIRMED'
+            AND d."docType" IN ('REALIZATION', 'RETURN')
+            AND i."purchasePrice" > 0
+            AND d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
+        ), 0)::float AS profit,
+        -- Виручка тих самих рядків: знаменник для чесного відсотка.
+        COALESCE((
+          SELECT SUM(i."sellingPrice" * i.quantity)
+          FROM "SalesDocumentItem" i
+          JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
+          WHERE d."salesRepId" = s."salesRepId"
+            AND d."externalId" IS NOT NULL AND d.status = 'CONFIRMED'
+            AND d."docType" IN ('REALIZATION', 'RETURN')
+            AND i."purchasePrice" > 0
+            AND d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
+        ), 0)::float AS "costedAmount"
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         ${periodCondition}
@@ -234,6 +268,8 @@ export async function GET(req: Request) {
         docs: r.docs,
         amount: r.amount,
         returns: r.returns,
+        profit: r.profit,
+        costedAmount: r.costedAmount,
         sku: skuByRepId.get(r.salesRepId!) ?? 0,
       }))
       .sort((a, b) => b.amount - a.amount),

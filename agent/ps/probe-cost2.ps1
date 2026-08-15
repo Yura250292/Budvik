@@ -111,11 +111,18 @@ function Try-Query {
                 try {
                     $v = $sel.Get($i)
                     if ($null -eq $v) { $line += ("[{0}] NULL" -f $i); continue }
-                    # Reference values print as System.__ComObject -- ask 1C for
-                    # a human string instead, that is the whole point here.
+                    # Reference values print as System.__ComObject, which tells
+                    # us nothing -- the whole point of this probe is to read the
+                    # names. Three fallbacks, because 8.2 exposes the string
+                    # conversion inconsistently: the global String(), the
+                    # object's own Naimenovanie, then its Metadata name.
                     $s = $v.ToString()
                     if ($s -eq "System.__ComObject") {
-                        try { $s = $ib.String($v) } catch { $s = "<ref>" }
+                        $s = $null
+                        try { $s = $ib.String($v) } catch { }
+                        if (-not $s) { try { $s = $v.Naimenovanie } catch { } }
+                        if (-not $s) { try { $s = $v.Metadata().Name } catch { } }
+                        if (-not $s) { $s = "<ref>" }
                     }
                     $line += ("[{0}] {1}" -f $i, $s)
                 } catch { break }
@@ -138,17 +145,17 @@ Write-Host "=========================================================="
 Try-Query "1a. Period + Registrator + Nomenklatura (names, resolved to text)" @"
 $SELECT $FIRST 5 $Period, $Registrator, $Nomenklatura
 $FROM $REG.$PS
-"@ 3
+"@ -Cols 3
 
 Try-Query "1b. Kolichestvo + Stoimost by name" @"
 $SELECT $FIRST 5 $Kolichestvo, $Stoimost
 $FROM $REG.$PS
-"@ 2
+"@ -Cols 2
 
 Try-Query "1c. is there a Sklad dimension?" @"
 $SELECT $FIRST 3 $Sklad
 $FROM $REG.$PS
-"@ 1
+"@ -Cols 1
 
 Write-Host ""
 Write-Host "=========================================================="
@@ -157,11 +164,29 @@ Write-Host "=========================================================="
 Write-Host " If returns/write-offs are here too, the exchange must filter."
 Write-Host ""
 
-Try-Query "2a. distinct registrar types (via reference cast test)" @"
+Try-Query "2a. distinct registrars (Metadata().Name shows the document TYPE)" @"
 $SELECT $DIFFER $FIRST 20 $Registrator
 $FROM $REG.$PS
 $WHERE $Period >= &DateFrom
-"@ 1 20 @{ DateFrom = $since }
+"@ -Cols 1 -Rows 20 -Params @{ DateFrom = $since }
+
+# Direct count of how much of the register is realizations. If this equals the
+# total row count from 3a, the register holds sales only and the exchange needs
+# no document filter; if it is smaller, something else writes here too.
+Try-Query "2b. how many rows are realizations vs everything else" @"
+$SELECT
+    $COUNT(*)
+$FROM $REG.$PS $AS P
+$WHERE P.$Period >= &DateFrom
+    $AND P.$Registrator $REFOP $DOC.$Realizaciya
+"@ -Cols 1 -Params @{ DateFrom = $since }
+
+Try-Query "2c. total rows in the same window, for comparison with 2b" @"
+$SELECT
+    $COUNT(*)
+$FROM $REG.$PS $AS P
+$WHERE P.$Period >= &DateFrom
+"@ -Cols 1 -Params @{ DateFrom = $since }
 
 Write-Host ""
 Write-Host "=========================================================="
@@ -172,7 +197,7 @@ Try-Query "3a. min/max period + row count" @"
 $SELECT
     $MIN($Period), $MAX($Period), $COUNT(*)
 $FROM $REG.$PS
-"@ 3
+"@ -Cols 3
 
 Write-Host ""
 Write-Host "=========================================================="
@@ -197,7 +222,7 @@ $GROUPBY
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Nomer,
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Data,
     P.$Nomenklatura.$Naimenovanie
-"@ 5 10 @{ DateFrom = $since }
+"@ -Cols 5 -Rows 10 -Params @{ DateFrom = $since }
 
 Write-Host ""
 Write-Host "=========================================================="
@@ -225,7 +250,7 @@ $GROUPBY
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Data,
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Kontragent.$Naimenovanie,
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$SummaDok
-"@ 6 10 @{ DateFrom = $since }
+"@ -Cols 6 -Rows 10 -Params @{ DateFrom = $since }
 
 Write-Host ""
 Write-Host "=========================================================="

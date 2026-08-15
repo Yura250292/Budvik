@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useApi } from "@/components/ui/useApi";
-import type { CurrencyResponse } from "@/app/api/admin/tools/currency/route";
+import type { CurrencyResponse } from "@/lib/currency/rates";
 import { WidgetBody } from "./parts";
 
 const FLAG: Record<string, string> = { USD: "🇺🇸", EUR: "🇪🇺", PLN: "🇵🇱" };
@@ -11,11 +11,12 @@ const rate = (n: number | null, digits = 2) =>
   n == null ? "—" : n.toLocaleString("uk-UA", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 /**
- * Курси валют: офіційний НБУ, готівковий «Мінфіну» і внутрішній «Будвік».
+ * Курси валют: офіційний НБУ, готівковий (аукціон «Мінфіну» по Львову)
+ * і внутрішній «Будвік».
  *
  * Три колонки, бо це три різні числа для трьох різних задач: за курсом
  * НБУ рахують документи, за готівковим — реально міняють гроші, а
- * «Будвік» (продаж + 55 коп.) — курс, до якого надалі привʼяжуться ціни.
+ * «Будвік» (купівля + 50 коп.) — курс, до якого надалі привʼяжуться ціни.
  */
 export function CurrencyRates() {
   const { data, loading, error } = useApi<CurrencyResponse>("/api/admin/tools/currency");
@@ -27,7 +28,7 @@ export function CurrencyRates() {
     : null;
 
   // Підпис відповідає тому, звідки насправді прийшла готівка цього разу.
-  const cashSource = data?.sources.minfin ? "Мінфін" : "банки";
+  const cashSource = data?.sources.auction ? "аукціон Львів" : data?.sources.minfin ? "Мінфін" : "банки";
 
   return (
     <WidgetBody

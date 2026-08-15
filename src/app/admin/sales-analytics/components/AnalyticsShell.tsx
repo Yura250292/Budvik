@@ -28,11 +28,16 @@ import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
 import { PayrollTab } from "./PayrollTab";
 import { ShiftsTab } from "./ShiftsTab";
+import { PayersTab } from "./PayersTab";
+import { CohortsTab } from "./CohortsTab";
+import { BasketTab } from "./BasketTab";
+import { GeoTab } from "./GeoTab";
 
 const TABS = [
   { key: "summary", label: "Зведена" },
   { key: "overview", label: "Огляд" },
   { key: "reps", label: "Торгові" },
+  { key: "clients", label: "Клієнти" },
   { key: "kpi", label: "КПІ та мотивація" },
   { key: "logistics", label: "Логістика" },
 ] as const;
@@ -53,6 +58,15 @@ const SUBTABS = {
     { key: "list", label: "Показники" },
     { key: "benchmark", label: "Порівняння" },
     { key: "returns", label: "Повернення" },
+  ],
+  // Клієнтський блок: хто платить, хто приживається, що беруть разом і де
+  // ми сильні географічно. Усе це — про клієнта, а не про торгового, тому
+  // окремою вкладкою, а не підвкладкою «Торгових».
+  clients: [
+    { key: "payers", label: "Платники" },
+    { key: "cohorts", label: "Утримання" },
+    { key: "basket", label: "Кошик" },
+    { key: "geo", label: "Географія" },
   ],
   kpi: [
     { key: "plans", label: "Плани" },
@@ -94,8 +108,13 @@ const DRIVER_VIEW_MOVED: Record<string, string> = {
   "driver-settings": "settings",
 };
 
-/** Вкладки, доступні лише керівництву: там видно всю команду. */
-const MANAGER_ONLY: TabKey[] = ["kpi", "logistics"];
+/**
+ * Вкладки, доступні лише керівництву: там видно всю команду.
+ *
+ * «Клієнти» теж сюди: кредитні ліміти й відтік — рішення керівника по всій
+ * базі, і роути цих звітів торговому й так віддають 403.
+ */
+const MANAGER_ONLY: TabKey[] = ["clients", "kpi", "logistics"];
 
 /**
  * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
@@ -322,8 +341,12 @@ export function AnalyticsShell() {
 
         {/* Період не потрібен розділу КПІ — у планів свій вибір місяця, у схем
             мотивації дат немає. На «Маршрутах» він задає діапазон разових
-            призначень, які потрапляють на карту. */}
-        {tab !== "kpi" && (
+            призначень, які потрапляють на карту.
+
+            «Платники» і «Утримання» теж без нього: борг і стан клієнта — це
+            залишок «на зараз», а не потік за період. Показувати там вибір
+            періоду означало б обіцяти фільтр, який ні на що не впливає. */}
+        {tab !== "kpi" && !(tab === "clients" && (view === "payers" || view === "cohorts")) && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
@@ -337,6 +360,10 @@ export function AnalyticsShell() {
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
+        {tab === "clients" && view === "payers" && <PayersTab />}
+        {tab === "clients" && view === "cohorts" && <CohortsTab />}
+        {tab === "clients" && view === "basket" && <BasketTab period={period} />}
+        {tab === "clients" && view === "geo" && <GeoTab period={period} />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "kpi" && view === "payroll" && <PayrollTab />}

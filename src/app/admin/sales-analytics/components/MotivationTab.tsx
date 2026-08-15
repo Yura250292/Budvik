@@ -15,6 +15,7 @@ import {
 } from "@/lib/motivation/labels";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
 
 /**
  * Налаштування мотивації: з чого торговий заробляє.
@@ -76,6 +77,7 @@ const inputClass =
 
 export function MotivationTab() {
   const { data, loading, error, reload } = useApi<MotivationResponse>("/api/admin/motivation");
+  const repFilter = useRepFilter("kpi.motivation.hiddenReps");
 
   const [selected, setSelected] = useState<string | null>(null);
   const [rules, setRules] = useState<RuleForm[]>([]);
@@ -139,6 +141,7 @@ export function MotivationTab() {
   if (!data) return null;
 
   const brandName = (id: string) => data.brands.find((b) => b.id === id)?.name ?? "бренд";
+  const visibleReps = repFilter.apply(data.reps);
 
   return (
     <div className="space-y-4">
@@ -440,6 +443,13 @@ export function MotivationTab() {
           <CardHeader
             title="Призначення"
             hint="Історія зберігається: минулі місяці рахуються за схемою, яка діяла тоді."
+            action={
+              <RepFilter
+                reps={data.reps}
+                hiddenIds={repFilter.hiddenIds}
+                onChange={repFilter.setHidden}
+              />
+            }
           />
         </div>
 
@@ -454,7 +464,14 @@ export function MotivationTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-g100">
-              {data.reps.map((rep) => {
+              {visibleReps.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-xs text-g500">
+                    Усіх торгових приховано фільтром. Призначення схем не змінилися.
+                  </td>
+                </tr>
+              )}
+              {visibleReps.map((rep) => {
                 const draft = assignDraft[rep.id];
                 const schemeId = draft?.schemeId ?? rep.currentAssignment?.schemeId ?? "";
                 const validFrom = draft?.validFrom ?? new Date().toISOString().slice(0, 10);

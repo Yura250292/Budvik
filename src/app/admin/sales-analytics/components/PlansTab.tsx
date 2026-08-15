@@ -8,7 +8,9 @@ import { kyivToday } from "@/components/ui/PeriodPicker";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ColorDot } from "@/components/ui/Badge";
+import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
 import { CATEGORICAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
+import { attainmentPercent } from "@/lib/motivation/engine";
 
 /**
  * КПІ: місячні плани обороту, торговий × фірма (бренд).
@@ -49,6 +51,8 @@ export function PlansTab() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
+  const repFilter = useRepFilter("kpi.plans.hiddenReps");
+
   const plans = useApi<PlansResponse>(`/api/admin/sales-plans?month=${month}`);
   const attainment = useApi<AttainmentResponse>(`/api/admin/sales-plans/attainment?month=${month}`);
 
@@ -72,6 +76,22 @@ export function PlansTab() {
     }
     return map;
   }, [attainment.data]);
+
+  // Картки згори рахуються по видимих торгових. Інакше «План команди» лишався б
+  // загальним, а таблиця під ним — урізаною, і числа не сходились би.
+  const { hiddenIds } = repFilter;
+  const totals = useMemo(() => {
+    const rows = attainment.data?.rows;
+    if (!rows) return null;
+    let target = 0;
+    let actual = 0;
+    for (const r of rows) {
+      if (r.brandId !== null || hiddenIds.has(r.repId)) continue;
+      target += r.target;
+      actual += r.actual;
+    }
+    return { target, actual, attainment: attainmentPercent("REVENUE", actual, target) };
+  }, [attainment.data, hiddenIds]);
 
   async function save() {
     if (!plans.data) return;
@@ -106,10 +126,10 @@ export function PlansTab() {
   if (plans.loading && !plans.data) return <TableSkeleton rows={6} cols={5} />;
   if (!plans.data) return null;
 
-  const { reps, brands, canEdit } = plans.data;
-  const totals = attainment.data?.totals;
+  const { reps: allReps, brands, canEdit } = plans.data;
+  const reps = repFilter.apply(allReps);
 
-  if (reps.length === 0) {
+  if (allReps.length === 0) {
     return (
       <Card>
         <EmptyState title="Немає торгових" hint="Плани ставляться користувачам із роллю SALES." />
@@ -134,6 +154,11 @@ export function PlansTab() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          <RepFilter
+            reps={allReps}
+            hiddenIds={repFilter.hiddenIds}
+            onChange={repFilter.setHidden}
+          />
           {(["view", "edit"] as const).map((m) => {
             if (m === "edit" && !canEdit) return null;
             return (
@@ -208,6 +233,13 @@ export function PlansTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-g100">
+              {reps.length === 0 && (
+                <tr>
+                  <td colSpan={brands.length + 2} className="px-4 py-6 text-center text-xs text-g500">
+                    Усіх торгових приховано фільтром. Збережені плани не зникли — поверніть когось у список.
+                  </td>
+                </tr>
+              )}
               {reps.map((rep) => (
                 <tr key={rep.id} className="hover:bg-g50">
                   <td className="sticky left-0 z-10 bg-white px-4 py-2.5 font-medium text-bk">{rep.name}</td>

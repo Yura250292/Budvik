@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     userId = session.user.id;
   }
 
-  let body: { points?: RawPoint[] };
+  let body: { points?: RawPoint[]; phase?: string };
   try {
     body = await req.json();
   } catch {
@@ -94,6 +94,40 @@ export async function POST(req: NextRequest) {
     update: {},
     select: { id: true, distanceKm: true, pointsCount: true },
   });
+
+  /**
+   * До якої зміни належить пачка.
+   *
+   * Визначаємо на сервері, а не віримо пристрою: застосунок міг не
+   * знати, що зміну закрив адмін, і клеїв би точки до закритої.
+   * Пристрій лише каже, у якому режимі він їх зібрав.
+   *
+   * AFTER_SHIFT чіпляється до ОСТАННЬОЇ закритої зміни — так «чи не
+   * таксував після роботи» видно поруч із самою зміною, а не окремим
+   * безхазяйним треком.
+   */
+  const wantsAfterShift = String(body.phase ?? "").toUpperCase() === "AFTER_SHIFT";
+
+  const openShift = wantsAfterShift
+    ? null
+    : await prisma.shift.findFirst({
+        where: { userId, status: "OPEN" },
+        orderBy: { startedAt: "desc" },
+        select: { id: true },
+      });
+
+  const afterShift = wantsAfterShift
+    ? await prisma.shift.findFirst({
+        where: { userId, status: { in: ["CLOSED", "ABANDONED"] } },
+        orderBy: { startedAt: "desc" },
+        select: { id: true },
+      })
+    : null;
+
+  const shiftId = openShift?.id ?? afterShift?.id ?? null;
+  // Фаза лише там, де зміна відома: старий трек водіїв про зміни нічого
+  // не знає, і мітити його не можна.
+  const phase = shiftId ? (openShift ? "SHIFT" : "AFTER_SHIFT") : null;
 
   // Остання точка дня — точка відліку для metersFromPrev. Без неї кожна
   // пачка починалася б «з нуля» і пробіг занижувався на розрив між ними.
@@ -138,6 +172,8 @@ export async function POST(req: NextRequest) {
       data: prepared.points.map((p, i) => ({
         sessionId: sessionRow.id,
         userId,
+        shiftId,
+        phase,
         lat: p.lat,
         lng: p.lng,
         accuracyM: p.accuracyM,

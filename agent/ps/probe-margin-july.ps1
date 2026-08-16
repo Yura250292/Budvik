@@ -81,8 +81,23 @@ $Naimenovanie  = C 1053,1072,1080,1084,1077,1085,1086,1074,1072,1085,1080,1077
 $SummaDok      = C 1057,1091,1084,1084,1072,1044,1086,1082,1091,1084,1077,1085,1090,1072
 $Nomer         = C 1053,1086,1084,1077,1088
 
-$dFrom = [datetime]::ParseExact($From, "yyyy-MM-dd", $null)
-$dTo   = [datetime]::ParseExact($To,   "yyyy-MM-dd", $null)
+# Dates are built field by field, not parsed.
+#
+# ParseExact with $null culture falls back to the server's locale, which here
+# is Ukrainian and rejects "2026-07-01" outright ("String was not recognized
+# as a valid DateTime"). InvariantCulture would fix that, but building the
+# value from its parts cannot fail on locale at all -- and this probe must not
+# die before it reaches the register.
+function ParseDay([string] $s, [string] $label) {
+    $m = [regex]::Match(([string]$s).Trim(), '^(\d{4})-(\d{2})-(\d{2})$')
+    if (-not $m.Success) { throw ("{0}: expected yyyy-MM-dd, got '{1}'" -f $label, $s) }
+    return New-Object DateTime([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
+}
+
+$dFrom = ParseDay $From "From"
+$dTo   = ParseDay $To   "To"
+
+Write-Host ("window: {0:yyyy-MM-dd} .. {1:yyyy-MM-dd} (excl.)" -f $dFrom, $dTo)
 
 function Run {
     param([string] $Label, [string] $Text, [int] $Cols, [hashtable] $Params = @{}, [int] $Rows = 40)

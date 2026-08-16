@@ -98,6 +98,23 @@ function IsoDate($value) {
     try { return ([datetime]$value).ToString("yyyy-MM-ddTHH:mm:ssK") } catch { return $null }
 }
 
+<#
+  "yyyy-MM-dd" -> DateTime, built field by field rather than parsed.
+
+  [datetime]::ParseExact(..., $null) takes the CURRENT culture, and on this
+  Ukrainian-locale server it rejects "2026-07-01" outright with "String was
+  not recognized as a valid DateTime". Both callers below wrap the call in
+  try/catch and fall back to the normal window on failure -- so the backfill
+  would have quietly not happened, with only a log line to say so.
+
+  Constructing the value from its parts cannot fail on locale at all.
+#>
+function ParseDay([string] $s) {
+    $m = [regex]::Match(([string]$s).Trim(), '^(\d{4})-(\d{2})-(\d{2})$')
+    if (-not $m.Success) { throw ("expected yyyy-MM-dd, got '" + $s + "'") }
+    return New-Object DateTime([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
+}
+
 # Streams records as NDJSON: one JSON object per line. Keeps memory flat on
 # 20k+ row catalogs and lets the sender chunk without re-parsing everything.
 function NewWriter($path) {
@@ -839,7 +856,7 @@ try {
                 $bf = [string]$config.documents.realizationsFrom
             }
             try {
-                $realFrom = [datetime]::ParseExact($bf, "yyyy-MM-dd", $null)
+                $realFrom = ParseDay $bf
                 Log ("realizations: one-off backfill from {0}" -f $bf)
             } catch {
                 # A typo in the config must not cost us the whole document run:
@@ -1015,7 +1032,7 @@ try {
                 $bf = [string]$config.documents.returnsFrom
             }
             try {
-                $returnsFrom = [datetime]::ParseExact($bf, "yyyy-MM-dd", $null)
+                $returnsFrom = ParseDay $bf
                 Log ("returns: one-off backfill from {0}" -f $bf)
             } catch {
                 Log ("returns: bad returnsFrom '" + $bf + "', using normal window")

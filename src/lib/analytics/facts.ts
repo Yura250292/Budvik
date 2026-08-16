@@ -22,7 +22,17 @@ export type RepRevenue = {
   amount: number;
   docs: number;
   clients: number;
+  /**
+   * Вал: виручка мінус собівартість, лише по документах із відомою
+   * собівартістю. Джерело — РегистрНакопления.ПродажиСебестоимость з 1С.
+   */
   profit: number;
+  /**
+   * Виручка тих документів, що потрапили у `profit`. Знаменник для
+   * рентабельності: ділити вал на весь оборот не можна, бо частина
+   * документів собівартості не має і відсоток вийшов би заниженим.
+   */
+  costedAmount: number;
   /** Сума повернень за період, додатна — щоб показати її окремою колонкою. */
   returns: number;
 };
@@ -86,9 +96,26 @@ export async function revenueByRep(from: Date, to: Date, repId?: string | null):
       SUM(s."totalAmount")::float AS amount,
       COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
       COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients,
-      COALESCE(SUM(s."profitAmount"), 0)::float AS profit,
+      -- Вал: сума документа мінус собівартість його рядків.
+      --
+      -- Не SUM(s."profitAmount") і не сума позицій. profitAmount рахує
+      -- обмін, і він відстає, поки документ не перечитали. А сума позицій
+      -- ігнорує знижку — вона живе ТІЛЬКИ в шапці, і вал виходив завищений
+      -- на всю знижку (за липень 66 документів зі знижками 1,4-12%).
+      --
+      -- Лише документи, де собівартість відома хоч десь: без цієї умови
+      -- документ без неї віднімав би нуль і вся його виручка осідала б у
+      -- «валі». Через це costedAmount повертається поруч — знаменник для
+      -- чесного відсотка.
+      COALESCE(SUM(s."totalAmount" - c.cost) FILTER (WHERE c.cost IS NOT NULL), 0)::float AS profit,
+      COALESCE(SUM(s."totalAmount") FILTER (WHERE c.cost IS NOT NULL), 0)::float AS "costedAmount",
       COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns
     FROM "SalesDocument" s
+    LEFT JOIN LATERAL (
+      SELECT SUM(i."purchasePrice" * i.quantity) AS cost
+      FROM "SalesDocumentItem" i
+      WHERE i."salesDocumentId" = s.id AND i."purchasePrice" > 0
+    ) c ON TRUE
     WHERE ${SOURCE_FILTER}
       AND s."salesRepId" IS NOT NULL
       AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}

@@ -56,7 +56,12 @@ type PayrollResponse = {
     rentCoef: number | null;
     bonusPercent: number;
   }>;
-  suggested: { plan: Record<string, number>; fact: Record<string, number> };
+  suggested: {
+    plan: Record<string, number>;
+    fact: Record<string, number>;
+    /** Вал із 1С: сума в грн і частка обороту, для якої собівартість відома. */
+    gross?: Record<string, { uah: number; covered: number }>;
+  };
 };
 
 /** Поля рядка торгового, що вводяться руками. */
@@ -776,7 +781,31 @@ export function PayrollTab() {
                           </span>
                         )}
                       </td>
-                      <td className="border-l border-g100 px-2 py-2 align-top">{numInput("grossUah")}</td>
+                      <td className="border-l border-g100 px-2 py-2 align-top">
+                        {numInput("grossUah")}
+                        {/* Вал із 1С. Підставляється тільки в гривневе поле:
+                            собівартість регістр віддає в грн, розкласти її
+                            назад по валютах закупівлі неможливо. Частка
+                            покриття підписана — вал із половини документів і
+                            вал із усіх виглядають однаково, поки не сказати. */}
+                        {(() => {
+                          const g = data?.suggested.gross?.[rep.id];
+                          if (!g || g.uah <= 0) return null;
+                          const rounded = Math.round(g.uah * 100) / 100;
+                          if (parseNum(e.grossUah) === rounded) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setEntryField(rep.id, "grossUah", draft(rounded))}
+                              title={`Вал із 1С за собівартістю. Собівартість відома для ${Math.round(g.covered)}% обороту.`}
+                              className="mt-0.5 block w-full cursor-pointer truncate text-right text-[10px] leading-3 text-g400 transition-colors hover:text-bk"
+                            >
+                              1С: {money(rounded)}
+                              {g.covered < 95 && <span className="text-amber-600"> ({Math.round(g.covered)}%)</span>}
+                            </button>
+                          );
+                        })()}
+                      </td>
                       <td className="px-2 py-2 align-top">{numInput("grossUsd", "w-[84px]")}</td>
                       <td className="px-2 py-2 align-top">{numInput("grossEur", "w-[76px]")}</td>
                       <td className="px-2 py-2 align-top">{numInput("grossPln", "w-[76px]")}</td>

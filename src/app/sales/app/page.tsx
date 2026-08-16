@@ -1,6 +1,6 @@
 "use client";
 
-import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 
 /**
@@ -40,26 +40,117 @@ const STEPS = [
 
 export default function SalesAppPage() {
   const isApp = useIsNativeApp();
+  const update = useAppUpdate();
+
+  /*
+   * Кнопку завантаження ховаємо у двох випадках, і з різних причин.
+   *
+   * Версія найсвіжіша — качати нема чого. А якщо збірка застаріла, але
+   * не вміє оновлюватись сама (viaBridge = false), то в її WebView
+   * немає DownloadListener: кнопка мовчки нічого б не зробила, і людина
+   * вирішила б, що зламався застосунок. Там замість неї — інструкція
+   * вище.
+   */
+  const hideDownload = isApp && (!update.available || !update.viaBridge);
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
       <SalesHeader title="Застосунок" subtitle="Встановлення" backTo="/sales" />
 
       <div className="mx-auto px-4" style={{ maxWidth: "480px", paddingTop: "20px", paddingBottom: "40px" }}>
-        {isApp ? (
-          /* Усередині застосунку ця сторінка — глухий кут: він уже стоїть. */
-          <div
-            className="rounded-2xl bg-white p-5"
-            style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
-          >
-            <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-              Застосунок уже встановлено
-            </p>
-            <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "6px" }}>
-              Ви читаєте це всередині нього. Сторінка потрібна, коли треба
-              поставити застосунок на новий планшет.
-            </p>
-          </div>
+        {isApp && update.available && (
+          update.viaBridge ? (
+            /* Збірка вміє оновитись сама — кнопка нижче спрацює. */
+            <div
+              className="rounded-2xl p-4"
+              style={{ background: "#FFF9DB", border: "1px solid #FFE066", marginBottom: "16px" }}
+            >
+              <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>
+                Доступна нова версія
+              </p>
+              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px", lineHeight: 1.5 }}>
+                Завантажте файл нижче й відкрийте його — Android запитає
+                «Оновити?». Вхід і відкрита зміна збережуться.
+              </p>
+            </div>
+          ) : (
+            /*
+              Стара збірка: завантаження всередині неї не працює взагалі
+              (у WebView немає DownloadListener). Кнопку тут не малюємо —
+              вона мовчки нічого б не зробила, і людина вирішила б, що
+              зламався застосунок. Замість неї — що робити руками.
+            */
+            <div
+              className="rounded-2xl p-4"
+              style={{ background: "#FFF9DB", border: "1px solid #FFE066", marginBottom: "16px" }}
+            >
+              <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>
+                Доступна нова версія
+              </p>
+              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "8px", lineHeight: 1.6 }}>
+                Цю версію треба поставити один раз вручну — саме вона
+                навчає застосунок оновлюватися самостійно.
+              </p>
+              {/* Номери власними значками: маркери <ol> у вузькій
+                  плашці зрізаються, і кроки читаються як суцільний
+                  список без порядку. */}
+              <div style={{ marginTop: "12px" }}>
+                {[
+                  <>Відкрийте на планшеті браузер Chrome</>,
+                  <>
+                    Введіть <span style={{ fontWeight: 700 }}>budvik27.com/sales/app</span>
+                  </>,
+                  <>Увійдіть і натисніть «Завантажити APK»</>,
+                  <>Відкрийте файл і підтвердіть «Оновити»</>,
+                ].map((step, i) => (
+                  <div key={i} className="flex gap-2.5" style={{ marginBottom: "8px" }}>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        width: "20px",
+                        height: "20px",
+                        borderRadius: "9999px",
+                        background: "#FFD600",
+                        color: "#0A0A0A",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span style={{ fontSize: "13px", color: "#0A0A0A", lineHeight: 1.55 }}>
+                      {step}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", lineHeight: 1.5 }}>
+                Далі оновлення приходитимуть прямо сюди — без браузера.
+              </p>
+            </div>
+          )
+        )}
+
+        {hideDownload ? (
+          // Картку «вже встановлено» показуємо лише коли справді нема що
+          // оновлювати; при застарілій збірці все сказано в плашці вище.
+          !update.available && (
+            <div
+              className="rounded-2xl bg-white p-5"
+              style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
+            >
+              <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
+                Застосунок уже встановлено
+              </p>
+              <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "6px" }}>
+                Ви читаєте це всередині нього, і версія найсвіжіша. Сторінка
+                потрібна, коли треба поставити застосунок на новий планшет.
+              </p>
+            </div>
+          )
         ) : (
           <>
             <div

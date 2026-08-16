@@ -15,6 +15,34 @@ import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
  * до профілю й виходу треба було спершу повернутися на головну. Тепер вона
  * у самій шапці — тобто на всіх екранах секції.
  */
+/** Кругові стрілки — той самий знак оновлення, що й у системних меню. */
+function UpdateIcon() {
+  return (
+    <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+  );
+}
+
+/**
+ * Жовта крапка — той самий сигнал, що й на вкладці «Зміна». У меню
+ * профілю більше нічого не блимає, тож помітити легко.
+ */
+function UpdateDot() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: 9999,
+        background: "#FFD600",
+        marginLeft: "auto",
+      }}
+    />
+  );
+}
+
 export default function SalesProfileMenu() {
   const profile = useProfile();
   const pathname = usePathname();
@@ -112,30 +140,44 @@ export default function SalesProfileMenu() {
             у меню профілю нічого іншого не блимає, тож помітити легко.
           */}
           {isApp && update.available && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                update.start();
-              }}
-              className="flex min-h-11 w-full items-center gap-2.5 border-t border-g200 px-4 text-left text-[14px] font-semibold text-bk active:bg-g100"
-            >
-              <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Оновити застосунок
-              <span
-                aria-hidden
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 9999,
-                  background: "#FFD600",
-                  marginLeft: "auto",
+            update.viaBridge ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  update.start();
                 }}
-              />
-            </button>
+                className="flex min-h-11 w-full items-center gap-2.5 border-t border-g200 px-4 text-left text-[14px] font-semibold text-bk active:bg-g100"
+              >
+                <UpdateIcon />
+                Оновити застосунок
+                <UpdateDot />
+              </button>
+            ) : (
+              /*
+                Збірка старіша за появу оновлень через меню.
+
+                Ведемо на сторінку /sales/app, але вона в такому разі
+                показує інструкцію, а не кнопку: у цих збірках WebView не
+                має DownloadListener, тож клік по «Завантажити APK»
+                мовчки нічого не робить, і полагодити це з боку сайту
+                неможливо — вони вже встановлені на планшетах.
+
+                Разова незручність: нова збірка вміє і завантаження у
+                WebView, і оновлення прямо з меню.
+              */
+              <Link
+                href="/sales/app"
+                role="menuitem"
+                className="flex min-h-11 items-center gap-2.5 border-t border-g200 px-4 text-[14px] font-semibold text-bk active:bg-g100"
+                onClick={() => setOpen(false)}
+              >
+                <UpdateIcon />
+                Оновити застосунок
+                <UpdateDot />
+              </Link>
+            )
           )}
 
           {/* Усередині застосунку пункт зайвий — він уже встановлений. */}

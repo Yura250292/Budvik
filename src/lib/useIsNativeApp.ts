@@ -58,32 +58,98 @@ export function useIsNativeApp(): boolean {
 }
 
 /**
+ * Версія застосунку з User-Agent: «… BudvikApp/1.0».
+ *
+ * Потрібна для збірок, що вийшли до появи оновлень через меню: моста
+ * appVersionCode у них немає, а мітку в UA застосунок ставив завжди.
+ * Без цього запасного шляху перше оновлення довелося б ставити руками
+ * через браузер — тобто саме ті планшети, які найбільше його потребують,
+ * кнопки й не побачили б.
+ */
+function versionNameFromUserAgent(): string | null {
+  if (typeof navigator === "undefined") return null;
+  const m = navigator.userAgent.match(/BudvikApp\/([\d.]+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Порівнює версії виду «1.10» — почастинно, як числа.
+ *
+ * Рядкове порівняння тут бреше: «1.10» < «1.9» за алфавітом, хоча
+ * насправді новіше.
+ */
+function isNewer(server: string, installed: string): boolean {
+  const a = server.split(".").map(Number);
+  const b = installed.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+/**
  * Чи є на сервері свіжіша збірка застосунку.
  *
  * Питаємо лише всередині застосунку: у браузері оновлювати нічого, а
  * зайвий запит на кожне відкриття меню профілю нікому не потрібен.
  *
- * Мовчазний збій навмисний. Не змогли спитати сервер, старий міст без
- * appVersionCode, дивна відповідь — просто не показуємо пункт. Кнопка
- * «оновити», яка не працює, гірша за її відсутність: торговий тиснув би
- * її щоразу, коли щось іде не так, вважаючи це ліками.
+ * Два способи дізнатися свою версію. Основний — міст (versionCode,
+ * ціле число, за яким і Android вирішує, що новіше). Запасний — мітка
+ * в User-Agent, бо старі збірки моста не мають, а оновитися їм треба
+ * найбільше.
+ *
+ * `viaBridge` каже, чи вміє застосунок завантажити оновлення сам. Якщо
+ * ні — кнопка веде на сторінку /sales/app, звідки файл качається
+ * браузером: гірше, ніж один дотик, але незрівнянно краще, ніж
+ * пояснювати кожному торговому адресу сайту голосом.
+ *
+ * Мовчазний збій навмисний: не змогли спитати сервер або відповідь
+ * дивна — просто не показуємо пункт. Кнопка «оновити», яка не працює,
+ * гірша за її відсутність.
  */
-export function useAppUpdate(): { available: boolean; start: () => void } {
+export function useAppUpdate(): {
+  available: boolean;
+  viaBridge: boolean;
+  start: () => void;
+} {
   const [available, setAvailable] = useState(false);
+  const [viaBridge, setViaBridge] = useState(false);
 
   useEffect(() => {
-    const bridge = typeof window !== "undefined" ? window.BudvikApp : undefined;
-    if (!bridge?.appVersionCode || !bridge.downloadUpdate) return;
+    if (typeof window === "undefined") return;
+    const bridge = window.BudvikApp;
+    // Не застосунок — оновлювати нічого.
+    if (!bridge) return;
+
+    const canSelfUpdate = !!bridge.appVersionCode && !!bridge.downloadUpdate;
+    const installedCode = canSelfUpdate ? bridge.appVersionCode!() : null;
+    const installedName = versionNameFromUserAgent();
+
+    // Ні коду, ні мітки — порівнювати нема з чим.
+    if (installedCode === null && !installedName) return;
 
     let cancelled = false;
-    const installed = bridge.appVersionCode();
 
     fetch("/api/app/version", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
-        const server = Number(data.versionCode);
-        if (Number.isFinite(server) && server > installed) setAvailable(true);
+
+        const newer =
+          installedCode !== null
+            ? Number.isFinite(Number(data.versionCode)) &&
+              Number(data.versionCode) > installedCode
+            : typeof data.versionName === "string" &&
+              !!installedName &&
+              isNewer(data.versionName, installedName);
+
+        if (newer) {
+          setAvailable(true);
+          setViaBridge(canSelfUpdate);
+        }
       })
       .catch(() => {});
 
@@ -94,6 +160,7 @@ export function useAppUpdate(): { available: boolean; start: () => void } {
 
   return {
     available,
+    viaBridge,
     start: () => window.BudvikApp?.downloadUpdate?.(),
   };
 }

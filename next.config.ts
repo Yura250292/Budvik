@@ -15,6 +15,20 @@ const nextConfig: NextConfig = {
     minimumCacheTTL: 2678400,
   },
   compress: true,
+  /**
+   * APK застосунку доїжджає в серверну функцію.
+   *
+   * /api/app/download читає файл через readFile за складеним шляхом, а
+   * трасування залежностей бачить лише статичні import — без цього
+   * рядка файл не потрапив би у збірку і роут віддавав би 503 саме на
+   * проді, де це найважче помітити.
+   *
+   * У public/ покласти не можна: звідти Next віддає статику без будь-якої
+   * перевірки, а застосунок ходить у бойову базу.
+   */
+  outputFileTracingIncludes: {
+    "/api/app/download": ["./assets/app/**"],
+  },
 };
 
 export default nextConfig;

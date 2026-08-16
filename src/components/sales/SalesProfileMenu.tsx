@@ -101,6 +101,21 @@ export default function SalesProfileMenu() {
             Змінити пароль
           </Link>
 
+          {/* Усередині застосунку пункт зайвий — він уже встановлений. */}
+          {!isApp && (
+            <Link
+              href="/sales/app"
+              role="menuitem"
+              className="flex min-h-11 items-center gap-2.5 border-t border-g200 px-4 text-[14px] font-medium text-bk active:bg-g100"
+              onClick={() => setOpen(false)}
+            >
+              <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              Застосунок
+            </Link>
+          )}
+
           {/* У застосунку вітрини магазину немає — назад у кабінет з неї
               не було б чим повернутись. */}
           {!isApp && (

@@ -127,7 +127,10 @@ function Run {
             }
             $out += ,$vals
         }
-        return $out
+        Write-Host ("  rows: " + $out.Count)
+        # ,$out (not $out): PowerShell unrolls a single-element array into the
+        # element itself, and the caller's $r[0] would then index into a string.
+        return ,$out
     } catch {
         Write-Host ("  FAIL: " + $_.Exception.Message.Split("`n")[0])
         return $null
@@ -162,6 +165,9 @@ $FROM $DOC.$Realizaciya $AS R
 $WHERE R.$Data >= &D1 $AND R.$Data < &D2
 $GROUPBY R.$Menedzher.$Naimenovanie
 "@ -Cols 3 -Params @{ D1 = $dFrom; D2 = $dTo }
+
+if (-not $rows)    { Write-Host "`n  !! cost query returned nothing -- see FAIL above" }
+if (-not $revRows) { Write-Host "`n  !! revenue query returned nothing -- see FAIL above" }
 
 if ($rows -and $revRows) {
     $revBy = @{}

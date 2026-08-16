@@ -89,9 +89,24 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         </p>
       </div>
 
-      <div className="mb-4 sm:mb-6">
+      <div className="mb-3 sm:mb-4">
         <AiSmartSearch currentSearch={filters.search} />
       </div>
+
+      {/*
+        Вхід у зміст за розділами. Головний спосіб орієнтуватись, коли людина
+        не знає назви: 49 тис. позицій сіткою і фільтр за брендами не
+        відповідають на питання «а що у вас є з малярного».
+      */}
+      <Link
+        href="/catalog/zmist"
+        className="mb-4 flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-[#E0E0E0] bg-white px-4 text-sm font-bold text-[#0A0A0A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15 sm:mb-6"
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+        Каталог за розділами
+      </Link>
 
       <div className="mb-4">
         <div className="scrollbar-hide -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0">

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { skuSearchConditions } from "@/lib/catalog/sku-search";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -15,18 +16,38 @@ export async function GET(req: Request) {
     .split(/\s+/)
     .filter((w) => w.length > 1);
 
-  if (terms.length === 0) {
-    return NextResponse.json([]);
-  }
-
   const select = {
     name: true,
     slug: true,
+    sku: true,
     price: true,
     image: true,
     stock: true,
     category: { select: { name: true } },
   } as const;
+
+  /**
+   * Артикул — перший і головний кандидат: якщо людина набирає «GR-30030»,
+   * вона знає, що їй треба, і потрібен саме цей товар угорі списку.
+   * Перевіряємо сирий запит, бо нормалізація нижче з'їдає дефіси.
+   */
+  const bySku = skuSearchConditions(q);
+  const skuMatches = bySku
+    ? await prisma.product.findMany({
+        where: { isActive: true, OR: bySku },
+        select,
+        orderBy: [{ stock: "desc" }, { name: "asc" }],
+        take: 8,
+      })
+    : [];
+
+  if (skuMatches.length >= 8 || (skuMatches.length > 0 && terms.length === 0)) {
+    return NextResponse.json(skuMatches);
+  }
+
+  if (terms.length === 0) {
+    return NextResponse.json(skuMatches);
+  }
 
   // Name match condition: all terms in name
   const nameConditions = terms.map((term) => ({
@@ -41,21 +62,23 @@ export async function GET(req: Request) {
     ],
   }));
 
-  // First: products with search term in name (most relevant)
+  // Артикульні збіги вже зайняли місця вгорі — рештою добираємо по назві
+  const skuSlugs = skuMatches.map((p) => p.slug);
+
   const nameMatches = await prisma.product.findMany({
-    where: { isActive: true, AND: nameConditions },
+    where: { isActive: true, AND: nameConditions, slug: { notIn: skuSlugs } },
     select,
     orderBy: [{ stock: "desc" }, { name: "asc" }],
-    take: 8,
+    take: 8 - skuMatches.length,
   });
 
-  if (nameMatches.length >= 8) {
-    return NextResponse.json(nameMatches);
+  if (skuMatches.length + nameMatches.length >= 8) {
+    return NextResponse.json([...skuMatches, ...nameMatches]);
   }
 
   // Fill remaining with category-only matches
-  const nameIds = nameMatches.map((p) => p.slug);
-  const remaining = 8 - nameMatches.length;
+  const nameIds = [...skuSlugs, ...nameMatches.map((p) => p.slug)];
+  const remaining = 8 - skuMatches.length - nameMatches.length;
   const categoryMatches = await prisma.product.findMany({
     where: {
       isActive: true,
@@ -68,5 +91,5 @@ export async function GET(req: Request) {
     take: remaining,
   });
 
-  return NextResponse.json([...nameMatches, ...categoryMatches]);
+  return NextResponse.json([...skuMatches, ...nameMatches, ...categoryMatches]);
 }

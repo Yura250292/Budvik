@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 import { prisma } from "@/lib/prisma";
+import { skuSearchConditions } from "@/lib/catalog/sku-search";
 
 const PAGE_SIZE = 24;
 
@@ -17,7 +18,12 @@ export async function GET(req: Request) {
     // Support both slug and ID for category filtering
     where.category = category.length > 20 ? { id: category } : { slug: category };
   }
-  if (search) where.name = { contains: search, mode: "insensitive" };
+  if (search) {
+    // Артикул окремою гілкою: «GR-30030» має знаходити свій товар, а не все,
+    // де в назві трапилось «gr»
+    const bySku = skuSearchConditions(search) ?? [];
+    where.OR = [...bySku, { name: { contains: search, mode: "insensitive" } }];
+  }
 
   const [products, total, session] = await Promise.all([
     prisma.product.findMany({

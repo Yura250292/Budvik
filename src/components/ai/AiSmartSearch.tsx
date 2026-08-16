@@ -117,7 +117,7 @@ export default function AiSmartSearch({ currentSearch }: { currentSearch?: strin
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-            placeholder="Пошук: 'дриль для бетону', 'болгарка'..."
+            placeholder="Назва або артикул: 'дриль для бетону', 'GR-30030'..."
             className="w-full bg-white border border-[#E0E0E0] rounded-[10px] pl-10 pr-4 py-3 text-[#0A0A0A] placeholder-[#9E9E9E] transition duration-200"
             style={{ height: '48px' }}
             autoComplete="off"

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { semanticSearch } from "@/lib/ai/embeddings";
+import { skuSearchConditions } from "@/lib/catalog/sku-search";
 
 const STOP_WORDS = new Set([
   "для", "на", "по", "від", "до", "та", "і", "або", "з", "із", "що",
@@ -95,6 +96,18 @@ async function keywordSearch(query: string, limit = 16) {
   const keywords = extractKeywords(query);
   const userWantsTool = keywords.some((kw) => TOOL_KEYWORDS.has(kw));
   const expanded = expandWithSynonyms(keywords);
+
+  // Артикул — найточніший сигнал: якщо запит на нього схожий, віддаємо
+  // знайдене одразу, не розмиваючи синонімами
+  const bySku = skuSearchConditions(query);
+  if (bySku) {
+    const skuHits = await prisma.product.findMany({
+      where: { isActive: true, OR: bySku },
+      include: { category: true },
+      take: limit,
+    });
+    if (skuHits.length > 0) return skuHits;
+  }
 
   // First try exact phrase match in name, description, AND category name
   const exact = await prisma.product.findMany({

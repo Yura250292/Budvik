@@ -135,6 +135,12 @@ export interface TocSection {
   icon: string;
   lines: TocLine[];
   total: number;
+  /**
+   * Типи для посилання «весь розділ» (?type= через кому). Саме ті, що
+   * потрапили в рядки, а не всі оголошені: інакше сума в заголовку
+   * розійшлася б із тим, що каталог реально покаже.
+   */
+  types: string[];
 }
 
 /** Скільки товарів має мати тип, щоб потрапити в зміст окремим рядком. */
@@ -192,6 +198,7 @@ export const getCatalogToc = unstable_cache(
         icon: def.icon,
         lines,
         total: lines.reduce((s, l) => s + l.count, 0),
+        types: lines.map((l) => l.key),
       });
     }
 

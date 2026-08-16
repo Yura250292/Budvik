@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
+import { isRealSku } from "@/lib/catalog/sku-search";
 import AddToCartButton from "./AddToCartButton";
 import Link from "next/link";
 import Image from "next/image";
@@ -73,7 +74,15 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         {/* Right column — info */}
         <div>
           <span className="text-sm text-primary-dark font-medium">{product.category.name}</span>
-          <h1 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mt-1 mb-3 sm:mb-4 leading-snug">{product.name}</h1>
+          <h1 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mt-1 mb-2 leading-snug">{product.name}</h1>
+
+          {/* Артикул: за ним клієнт замовляє по телефону і шукає повторно.
+              Службові «1C-*» ховаємо — це наша заглушка, а не код товару. */}
+          {isRealSku(product.sku) && (
+            <p className="mb-3 text-sm text-g400 sm:mb-4">
+              Артикул: <span className="font-medium tabular-nums text-g600">{product.sku}</span>
+            </p>
+          )}
 
           {/* Price + availability + cart — right after title */}
           <div className="bg-g50 rounded-xl p-4 sm:p-5 mb-5 border border-g100">

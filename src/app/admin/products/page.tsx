@@ -195,7 +195,7 @@ export default function AdminProductsPage() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Пошук за назвою..."
+          placeholder="Пошук за назвою або артикулом..."
           className="flex-1 border border-g300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
         />
         <button type="submit" className="bg-bk text-white px-4 py-2 rounded-lg hover:bg-g600 transition">

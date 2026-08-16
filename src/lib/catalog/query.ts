@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { productType } from "@/lib/catalog/brand-tree";
+import { skuSearchConditions } from "@/lib/catalog/sku-search";
 
 /**
  * Фільтри каталогу в одному місці.
@@ -82,30 +83,40 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
   if (f.categorySlug) where.category = { slug: f.categorySlug };
 
   if (f.search) {
+    /**
+     * Артикул перевіряємо сирим рядком і окремою гілкою: нормалізація нижче
+     * розбила б «GR-30030» на «gr» + «30030», і замість одного потрібного
+     * товару людина отримала б усе, де трапилось «gr».
+     */
+    const skuMatch = skuSearchConditions(f.search);
+
     const terms = f.search
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
       .filter((w) => w.length > 1);
 
-    if (terms.length > 1) {
-      // Кілька слів — потрібні всі, інакше «ключ ріжковий» видає всі ключі.
-      and.push(
-        ...terms.map((t) => ({
-          OR: [
-            { name: { contains: t, mode: "insensitive" as const } },
-            { sku: { contains: t, mode: "insensitive" as const } },
-          ],
-        }))
-      );
-    } else {
-      and.push({
-        OR: [
-          { name: { contains: f.search, mode: "insensitive" as const } },
-          { sku: { contains: f.search, mode: "insensitive" as const } },
-        ],
-      });
-    }
+    const byText: Prisma.ProductWhereInput[] =
+      terms.length > 1
+        ? // Кілька слів — потрібні всі, інакше «ключ ріжковий» видає всі ключі.
+          terms.map((t) => ({
+            OR: [
+              { name: { contains: t, mode: "insensitive" as const } },
+              { sku: { contains: t, mode: "insensitive" as const } },
+            ],
+          }))
+        : [
+            {
+              OR: [
+                { name: { contains: f.search, mode: "insensitive" as const } },
+                { sku: { contains: f.search, mode: "insensitive" as const } },
+              ],
+            },
+          ];
+
+    // Артикул АБО текстовий пошук: збіг по артикулу не має відсікатись тим,
+    // що ті самі символи не знайшлися в назві
+    and.push(skuMatch ? { OR: [...skuMatch, { AND: byText }] } : { AND: byText });
   }
 
   if (f.priceMin !== undefined || f.priceMax !== undefined) {

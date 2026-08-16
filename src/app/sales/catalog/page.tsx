@@ -63,13 +63,19 @@ export default async function SalesCatalogPage() {
         <div className="gap-x-8 md:columns-2 lg:columns-3">
           {toc.sections.map((section) => (
             <section key={section.id} id={section.id} className="mb-6 break-inside-avoid scroll-mt-4">
-              <h2 className="mb-2 flex items-baseline gap-2 border-b border-g100 pb-1.5">
+              {/* Заголовок веде у весь розділ: клієнт частіше питає «що є з
+                  малярного», ніж конкретно про валики. Числа тут немає —
+                  фільтр шукає підрядок і дає більше, ніж сума рядків */}
+              <Link
+                href={`/sales/catalog/list?type=${encodeURIComponent(section.types.join(","))}`}
+                className="mb-2 flex min-h-11 items-center gap-2 border-b border-g100 pb-1.5 active:bg-[#FFD600]/10"
+              >
                 <span className="text-base">{section.icon}</span>
                 <span className="flex-1 text-base font-bold leading-tight text-[#0A0A0A]">
                   {section.title}
                 </span>
-                <span className="text-xs font-medium text-g400">{section.total}</span>
-              </h2>
+                <span className="text-xs font-medium text-g400">усі →</span>
+              </Link>
 
               <ul>
                 {section.lines.map((line) => (

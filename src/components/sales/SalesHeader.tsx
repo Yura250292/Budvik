@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import SalesProfileMenu from "./SalesProfileMenu";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
  * Спільна шапка кабінету торгового.
@@ -46,6 +47,8 @@ export function SalesHeader({
   /** Сама сторінка профілю аватарку в шапці не дублює. */
   showProfile?: boolean;
 }) {
+  const isApp = useIsNativeApp();
+
   return (
     <header
       className={sticky ? "sticky top-0 z-40" : "relative"}
@@ -81,9 +84,18 @@ export function SalesHeader({
             </svg>
           </Link>
         ) : (
-          <Link href="/" aria-label="Перейти на сайт Budvik" className="shrink-0">
-            <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
-          </Link>
+          // У застосунку логотип — просто знак, а не двері у вітрину
+          // магазину: звідти назад у кабінет нема чим повернутись, бо
+          // браузерної адресної стрічки в WebView немає.
+          isApp ? (
+            <span className="shrink-0">
+              <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
+            </span>
+          ) : (
+            <Link href="/" aria-label="Перейти на сайт Budvik" className="shrink-0">
+              <Image src="/logo-gold.png" alt="Budvik" width={36} height={36} className="h-9 w-auto" />
+            </Link>
+          )
         )}
 
         <div className="min-w-0 flex-1">

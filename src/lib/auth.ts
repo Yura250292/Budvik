@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
+import { findSalesRepByRefCode, REF_COOKIE } from "./ref-code";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -45,12 +46,28 @@ export const authOptions: NextAuthOptions = {
         let dbUser = await prisma.user.findUnique({ where: { email } });
 
         if (!dbUser) {
+          /**
+           * Клієнт міг прийти за QR торгового і зареєструватись через Google.
+           * cookies() тут доступний, бо signIn викликається з route handler;
+           * try/catch — страховка на випадок виклику поза request scope,
+           * щоб збій куки ніколи не ламав сам вхід.
+           */
+          let referredBySalesRepId: string | null = null;
+          try {
+            const { cookies } = await import("next/headers");
+            const refCode = (await cookies()).get(REF_COOKIE)?.value;
+            referredBySalesRepId = (await findSalesRepByRefCode(refCode))?.id ?? null;
+          } catch {
+            referredBySalesRepId = null;
+          }
+
           dbUser = await prisma.user.create({
             data: {
               email,
               name: user.name || email.split("@")[0],
               role: "CLIENT",
               boltsBalance: 50,
+              referredBySalesRepId,
             },
           });
           await prisma.boltsTransaction.create({

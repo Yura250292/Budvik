@@ -1,9 +1,10 @@
 "use client";
 
 import { signIn, useSession, getSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { safeRelativePath } from "@/lib/utils";
 
 /** Куди веде роль після входу. Порожня роль — звичайний покупець. */
 function homeForRole(role: unknown): string {
@@ -15,17 +16,20 @@ function homeForRole(role: unknown): string {
   return "/dashboard";
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const { data: session } = useSession();
+  // Куди повертатись після входу: кошик надсилає сюди ?callbackUrl=/cart,
+  // щоб покупець не шукав свій кошик знову після реєстрації
+  const callbackUrl = safeRelativePath(useSearchParams().get("callbackUrl"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const goHome = useCallback(
-    (role: unknown) => router.replace(homeForRole(role)),
-    [router],
+    (role: unknown) => router.replace(callbackUrl ?? homeForRole(role)),
+    [router, callbackUrl],
   );
 
   // Уже залогінений (зайшов на /login з живою кукою) — не тримаємо на формі.
@@ -38,7 +42,10 @@ export default function LoginPage() {
   // торговий (як і склад, водій, менеджер) після Google-входу опинявся в
   // кабінеті покупця.
   const handleGoogle = () => {
-    signIn("google", { callbackUrl: "/login" });
+    // callbackUrl проносимо крізь Google у query, а не як ціль редіректу:
+    // повернення саме на /login лишає розбір ролей на місці
+    const back = callbackUrl ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/login";
+    signIn("google", { callbackUrl: back });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -141,11 +148,23 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-g500 mt-4">
           Немає акаунту?{" "}
-          <Link href="/register" className="text-primary-dark hover:underline font-medium">
+          <Link
+            href={callbackUrl ? `/register?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/register"}
+            className="text-primary-dark hover:underline font-medium"
+          >
             Зареєструватися
           </Link>
         </p>
       </div>
     </div>
+  );
+}
+
+// useSearchParams вимагає Suspense — без нього збірка Next падає
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

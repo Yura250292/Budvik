@@ -2,6 +2,7 @@ export const revalidate = 3600;
 
 import Link from "next/link";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { SalesQrShare } from "@/components/sales/SalesQrShare";
 import { getCatalogToc } from "@/lib/catalog/sections";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 
@@ -38,6 +39,8 @@ export default async function SalesCatalogPage() {
           </svg>
           Пошук і фільтри по всьому каталогу
         </Link>
+
+        <SalesQrShare />
 
         {/* Закладки розділів */}
         <div className="mb-4 flex flex-wrap gap-1.5">

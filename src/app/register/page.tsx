@@ -1,24 +1,29 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
+import { safeRelativePath } from "@/lib/utils";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
   const { data: session } = useSession();
+  // Прийшов з кошика — туди й повертаємо: товари лежать у localStorage
+  // і чекають, лишалось тільки довести людину назад
+  const callbackUrl = safeRelativePath(useSearchParams().get("callbackUrl"));
+  const target = callbackUrl ?? "/dashboard";
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirmPassword: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   // Redirect logged-in users to dashboard
   useEffect(() => {
-    if (session) router.replace("/dashboard");
-  }, [session, router]);
+    if (session) router.replace(target);
+  }, [session, router, target]);
 
   const handleGoogle = () => {
-    signIn("google", { callbackUrl: "/dashboard" });
+    signIn("google", { callbackUrl: target });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -57,7 +62,7 @@ export default function RegisterPage() {
       redirect: false,
     });
 
-    router.push("/dashboard");
+    router.push(target);
     router.refresh();
   };
 
@@ -156,11 +161,23 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-g500 mt-4">
           Вже є акаунт?{" "}
-          <Link href="/login" className="text-primary-dark hover:underline font-medium">
+          <Link
+            href={callbackUrl ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/login"}
+            className="text-primary-dark hover:underline font-medium"
+          >
             Увійти
           </Link>
         </p>
       </div>
     </div>
+  );
+}
+
+// useSearchParams вимагає Suspense — без нього збірка Next падає
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }

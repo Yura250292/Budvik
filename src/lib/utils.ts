@@ -42,3 +42,14 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
 
 export const BOLTS_CASHBACK_RATE = 0.05; // 5%
 export const BOLTS_MAX_USAGE_RATE = 0.3; // 30% of order total
+
+/**
+ * Шлях для повернення після входу — тільки всередині сайту.
+ *
+ * Перевірка на «/» без другого «/» відсікає `//evil.com`: браузер читає
+ * такий шлях як протокол-відносний URL і повів би людину на чужий домен.
+ */
+export function safeRelativePath(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return /^\/(?!\/)/.test(raw) ? raw : null;
+}

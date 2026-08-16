@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BOLTS_CASHBACK_RATE, BOLTS_MAX_USAGE_RATE } from "@/lib/utils";
 import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
+import { findSalesRepByRefCode, REF_COOKIE } from "@/lib/ref-code";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,7 @@ export async function GET() {
   return NextResponse.json(orders);
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -81,6 +82,24 @@ export async function POST(req: Request) {
   const finalAmount = totalAmount - boltsUsed;
   const boltsEarned = isWholesale ? 0 : Math.floor(finalAmount * BOLTS_CASHBACK_RATE);
 
+  /**
+   * Торговий, у чий оборот піде замовлення. Якщо клієнт ще нічий, але має
+   * куку з QR — доганяємо прив'язку тут: типовий шлях «відсканував QR
+   * розлогіненим, потім увійшов давнім акаунтом» інакше лишив би торгового
+   * без його ж клієнта.
+   */
+  let salesRepId = user?.referredBySalesRepId ?? null;
+  if (!salesRepId && !isWholesale) {
+    const rep = await findSalesRepByRefCode(req.cookies.get(REF_COOKIE)?.value);
+    if (rep && rep.id !== session.user.id) {
+      const claimed = await prisma.user.updateMany({
+        where: { id: session.user.id, referredBySalesRepId: null },
+        data: { referredBySalesRepId: rep.id },
+      });
+      if (claimed.count > 0) salesRepId = rep.id;
+    }
+  }
+
   const order = await prisma.order.create({
     data: {
       userId: session.user.id,
@@ -88,6 +107,7 @@ export async function POST(req: Request) {
       boltsUsed,
       boltsEarned,
       status: "PENDING",
+      salesRepId,
       items: { create: orderItems },
     },
     include: { items: { include: { product: true } } },

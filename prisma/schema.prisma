@@ -205,6 +205,19 @@ model User {
   telegramId       String? @unique // Telegram user id як рядок — ID перевищують 2^31
   telegramUsername String? // @username на момент прив'язки, довідково
 
+  /// Код у QR-лінку торгового (/r/[code]). Лише для role=SALES, генерується
+  /// при першому відкритті QR — щоб не роздавати коди тим, хто ними не користується.
+  refCode String? @unique
+
+  /// Торговий, чий QR привів цього клієнта. Ставиться один раз (перший виграє)
+  /// і далі не перезаписується — інакше чужий QR «перехоплював» би клієнта.
+  /// Окреме поле, а не SalesRepClient: та таблиця про контрагентів 1С,
+  /// роздрібний покупець сайту в ній не існує.
+  referredBySalesRepId String?
+  referredBySalesRep   User?   @relation("referredClients", fields: [referredBySalesRepId], references: [id], onDelete: SetNull)
+  referredClients      User[]  @relation("referredClients")
+  attributedOrders     Order[] @relation("orderSalesRep")
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -289,6 +302,8 @@ model User {
   deviceTokens  DeviceToken[]  @relation("deviceTokenUser")
   shifts        Shift[]        @relation("shiftUser")
   visits        Visit[]        @relation("visitUser")
+
+  @@index([referredBySalesRepId])
 }
 
 /// Розкладка віджетів дашборду адмінки. Окрема модель, а не поле в User:
@@ -454,8 +469,16 @@ model Order {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  /// Знімок торгового на момент замовлення (з User.referredBySalesRepId).
+  /// Саме знімок, а не join при читанні: якщо клієнта колись перепривʼяжуть,
+  /// минулий оборот має лишитись за тим, хто його зробив.
+  salesRepId String?
+  salesRep   User?   @relation("orderSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
+
   user  User        @relation(fields: [userId], references: [id])
   items OrderItem[]
+
+  @@index([salesRepId])
 }
 
 model OrderItem {

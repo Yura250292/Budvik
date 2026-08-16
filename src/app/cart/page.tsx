@@ -34,7 +34,9 @@ export default function CartPage() {
 
   const handleCheckout = async () => {
     if (!session) {
-      router.push("/login");
+      // З callbackUrl, інакше після входу людину відносило в кабінет —
+      // із зібраним кошиком, але без жодної підказки, що робити далі
+      router.push(`/login?callbackUrl=${encodeURIComponent("/cart")}`);
       return;
     }
 

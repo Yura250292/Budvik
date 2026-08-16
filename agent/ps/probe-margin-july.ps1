@@ -103,6 +103,15 @@ Write-Host ("window: {0:yyyy-MM-dd} .. {1:yyyy-MM-dd} (excl.)" -f $dFrom, $dTo)
 function Run {
     param([string] $Label, [string] $Text, [int] $Cols, [hashtable] $Params = @{}, [int] $Rows = 40)
 
+    # Result goes into a script-scope variable instead of down the pipeline.
+    #
+    # A PowerShell function returns EVERYTHING that was not consumed, so any
+    # stray value inside the loop joins the return set and the caller receives
+    # a jumble it cannot index. Write-Host is safe (it bypasses the pipeline),
+    # but one accidental bare expression is enough to corrupt the shape --
+    # which is exactly what "Cannot index into a null array" was.
+    $script:Result = New-Object Collections.ArrayList
+
     Write-Host ("-" * 78)
     Write-Host $Label
     try {
@@ -110,30 +119,27 @@ function Run {
         $q.Text = $Text
         foreach ($k in $Params.Keys) { $q.SetParameter($k, $Params[$k]) }
         $sel = $q.Execute().Choose()
-        $out = @()
-        while ($sel.Next() -and $out.Count -lt $Rows) {
-            $vals = @()
+        while ($sel.Next() -and $script:Result.Count -lt $Rows) {
+            $vals = New-Object Collections.ArrayList
             for ($i = 0; $i -lt $Cols; $i++) {
                 $v = $sel.Get($i)
-                if ($null -eq $v) { $vals += "NULL"; continue }
-                $s = $v.ToString()
-                if ($s -eq "System.__ComObject") {
-                    $s = $null
-                    try { $s = $ib.String($v) } catch { }
-                    if (-not $s) { try { $s = $v.Naimenovanie } catch { } }
-                    if (-not $s) { $s = "<ref>" }
+                if ($null -eq $v) { [void]$vals.Add(""); continue }
+                $str = "$v"
+                if ($str -eq "System.__ComObject") {
+                    $str = $null
+                    try { $str = $ib.String($v) } catch { }
+                    if (-not $str) { try { $str = $v.Naimenovanie } catch { } }
+                    if (-not $str) { $str = "<ref>" }
                 }
-                $vals += $s
+                [void]$vals.Add($str)
             }
-            $out += ,$vals
+            [void]$script:Result.Add($vals)
         }
-        Write-Host ("  rows: " + $out.Count)
-        # ,$out (not $out): PowerShell unrolls a single-element array into the
-        # element itself, and the caller's $r[0] would then index into a string.
-        return ,$out
+        Write-Host ("  rows: " + $script:Result.Count)
+        $script:Ok = $true
     } catch {
         Write-Host ("  FAIL: " + $_.Exception.Message.Split("`n")[0])
-        return $null
+        $script:Ok = $false
     }
 }
 
@@ -142,7 +148,7 @@ Write-Host (" MARGIN CHECK {0} .. {1} (excl. {1})" -f $DayFrom, $DayTo)
 Write-Host "=============================================================================="
 
 # --- 1. per manager, realizations only (what the site currently computes) ---
-$rows = Run "1. Gross margin per manager -- REALIZATIONS only" @"
+Run "1. Gross margin per manager -- REALIZATIONS only" @"
 $SELECT
     $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Menedzher.$Naimenovanie $AS Mgr,
     $SUM(P.$Stoimost) $AS Cost,
@@ -153,10 +159,11 @@ $WHERE P.$Period >= &D1 $AND P.$Period < &D2
 $GROUPBY $EXPRESS(P.$Registrator $AS $DOC.$Realizaciya).$Menedzher.$Naimenovanie
 $ORDERBY $SUM(P.$Stoimost) $DESC
 "@ -Cols 3 -Params @{ D1 = $dFrom; D2 = $dTo }
+$rows = $script:Result
 
 # Revenue lives on the document, not in the register, so it is summed
 # separately over the same window and matched by manager name.
-$revRows = Run "   (revenue per manager, from the documents themselves)" @"
+Run "   (revenue per manager, from the documents themselves)" @"
 $SELECT
     R.$Menedzher.$Naimenovanie $AS Mgr,
     $SUM(R.$SummaDok) $AS Revenue,
@@ -165,6 +172,7 @@ $FROM $DOC.$Realizaciya $AS R
 $WHERE R.$Data >= &D1 $AND R.$Data < &D2
 $GROUPBY R.$Menedzher.$Naimenovanie
 "@ -Cols 3 -Params @{ D1 = $dFrom; D2 = $dTo }
+$revRows = $script:Result
 
 if (-not $rows)    { Write-Host "`n  !! cost query returned nothing -- see FAIL above" }
 if (-not $revRows) { Write-Host "`n  !! revenue query returned nothing -- see FAIL above" }
@@ -207,7 +215,7 @@ Write-Host " back here, the exchange needs a second query and the margin above i
 Write-Host " overstated by roughly this much."
 Write-Host ""
 
-$retRows = Run "2a. cost of returns in the same window" @"
+Run "2a. cost of returns in the same window" @"
 $SELECT
     $SUM(P.$Stoimost) $AS Cost,
     $COUNT($DIFFER P.$Registrator) $AS Docs
@@ -215,6 +223,7 @@ $FROM $REG.$PS $AS P
 $WHERE P.$Period >= &D1 $AND P.$Period < &D2
     $AND P.$Registrator $REFOP $DOC.$Vozvrat
 "@ -Cols 2 -Params @{ D1 = $dFrom; D2 = $dTo }
+$retRows = $script:Result
 
 if ($retRows -and $retRows.Count -gt 0) {
     $rc = $retRows[0][0]
@@ -229,13 +238,14 @@ if ($retRows -and $retRows.Count -gt 0) {
 }
 
 # Return revenue, for scale.
-$retRev = Run "2b. return revenue in the same window (for scale)" @"
+Run "2b. return revenue in the same window (for scale)" @"
 $SELECT
     $SUM(V.$SummaDok) $AS Revenue,
     $COUNT(*) $AS Docs
 $FROM $DOC.$Vozvrat $AS V
 $WHERE V.$Data >= &D1 $AND V.$Data < &D2
 "@ -Cols 2 -Params @{ D1 = $dFrom; D2 = $dTo }
+$retRev = $script:Result
 
 if ($retRev -and $retRev.Count -gt 0) {
     Write-Host ("  Return revenue: {0} over {1} document(s). Site counted 58 238 over 66." -f $retRev[0][0], $retRev[0][1])
@@ -247,7 +257,7 @@ Write-Host "====================================================================
 Write-Host " 3. Grand total (sanity check against section 1)"
 Write-Host "=============================================================================="
 
-$tot = Run "3a. all realization cost in the window" @"
+Run "3a. all realization cost in the window" @"
 $SELECT
     $SUM(P.$Stoimost) $AS Cost,
     $COUNT($DIFFER P.$Registrator) $AS Docs,
@@ -256,6 +266,7 @@ $FROM $REG.$PS $AS P
 $WHERE P.$Period >= &D1 $AND P.$Period < &D2
     $AND P.$Registrator $REFOP $DOC.$Realizaciya
 "@ -Cols 3 -Params @{ D1 = $dFrom; D2 = $dTo }
+$tot = $script:Result
 
 if ($tot -and $tot.Count -gt 0) {
     Write-Host ("  cost {0} | documents {1} | register rows {2}" -f $tot[0][0], $tot[0][1], $tot[0][2])

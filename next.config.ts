@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/api/app/download": ["./assets/app/**"],
+    // /api/app/version теж торкається файлу — читає його розмір, щоб
+    // сказати застосунку, скільки важить оновлення.
+    "/api/app/version": ["./assets/app/**"],
   },
 };
 

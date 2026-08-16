@@ -30,6 +30,15 @@ export type BudvikAppBridge = {
   shiftStateJson(): string;
   /** versionName застосунку — для діагностики. */
   appVersion(): string;
+  /**
+   * Номер збірки. Порівнюється з /api/app/version.
+   *
+   * Може бути відсутнім: у застосунках, встановлених до появи
+   * оновлення через меню, моста цього методу ще немає.
+   */
+  appVersionCode?(): number;
+  /** Завантажити нову збірку і відкрити встановлювач. */
+  downloadUpdate?(): void;
 };
 
 declare global {
@@ -46,6 +55,47 @@ export function useIsNativeApp(): boolean {
   }, []);
 
   return isApp;
+}
+
+/**
+ * Чи є на сервері свіжіша збірка застосунку.
+ *
+ * Питаємо лише всередині застосунку: у браузері оновлювати нічого, а
+ * зайвий запит на кожне відкриття меню профілю нікому не потрібен.
+ *
+ * Мовчазний збій навмисний. Не змогли спитати сервер, старий міст без
+ * appVersionCode, дивна відповідь — просто не показуємо пункт. Кнопка
+ * «оновити», яка не працює, гірша за її відсутність: торговий тиснув би
+ * її щоразу, коли щось іде не так, вважаючи це ліками.
+ */
+export function useAppUpdate(): { available: boolean; start: () => void } {
+  const [available, setAvailable] = useState(false);
+
+  useEffect(() => {
+    const bridge = typeof window !== "undefined" ? window.BudvikApp : undefined;
+    if (!bridge?.appVersionCode || !bridge.downloadUpdate) return;
+
+    let cancelled = false;
+    const installed = bridge.appVersionCode();
+
+    fetch("/api/app/version", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const server = Number(data.versionCode);
+        if (Number.isFinite(server) && server > installed) setAvailable(true);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return {
+    available,
+    start: () => window.BudvikApp?.downloadUpdate?.(),
+  };
 }
 
 /**

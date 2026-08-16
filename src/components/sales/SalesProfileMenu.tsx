@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/lib/useProfile";
-import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
  * Аватарка з меню у шапці торгового.
@@ -19,6 +19,7 @@ export default function SalesProfileMenu() {
   const profile = useProfile();
   const pathname = usePathname();
   const isApp = useIsNativeApp();
+  const update = useAppUpdate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -100,6 +101,42 @@ export default function SalesProfileMenu() {
             </svg>
             Змінити пароль
           </Link>
+
+          {/*
+            Оновлення показуємо, лише коли воно справді є: у застосунку
+            і коли сервер каже, що там свіжіша збірка. Постійно видимий
+            пункт «оновити» означав би, що торговий тисне його навмання
+            і щоразу качає 8 МБ дарма.
+
+            Жовта крапка — той самий сигнал, що й на вкладці «Зміна»:
+            у меню профілю нічого іншого не блимає, тож помітити легко.
+          */}
+          {isApp && update.available && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                update.start();
+              }}
+              className="flex min-h-11 w-full items-center gap-2.5 border-t border-g200 px-4 text-left text-[14px] font-semibold text-bk active:bg-g100"
+            >
+              <svg className="h-4.5 w-4.5 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Оновити застосунок
+              <span
+                aria-hidden
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 9999,
+                  background: "#FFD600",
+                  marginLeft: "auto",
+                }}
+              />
+            </button>
+          )}
 
           {/* Усередині застосунку пункт зайвий — він уже встановлений. */}
           {!isApp && (

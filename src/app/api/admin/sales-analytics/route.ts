@@ -75,29 +75,42 @@ export async function GET(req: Request) {
         COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         COALESCE(SUM(s."totalAmount"), 0)::float AS amount,
         COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns,
-        -- Вал рахується з ПОЗИЦІЙ, а не з SalesDocument.profitAmount: там
-        -- підсумок по документу, а нам потрібна ще й база, від якої він
-        -- рахувався. Без неї «вал 15%» неможливо відрізнити від «вал 15%,
-        -- але собівартість відома лише для третини рядків».
+        -- Вал = виручка ДОКУМЕНТА мінус собівартість його рядків.
+        --
+        -- Виручка береться з шапки (totalAmount), а НЕ як сума позицій:
+        -- знижка живе тільки в шапці. За липень 66 документів мали суму
+        -- рядків більшу за суму документа на 1,4–12% (у середньому 7,6%),
+        -- і вал, порахований з позицій, був завищений на всю знижку —
+        -- у Валентина це дало 303 тис. замість 129 тис.
+        --
+        -- Рахуємо лише по документах, де собівартість відома ХОЧ ДЕСЬ
+        -- (hasCost), інакше документ без неї віднімав би нуль і його
+        -- виручка цілком осідала б у «валі».
         COALESCE((
-          SELECT SUM((i."sellingPrice" - i."purchasePrice") * i.quantity)
-          FROM "SalesDocumentItem" i
-          JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
+          SELECT SUM(d."totalAmount" - COALESCE(c.cost, 0))
+          FROM "SalesDocument" d
+          JOIN LATERAL (
+            SELECT SUM(i."purchasePrice" * i.quantity) AS cost
+            FROM "SalesDocumentItem" i
+            WHERE i."salesDocumentId" = d.id AND i."purchasePrice" > 0
+          ) c ON c.cost IS NOT NULL
           WHERE d."salesRepId" = s."salesRepId"
             AND d."externalId" IS NOT NULL AND d.status = 'CONFIRMED'
             AND d."docType" IN ('REALIZATION', 'RETURN')
-            AND i."purchasePrice" > 0
             AND d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
         ), 0)::float AS profit,
-        -- Виручка тих самих рядків: знаменник для чесного відсотка.
+        -- Виручка тих самих документів: знаменник для чесного відсотка.
         COALESCE((
-          SELECT SUM(i."sellingPrice" * i.quantity)
-          FROM "SalesDocumentItem" i
-          JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
+          SELECT SUM(d."totalAmount")
+          FROM "SalesDocument" d
+          JOIN LATERAL (
+            SELECT SUM(i."purchasePrice" * i.quantity) AS cost
+            FROM "SalesDocumentItem" i
+            WHERE i."salesDocumentId" = d.id AND i."purchasePrice" > 0
+          ) c ON c.cost IS NOT NULL
           WHERE d."salesRepId" = s."salesRepId"
             AND d."externalId" IS NOT NULL AND d.status = 'CONFIRMED'
             AND d."docType" IN ('REALIZATION', 'RETURN')
-            AND i."purchasePrice" > 0
             AND d."createdAt" >= ${period.from} AND d."createdAt" <= ${period.to}
         ), 0)::float AS "costedAmount"
       FROM "SalesDocument" s

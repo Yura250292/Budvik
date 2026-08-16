@@ -27,8 +27,8 @@
 [CmdletBinding()]
 param(
     [string] $ConfigPath,
-    [string] $From = "2026-07-01",
-    [string] $To   = "2026-08-01"
+    [string] $DayFrom = "2026-07-01",
+    [string] $DayTo   = "2026-08-01"
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,6 +80,7 @@ $Menedzher     = C 1052,1077,1085,1077,1076,1078,1077,1088
 $Naimenovanie  = C 1053,1072,1080,1084,1077,1085,1086,1074,1072,1085,1080,1077
 $SummaDok      = C 1057,1091,1084,1084,1072,1044,1086,1082,1091,1084,1077,1085,1090,1072
 $Nomer         = C 1053,1086,1084,1077,1088
+$Data          = C 1044,1072,1090,1072
 
 # Dates are built field by field, not parsed.
 #
@@ -94,8 +95,8 @@ function ParseDay([string] $s, [string] $label) {
     return New-Object DateTime([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
 }
 
-$dFrom = ParseDay $From "From"
-$dTo   = ParseDay $To   "To"
+$dFrom = ParseDay $DayFrom "DayFrom"
+$dTo   = ParseDay $DayTo   "DayTo"
 
 Write-Host ("window: {0:yyyy-MM-dd} .. {1:yyyy-MM-dd} (excl.)" -f $dFrom, $dTo)
 
@@ -134,7 +135,7 @@ function Run {
 }
 
 Write-Host "=============================================================================="
-Write-Host (" MARGIN CHECK {0} .. {1} (excl. {1})" -f $From, $To)
+Write-Host (" MARGIN CHECK {0} .. {1} (excl. {1})" -f $DayFrom, $DayTo)
 Write-Host "=============================================================================="
 
 # --- 1. per manager, realizations only (what the site currently computes) ---
@@ -158,7 +159,7 @@ $SELECT
     $SUM(R.$SummaDok) $AS Revenue,
     $COUNT(*) $AS Docs
 $FROM $DOC.$Realizaciya $AS R
-$WHERE R.$Period >= &D1 $AND R.$Period < &D2
+$WHERE R.$Data >= &D1 $AND R.$Data < &D2
 $GROUPBY R.$Menedzher.$Naimenovanie
 "@ -Cols 3 -Params @{ D1 = $dFrom; D2 = $dTo }
 
@@ -227,7 +228,7 @@ $SELECT
     $SUM(V.$SummaDok) $AS Revenue,
     $COUNT(*) $AS Docs
 $FROM $DOC.$Vozvrat $AS V
-$WHERE V.$Period >= &D1 $AND V.$Period < &D2
+$WHERE V.$Data >= &D1 $AND V.$Data < &D2
 "@ -Cols 2 -Params @{ D1 = $dFrom; D2 = $dTo }
 
 if ($retRev -and $retRev.Count -gt 0) {

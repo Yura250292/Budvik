@@ -1066,6 +1066,52 @@ try {
         }
         Log ("  return items: {0} rows in {1} documents" -f $itemRows, $returnItemsByDoc.Count)
 
+        # --- cost of returned goods ---
+        #
+        # The register carries cost for returns too, with a minus sign
+        # (measured: -62 254 over 66 July documents against 56 253 of return
+        # revenue). Without it a return took revenue away while giving no cost
+        # back, and the gross margin came out overstated by exactly that gap.
+        #
+        # Same shape as the realization cost block above; the sign is left as
+        # 1C states it and the server flips it, keeping the agent a transcript.
+        # Non-fatal for the same reason: losing returns over a missing cost
+        # would be a bad trade.
+        $retCostByDocProduct = @{}
+        try {
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.costOfReturnsSince
+            $q.SetParameter([string]$queries.paramFrom, $returnsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on return cost query" }
+            $r = $rs.Choose()
+            $costRows = 0
+            while ($r.Next()) {
+                $docId  = RefId $ib $r.Get(0)
+                $prodId = RefId $ib $r.Get(1)
+                if (-not $docId -or -not $prodId) { continue }
+                $retCostByDocProduct[($docId + "|" + $prodId)] = Num $r.Get(3)
+                $costRows++
+            }
+            Log ("  return cost: {0} rows" -f $costRows)
+        } catch {
+            Log ("  return cost FAILED (returns still go out without cost): " + $_.Exception.Message.Split("`n")[0])
+        }
+
+        if ($retCostByDocProduct.Count -gt 0) {
+            $matched = 0
+            foreach ($docId in @($returnItemsByDoc.Keys)) {
+                foreach ($item in $returnItemsByDoc[$docId]) {
+                    $key = $docId + "|" + $item.productExternalId
+                    if ($retCostByDocProduct.ContainsKey($key)) {
+                        $item.cost = $retCostByDocProduct[$key]
+                        $matched++
+                    }
+                }
+            }
+            Log ("  return cost matched to {0} of {1} line(s)" -f $matched, $itemRows)
+        }
+
         $w = NewWriter (Join-Path $OutDir "return_doc.ndjson")
         $n = 0
         $q = $ib.NewObject("Query")

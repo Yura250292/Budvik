@@ -21,6 +21,7 @@ type FuelResponse = {
   period: { from: string; to: string; days: number };
   canEdit: boolean;
   defaults: { fuelConsumption: number; fuelPricePerL: number };
+  baseRadiusM: number;
   rows: Array<{
     repId: string;
     repName: string;
@@ -29,6 +30,16 @@ type FuelResponse = {
     baseAddress: string | null;
     /** Адреса геокодувалася успішно — без цього подача не рахується */
     hasBase: boolean;
+    /** Звідки торговий справді виїжджає, за треком планшета */
+    learnedBase: {
+      lat: number;
+      lng: number;
+      mornings: number;
+      daysSeen: number;
+      spreadM: number;
+      /** Наскільки GPS розходиться зі збереженою базою, метри */
+      movedM: number | null;
+    } | null;
     fuelConsumption: number;
     fuelPricePerL: number;
     totalKm: number;
@@ -57,7 +68,20 @@ export function FuelTab({ period }: { period: Period }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function saveVehicle(repId: string) {
+  /**
+   * Ручний вибір координат.
+   *
+   * Частини наших адрес в OSM немає взагалі — «Львів, вул. Незимна» не знайде
+   * жоден геокодер. Тоді єдиний шлях — дати людині знайти найближчу відому
+   * точку (сусідню вулицю, площу, орієнтир) і взяти її координати.
+   */
+  const [picker, setPicker] = useState<{ repId: string; query: string } | null>(null);
+  const [candidates, setCandidates] = useState<
+    Array<{ lat: number; lng: number; displayName: string }>
+  >([]);
+  const [searching, setSearching] = useState(false);
+
+  async function saveVehicle(repId: string, coords?: { lat: number; lng: number }) {
     setBusy(true);
     setMessage(null);
     try {
@@ -70,23 +94,71 @@ export function FuelTab({ period }: { period: Period }) {
           fuelConsumption: Number(form.fuelConsumption),
           fuelPricePerL: Number(form.fuelPricePerL),
           baseAddress: form.baseAddress || null,
+          ...(coords ? { baseLat: coords.lat, baseLng: coords.lng } : {}),
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти");
       setEditing(null);
-      // Адреса збереглася, але Nominatim її не знайшов — подача не
-      // рахуватиметься, і про це треба сказати вголос.
-      setMessage(
-        json.baseNotFound
-          ? "Збережено, але адресу бази не знайдено на карті — подача не рахуватиметься. Спробуйте вказати вулицю з містом і областю."
-          : null
-      );
+      setPicker(null);
+      setCandidates([]);
+      // Адреса збереглася, але Nominatim її не знайшов. Мовчати не можна:
+      // подача не рахуватиметься, а план тихо лишиться заниженим.
+      if (json.baseNotFound) {
+        setMessage(
+          "Збережено, але адресу бази не знайдено на карті — подача не рахуватиметься. " +
+            "Натисніть «Знайти на карті» і виберіть найближчу відому точку."
+        );
+        setPicker({ repId, query: form.baseAddress });
+      } else {
+        setMessage(null);
+      }
       reload();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Помилка збереження");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Взяти базу з GPS: сервер сам візьме точку з треку й підпише адресою. */
+  async function acceptLearnedBase(repId: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/sales-vehicles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося взяти базу з GPS");
+      setPicker(null);
+      setCandidates([]);
+      reload();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Помилка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function searchCandidates(query: string) {
+    if (query.trim().length < 3) return;
+    setSearching(true);
+    setCandidates([]);
+    try {
+      const res = await fetch(`/api/geo/geocode?all=1&q=${encodeURIComponent(query)}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Пошук не вдався");
+      setCandidates(json.items ?? []);
+      if ((json.items ?? []).length === 0) {
+        setMessage("За цим запитом нічого не знайдено. Спробуйте сусідню вулицю або орієнтир.");
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Помилка пошуку");
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -117,11 +189,71 @@ export function FuelTab({ period }: { period: Period }) {
 
       {message && <ErrorBox message={message} />}
 
+      {/* Ручний вибір точки: остання надія для адреси, якої в OSM немає */}
+      {picker && (
+        <Card>
+          <CardHeader
+            title="Знайти базу на карті"
+            hint="Геокодер не знає цієї адреси. Знайдіть найближчу відому точку — сусідню вулицю, площу, орієнтир — і виберіть її. Для подачі важливі кілометри, а не точний дім."
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input
+              value={picker.query}
+              onChange={(e) => setPicker((p) => (p ? { ...p, query: e.target.value } : p))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchCandidates(picker.query);
+              }}
+              placeholder="Львів, Наукова"
+              aria-label="Пошук точки на карті"
+              className="min-w-[240px] flex-1 rounded-[var(--radius-badge)] border border-g200 px-3 py-2 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+            />
+            <button
+              type="button"
+              onClick={() => searchCandidates(picker.query)}
+              disabled={searching || picker.query.trim().length < 3}
+              className="cursor-pointer rounded-[var(--radius-badge)] bg-primary px-3 py-2 text-sm font-semibold text-bk transition-colors hover:bg-primary-hover disabled:opacity-60"
+            >
+              {searching ? "Шукаю…" : "Шукати"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPicker(null);
+                setCandidates([]);
+              }}
+              className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-3 py-2 text-sm text-g600 transition-colors hover:border-g300"
+            >
+              Закрити
+            </button>
+          </div>
+
+          {candidates.length > 0 && (
+            <ul className="mt-3 divide-y divide-g100 rounded-[var(--radius-badge)] border border-g200">
+              {candidates.map((c) => (
+                <li key={`${c.lat},${c.lng}`}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => saveVehicle(picker.repId, { lat: c.lat, lng: c.lng })}
+                    className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-g600 transition-colors hover:bg-g50 disabled:opacity-60"
+                  >
+                    <span>{c.displayName}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-g400">
+                      {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Авто та витрати на пальне"
-            hint={`Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л. База — звідки торговий виїжджає вранці: без неї «План» у Логістиці не враховує дорогу до маршруту й назад.`}
+            hint={`Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л. База — звідки торговий виїжджає вранці: без неї «План» у Логістиці не враховує дорогу до маршруту й назад. Адресу можна не вводити руками: планшет сам показує місце старту з точністю до ${data.baseRadiusM} м, коли кілька ранків збігаються.`}
           />
         </div>
 
@@ -211,14 +343,62 @@ export function FuelTab({ period }: { period: Period }) {
                               {/* Адреса є, а координат немає: геокодер промахнувся,
                                   і подача мовчки не рахується — треба показати. */}
                               {!r.hasBase && (
-                                <span className="ml-1.5 inline-block align-middle">
+                                <span className="ml-1.5 inline-flex items-center gap-1.5 align-middle">
                                   <Badge status="warn">не знайдено</Badge>
+                                  {data.canEdit && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setMessage(null);
+                                        setCandidates([]);
+                                        setPicker({ repId: r.repId, query: r.baseAddress ?? "" });
+                                        setForm((f) => ({
+                                          ...f,
+                                          label: r.label ?? "",
+                                          fuelConsumption: String(r.fuelConsumption),
+                                          fuelPricePerL: String(r.fuelPricePerL),
+                                          baseAddress: r.baseAddress ?? "",
+                                        }));
+                                      }}
+                                      className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"
+                                    >
+                                      Знайти на карті
+                                    </button>
+                                  )}
                                 </span>
                               )}
                             </>
                           ) : (
                             <span className="text-g400">не вказано</span>
                           )}
+
+                          {/* Що показав GPS. Пропонуємо, коли бази немає або
+                              вона не знайшлася; попереджаємо, коли збережена
+                              база розійшлася з тим, звідки людина виїжджає. */}
+                          {r.learnedBase && data.canEdit && (() => {
+                            const lb = r.learnedBase;
+                            const needsBase = !r.hasBase;
+                            const moved = lb.movedM != null && lb.movedM > data.baseRadiusM;
+                            if (!needsBase && !moved) return null;
+
+                            return (
+                              <div className="mt-1.5 text-xs">
+                                <span className="text-g500">
+                                  GPS: старт з одного місця {lb.mornings} з {lb.daysSeen} ранків
+                                  {lb.spreadM > 0 && ` (розкид ${lb.spreadM} м)`}
+                                  {moved && `, за ${num(lb.movedM ?? 0)} м від указаної`}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => acceptLearnedBase(r.repId)}
+                                  className="ml-1.5 cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk disabled:opacity-60"
+                                >
+                                  {moved ? "Оновити з GPS" : "Взяти з GPS"}
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-g600">
                           {num(r.fuelConsumption, 1)}

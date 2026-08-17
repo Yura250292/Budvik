@@ -11,7 +11,13 @@ import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { geocodeAddress } from "@/lib/geo/nominatim";
+import { geocodeAddress, reverseGeocode } from "@/lib/geo/nominatim";
+import {
+  learnHomeBase,
+  learnHomeBases,
+  baseMovedM,
+  BASE_RADIUS_M,
+} from "@/lib/track/home-base";
 import { parsePeriod } from "@/lib/analytics/period";
 import { fuelCost, tripFactsByRep, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 
@@ -59,10 +65,16 @@ export async function GET(req: NextRequest) {
   const vehicleByRep = new Map(vehicles.map((v) => [v.repId, v]));
   const tripsByRep = new Map(trips.map((t) => [t.repId, t]));
 
+  // Звідки людина СПРАВДІ виїжджає — з треку планшета. Незалежно від того,
+  // що введено руками: адресу могли не знайти, а могли й не оновити після
+  // переїзду. Один запит на всіх, не по одному на торгового.
+  const learnedBases = await learnHomeBases(reps.map((r) => r.id));
+
   const rows = reps.map((rep) => {
     const vehicle = vehicleByRep.get(rep.id) ?? null;
     const t = tripsByRep.get(rep.id);
     const fuel = fuelCost(t?.totalKm ?? 0, t?.personalKm ?? 0, vehicle, t?.daysWorked ?? 0);
+    const learned = learnedBases.get(rep.id) ?? null;
 
     return {
       repId: rep.id,
@@ -73,6 +85,21 @@ export async function GET(req: NextRequest) {
       // Координати кажуть, чи адреса ЗНАЙШЛАСЯ: введений рядок без них
       // означає, що геокодер промахнувся, і подача не рахується.
       hasBase: vehicle?.baseLat != null && vehicle?.baseLng != null,
+      /**
+       * Що показав GPS. Два різні застосування:
+       *  — бази нема або не знайшлася → пропонуємо взяти цю точку;
+       *  — база є, але GPS показує інше місце → людина переїхала.
+       */
+      learnedBase: learned
+        ? {
+            lat: learned.lat,
+            lng: learned.lng,
+            mornings: learned.mornings,
+            daysSeen: learned.daysSeen,
+            spreadM: learned.spreadM,
+            movedM: vehicle ? baseMovedM(learned, vehicle) : null,
+          }
+        : null,
       fuelConsumption: fuel.fuelConsumption,
       fuelPricePerL: fuel.fuelPricePerL,
       totalKm: t?.totalKm ?? 0,
@@ -90,6 +117,7 @@ export async function GET(req: NextRequest) {
     period: { from: period.fromDay, to: period.toDay, days: period.days },
     canEdit,
     defaults: VEHICLE_DEFAULTS,
+    baseRadiusM: BASE_RADIUS_M,
     rows,
     totals: {
       workKm: rows.reduce((s, r) => s + r.workKm, 0),
@@ -97,6 +125,68 @@ export async function GET(req: NextRequest) {
       cost: rows.reduce((s, r) => s + r.cost, 0),
     },
   });
+}
+
+/**
+ * Прийняти базу, яку показав GPS.
+ *
+ * Окремий метод, а не прапорець у PUT: тут нічого не вводять руками — сервер
+ * сам бере точку з треку і сам підписує її адресою через reverseGeocode.
+ * Змішувати це з ручним редагуванням норми й ціни означало б дати клієнту
+ * можливість надіслати «прийми GPS» разом із суперечливими координатами.
+ */
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || !EDIT_ROLES.includes(session.user.role)) {
+    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
+  }
+
+  const body = (await req.json().catch(() => null)) as { repId?: string } | null;
+  if (!body?.repId) {
+    return NextResponse.json({ error: "Потрібен repId" }, { status: 400 });
+  }
+
+  const rep = await prisma.user.findUnique({
+    where: { id: body.repId },
+    select: { role: true },
+  });
+  if (!rep || rep.role !== "SALES") {
+    return NextResponse.json({ error: "Користувач не є торговим" }, { status: 400 });
+  }
+
+  const learned = await learnHomeBase(body.repId);
+  if (!learned) {
+    return NextResponse.json(
+      { error: "GPS ще не бачив стабільного місця старту — потрібно кілька робочих днів із планшетом" },
+      { status: 409 }
+    );
+  }
+
+  // Підпис для людини. Якщо reverseGeocode промовчав — пишемо координати:
+  // база має бути видимою в таблиці, навіть коли OSM не знає цього місця.
+  const place = await reverseGeocode(learned.lat, learned.lng).catch(() => null);
+  const address =
+    place?.shortName ?? `${learned.lat.toFixed(5)}, ${learned.lng.toFixed(5)}`;
+
+  const vehicle = await prisma.salesVehicle.upsert({
+    where: { repId: body.repId },
+    create: {
+      repId: body.repId,
+      baseAddress: address,
+      baseLat: learned.lat,
+      baseLng: learned.lng,
+    },
+    update: {
+      baseAddress: address,
+      baseLat: learned.lat,
+      baseLng: learned.lng,
+      // База переїхала — старі плечі подачі більше не правда.
+      baseLegsKm: Prisma.DbNull,
+    },
+    select: { baseAddress: true, baseLat: true, baseLng: true },
+  });
+
+  return NextResponse.json({ ok: true, vehicle, learned });
 }
 
 export async function PUT(req: NextRequest) {
@@ -111,6 +201,16 @@ export async function PUT(req: NextRequest) {
     fuelConsumption?: number;
     fuelPricePerL?: number;
     baseAddress?: string | null;
+    /**
+     * Готові координати з ручного вибору.
+     *
+     * Потрібні, бо частини наших адрес в OSM просто НЕМА: «Львів, вул. Незимна»
+     * не знаходить жоден геокодер, бо такої вулиці в базі OSM не існує. Без
+     * цього поля така база лишалася б без координат назавжди, і подача для
+     * торгового мовчки не рахувалася б.
+     */
+    baseLat?: number | null;
+    baseLng?: number | null;
   } | null;
 
   if (!body?.repId) {
@@ -153,11 +253,34 @@ export async function PUT(req: NextRequest) {
   } | null = null;
   let baseNotFound = false;
 
+  // Координати, вибрані вручну, мають пріоритет над геокодером: людина щойно
+  // тицьнула в карту, і перепитувати Nominatim означало б зіпсувати її вибір.
+  const manualLat = body.baseLat == null ? null : Number(body.baseLat);
+  const manualLng = body.baseLng == null ? null : Number(body.baseLng);
+  const hasManual =
+    manualLat != null &&
+    manualLng != null &&
+    Number.isFinite(manualLat) &&
+    Number.isFinite(manualLng) &&
+    Math.abs(manualLat) <= 90 &&
+    Math.abs(manualLng) <= 180;
+
+  if (body.baseLat != null && body.baseLng != null && !hasManual) {
+    return NextResponse.json({ error: "Некоректні координати бази" }, { status: 400 });
+  }
+
   if (body.baseAddress !== undefined) {
     const address = body.baseAddress?.trim() || null;
 
     if (!address) {
       baseFields = { baseAddress: null, baseLat: null, baseLng: null, baseLegsKm: Prisma.DbNull };
+    } else if (hasManual) {
+      baseFields = {
+        baseAddress: address,
+        baseLat: manualLat,
+        baseLng: manualLng,
+        baseLegsKm: Prisma.DbNull,
+      };
     } else if (address === existing?.baseAddress && existing.baseLat != null) {
       // Адреса не змінилася — не смикаємо Nominatim і не гасимо кеш подачі.
       baseFields = null;

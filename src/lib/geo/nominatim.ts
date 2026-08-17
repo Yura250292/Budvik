@@ -98,27 +98,51 @@ function normalizeNovaPoshtaAddress(address: string): string | null {
   return normalizedParts.join(", ");
 }
 
+/**
+ * Початок слова для кириличних скорочень.
+ *
+ * НЕ `\b`: у JavaScript `\b` означає межу `\w`, а `\w` — це лише ASCII, тому
+ * `/\bвул\./` не спрацьовує НІКОЛИ — перед «в» немає ASCII-межі. Через це всі
+ * правила нижче роками нічого не замінювали, і geocodeAddress слав однаковий
+ * рядок у чотирьох «різних» стратегіях замість чотирьох варіантів написання.
+ *
+ * Замість межі — початок рядка або будь-що, що не літера й не цифра.
+ */
+const START = "(?<=^|[^\\p{L}\\p{N}])";
+
 /** Expand Ukrainian abbreviations for better Nominatim matching */
 function expandAbbreviations(address: string): string {
   return address
-    .replace(/\bвул\.\s*/gi, "вулиця ")
-    .replace(/\bпров\.\s*/gi, "провулок ")
-    .replace(/\bпросп\.\s*/gi, "проспект ")
-    .replace(/\bбульв\.\s*/gi, "бульвар ")
-    .replace(/\bпл\.\s*/gi, "площа ")
-    .replace(/\bр-н\b/gi, "район")
-    .replace(/\bобл\.\s*/gi, "область ")
-    .replace(/\bс\.\s*/gi, "село ")
-    .replace(/\bсмт\.\s*/gi, "")
-    .replace(/\bм\.\s+/gi, "")
+    .replace(new RegExp(`${START}вул\\.?\\s*`, "giu"), "вулиця ")
+    .replace(new RegExp(`${START}пров\\.?\\s*`, "giu"), "провулок ")
+    .replace(new RegExp(`${START}просп\\.?\\s*`, "giu"), "проспект ")
+    .replace(new RegExp(`${START}бульв\\.?\\s*`, "giu"), "бульвар ")
+    .replace(new RegExp(`${START}пл\\.\\s*`, "giu"), "площа ")
+    .replace(new RegExp(`${START}р-н`, "giu"), "район")
+    .replace(new RegExp(`${START}обл\\.?\\s*`, "giu"), "область ")
+    .replace(new RegExp(`${START}с\\.\\s*`, "giu"), "село ")
+    .replace(new RegExp(`${START}смт\\.?\\s*`, "giu"), "")
+    .replace(new RegExp(`${START}м\\.\\s*`, "giu"), "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** Strip abbreviations entirely for a looser search */
+/**
+ * Strip abbreviations entirely for a looser search.
+ *
+ * «район» і «область» тут теж зникають: Nominatim не знає старих районів
+ * (Перемишлянського вже немає — є Львівський), і слово «район» у запиті
+ * гарантовано дає нуль результатів навіть для села, яке в OSM є.
+ */
 function stripAbbreviations(address: string): string {
   return address
-    .replace(/\b(вул\.|вулиця|пров\.|провулок|просп\.|проспект|бульв\.|бульвар|пл\.|площа|р-н|район|обл\.|область|с\.|село|смт\.?|м\.)\s*/gi, "")
+    .replace(
+      new RegExp(
+        `${START}(вул\\.|вулиця|пров\\.|провулок|просп\\.|проспект|бульв\\.|бульвар|пл\\.|площа|р-н|районі|району|район|обл\\.|області|область|с\\.|село|смт\\.?|м\\.)\\s*`,
+        "giu"
+      ),
+      ""
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -308,6 +332,22 @@ export async function geocodeAddress(
     }
   }
 
+  // Strategy 8: сам населений пункт, без району і вулиці.
+  //
+  // «Перемишлянський район с.Липівці» — типова наша адреса: район у ній той,
+  // якого вже не існує (після 2020 це Львівський), і Nominatim на такий запит
+  // мовчить, хоч село в OSM є. Прізвищеподібний прикметник району теж збиває
+  // пошук, тож на останньому кроці кидаємо все, крім назви пункту.
+  //
+  // Точність — до села. Для бази торгового це прийнятно: подача рахується
+  // десятками кілометрів, і хата в межах села їх не змінює.
+  if (!result) {
+    const settlement = settlementOnly(stripped);
+    if (settlement) {
+      result = await nominatimSearch(settlement, { country: "ua" });
+    }
+  }
+
   if (result) {
     cache.set(cacheKey, result);
   }
@@ -342,7 +382,11 @@ export function dropHouseNumber(address: string): string {
     // Прибираємо номер, приліплений до назви: «вул.Миру 21Б» → «вул.Миру».
     const cleaned = part
       .replace(/№\s*[\dА-Яа-яA-Za-z/\\-]+/g, " ")
-      .replace(/\b(буд|будинок|дом|кв|офіс|оф)\b\.?\s*[\dА-Яа-яA-Za-z/-]*/gi, " ")
+      // Знову ж таки не \b, а межа за не-літерою — див. START вище.
+      .replace(
+        new RegExp(`${START}(буд|будинок|дом|кв|офіс|оф)\\.?\\s*[\\dА-Яа-яA-Za-z/-]*`, "giu"),
+        " "
+      )
       .replace(/[\dА-Яа-я]*\d+[\dА-Яа-я/-]*\s*$/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -352,6 +396,37 @@ export function dropHouseNumber(address: string): string {
   }
 
   return keep.join(", ");
+}
+
+/**
+ * Лише назва населеного пункту — остання надія перед «не знайдено».
+ *
+ * Розрахунок на те, що назва пункту — це слово БЕЗ районного суфікса.
+ * «Перемишлянський район с.Липівці» після stripAbbreviations стає
+ * «Перемишлянський Липівці»; прикметник на -ський/-цький/-ий тут завжди про
+ * район чи область, а не про село, тож викидаємо його і лишається «Липівці».
+ *
+ * Повертає порожній рядок, якщо після чистки нічого не лишилось або лишилось
+ * те саме, що вже шукали, — тоді дарма ще раз смикати Nominatim.
+ */
+export function settlementOnly(address: string): string {
+  const words = address
+    .replace(/\([^)]*\)/g, " ")
+    .split(/[,\s]+/)
+    .map((w) => w.trim())
+    .filter(Boolean)
+    // Номери будинків і залишки скорочень назвою пункту бути не можуть.
+    .filter((w) => !/\d/.test(w))
+    .filter((w) => !/^(район|області|область|районі|району)$/i.test(w))
+    // Прикметник району або області: «Перемишлянський», «Львівська».
+    .filter((w) => !/(ський|цький|ська|цька|ької|ського)$/i.test(w));
+
+  if (words.length === 0) return "";
+
+  // Беремо найдовше слово: у «Перемишлянський Липівці» після фільтра лишається
+  // одне, а в спірних випадках назва пункту довша за прийменники й уточнення.
+  const best = words.reduce((a, b) => (b.length > a.length ? b : a));
+  return best.length >= 3 && best !== address ? best : "";
 }
 
 /**

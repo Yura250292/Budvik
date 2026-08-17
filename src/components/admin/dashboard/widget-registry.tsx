@@ -19,7 +19,7 @@ import { NotesWidget } from "./widgets/NotesWidget";
 import { ClockWidget } from "./widgets/ClockWidget";
 import { QuickActions } from "./widgets/QuickActions";
 
-export type WidgetGroup = "Аналітика торгових" | "Склад" | "Магазин" | "Інструменти";
+export type WidgetGroup = "Аналітика продажів" | "Склад" | "Магазин" | "Інструменти";
 
 export type WidgetDef = {
   type: WidgetType;
@@ -39,12 +39,12 @@ const AM: AdminRole[] = ["ADMIN", "MANAGER"];
 const withUsers = (role: AdminRole) => role === "ADMIN" || role === "MANAGER";
 
 export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
-  // ——— Аналітика торгових: «Зведена» ———
+  // ——— Аналітика продажів: «Зведена» ———
   "sales-totals": {
     type: "sales-totals",
     title: "Продажі за період",
     iconKey: "money",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "4x1",
     allowedSizes: ["2x1", "3x1", "4x1"],
@@ -54,7 +54,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "plan-attainment",
     title: "Виконання плану",
     iconKey: "star",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "2x1",
     allowedSizes: ["1x1", "2x1", "2x2"],
@@ -64,7 +64,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "money",
     title: "Гроші: зібрано і дебіторка",
     iconKey: "price",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "2x1",
     allowedSizes: ["2x1", "3x1", "4x1"],
@@ -74,7 +74,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "top-reps",
     title: "Торгові за оборотом",
     iconKey: "team",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: AM,
     defaultSize: "2x2",
     allowedSizes: ["2x2", "3x1", "4x2"],
@@ -84,19 +84,19 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "overdue-reps",
     title: "Прострочена дебіторка",
     iconKey: "invoice",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: AM,
     defaultSize: "2x2",
     allowedSizes: ["2x2", "3x1", "4x2"],
     Render: () => <OverdueReps />,
   },
 
-  // ——— Аналітика торгових: «Огляд» ———
+  // ——— Аналітика продажів: «Огляд» ———
   "revenue-timeline": {
     type: "revenue-timeline",
     title: "Динаміка обороту",
     iconKey: "chart",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "4x2",
     allowedSizes: ["2x2", "4x1", "4x2"],
@@ -106,7 +106,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "brands",
     title: "Продажі по фірмах",
     iconKey: "products",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "2x2",
     allowedSizes: ["2x2", "3x1", "4x2"],
@@ -116,7 +116,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "top-clients",
     title: "Топ клієнтів",
     iconKey: "clients",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "2x2",
     allowedSizes: ["2x2", "3x1", "4x2"],
@@ -126,7 +126,7 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     type: "top-products",
     title: "Топ товарів",
     iconKey: "products",
-    group: "Аналітика торгових",
+    group: "Аналітика продажів",
     roles: ALL,
     defaultSize: "2x2",
     allowedSizes: ["2x2", "3x1", "4x2"],

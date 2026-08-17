@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { AnalyticsShell } from "./components/AnalyticsShell";
 
 /**
- * Центр «Аналітика торгових»: продажі з 1С, поїздки з бота, КПІ,
+ * Центр «Аналітика продажів»: продажі з 1С, поїздки з бота, КПІ,
  * маршрути й логістика в одному місці.
  *
  * Suspense обов'язковий: оболонка читає useSearchParams, а без межі

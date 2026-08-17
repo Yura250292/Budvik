@@ -9,13 +9,13 @@ export const WIDGET_SIZES = ["1x1", "2x1", "2x2", "3x1", "4x1", "4x2"] as const;
 export type WidgetSize = (typeof WIDGET_SIZES)[number];
 
 export type WidgetType =
-  // Аналітика торгових — «Зведена»
+  // Аналітика продажів — «Зведена»
   | "sales-totals"
   | "plan-attainment"
   | "money"
   | "top-reps"
   | "overdue-reps"
-  // Аналітика торгових — «Огляд»
+  // Аналітика продажів — «Огляд»
   | "revenue-timeline"
   | "brands"
   | "top-clients"

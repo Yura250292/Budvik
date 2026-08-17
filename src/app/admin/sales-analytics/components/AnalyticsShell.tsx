@@ -1,7 +1,12 @@
 "use client";
 
 /**
- * Оболонка центру «Аналітика торгових».
+ * Оболонка центру «Аналітика продажів».
+ *
+ * Розділ виріс зі «звіту по торгових»: спершу тут були лише продажі й КПІ, а
+ * потім додались собівартість, знижки, ABC, клієнтські звіти. Половина вкладок
+ * перестала бути про людей, тому і назва, і групування — за питаннями:
+ * скільки заробили → що продаємо → кому → хто продає → як доїхало.
  *
  * Тримає спільний для всіх вкладок стан — період, фільтр торгового, вкладку
  * з підвкладкою — і дзеркалить його в URL (?tab=&view=). Раніше фільтри жили
@@ -20,6 +25,7 @@ import { RepsTab } from "./RepsTab";
 import { ReturnsTab } from "./ReturnsTab";
 import { AbcTab } from "./AbcTab";
 import { DiscountsTab } from "./DiscountsTab";
+import { ProfitTab } from "./ProfitTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
@@ -34,11 +40,26 @@ import { CohortsTab } from "./CohortsTab";
 import { BasketTab } from "./BasketTab";
 import { GeoTab } from "./GeoTab";
 
+/**
+ * Верхні вкладки — за питанням, на яке відповідають, а не за джерелом даних.
+ *
+ * Розділ виріс із «звіту по торгових» у наскрізну аналітику продажів, і
+ * половина вкладок уже не про людей: знижки, ABC, оборотність — це про
+ * товар і гроші. Тому порядок такий: спершу СКІЛЬКИ ЗАРОБИЛИ (гроші), потім
+ * ЩО продаємо (асортимент), КОМУ (клієнти), ХТО продає (торгові) і ЯК
+ * доїхало (логістика).
+ *
+ * Ключі свідомо лишені старі (`overview`, `reps`, `kpi`): вони живуть у
+ * закладках, у віджетах дашборда (`?tab=overview`, `?tab=kpi`) і в редіректі
+ * /admin/sales-reports. Перейменування ключів зламало б усе це заради
+ * охайності в коді.
+ */
 const TABS = [
   { key: "summary", label: "Зведена" },
-  { key: "overview", label: "Огляд" },
-  { key: "reps", label: "Торгові" },
+  { key: "money", label: "Гроші" },
+  { key: "overview", label: "Асортимент" },
   { key: "clients", label: "Клієнти" },
+  { key: "reps", label: "Торгові" },
   { key: "kpi", label: "КПІ та мотивація" },
   { key: "logistics", label: "Логістика" },
 ] as const;
@@ -51,26 +72,34 @@ type TabKey = (typeof TABS)[number]["key"];
  * тримати його трьома верхніми вкладками означало губити зв'язок між ними.
  */
 const SUBTABS = {
+  // ГРОШІ: скільки заробили і скільки віддали. Вал і знижки поруч навмисно —
+  // це дві половини одного питання, і читати їх окремо означає не побачити,
+  // що 29% валу пішло на знижки.
+  money: [
+    { key: "profit", label: "Прибуток" },
+    { key: "discounts", label: "Знижки" },
+  ],
+  // АСОРТИМЕНТ: що саме продаємо і що лежить. Ключ вкладки — старий
+  // `overview`, бо на нього посилаються віджети дашборда.
   overview: [
     { key: "sales", label: "Продажі" },
     { key: "abc", label: "ABC / XYZ" },
-    // Знижки тут, а не в «Клієнтах»: це аналіз того, ЯК продаємо, і читати
-    // його треба поруч зі структурою продажів.
-    { key: "discounts", label: "Знижки" },
   ],
-  reps: [
-    { key: "list", label: "Показники" },
-    { key: "benchmark", label: "Порівняння" },
-    { key: "returns", label: "Повернення" },
-  ],
-  // Клієнтський блок: хто платить, хто приживається, що беруть разом і де
-  // ми сильні географічно. Усе це — про клієнта, а не про торгового, тому
-  // окремою вкладкою, а не підвкладкою «Торгових».
+  // КЛІЄНТИ: хто платить, хто приживається, що беруть разом, де ми сильні.
   clients: [
     { key: "payers", label: "Платники" },
     { key: "cohorts", label: "Утримання" },
     { key: "basket", label: "Кошик" },
     { key: "geo", label: "Географія" },
+    // Карта переїхала сюди з логістики: вона про клієнтів, а не про те, як
+    // машина їхала. Старий ключ ?view=clients у логістиці лишився в
+    // LEGACY_VIEWS нижче.
+    { key: "map", label: "Карта" },
+  ],
+  reps: [
+    { key: "list", label: "Показники" },
+    { key: "benchmark", label: "Порівняння" },
+    { key: "returns", label: "Повернення" },
   ],
   kpi: [
     { key: "plans", label: "Плани" },
@@ -81,7 +110,6 @@ const SUBTABS = {
     { key: "trips", label: "Поїздки" },
     { key: "shifts", label: "Зміни" },
     { key: "routes", label: "Маршрути" },
-    { key: "clients", label: "Карта клієнтів" },
     { key: "fuel", label: "Паливо" },
   ],
 } as const;
@@ -98,6 +126,18 @@ const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
   trips: { tab: "logistics", view: "trips" },
   routes: { tab: "logistics", view: "routes" },
   fuel: { tab: "logistics", view: "fuel" },
+};
+
+/**
+ * Підвкладки, що переїхали між вкладками при перегрупуванні.
+ *
+ * Ключ — старе `tab:view`, значення — нове місце. Без цього закладка на
+ * знижки (вони жили в «Огляді») відкривала б «Продажі», і людина думала б,
+ * що звіт зник. Карта клієнтів так само переїхала з логістики.
+ */
+const LEGACY_VIEWS: Record<string, { tab: TabKey; view: ViewKey }> = {
+  "overview:discounts": { tab: "money", view: "discounts" },
+  "logistics:clients": { tab: "clients", view: "map" },
 };
 
 /**
@@ -118,7 +158,7 @@ const DRIVER_VIEW_MOVED: Record<string, string> = {
  * «Клієнти» теж сюди: кредитні ліміти й відтік — рішення керівника по всій
  * базі, і роути цих звітів торговому й так віддають 403.
  */
-const MANAGER_ONLY: TabKey[] = ["clients", "kpi", "logistics"];
+const MANAGER_ONLY: TabKey[] = ["money", "clients", "kpi", "logistics"];
 
 /**
  * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
@@ -138,6 +178,11 @@ function resolveTarget(
 ): { tab: TabKey; view: ViewKey | null } {
   const legacy = tabParam ? LEGACY_TABS[tabParam] : undefined;
   if (legacy) return legacy;
+
+  // Переїзд підвкладки перевіряється до валідації: у нової вкладки такого
+  // ключа вже немає, тож інакше він мовчки замінився б на першу підвкладку.
+  const moved = LEGACY_VIEWS[`${tabParam}:${viewParam}`];
+  if (moved) return moved;
   const tab = TABS.some((t) => t.key === tabParam) ? (tabParam as TabKey) : "summary";
   const views = subtabsOf(tab);
   if (!views) return { tab, view: null };
@@ -273,11 +318,11 @@ export function AnalyticsShell() {
               </div>
               <div className="min-w-0">
                 <h1 className="truncate text-lg font-bold leading-tight text-bk sm:text-xl">
-                  Аналітика торгових
+                  Аналітика продажів
                 </h1>
                 <p className="truncate text-xs text-g400">
                   {isManager
-                    ? "Продажі з 1С, поїздки, КПІ та логістика"
+                    ? "Прибуток і знижки, асортимент, клієнти, КПІ торгових"
                     : "Ваші продажі та поїздки"}
                 </p>
               </div>
@@ -361,7 +406,8 @@ export function AnalyticsShell() {
           <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />
         )}
         {tab === "overview" && view === "abc" && <AbcTab period={period} rep={rep} />}
-        {tab === "overview" && view === "discounts" && <DiscountsTab period={period} rep={rep} />}
+        {tab === "money" && view === "profit" && <ProfitTab period={period} rep={rep} />}
+        {tab === "money" && view === "discounts" && <DiscountsTab period={period} rep={rep} />}
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
@@ -369,6 +415,7 @@ export function AnalyticsShell() {
         {tab === "clients" && view === "cohorts" && <CohortsTab />}
         {tab === "clients" && view === "basket" && <BasketTab period={period} />}
         {tab === "clients" && view === "geo" && <GeoTab period={period} />}
+        {tab === "clients" && view === "map" && <ClientMapTab period={period} />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "kpi" && view === "payroll" && <PayrollTab />}
@@ -377,7 +424,6 @@ export function AnalyticsShell() {
         )}
         {tab === "logistics" && view === "shifts" && <ShiftsTab period={period} />}
         {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
-        {tab === "logistics" && view === "clients" && <ClientMapTab period={period} />}
         {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
       </div>
     </div>

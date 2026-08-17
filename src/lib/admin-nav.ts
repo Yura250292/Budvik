@@ -43,7 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
     //   /admin/erp/stats      → /admin/analytics?tab=purchases
     items: [
       { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, надходження, борги", iconKey: "chart", roles: AM },
-      { href: "/admin/sales-analytics", title: "Аналітика торгових", desc: "Продажі, КПІ та мотивація, поїздки", iconKey: "chart", roles: ALL },
+      { href: "/admin/sales-analytics", title: "Аналітика продажів", desc: "Прибуток і знижки, асортимент, клієнти, КПІ торгових", iconKey: "chart", roles: ALL },
       // Поруч із торговими: обидва розділи читають з тієї самої панелі,
       // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
       { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },

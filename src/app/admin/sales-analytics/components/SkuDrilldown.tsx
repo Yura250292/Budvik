@@ -7,6 +7,7 @@ import { money, num } from "@/components/ui/Stat";
 import { TableSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Провалювання в SKU: ширина асортименту по клієнтах.
@@ -153,8 +154,8 @@ export function SkuDrilldown({ period, rep }: { period: Period; rep: string }) {
           />
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+        <TableScroll stickyHeader minWidth={640}>
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="px-4 py-2.5">Клієнт</th>
@@ -199,7 +200,7 @@ export function SkuDrilldown({ period, rep }: { period: Period; rep: string }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
 
       {data && data.clients.length >= 500 && (

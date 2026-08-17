@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CATEGORICAL } from "@/lib/analytics/colors";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Зарплата водіїв за маршрутними листами.
@@ -184,8 +185,8 @@ export function PayrollTab({
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+          <TableScroll stickyHeader minWidth={900}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="px-4 py-2.5">Водій</th>
@@ -348,7 +349,7 @@ export function PayrollTab({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
 

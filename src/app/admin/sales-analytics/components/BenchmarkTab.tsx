@@ -12,6 +12,7 @@ import { InsightsPanel } from "./InsightsPanel";
 import { anchorResolver, type SourceResolver } from "./InsightCard";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Порівняння команди: хто де сильний, хто де провисає.
@@ -234,8 +235,8 @@ export function BenchmarkTab({ period }: { period: Period }) {
           />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] border-collapse text-sm">
+        <TableScroll stickyHeader minWidth={1100}>
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-y border-g300 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="sticky left-0 z-10 border-r border-g300 bg-g50 px-4 py-2.5">Торговий</th>
@@ -290,7 +291,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
               </tr>
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </Card>
       </div>
 
@@ -370,8 +371,8 @@ export function BenchmarkTab({ period }: { period: Period }) {
         </div>
 
         {showMatrix && gaps.length > 0 && (
-          <div className="overflow-x-auto border-t border-g300">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+          <TableScroll stickyHeader minWidth={900} className="border-t border-g300">
+            <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-g300 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="sticky left-0 z-10 border-r border-g300 bg-g50 px-4 py-2.5">Бренд</th>
@@ -418,7 +419,7 @@ export function BenchmarkTab({ period }: { period: Period }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         )}
       </Card>
       </div>

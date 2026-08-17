@@ -10,6 +10,7 @@ import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { CATEGORICAL, efficiencyStatus, tripStatus } from "@/lib/analytics/colors";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Поїздки з Telegram-бота: хто коли виїхав, скільки проїхав, де відмічався.
@@ -240,8 +241,8 @@ export function TripsTab({
               hint="«Км на точку» — головна метрика: високе значення означає багато їзди заради малої кількості візитів."
             />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+          <TableScroll stickyHeader minWidth={720}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="px-4 py-2.5">Торговий</th>
@@ -287,7 +288,7 @@ export function TripsTab({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
 
@@ -300,8 +301,8 @@ export function TripsTab({
             <EmptyState title="Немає поїздок за період" hint="Поїздки створює Telegram-бот, коли торговий надсилає локацію." />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+          <TableScroll stickyHeader minWidth={720}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="px-4 py-2.5">Торговий</th>
@@ -435,7 +436,7 @@ export function TripsTab({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         )}
       </Card>
     </div>

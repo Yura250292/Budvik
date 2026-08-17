@@ -18,6 +18,7 @@ import {
 } from "@/lib/erp/receivables";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Зведена по торгових: усі залежності в одному рядку.
@@ -270,8 +271,8 @@ export function SummaryTab({ period }: { period: Period }) {
           />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] text-sm">
+        <TableScroll stickyHeader minWidth={1180}>
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Торговий</th>
@@ -445,7 +446,7 @@ export function SummaryTab({ period }: { period: Period }) {
               </tr>
             </tfoot>
           </table>
-        </div>
+        </TableScroll>
 
         {data.unattributed.count > 0 && (
           <p className="border-t border-g100 px-4 py-3 text-xs text-g500">

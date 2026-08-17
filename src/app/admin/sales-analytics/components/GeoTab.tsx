@@ -112,7 +112,7 @@ export function GeoTab({ period }: { period: Period }) {
               hint="Клієнти є, а беруть мало: оборот на покупця вдвічі нижчий за медіану по містах"
             />
           </div>
-          <TableScroll minWidth={620}>
+          <TableScroll stickyHeader minWidth={620}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -156,7 +156,7 @@ export function GeoTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader title="Усі міста" hint="За оборотом за період" />
         </div>
-        <TableScroll minWidth={820}>
+        <TableScroll stickyHeader minWidth={820}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

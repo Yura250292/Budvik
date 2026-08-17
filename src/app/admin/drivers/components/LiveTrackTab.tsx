@@ -20,6 +20,7 @@ import dynamic from "next/dynamic";
 // відхиленнями не має розходитися з логікою.
 import { EXCURSION_MIN_MINUTES, EXCURSION_MIN_KM } from "@/lib/sales/deviation";
 import { TrackHealthCard } from "./TrackHealthCard";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 const TrackDayMap = dynamic(() => import("@/components/map/TrackDayMap"), {
   ssr: false,
@@ -334,7 +335,7 @@ export function LiveTrackTab() {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid #E5E7EB" }}>
+          <TableScroll stickyHeader className="rounded-xl border border-g200">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
@@ -408,7 +409,7 @@ export function LiveTrackTab() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
 
           {detail && detail.visits.length > 0 && (
             <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>

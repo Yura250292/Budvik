@@ -288,7 +288,7 @@ export default function StockLocationsPage() {
             ) : stocks.length === 0 ? (
               <div className="text-center py-8"><p style={{ color: "#9CA3AF", fontSize: "14px" }}>Товарів не знайдено</p></div>
             ) : (
-              <TableScroll minWidth={620}>
+              <TableScroll stickyHeader minWidth={620}>
                 <table style={{ width: "100%", fontSize: "14px" }}>
                   <thead>
                     <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>

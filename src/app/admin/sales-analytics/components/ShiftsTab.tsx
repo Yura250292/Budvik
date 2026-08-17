@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Period } from "@/components/ui/PeriodPicker";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 const ShiftTrackMap = dynamic(() => import("@/components/map/ShiftTrackMap"), {
   ssr: false,
@@ -231,7 +232,7 @@ export function ShiftsTab({ period }: { period: Period }) {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid #E5E7EB" }}>
+        <TableScroll stickyHeader className="rounded-xl border border-g200">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#F9FAFB" }}>
@@ -312,7 +313,7 @@ export function ShiftsTab({ period }: { period: Period }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
 
       {detail && (

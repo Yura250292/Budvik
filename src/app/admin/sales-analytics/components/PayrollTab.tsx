@@ -654,7 +654,7 @@ export function PayrollTab() {
             <TableSkeleton />
           </div>
         ) : (
-          <TableScroll minWidth={1280}>
+          <TableScroll stickyHeader minWidth={1280}>
             <table className="w-full text-sm">
               <thead>
                 {/* Груповий рядок: що вводиться, а що рахується само */}
@@ -888,7 +888,7 @@ export function PayrollTab() {
                 }`}
               />
             </div>
-            <TableScroll minWidth={640}>
+            <TableScroll stickyHeader minWidth={640}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

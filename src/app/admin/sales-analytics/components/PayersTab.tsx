@@ -158,7 +158,7 @@ export function PayersTab() {
               hint="Найпроблемніші зверху: критичні за сумою боргу, далі ризикові"
             />
           </div>
-          <TableScroll minWidth={960}>
+          <TableScroll stickyHeader minWidth={960}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

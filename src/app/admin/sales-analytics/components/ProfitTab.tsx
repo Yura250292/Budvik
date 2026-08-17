@@ -151,7 +151,7 @@ export function ProfitTab({ period, rep }: { period: Period; rep: string }) {
               hint="Бренди за валом, а не за оборотом. Тут видно найважливіше: великий оборот не означає великий заробіток."
             />
           </div>
-          <TableScroll minWidth={720}>
+          <TableScroll stickyHeader minWidth={720}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -206,7 +206,7 @@ export function ProfitTab({ period, rep }: { period: Period; rep: string }) {
               hint="Рентабельність часто обернено пропорційна обороту: великі клієнти вибивають знижки."
             />
           </div>
-          <TableScroll minWidth={680}>
+          <TableScroll stickyHeader minWidth={680}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

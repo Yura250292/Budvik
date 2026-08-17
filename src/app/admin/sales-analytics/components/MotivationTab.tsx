@@ -16,6 +16,7 @@ import {
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Налаштування мотивації: з чого торговий заробляє.
@@ -453,8 +454,8 @@ export function MotivationTab() {
           />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+        <TableScroll stickyHeader minWidth={720}>
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="px-4 py-2.5">Торговий</th>
@@ -541,7 +542,7 @@ export function MotivationTab() {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </Card>
     </div>
   );

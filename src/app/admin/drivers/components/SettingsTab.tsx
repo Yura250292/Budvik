@@ -5,6 +5,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Налаштування водіїв: прив'язка до 1С і ставки.
@@ -177,8 +178,8 @@ export function SettingsTab() {
             <EmptyState title="Усі водії прив'язані" hint="Нових водіїв з 1С не з'явилося." />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+          <TableScroll stickyHeader minWidth={720}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="px-4 py-2.5">Водій у 1С</th>
@@ -229,7 +230,7 @@ export function SettingsTab() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         )}
       </Card>
 
@@ -238,8 +239,8 @@ export function SettingsTab() {
           <div className="p-4 sm:p-5">
             <CardHeader title="Прив'язані водії" />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+          <TableScroll stickyHeader minWidth={640}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="px-4 py-2.5">Акаунт</th>
@@ -269,7 +270,7 @@ export function SettingsTab() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
 

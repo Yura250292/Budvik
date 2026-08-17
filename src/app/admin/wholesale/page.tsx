@@ -370,7 +370,7 @@ export default function AdminWholesalePage() {
             </div>
           ) : (
             <div className="bg-white border rounded-xl overflow-hidden">
-              <TableScroll minWidth={560}>
+              <TableScroll stickyHeader minWidth={560}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-g50 border-b">

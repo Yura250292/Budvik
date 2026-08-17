@@ -286,7 +286,7 @@ export default function ProcurementPage() {
             <span className="text-g400">{showBrands ? "▴" : "▾"}</span>
           </button>
           {showBrands && (
-          <TableScroll minWidth={560}>
+          <TableScroll stickyHeader minWidth={560}>
             <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>

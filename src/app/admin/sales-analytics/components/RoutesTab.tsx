@@ -17,6 +17,7 @@ import type {
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ZonePanel } from "./ZonePanel";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Маршрути: шаблони напрямків, тижневий розклад, оглядова мапа і мапа дня.
@@ -566,8 +567,8 @@ export function RoutesTab({
               hint="Який напрямок торговий об'їжджає в кожен день тижня. Разові заміни на конкретну дату мають пріоритет над цим розкладом."
             />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+          <TableScroll stickyHeader minWidth={720}>
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                   <th className="sticky left-0 z-10 bg-g50 px-4 py-2.5">Торговий</th>
@@ -629,7 +630,7 @@ export function RoutesTab({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
 

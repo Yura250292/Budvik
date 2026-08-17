@@ -9,6 +9,7 @@ import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { CATEGORICAL } from "@/lib/analytics/colors";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Логістика: кілометраж із бота × норма авто × ціна пального.
@@ -257,8 +258,8 @@ export function FuelTab({ period }: { period: Period }) {
           />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-sm">
+        <TableScroll stickyHeader minWidth={1040}>
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
                 <th className="px-4 py-2.5">Торговий</th>
@@ -465,7 +466,7 @@ export function FuelTab({ period }: { period: Period }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </Card>
     </div>
   );

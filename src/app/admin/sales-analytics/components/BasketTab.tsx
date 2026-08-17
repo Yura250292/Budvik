@@ -78,7 +78,7 @@ export function BasketTab({ period }: { period: Period }) {
             hint="Сортування — за силою звʼязку з поправкою на масштаб: угорі те, що і часто, і невипадково"
           />
         </div>
-        <TableScroll minWidth={860}>
+        <TableScroll stickyHeader minWidth={860}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

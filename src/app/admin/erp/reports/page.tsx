@@ -395,7 +395,7 @@ export default function AccountingReportsPage() {
 
             {report.receivables.debtors.length > 0 && (
               <div className="mt-4">
-                <TableScroll minWidth={520}>
+                <TableScroll stickyHeader minWidth={520}>
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-g200">
@@ -452,7 +452,7 @@ export default function AccountingReportsPage() {
               <p className="mt-1 text-xs text-g500">у {report.advances.count} клієнтів</p>
 
               <div className="mt-4">
-                <TableScroll minWidth={360}>
+                <TableScroll stickyHeader minWidth={360}>
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-g200">

@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Чернетка",
@@ -341,7 +342,7 @@ export default function PurchaseOrderDetailPage() {
 
         {/* Items table */}
         <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #EFEFEF" }}>
-          <div className="overflow-x-auto">
+          <TableScroll stickyHeader>
             <table className="w-full">
               <thead>
                 <tr style={{ background: "#FAFAFA", borderBottom: "1px solid #EFEFEF" }}>
@@ -425,7 +426,7 @@ export default function PurchaseOrderDetailPage() {
                 </tfoot>
               )}
             </table>
-          </div>
+          </TableScroll>
         </div>
       </div>
     </div>

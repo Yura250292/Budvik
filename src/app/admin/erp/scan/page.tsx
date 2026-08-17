@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 interface MatchedProduct {
   id: string;
@@ -321,7 +322,7 @@ export default function ScanPage() {
             {/* Items table */}
             <div className="bg-white rounded-xl p-5 mb-4" style={{ border: "1px solid #EFEFEF" }}>
               <h3 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px" }}>Товари ({editItems.length})</h3>
-              <div className="overflow-x-auto">
+              <TableScroll stickyHeader>
                 <table className="w-full">
                   <thead>
                     <tr style={{ borderBottom: "2px solid #E5E7EB" }}>
@@ -389,7 +390,7 @@ export default function ScanPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
             </div>
 
             {error && (

@@ -296,9 +296,16 @@ html {
 .table-sticky-head thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  /* Вище за заморожені лівi колонки (sticky left-0 z-10 у клітинках тіла) —
+     інакше при вертикальному скролі вони наїжджали б на шапку. */
+  z-index: 20;
   background: var(--color-g50);
   box-shadow: inset 0 1px 0 var(--color-g200), inset 0 -1px 0 var(--color-g200);
+}
+/* Кутова клітинка шапки (липка ще й уліво): вище за сусідні th, щоб при
+   горизонтальному скролі вони заїжджали під неї, а не поверх. */
+.table-sticky-head thead th[class~="left-0"] {
+  z-index: 25;
 }
 
 /* Мобільний drawer адмінки: підкладка і виїзд панелі */

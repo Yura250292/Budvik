@@ -11,6 +11,7 @@ import { ColorDot } from "@/components/ui/Badge";
 import { RepFilter, useRepFilter } from "@/components/ui/RepFilter";
 import { CATEGORICAL, STATUS, attainmentStatus } from "@/lib/analytics/colors";
 import { attainmentPercent, runRate } from "@/lib/motivation/engine";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * КПІ: місячні плани обороту, торговий × фірма (бренд).
@@ -291,7 +292,7 @@ export function PlansTab() {
           {saved && <p className="-mt-2 mb-2 text-xs text-g600">{saved}</p>}
         </div>
 
-        <div className="overflow-x-auto">
+        <TableScroll stickyHeader>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -369,7 +370,7 @@ export function PlansTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </Card>
     </div>
   );

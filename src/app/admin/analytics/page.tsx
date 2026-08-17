@@ -307,7 +307,7 @@ function AnalyticsPageInner() {
                 </div>
 
                 <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #EFEFEF" }}>
-                  <TableScroll minWidth={720}>
+                  <TableScroll stickyHeader minWidth={720}>
                     <table style={{ width: "100%", fontSize: "14px", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>
@@ -418,7 +418,7 @@ function AnalyticsPageInner() {
                       Оплат за цей період немає
                     </p>
                   ) : (
-                    <TableScroll minWidth={520}>
+                    <TableScroll stickyHeader minWidth={520}>
                       <table style={{ width: "100%", fontSize: "14px", borderCollapse: "collapse" }}>
                         <thead>
                           <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>
@@ -463,7 +463,7 @@ function AnalyticsPageInner() {
                       Боргів немає
                     </p>
                   ) : (
-                    <TableScroll minWidth={520}>
+                    <TableScroll stickyHeader minWidth={520}>
                       <table style={{ width: "100%", fontSize: "14px", borderCollapse: "collapse" }}>
                         <thead>
                           <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>

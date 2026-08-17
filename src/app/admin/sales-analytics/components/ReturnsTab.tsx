@@ -139,7 +139,7 @@ export function ReturnsTab({ period, rep }: { period: Period; rep: string | null
               hint="Частка рахується від обороту до вирахування повернень. Клік по рядку відкриває профіль."
             />
           </div>
-          <TableScroll minWidth={560}>
+          <TableScroll stickyHeader minWidth={560}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -183,7 +183,7 @@ export function ReturnsTab({ period, rep }: { period: Period; rep: string | null
           <div className="p-4 sm:p-5">
             <CardHeader title="Хто повертає" hint="Клієнти за сумою повернень" />
           </div>
-          <TableScroll minWidth={420}>
+          <TableScroll stickyHeader minWidth={420}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -211,7 +211,7 @@ export function ReturnsTab({ period, rep }: { period: Period; rep: string | null
           <div className="p-4 sm:p-5">
             <CardHeader title="Що повертають" hint="Товари за сумою повернень" />
           </div>
-          <TableScroll minWidth={460}>
+          <TableScroll stickyHeader minWidth={460}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -252,7 +252,7 @@ export function ReturnsTab({ period, rep }: { period: Period; rep: string | null
             }
           />
         </div>
-        <TableScroll minWidth={720}>
+        <TableScroll stickyHeader minWidth={720}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

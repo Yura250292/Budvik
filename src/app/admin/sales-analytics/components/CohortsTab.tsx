@@ -136,7 +136,7 @@ export function CohortsTab() {
             hint="Рядок — місяць першої покупки. Клітинки — % клієнтів когорти, активних через N місяців. Січень — стартова база (вся стара клієнтура), нових у ньому не видно."
           />
         </div>
-        <TableScroll minWidth={640}>
+        <TableScroll stickyHeader minWidth={640}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -198,7 +198,7 @@ export function CohortsTab() {
               hint="Оборот на місяць, поки клієнт купував. У кого вся історія коротша за місяць — це разова закупівля під обʼєкт, а не втрачений щомісячний дохід."
             />
           </div>
-          <TableScroll minWidth={760}>
+          <TableScroll stickyHeader minWidth={760}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

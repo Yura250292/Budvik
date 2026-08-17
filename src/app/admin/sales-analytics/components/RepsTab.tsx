@@ -10,6 +10,7 @@ import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
 import { categoricalColor } from "@/lib/analytics/colors";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Рейтинг торгових: продажі, кілометраж і виконання плану в одному рядку.
@@ -150,8 +151,8 @@ export function RepsTab({ period }: { period: Period }) {
         />
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
+      <TableScroll stickyHeader minWidth={900}>
+        <table className="w-full text-sm">
           <thead>
             <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
               <th className="px-4 py-2.5">Торговий</th>
@@ -256,7 +257,7 @@ export function RepsTab({ period }: { period: Period }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
     </Card>
   );
 }

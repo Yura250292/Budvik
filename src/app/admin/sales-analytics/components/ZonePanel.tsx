@@ -385,7 +385,7 @@ export function ZonePanel({
               hint="Спробуйте більший радіус або увімкніть приховані шари."
             />
           ) : (
-            <TableScroll minWidth={720} className="mt-3">
+            <TableScroll stickyHeader minWidth={720} className="mt-3">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-g200 text-left text-xs text-g500">

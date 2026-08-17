@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
  * Budvik працює як аналітичний центр: істина живе в 1С і надходить у Postgres
@@ -327,7 +328,7 @@ export default function IntegrationPage() {
             ) : logs.length === 0 ? (
               <p className="text-g400">Ще не було жодного імпорту</p>
             ) : (
-              <div className="overflow-x-auto">
+              <TableScroll stickyHeader>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-g400">
@@ -368,7 +369,7 @@ export default function IntegrationPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
             )}
           </div>
 

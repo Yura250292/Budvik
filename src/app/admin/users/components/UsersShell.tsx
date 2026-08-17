@@ -327,7 +327,7 @@ export function UsersShell() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-g200 bg-white">
-              <TableScroll minWidth={tableMinWidth}>
+              <TableScroll stickyHeader minWidth={tableMinWidth}>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-g200 bg-g100/60 text-left text-[11px] font-semibold uppercase tracking-wider text-g400">

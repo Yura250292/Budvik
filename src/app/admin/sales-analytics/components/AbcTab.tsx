@@ -211,7 +211,7 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
                   hint="Рядки — внесок у гроші, колонки — передбачуваність попиту. Місяць без продажів рахується нулем, тому епізодичний товар не виглядає стабільним."
                 />
               </div>
-              <TableScroll minWidth={640}>
+              <TableScroll stickyHeader minWidth={640}>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -269,7 +269,7 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
                 }
               />
             </div>
-            <TableScroll minWidth={960}>
+            <TableScroll stickyHeader minWidth={960}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

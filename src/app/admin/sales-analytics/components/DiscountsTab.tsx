@@ -129,7 +129,7 @@ export function DiscountsTab({ period, rep }: { period: Period; rep: string }) {
             hint="Порівнювати треба відсоток від власного обороту, а не суму: у кого більший оборот, у того й знижок більше в гривнях."
           />
         </div>
-        <TableScroll minWidth={860}>
+        <TableScroll stickyHeader minWidth={860}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -191,7 +191,7 @@ export function DiscountsTab({ period, rep }: { period: Period; rep: string }) {
               hint="Дивитись разом із рентабельністю: клієнт зі знижкою 12% і маржею 5% коштує дорожче, ніж приносить."
             />
           </div>
-          <TableScroll minWidth={800}>
+          <TableScroll stickyHeader minWidth={800}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -251,7 +251,7 @@ export function DiscountsTab({ period, rep }: { period: Period; rep: string }) {
               hint="Медіанна ціна проти фактичної. Якщо розрив стабільний — можливо, медіана застаріла і прайс варто переглянути."
             />
           </div>
-          <TableScroll minWidth={760}>
+          <TableScroll stickyHeader minWidth={760}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

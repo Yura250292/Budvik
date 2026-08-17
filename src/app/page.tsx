@@ -19,7 +19,7 @@ import BrandCard from "@/components/BrandCard";
 import HeroCta from "@/components/HeroCta";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
-import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, DEFAULT_SEASONAL_KEYWORDS } from "@/lib/seasonal";
+import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
 
 export default async function HomePage() {
   const season = getCurrentSeason();
@@ -89,6 +89,10 @@ export default async function HomePage() {
     seasonalConditions.push({ id: { in: seasonalProductIds } });
   }
 
+  // Мінус-слова лише для авторежиму: пошук за підрядком інакше тягне
+  // «Тепловентилятор» у літню добірку через слово «вентилятор».
+  const seasonalExclude = seasonalPromos.length > 0 ? [] : DEFAULT_SEASONAL_EXCLUDE[season];
+
   // Друга хвиля: сезонні товари і бестселери залежать від першої, але не
   // одне від одного — тож теж разом.
   const bestSellerIds = topOrderedItems.map((i) => i.productId);
@@ -101,6 +105,7 @@ export default async function HomePage() {
             price: { gte: 200 },
             AND: [{ image: { not: null } }, { NOT: { image: "" } }],
             OR: seasonalConditions,
+            NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
           },
           include: { category: true },
           orderBy: [{ priority: "desc" }, { stock: "desc" }],
@@ -120,9 +125,10 @@ export default async function HomePage() {
     ? seasonalPromos[0].title
     : `${seasonIcon} Сезонні товари — ${seasonLabel}`;
 
+  // «Літо» + «ових» давало «літоових робіт» — прикметник береться готовим.
   const seasonalDesc = seasonalPromos.length > 0 && seasonalPromos[0].description
     ? seasonalPromos[0].description
-    : `Актуальні інструменти для ${seasonLabel.toLowerCase()}ових робіт`;
+    : `Актуальні інструменти для ${getSeasonWorksLabel(season)} робіт`;
 
   const activeSeasonColor = seasonalPromos.length > 0 && seasonalPromos[0].color
     ? seasonalPromos[0].color

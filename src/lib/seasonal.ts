@@ -33,6 +33,17 @@ export function getSeasonIcon(season: Season): string {
   return icons[season];
 }
 
+/** «для весняних робіт» тощо — родовий відмінок множини для підзаголовка */
+export function getSeasonWorksLabel(season: Season): string {
+  const labels: Record<Season, string> = {
+    spring: "весняних",
+    summer: "літніх",
+    autumn: "осінніх",
+    winter: "зимових",
+  };
+  return labels[season];
+}
+
 export function getSeasonColor(season: Season): string {
   const colors: Record<Season, string> = {
     spring: "#22C55E",
@@ -65,4 +76,17 @@ export const DEFAULT_SEASONAL_KEYWORDS: Record<Season, string[]> = {
     "зварюванн", "шуруповерт", "набір біт", "набір головок",
     "ключ", "викрутк", "набір інструмент",
   ],
+};
+
+/**
+ * Анти-слова для автопідбору: пошук іде за підрядком у назві, тож «вентилятор»
+ * улітку ловить і «Тепловентилятор» (категорія «Обігрівачі» на головній у
+ * серпні). Мінус-список знімає такі колізії; застосовується лише в
+ * авторежимі — якщо промо задав адмін, його вибірку не фільтруємо.
+ */
+export const DEFAULT_SEASONAL_EXCLUDE: Record<Season, string[]> = {
+  spring: [],
+  summer: ["тепловентилятор", "обігрівач", "теплова гармата", "конвектор"],
+  autumn: [],
+  winter: [],
 };

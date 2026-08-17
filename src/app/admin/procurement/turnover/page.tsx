@@ -13,8 +13,9 @@
  * вкладені гроші, хоча цифра завищена на маржу.
  */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { StatCard, money, num } from "@/components/ui/Stat";
@@ -23,7 +24,7 @@ import { TableSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { TurnoverReport } from "@/lib/analytics/turnover";
-import { DEFAULT_VELOCITY_DAYS, VELOCITY_OPTIONS } from "@/lib/analytics/velocity-window";
+import { VELOCITY_OPTIONS, parseVelocityDays } from "@/lib/analytics/velocity-window";
 
 type Brand = { id: string; name: string; products: number };
 
@@ -49,9 +50,24 @@ function turnsTone(turns: number | null): "good" | "warn" | "bad" | "neutral" {
   return "bad";
 }
 
+/**
+ * Сторінка читає ?brandId= і ?days= з адреси, а не лише зі свого стану:
+ * з АІ-аналізу фірми сюди «провалюються» посиланням на конкретний бренд
+ * («SIGMA — 2,3 млн без руху, показати»), і без цього людина потрапляла б
+ * на весь склад і шукала той бренд руками.
+ */
 export default function TurnoverPage() {
-  const [brandId, setBrandId] = useState("");
-  const [days, setDays] = useState(DEFAULT_VELOCITY_DAYS);
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-g500">Завантаження…</div>}>
+      <TurnoverView />
+    </Suspense>
+  );
+}
+
+function TurnoverView() {
+  const params = useSearchParams();
+  const [brandId, setBrandId] = useState(() => params.get("brandId") ?? "");
+  const [days, setDays] = useState(() => parseVelocityDays(params.get("days")));
 
   const { data: brandsData } = useSWR<{ brands: Brand[] }>("/api/admin/procurement/brands", fetcher);
   const { data, error, isLoading } = useSWR<{ report: TurnoverReport }>(

@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/Badge";
 import { attainmentStatus } from "@/lib/analytics/colors";
 import { money, num } from "@/components/ui/Stat";
 import { InsightSections } from "@/app/admin/sales-analytics/components/InsightCard";
+import { DrillLink, DrillButton } from "./DrillLink";
+import { clientHref, receivablesHref, repHref } from "./links";
 import type { Insight } from "@/lib/ai/insights";
 
 type Action = {
@@ -97,7 +99,15 @@ const PRIORITY_LABEL: Record<number, string> = {
   3: "коли буде час",
 };
 
-export function RepBlocks({ payload, facts }: { payload: unknown; facts: unknown }) {
+export function RepBlocks({
+  payload,
+  facts,
+  period,
+}: {
+  payload: unknown;
+  facts: unknown;
+  period: { from: string; to: string };
+}) {
   const p = (payload ?? {}) as Payload;
   const f = (facts ?? {}) as Facts;
   const byId = new Map((f.торгові ?? []).map((r) => [r.repId, r]));
@@ -172,6 +182,17 @@ export function RepBlocks({ payload, facts }: { payload: unknown; facts: unknown
 
                 {isOpen && (
                   <div className="flex flex-col gap-4 border-t border-g100 bg-g50 px-4 py-4 sm:px-5">
+                    <div className="flex flex-wrap gap-2">
+                      <DrillButton href={repHref(block.repId, period.from, period.to)}>
+                        Профіль торгового
+                      </DrillButton>
+                      {(rf.дебіторка_станом_на_зараз?.усього ?? 0) > 0 && (
+                        <DrillButton href={receivablesHref(block.repId, period.from, period.to)}>
+                          Дебіторка
+                        </DrillButton>
+                      )}
+                    </div>
+
                     <RepStrengths block={block} facts={rf} />
                     {block.insights?.length > 0 && (
                       <section>
@@ -292,7 +313,13 @@ function RepActions({ block, facts }: { block: RepBlock; facts: RepFacts }) {
                   className="rounded-[var(--radius-card)] border border-g200 bg-white p-3"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium text-bk">{client.клієнт}</span>
+                    <DrillLink
+                      href={clientHref(action.clientId)}
+                      title="Показати клієнта на карті: останнє замовлення, борг, рекомендації"
+                      className="text-sm font-medium text-bk"
+                    >
+                      {client.клієнт}
+                    </DrillLink>
                     <span className="text-xs text-g400">
                       {PRIORITY_LABEL[action.priority] ?? "коли буде час"}
                     </span>

@@ -137,7 +137,7 @@ export function AiAnalysisShell() {
           title="Стратегія"
           query={query}
           period={period}
-          render={(payload, facts) => <StrategyBlocks payload={payload} facts={facts} />}
+          render={(payload, facts) => <StrategyBlocks payload={payload} facts={facts} period={period} />}
         />
       )}
 
@@ -148,7 +148,7 @@ export function AiAnalysisShell() {
           title="Торгові"
           query={query}
           period={period}
-          render={(payload, facts) => <RepBlocks payload={payload} facts={facts} />}
+          render={(payload, facts) => <RepBlocks payload={payload} facts={facts} period={period} />}
         />
       )}
 
@@ -159,7 +159,7 @@ export function AiAnalysisShell() {
           title="Товари"
           query={query}
           period={period}
-          render={(payload, facts) => <ProductBlocks payload={payload} facts={facts} />}
+          render={(payload, facts) => <ProductBlocks payload={payload} facts={facts} period={period} />}
         />
       )}
 
@@ -170,7 +170,7 @@ export function AiAnalysisShell() {
           title="Логістика"
           query={query}
           period={period}
-          render={(payload, facts) => <DriverBlocks payload={payload} facts={facts} />}
+          render={(payload, facts) => <DriverBlocks payload={payload} facts={facts} period={period} />}
         />
       )}
 

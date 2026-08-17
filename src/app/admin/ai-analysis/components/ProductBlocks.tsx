@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/Badge";
 import { TableScroll } from "@/components/ui/TableScroll";
 import { money, num } from "@/components/ui/Stat";
 import { InsightSections } from "@/app/admin/sales-analytics/components/InsightCard";
+import { DrillLink, DrillButton } from "./DrillLink";
+import { brandHref, procurementHref, productHref, turnoverHref } from "./links";
 import type { Insight } from "@/lib/ai/insights";
 
 type Payload = {
@@ -60,7 +62,14 @@ type Facts = {
     без_руху_на_суму: number | null;
     частка_мертвих_грошей_відсотків: number | null;
     найгірші_позиції?: StaleItem[];
-    найгірші_бренди?: Array<{ id: string; бренд: string; без_руху_на_суму: number | null }>;
+    найгірші_бренди?: Array<{
+      id: string;
+      бренд: string;
+      позицій?: number;
+      без_руху?: number;
+      запас_на_суму?: number | null;
+      без_руху_на_суму: number | null;
+    }>;
     акційний_потенціал?: {
       заморожено_всього: number | null;
       повернемо_зі_знижкою_10: number | null;
@@ -80,7 +89,15 @@ const ACTION_META: Record<string, { label: string; status: "bad" | "warn" | "inf
   WATCH: { label: "Спостерігати", status: "neutral" },
 };
 
-export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unknown }) {
+export function ProductBlocks({
+  payload,
+  facts,
+  period,
+}: {
+  payload: unknown;
+  facts: unknown;
+  period: { from: string; to: string };
+}) {
   const p = (payload ?? {}) as Payload;
   const f = (facts ?? {}) as Facts;
   const stock = f.склад_станом_на_зараз;
@@ -98,6 +115,7 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
           <CardHeader
             title="Склад станом на зараз"
             hint="Оцінка змішана: собівартість там, де відома, інакше ціна продажу"
+            action={<DrillButton href={turnoverHref()}>Уся оборотність</DrillButton>}
           />
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Metric label="Вартість запасу" value={`${money(stock.вартість_запасу ?? 0)} ₴`} />
@@ -126,7 +144,10 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
             <p className="mt-3 text-xs text-g500">
               Дефіцит: {num(f.дефіцит_станом_на_зараз.позицій_до_замовлення)} позицій до замовлення,
               з них {num(f.дефіцит_станом_на_зараз.пекучих_продається_і_скінчилось)} пекучих
-              (продається і скінчилось) на {money(f.дефіцит_станом_на_зараз.сума_закупівлі ?? 0)} ₴.
+              (продається і скінчилось) на {money(f.дефіцит_станом_на_зараз.сума_закупівлі ?? 0)} ₴.{" "}
+              <DrillLink href={procurementHref()} className="text-g600">
+                Що замовити
+              </DrillLink>
             </p>
           )}
         </Card>
@@ -138,6 +159,52 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
           <InsightSections insights={p.insights} />
         </Card>
       )}
+
+      {/* Бренди, у яких найбільше заморожених грошей. Стоїть одразу під
+          висновками навмисно: саме ці назви модель називає в тексті
+          («найбільше проблема в APRO і SIGMA»), і читач має мати змогу
+          натиснути й побачити, які саме позиції там лежать. */}
+      {stock?.найгірші_бренди?.length ? (
+        <Card>
+          <CardHeader
+            title="Де саме лежать мертві гроші"
+            hint="Бренди з найбільшою сумою без руху — натисніть, щоб побачити позиції"
+          />
+          <TableScroll minWidth={480}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-g200 text-left text-xs text-g500">
+                  <th className="pb-2 font-medium">Бренд</th>
+                  <th className="pb-2 text-right font-medium">Без руху</th>
+                  <th className="pb-2 text-right font-medium">Позицій</th>
+                  <th className="pb-2 text-right font-medium">Запас усього</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-g100">
+                {stock.найгірші_бренди.map((b) => (
+                  <tr key={b.id}>
+                    <td className="py-2 pr-2 font-medium text-bk">
+                      <DrillLink
+                        href={turnoverHref(b.id)}
+                        title={`Заморожені позиції бренду ${b.бренд}`}
+                      >
+                        {b.бренд}
+                      </DrillLink>
+                    </td>
+                    <td className="py-2 text-right font-medium text-red-700">
+                      {money(b.без_руху_на_суму ?? 0)} ₴
+                    </td>
+                    <td className="py-2 text-right text-g500">
+                      {b.без_руху != null ? `${num(b.без_руху)} з ${num(b.позицій ?? 0)}` : "—"}
+                    </td>
+                    <td className="py-2 text-right text-g700">{money(b.запас_на_суму ?? 0)} ₴</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+        </Card>
+      ) : null}
 
       {f.рентабельність_брендів?.length ? (
         <Card>
@@ -159,7 +226,14 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
               <tbody className="divide-y divide-g100">
                 {f.рентабельність_брендів.map((b) => (
                   <tr key={b.id}>
-                    <td className="py-2 pr-2 font-medium text-bk">{b.бренд}</td>
+                    <td className="py-2 pr-2 font-medium text-bk">
+                      <DrillLink
+                        href={brandHref(b.id, period.from, period.to)}
+                        title={`Продажі бренду ${b.бренд} за період`}
+                      >
+                        {b.бренд}
+                      </DrillLink>
+                    </td>
                     <td className="py-2 text-right text-g700">{money(b.оборот ?? 0)} ₴</td>
                     <td className="py-2 text-right text-g500">
                       {num(b.частка_обороту_відсотків ?? 0, 1)}%
@@ -201,6 +275,10 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
               if (!name) return null;
               const margin = brand?.рентабельність_відсотків ?? product?.рентабельність_відсотків;
               const amount = brand?.оборот ?? product?.оборот;
+              const href =
+                item.kind === "brand"
+                  ? brandHref(item.id, period.from, period.to)
+                  : productHref(item.id);
 
               return (
                 <li
@@ -208,7 +286,9 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
                   className="rounded-[var(--radius-card)] border border-g200 p-3"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium text-bk">{name}</span>
+                    <DrillLink href={href} className="text-sm font-medium text-bk">
+                      {name}
+                    </DrillLink>
                     <span className="flex items-center gap-1.5 text-xs text-g500">
                       <Badge status="neutral">{item.kind === "brand" ? "бренд" : "товар"}</Badge>
                       {amount != null && <span>{money(amount)} ₴</span>}
@@ -262,6 +342,9 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
               const name = stale?.товар ?? brand?.бренд;
               if (!name) return null;
               const meta = ACTION_META[item.action] ?? ACTION_META.WATCH;
+              // Товар веде в картку, бренд — у склад, звужений цим брендом:
+              // саме там видно, які позиції під ним заморожені.
+              const href = stale ? productHref(item.id) : turnoverHref(item.id);
 
               // Суму повернення беремо з фактів за глибиною, яку назвала
               // модель: так у картці стоїть порахована цифра, а не переказ.
@@ -273,7 +356,13 @@ export function ProductBlocks({ payload, facts }: { payload: unknown; facts: unk
               return (
                 <li key={item.id} className="rounded-[var(--radius-card)] border border-g200 p-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium text-bk">{name}</span>
+                    <DrillLink
+                      href={href}
+                      title={stale ? "Картка товару" : "Показати заморожені позиції цього бренду"}
+                      className="text-sm font-medium text-bk"
+                    >
+                      {name}
+                    </DrillLink>
                     <span className="flex items-center gap-1.5">
                       {item.action === "DISCOUNT" && item.discountPct != null && (
                         <Badge status="warn">знижка {num(item.discountPct)}%</Badge>

@@ -99,6 +99,23 @@ export async function buildRepsSectionFacts(period: Period) {
   // аналізувати. Повернення без продажів це не робота торгового за період,
   // а хвіст старої угоди.
   const active = revenue.filter((r) => r.docs > 0);
+
+  /*
+   * План по компанії — сума планів усіх торгових, а не план когось одного.
+   *
+   * На реальному прогоні модель узяла план ЄДИНОГО торгового, у якого він
+   * заведений (1 200 000 ₴), і оголосила «план серпня виконано на 40%» як
+   * висновок про всю фірму. Помилка не моделі: у фактах лежав один рядок
+   * плану без жодної позначки, чий він.
+   *
+   * Тому нижче йде і сума, і — головне — скільки торгових узагалі мають
+   * план. Плани заведені не всім, тож «виконання по компанії» описує лише
+   * тих, у кого вони є, і саме це має бути написано.
+   */
+  const repsWithPlan = active.filter((r) => (planByRep.get(r.repId) ?? 0) > 0);
+  const companyTarget = repsWithPlan.reduce((s, r) => s + (planByRep.get(r.repId) ?? 0), 0);
+  const companyFact = repsWithPlan.reduce((s, r) => s + (monthByRep.get(r.repId) ?? 0), 0);
+
   const candidates = await actionCandidatesByRep(
     active.map((r) => r.repId),
     period
@@ -179,14 +196,17 @@ export async function buildRepsSectionFacts(period: Period) {
         зміна_боргу_за_період: d?.hasOpening
           ? { на_початок: round(d.opening), на_кінець: round(d.closing), зміна: round(d.delta) }
           : "знімка на початок періоду немає",
+        // Підпис «чий це план» стоїть у самому об'єкті навмисно: без нього
+        // модель прочитала персональний план як загальнокомандний.
         план_на_місяць: target > 0
           ? {
+              чий: `особистий план торгового ${nameById.get(r.repId) ?? "—"}, не команди`,
               місяць: month.month,
               план: round(target),
               факт: round(fact),
               виконання_відсотків: round(attainmentPercent("REVENUE", fact, target), 1),
             }
-          : "план на місяць не заданий",
+          : "особистий план на місяць не заданий",
         кандидати_дій: описДій(list),
         кандидатів_за_типами: порахованоДій,
       };
@@ -213,6 +233,8 @@ export async function buildRepsSectionFacts(period: Period) {
     як_читати: {
       оборот_і_маржа: `потік за період ${period.fromDay} — ${period.toDay}`,
       план: `календарний місяць ${month.month} (плани в системі місячні)`,
+      плани_персональні:
+        "план у блоці торгового — ОСОБИСТИЙ план цієї людини. Робити з нього висновок про фірму не можна: для компанії є окремий блок план_на_місяць_по_компанії, і він охоплює лише тих, кому план узагалі заведено",
       борги: "сальдо станом на зараз, не на кінець періоду",
       рентабельність:
         "вал = сума документа мінус собівартість його рядків, лише по документах із відомою собівартістю; дивись покриття_собівартістю_відсотків",
@@ -231,6 +253,20 @@ export async function buildRepsSectionFacts(period: Period) {
           ? round(marginValues[Math.floor(marginValues.length / 2)], 1)
           : null,
     },
+    план_на_місяць_по_компанії:
+      companyTarget > 0
+        ? {
+            місяць: month.month,
+            план: round(companyTarget),
+            факт: round(companyFact),
+            виконання_відсотків: round(
+              attainmentPercent("REVENUE", companyFact, companyTarget),
+              1
+            ),
+            охоплення: `план заведено ${repsWithPlan.length} із ${active.length} торгових — цифра описує лише їх`,
+            торгові_з_планом: repsWithPlan.map((r) => nameById.get(r.repId) ?? "—"),
+          }
+        : "жодному торговому не заведено план на цей місяць — про виконання плану по компанії висновків не роби",
     торгові,
   };
 }

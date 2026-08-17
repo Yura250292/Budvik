@@ -12,6 +12,8 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { money, num } from "@/components/ui/Stat";
 import { formatValue } from "@/app/admin/sales-analytics/components/InsightCard";
+import { DrillLink } from "./DrillLink";
+import { driverHref, repHref, turnoverHref } from "./links";
 import type { InsightEvidence } from "@/lib/ai/insights";
 
 type Payload = {
@@ -46,7 +48,15 @@ const AREA_META: Record<string, { label: string; status: "bad" | "warn" | "info"
   finance: { label: "Гроші", status: "bad" },
 };
 
-export function StrategyBlocks({ payload, facts }: { payload: unknown; facts: unknown }) {
+export function StrategyBlocks({
+  payload,
+  facts,
+  period,
+}: {
+  payload: unknown;
+  facts: unknown;
+  period: { from: string; to: string };
+}) {
   const p = (payload ?? {}) as Payload;
   const f = (facts ?? {}) as Facts;
   const c = f.компанія;
@@ -82,6 +92,7 @@ export function StrategyBlocks({ payload, facts }: { payload: unknown; facts: un
                   ? `${num(c.склад_частка_мертвих_грошей_відсотків, 1)}% запасу`
                   : undefined
               }
+              href={turnoverHref()}
               alarm
             />
             <Metric label="Зарплата водіїв" value={`${money(c.логістика_зарплата ?? 0)} ₴`} />
@@ -157,12 +168,18 @@ export function StrategyBlocks({ payload, facts }: { payload: unknown; facts: un
                     {group.list.map((person) => {
                       const who = names.get(person.personId);
                       if (!who) return null;
+                      const href =
+                        person.role === "driver"
+                          ? driverHref(person.personId, period.from, period.to)
+                          : repHref(person.personId, period.from, period.to);
                       return (
                         <li
                           key={person.personId}
                           className="rounded-[var(--radius-card)] border border-g200 p-3"
                         >
-                          <span className="text-sm font-medium text-bk">{who.name}</span>
+                          <DrillLink href={href} className="text-sm font-medium text-bk">
+                            {who.name}
+                          </DrillLink>
                           <p className="mt-1 text-sm leading-relaxed text-g700">{person.focus}</p>
                         </li>
                       );
@@ -181,17 +198,28 @@ function Metric({
   label,
   value,
   hint,
+  href,
   alarm,
 }: {
   label: string;
   value: string;
   hint?: string;
+  /** Куди «провалитись» за цією цифрою */
+  href?: string;
   alarm?: boolean;
 }) {
   return (
     <div>
       <dt className="text-xs text-g500">{label}</dt>
-      <dd className={`text-base font-semibold ${alarm ? "text-red-700" : "text-bk"}`}>{value}</dd>
+      <dd className={`text-base font-semibold ${alarm ? "text-red-700" : "text-bk"}`}>
+        {href ? (
+          <DrillLink href={href} className={alarm ? "text-red-700" : "text-bk"}>
+            {value}
+          </DrillLink>
+        ) : (
+          value
+        )}
+      </dd>
       {hint && <p className="text-xs text-g400">{hint}</p>}
     </div>
   );

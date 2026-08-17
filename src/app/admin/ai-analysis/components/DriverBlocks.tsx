@@ -13,6 +13,8 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { money, num } from "@/components/ui/Stat";
 import { InsightSections } from "@/app/admin/sales-analytics/components/InsightCard";
+import { DrillButton } from "./DrillLink";
+import { driverHref } from "./links";
 import type { Insight } from "@/lib/ai/insights";
 
 type Payload = {
@@ -64,7 +66,15 @@ type Facts = {
   водії?: DriverFacts[];
 };
 
-export function DriverBlocks({ payload, facts }: { payload: unknown; facts: unknown }) {
+export function DriverBlocks({
+  payload,
+  facts,
+  period,
+}: {
+  payload: unknown;
+  facts: unknown;
+  period: { from: string; to: string };
+}) {
   const p = (payload ?? {}) as Payload;
   const f = (facts ?? {}) as Facts;
   const byId = new Map((f.водії ?? []).map((d) => [d.driverId, d]));
@@ -172,6 +182,12 @@ export function DriverBlocks({ payload, facts }: { payload: unknown; facts: unkn
 
                   {isOpen && (
                     <div className="flex flex-col gap-4 border-t border-g100 bg-g50 px-4 py-4 sm:px-5">
+                      <div className="flex flex-wrap gap-2">
+                        <DrillButton href={driverHref(block.driverId, period.from, period.to)}>
+                          Зарплата і маршрутні листи
+                        </DrillButton>
+                      </div>
+
                       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <Metric label="Км на точку" value={num(d.км_на_точку ?? 0, 1)} />
                         <Metric

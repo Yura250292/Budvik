@@ -467,6 +467,12 @@ const PROMPTS: Record<CompanySection, string> = {
 низьке, рентабельність описує лише частину обороту, і це треба казати
 вголос, а не подавати як показник по всьому обороту.
 
+ПРО ПЛАНИ. У блоці кожного торгового лежить ЙОГО ОСОБИСТИЙ план. Робити з
+нього висновок про фірму не можна: «план серпня виконано на 40%» —
+неправда, якщо це план однієї людини. Для компанії є окремий блок
+план_на_місяць_по_компанії; у ньому вказано, скільком торговим план узагалі
+заведено, і згадувати це обов'язково, бо решта команди в цифру не входить.
+
 ЧОГО В ДАНИХ НЕМАЄ: причин повернень, змісту розмов із клієнтами, причин
 відмов. Констатуй факти, не пояснюй мотиви людей.
 
@@ -588,11 +594,51 @@ type Rejection = { kept: unknown; rejected: number };
  * рядок дії з чужим id, блок людини з чужим repId. Валити весь звіт через
  * один поганий рядок було б гірше — решта висновків нормальні.
  */
+/**
+ * Розгортає відповідь, яку модель загорнула в рядок.
+ *
+ * Регулярний випадок, а не рідкість: замість заповнити поля схеми модель
+ * кладе ВЕСЬ об'єкт відповіді як JSON-текст в одне з полів — наприклад
+ * `{"reps": "{\"team\":[],\"reps\":[…]}"}`. Схема це пропускає, бо рядок теж
+ * валідне значення до перевірки типу, і без розгортання звіт мовчки виходив
+ * порожнім при rejected = 0: керівник бачив «нічого вартого уваги» там, де
+ * модель насправді все написала.
+ *
+ * Той самий клас помилки, що ловить extractInsights у insights.ts, але на
+ * рівень вище: там рятували один масив, тут — увесь payload секції.
+ */
+function unwrapPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+
+  const obj = payload as Record<string, unknown>;
+  for (const value of Object.values(obj)) {
+    if (typeof value !== "string") continue;
+    const text = value.trim();
+    if (!text.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      // Розгортаємо лише якщо всередині справді структура відповіді, а не
+      // випадковий JSON у текстовому полі коментаря.
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const keys = Object.keys(parsed);
+        if (keys.some((k) => Object.prototype.hasOwnProperty.call(obj, k))) {
+          return { ...obj, ...(parsed as Record<string, unknown>) };
+        }
+      }
+    } catch {
+      // Не JSON — лишаємо як є.
+    }
+  }
+  return payload;
+}
+
 export function validateCompanyPayload(
   section: CompanySection,
-  payload: unknown,
+  rawPayload: unknown,
   facts: unknown
 ): Rejection {
+  const payload = unwrapPayload(rawPayload);
+
   const numbers = new Set<number>();
   collectNumbers(facts, numbers);
   const ids = new Set<string>();
@@ -780,21 +826,72 @@ async function callModel(
 /**
  * Скільки торгових аналізувати одним запитом.
  *
- * На дев'ятьох людях відповідь не вкладалася й у 16 тис. токенів: на кожного
- * йде ~1,5 тис. (три сильні сторони, три слабкі, три інсайти з доказами і до
- * восьми дій із коментарями), і модель обривалася на півслові. Пачка по три
- * лишає запас навіть на найактивнішому торговому з повним чеклістом.
+ * Троє: на кожного йде ~1,5 тис. токенів відповіді (три сильні сторони, три
+ * слабкі, три інсайти з доказами і до восьми дій із коментарями), і дев'ятеро
+ * разом не вкладалися в ліміт виводу.
+ *
+ * Порожні пачки, які тут спостерігалися, обсягом НЕ пояснювалися: порожньою
+ * поверталася й пачка з однієї людини. Причина була в тому, що модель клала
+ * всю відповідь рядком в одне поле — це лікує unwrapPayload, а не менша пачка.
  *
  * Пачки йдуть послідовно, а не паралельно: одночасні запити з однаковим
- * великим контекстом упираються в ліміти API, а виграш у часі невеликий —
- * звіт однаково генерується натисканням і раз на добу.
+ * великим контекстом упираються в ліміти API.
  */
 const REPS_PER_CALL = 3;
 
-/** Факти секції торгових зі звуженим списком людей. */
+/**
+ * Скільки кандидатів дій показувати МОДЕЛІ на одного торгового.
+ *
+ * У фактах їх до 25 — стільки бачить керівник в інтерфейсі. Але схема
+ * дозволяє щонайбільше 8 дій у відповіді, тож решта 17 лише роздувають вхід:
+ * саме на трійці найактивніших це переповнювало запит, і пачка поверталася
+ * порожньою. Беремо перші 10 — вони вже впорядковані правилами за
+ * важливістю, а моделі лишається розставити акценти й пояснити.
+ */
+const CANDIDATES_FOR_MODEL = 10;
+
+/**
+ * Найважливіші кандидати з КОЖНОГО типу, а не перші поспіль.
+ *
+ * У фактах кандидати лежать блоками: спершу всі борги, потім усі ризики
+ * втрати і так далі. Просте обрізання списку викинуло б цілі типи — модель
+ * не побачила б жодного клієнта «розпрацювати». Тому беремо по колу: перший
+ * борг, перший ризик, перше відновлення… і так, доки не набереться ліміт.
+ * Усередині типу порядок правил зберігається, а він уже за важливістю.
+ */
+function topCandidates(list: unknown[], limit: number): unknown[] {
+  if (list.length <= limit) return list;
+
+  const byKind = new Map<string, unknown[]>();
+  for (const item of list) {
+    const kind = String((item as { тип?: unknown }).тип ?? "");
+    byKind.set(kind, [...(byKind.get(kind) ?? []), item]);
+  }
+
+  const out: unknown[] = [];
+  const queues = [...byKind.values()];
+  for (let round = 0; out.length < limit; round++) {
+    let added = false;
+    for (const queue of queues) {
+      if (round >= queue.length) continue;
+      out.push(queue[round]);
+      added = true;
+      if (out.length >= limit) break;
+    }
+    if (!added) break;
+  }
+  return out;
+}
+
+/** Факти секції торгових зі звуженим списком людей і вкороченими чеклістами. */
 function sliceRepsFacts(facts: unknown, from: number, to: number): unknown {
-  const f = facts as { торгові?: unknown[] };
-  return { ...(facts as object), торгові: (f.торгові ?? []).slice(from, to) };
+  const f = facts as { торгові?: Array<Record<string, unknown>> };
+  const торгові = (f.торгові ?? []).slice(from, to).map((rep) => {
+    const list = rep["кандидати_дій"];
+    if (!Array.isArray(list) || list.length <= CANDIDATES_FOR_MODEL) return rep;
+    return { ...rep, кандидати_дій: topCandidates(list, CANDIDATES_FOR_MODEL) };
+  });
+  return { ...(facts as object), торгові };
 }
 
 /**
@@ -856,12 +953,36 @@ function assertNotEmpty(
   );
 }
 
+/** Скільки людей у пачці лишити, щоб згорнутий блок був стислим. */
+const SHORT_REP_KEYS = ["repId", "торговий", "за_період", "план_на_місяць"] as const;
+
 /**
- * Секція «Торгові» пачками.
+ * Стислий опис торгового — для запиту про команду.
  *
- * Кожна пачка бачить ті самі спільні цифри (підсумок компанії, медіани), але
- * лише своїх людей — тому висновки про команду просимо тільки в першої, інакше
- * кожна пачка описувала б команду по-своєму, дивлячись на третину людей.
+ * Висновки про команду треба робити, БАЧИВШИ ВСІХ. Але повні блоки дев'яти
+ * людей із кандидатами дій — це той самий обсяг, який не влазить у відповідь.
+ * Тому для командного запиту з кожного лишаються лише підсумкові цифри, без
+ * списків клієнтів: порівнювати людей між собою вони дозволяють, а місця
+ * займають у рази менше.
+ */
+function shortRep(rep: unknown): Record<string, unknown> {
+  const r = rep as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of SHORT_REP_KEYS) out[key] = r[key];
+  out["кандидатів_за_типами"] = r["кандидатів_за_типами"];
+  out["дебіторка_станом_на_зараз"] = r["дебіторка_станом_на_зараз"];
+  out["темп"] = r["темп"];
+  out["портфель"] = r["портфель"];
+  return out;
+}
+
+/**
+ * Секція «Торгові»: команда одним запитом, люди — пачками.
+ *
+ * Спершу окремий виклик про команду на СКОРОЧЕНИХ фактах усіх людей: у
+ * попередній схемі команду описувала перша пачка, яка бачила лише трьох із
+ * дев'яти, і на семи торгових вона просто мовчала — розділ виходив без
+ * жодного загального висновку.
  */
 async function generateRepsSection(
   client: Anthropic,
@@ -877,8 +998,29 @@ async function generateRepsSection(
   let tokens = 0;
   let rejected = 0;
 
+  // 1. Команда — на всіх, але коротко.
+  const teamFacts = { ...(facts as object), торгові: all.map(shortRep) };
+  try {
+    const { raw, tokens: used } = await callModel(
+      client,
+      "reps",
+      teamFacts,
+      `Дані охоплюють усіх ${all.length} торгових зі скороченими показниками. ` +
+        `Зроби ЛИШЕ висновки про команду загалом (поле team). Поле reps залиш порожнім — ` +
+        `блоки по людях збираються окремо.`
+    );
+    tokens += used;
+    const { kept, rejected: dropped } = validateCompanyPayload("reps", raw, teamFacts);
+    rejected += dropped;
+    team.push(...(kept as RepsPayload).team);
+  } catch (e) {
+    // Команда — не привід валити весь розділ: блоки по людях цінніші, і
+    // без загальних висновків звіт лишається корисним.
+    console.warn(`company-insights[reps]: команда не вдалася — ${(e as Error).message}`);
+  }
+
+  // 2. Блоки по людях — пачками.
   for (let start = 0; start < all.length; start += REPS_PER_CALL) {
-    const isFirst = start === 0;
     const slice = sliceRepsFacts(facts, start, start + REPS_PER_CALL);
     const names = (slice as { торгові: Array<{ торговий?: string }> }).торгові
       .map((r) => r.торговий ?? "—")
@@ -886,32 +1028,50 @@ async function generateRepsSection(
 
     const expected = (slice as { торгові: unknown[] }).торгові.length;
 
-    // Вимога «блок на кожного» повторюється тут переліком імен навмисно. На
-    // реальному прогоні остання пачка (троє з оборотом 21–23 тис.) вернулася
-    // порожньою: модель вирішила, що про малі числа писати нема чого. Але
-    // керівникові саме такий блок і потрібен — щоб побачити, що людина майже
-    // не продає, і поговорити про це.
-    const { raw, tokens: used } = await callModel(
-      client,
-      "reps",
-      slice,
-      isFirst
-        ? `Це перша частина команди із ${all.length} торгових: ${names}. Дай блок на КОЖНОГО з цих ${expected} людей і висновки про команду загалом, спираючись на підсумок компанії та медіани.`
-        : `Це наступна частина команди із ${all.length} торгових: ${names}. Висновки про команду вже зроблено раніше — поле team залиш порожнім. Дай блок на КОЖНОГО з цих ${expected} людей, навіть якщо оборот у когось малий: «майже не продає» — це теж висновок, і саме він потрібен керівникові.`
-    );
+    /*
+     * Вимога «блок на кожного» повторюється переліком імен навмисно, і одна
+     * спроба повторюється при порожній відповіді.
+     *
+     * На реальних прогонах модель двічі мовчки пропускала останню пачку —
+     * там опинялися люди з найменшим оборотом (7–20 тис.), і вона вирішувала,
+     * що писати нема про що. Але керівникові саме такий блок і потрібен: щоб
+     * побачити, що людина майже не продає, і поговорити про це.
+     */
+    let part: RepsPayload = { team: [], reps: [] };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const insist =
+        attempt === 0
+          ? ""
+          : "ПОПЕРЕДНЯ СПРОБА ПОВЕРНУЛА ПОРОЖНІЙ СПИСОК. Блок обов'язковий для кожного, навіть якщо людина майже не продає — так і напиши. ";
 
-    const { kept, rejected: dropped } = validateCompanyPayload("reps", raw, slice);
-    const part = kept as RepsPayload;
+      const { raw, tokens: used } = await callModel(
+        client,
+        "reps",
+        slice,
+        `${insist}Частина команди із ${all.length} торгових: ${names}. ` +
+          `Поле team залиш ПОРОЖНІМ — висновки про команду вже зроблено окремо. ` +
+          `Дай блок на КОЖНОГО з цих ${expected} людей, навіть якщо оборот малий: ` +
+          `«майже не продає» — це теж висновок, і саме він потрібен керівникові.`
+      );
 
-    tokens += used;
-    rejected += dropped;
-    if (isFirst) team.push(...part.team);
+      tokens += used;
+      const { kept, rejected: dropped } = validateCompanyPayload("reps", raw, slice);
+      rejected += dropped;
+      part = kept as RepsPayload;
+
+      if (part.reps.length > 0) break;
+      console.warn(
+        `company-insights[reps]: пачка ${names} порожня (спроба ${attempt + 1})` +
+          (dropped > 0 ? `, відкинуто ${dropped}` : "") +
+          ` | сира відповідь: ${JSON.stringify(raw).slice(0, 300)}`
+      );
+    }
+
     reps.push(...part.reps);
 
     if (part.reps.length < expected) {
       console.warn(
-        `company-insights[reps]: пачка ${names} — отримано ${part.reps.length} блоків із ${expected}` +
-          (dropped > 0 ? ` (відкинуто ${dropped})` : "")
+        `company-insights[reps]: пачка ${names} — отримано ${part.reps.length} блоків із ${expected}`
       );
     }
   }

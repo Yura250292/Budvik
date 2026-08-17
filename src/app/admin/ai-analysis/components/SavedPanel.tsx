@@ -63,12 +63,26 @@ function formatWhen(iso: string): string {
   }).format(new Date(iso));
 }
 
-/** Той самий рендер, що й у свіжого звіту — за видом секції. */
-function renderSection(kind: string, payload: unknown, facts: unknown): ReactNode {
-  if (kind === "company_reps") return <RepBlocks payload={payload} facts={facts} />;
-  if (kind === "company_products") return <ProductBlocks payload={payload} facts={facts} />;
-  if (kind === "company_logistics") return <DriverBlocks payload={payload} facts={facts} />;
-  return <StrategyBlocks payload={payload} facts={facts} />;
+/**
+ * Той самий рендер, що й у свіжого звіту — за видом секції.
+ *
+ * Період береться з самого звіту, а не зі стану сторінки: посилання
+ * «провалитись» із архівного звіту мають вести на ті самі дати, за якими
+ * його зробили, інакше цифри на живій сторінці не зійдуться зі звітом.
+ */
+function renderSection(
+  kind: string,
+  payload: unknown,
+  facts: unknown,
+  period: { from: string; to: string }
+): ReactNode {
+  if (kind === "company_reps")
+    return <RepBlocks payload={payload} facts={facts} period={period} />;
+  if (kind === "company_products")
+    return <ProductBlocks payload={payload} facts={facts} period={period} />;
+  if (kind === "company_logistics")
+    return <DriverBlocks payload={payload} facts={facts} period={period} />;
+  return <StrategyBlocks payload={payload} facts={facts} period={period} />;
 }
 
 export function SavedPanel() {
@@ -248,7 +262,10 @@ export function SavedPanel() {
                             {full.model} · {full.tokens.toLocaleString("uk-UA")} токенів витрачено
                             при генерації · збережено {formatWhen(full.createdAt)}
                           </p>
-                          {renderSection(full.kind, full.insights, full.facts)}
+                          {renderSection(full.kind, full.insights, full.facts, {
+                            from: full.fromDay,
+                            to: full.toDay,
+                          })}
                         </>
                       ) : null}
                     </div>

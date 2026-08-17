@@ -148,7 +148,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             сторінок липнуть до верху цієї області й не можуть перекрити
             шапку шелла чи drawer, попри свій z-50.
           */}
-          <main className="isolate flex-1 overflow-y-auto overflow-x-hidden">
+          <main
+            data-admin-scroll=""
+            className="isolate min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+          >
             <TabsViewport>{children}</TabsViewport>
           </main>
           <AdminBottomNav

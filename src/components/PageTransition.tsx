@@ -40,8 +40,12 @@ export default function PageTransition({ children }: { children: React.ReactNode
     });
   }, [pathname]);
 
+  // flex-колонка з min-h-0: цей div стоїть між body (flex-колонка) і
+  // кореневим <main>. Без нього flex-1 на main упирався б у div звичайної
+  // висоти, і повноекранні шелли (адмінка, торговий, водій) не отримували б
+  // рівно 100dvh — з'являвся б другий, зовнішній скрол.
   return (
-    <div ref={elRef}>
+    <div ref={elRef} className="flex min-h-0 flex-1 flex-col">
       {children}
     </div>
   );

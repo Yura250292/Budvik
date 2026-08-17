@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import PageTransition from "@/components/PageTransition";
+import AppMain from "@/components/AppMain";
 import TestBanner from "@/components/TestBanner";
 
 export const metadata: Metadata = {
@@ -63,7 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Header />
           <TestBanner />
           <PageTransition>
-            <main className="flex-1 pb-20 md:pb-0">{children}</main>
+            <AppMain>{children}</AppMain>
           </PageTransition>
           <Footer />
           <BottomNav />

@@ -94,7 +94,10 @@ export function AiAnalysisShell() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    // pb-28 — той самий запас, що на решті сторінок адмінки: без нього
+    // останній блок упирається рівно в край скрол-контейнера і читається як
+    // обрізаний.
+    <div className="flex flex-col gap-4 p-4 pb-28 md:p-6 md:pb-28">
       <header className="flex flex-col gap-3">
         <div>
           <h1 className="text-xl font-semibold text-bk">AI аналіз фірми</h1>

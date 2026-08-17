@@ -30,7 +30,10 @@ export default function TabsViewport({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!keepAlive) return;
-    const scroller = document.querySelector("main");
+    // Саме [data-admin-scroll], а не "main": кореневий layout вітрини має
+    // власний <main> вище по дереву, і querySelector("main") повертав його —
+    // елемент без скролу взагалі. Позиція вкладок через це не відновлювалась.
+    const scroller = document.querySelector("[data-admin-scroll]");
     if (!scroller) return;
 
     const key = `${activeTabId ?? ""}:${pathname}`;

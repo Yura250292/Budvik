@@ -65,6 +65,21 @@ export type XyzClass = "X" | "Y" | "Z";
 /** За яким виміром групувати: товар, бренд чи клієнт. */
 export type AbcDimension = "product" | "brand" | "client";
 
+/**
+ * За чим рахувати класи: оборот чи валовий прибуток.
+ *
+ * Це різні списки, і різниця в них — головне, що дає ABC. Товар може
+ * стояти в топі продажів і майже не приносити маржі: за оборотом він A,
+ * за прибутком C. Продавати його далі, як «локомотив», — рішення, але
+ * усвідомлене, а не за замовчуванням.
+ *
+ * ВАЖЛИВО: за прибутком у вибірку потрапляють лише рядки з відомою
+ * собівартістю (purchasePrice > 0). Позиції без неї не «нульові» — вони
+ * невідомі, і показувати їх у класі C означало б збрехати. Тому звіт
+ * віддає `coverage` — частку обороту, для якої прибуток порахований.
+ */
+export type AbcBasis = "amount" | "profit";
+
 export type AbcRow = {
   id: string;
   name: string;
@@ -72,6 +87,13 @@ export type AbcRow = {
   brandName?: string | null;
   /** Оборот нетто за період (повернення вже відняті). */
   amount: number;
+  /**
+   * Валовий прибуток: виручка мінус собівартість, лише по рядках із
+   * відомою собівартістю. Нуль означає «немає даних», не «нульова маржа».
+   */
+  profit: number;
+  /** Рентабельність цієї позиції, % — null, якщо собівартість невідома. */
+  marginPct: number | null;
   /** Кількість нетто. */
   qty: number;
   /** Скільки документів зачепило позицію — «разове чи регулярне». */
@@ -109,6 +131,14 @@ export type AbcXyzCell = {
 
 export type AbcReport = {
   dimension: AbcDimension;
+  /** Чи класи рахувалися за оборотом, чи за прибутком. */
+  basis: AbcBasis;
+  /**
+   * Частка обороту, для якої собівартість відома, %. При basis = "profit"
+   * фронт зобов'язаний це показати: класи за прибутком, порахованим із
+   * половини даних, — інша річ, ніж за повними.
+   */
+  coverage: number;
   /** Місяців у періоді — від них залежить, чи рахувався XYZ узагалі. */
   months: number;
   xyzAvailable: boolean;
@@ -123,6 +153,9 @@ type RawRow = {
   name: string | null;
   brandName: string | null;
   amount: number;
+  profit: number;
+  /** Виручка тих рядків, де собівартість відома — знаменник маржі. */
+  costedAmount: number;
   qty: number;
   docs: number;
   /** Помісячні суми, вже відсортовані за місяцем. */
@@ -213,7 +246,8 @@ export async function buildAbcReport(
   to: Date,
   dimension: AbcDimension = "product",
   repId?: string | null,
-  limit = 500
+  limit = 500,
+  basis: AbcBasis = "amount"
 ): Promise<AbcReport> {
   from = clampFrom(from);
   const dim = dimensionSql(dimension);
@@ -230,6 +264,13 @@ export async function buildAbcReport(
         ${dimension === "product" ? Prisma.sql`MIN(b.name)` : Prisma.sql`NULL::text`} AS "brandName",
         date_trunc('month', s."createdAt" AT TIME ZONE 'Europe/Kyiv') AS m,
         SUM(i.quantity * i."sellingPrice")::float AS amount,
+        -- Прибуток і його база — лише по рядках із відомою собівартістю.
+        -- Рядок без неї не «нульова маржа», а невідома, і мовчки зарахувати
+        -- його виручку в прибуток означало б завищити маржу позиції.
+        COALESCE(SUM((i."sellingPrice" - i."purchasePrice") * i.quantity)
+          FILTER (WHERE i."purchasePrice" > 0), 0)::float AS profit,
+        COALESCE(SUM(i."sellingPrice" * i.quantity)
+          FILTER (WHERE i."purchasePrice" > 0), 0)::float AS "costedAmount",
         SUM(i.quantity)::float AS qty,
         COUNT(DISTINCT s.id)::int AS docs
       FROM "SalesDocumentItem" i
@@ -246,24 +287,37 @@ export async function buildAbcReport(
       MIN(name) AS name,
       MIN("brandName") AS "brandName",
       SUM(amount)::float AS amount,
+      SUM(profit)::float AS profit,
+      SUM("costedAmount")::float AS "costedAmount",
       SUM(qty)::float AS qty,
       SUM(docs)::int AS docs,
-      array_agg(amount ORDER BY m)::float[] AS monthly,
+      -- Варіація (XYZ) рахується по тій самій величині, що й класи: за
+      -- прибутком «стабільний» означає стабільну маржу, а не оборот.
+      array_agg(${basis === "profit" ? Prisma.sql`profit` : Prisma.sql`amount`} ORDER BY m)::float[] AS monthly,
       COUNT(*)::int AS "activeMonths"
     FROM monthly
     GROUP BY id
     HAVING SUM(amount) > 0
-    ORDER BY amount DESC
+    ORDER BY ${basis === "profit" ? Prisma.sql`SUM(profit)` : Prisma.sql`SUM(amount)`} DESC
   `;
 
   // Позиції з нульовим або від'ємним нетто (повернули більше, ніж купили)
   // відсіяні в HAVING: у Парето вони не мають сенсу — накопичена частка
   // від них почала б спадати, і межі класів попливли б.
-  const total = rows.reduce((s, r) => s + r.amount, 0);
+  // База класифікації: оборот або прибуток. Позиції зі збитком (від'ємний
+  // прибуток) у Парето не працюють — накопичена частка від них спадає, і
+  // межі класів пливуть. Тому при basis = "profit" вони відсіюються, але
+  // лишаються в загальному покритті: збиток — не «немає даних».
+  const valueOf = (r: RawRow) => (basis === "profit" ? r.profit : r.amount);
+  const ranked = basis === "profit" ? rows.filter((r) => r.profit > 0) : rows;
+
+  const total = ranked.reduce((s, r) => s + valueOf(r), 0);
+  const revenueTotal = rows.reduce((s, r) => s + r.amount, 0);
+  const costedTotal = rows.reduce((s, r) => s + r.costedAmount, 0);
 
   let cumulative = 0;
-  const all: AbcRow[] = rows.map((r) => {
-    cumulative += r.amount;
+  const all: AbcRow[] = ranked.map((r) => {
+    cumulative += valueOf(r);
     const cumShare = total > 0 ? cumulative / total : 0;
     const abc: AbcClass = cumShare <= ABC_A ? "A" : cumShare <= ABC_B ? "B" : "C";
     const variation = variationOf(r.monthly ?? [], months);
@@ -273,9 +327,11 @@ export async function buildAbcReport(
       name: r.name ?? "—",
       brandName: dimension === "product" ? r.brandName : undefined,
       amount: r.amount,
+      profit: r.profit,
+      marginPct: r.costedAmount > 0 ? (r.profit / r.costedAmount) * 100 : null,
       qty: r.qty,
       docs: r.docs,
-      share: total > 0 ? (r.amount / total) * 100 : 0,
+      share: total > 0 ? (valueOf(r) / total) * 100 : 0,
       cumShare: cumShare * 100,
       abc,
       xyz: xyzOf(variation),
@@ -289,7 +345,9 @@ export async function buildAbcReport(
   // в топ-500», і сума часток перестала б давати сто відсотків.
   const summary: AbcSummary[] = (["A", "B", "C"] as const).map((cls) => {
     const part = all.filter((r) => r.abc === cls);
-    const amount = part.reduce((s, r) => s + r.amount, 0);
+    // Підсумок класу — у тих самих одиницях, що й класифікація: інакше
+    // «клас A = 80%» не збіглося б із сумою його ж рядків.
+    const amount = part.reduce((s, r) => s + (basis === "profit" ? r.profit : r.amount), 0);
     return {
       abc: cls,
       count: part.length,
@@ -308,13 +366,21 @@ export async function buildAbcReport(
         abc,
         xyz,
         count: part.length,
-        amount: part.reduce((s, r) => s + r.amount, 0),
+        // У тих самих одиницях, що й класи — див. коментар у summary.
+        amount: part.reduce((s, r) => s + (basis === "profit" ? r.profit : r.amount), 0),
       });
     }
   }
 
   return {
     dimension,
+    basis,
+    // Обрізаємо сотнею: costedAmount рахує виручку рядків із собівартістю,
+    // а revenueTotal — нетто-оборот. Повернення мають собівартість, але
+    // від'ємну виручку, тож на даних із поверненнями відношення трохи
+    // перевищує 1 (виміряно 100,5%). Це не 100,5% покриття, а межа точності
+    // самого показника — і показувати «100,5%» було б безглуздо.
+    coverage: revenueTotal > 0 ? Math.min(100, (costedTotal / revenueTotal) * 100) : 0,
     months,
     xyzAvailable: months >= XYZ_MIN_MONTHS,
     total,

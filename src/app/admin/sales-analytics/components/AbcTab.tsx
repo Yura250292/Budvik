@@ -24,10 +24,14 @@ import { ErrorBox } from "@/components/ui/ErrorBox";
 type AbcClass = "A" | "B" | "C";
 type XyzClass = "X" | "Y" | "Z";
 type Dimension = "product" | "brand" | "client";
+type Basis = "amount" | "profit";
 
 type AbcResponse = {
   period: { from: string; to: string; days: number; clamped: boolean };
   dimension: Dimension;
+  basis: Basis;
+  /** Частка обороту з відомою собівартістю, %. */
+  coverage: number;
   months: number;
   xyzAvailable: boolean;
   total: number;
@@ -37,6 +41,8 @@ type AbcResponse = {
     name: string;
     brandName?: string | null;
     amount: number;
+    profit: number;
+    marginPct: number | null;
     qty: number;
     docs: number;
     share: number;
@@ -55,6 +61,15 @@ type AbcResponse = {
   }>;
   matrix: Array<{ abc: AbcClass; xyz: XyzClass; count: number; amount: number }>;
 };
+
+const BASES: Array<{ key: Basis; label: string; hint: string }> = [
+  { key: "amount", label: "за оборотом", hint: "класи A/B/C за часткою в обороті" },
+  {
+    key: "profit",
+    label: "за прибутком",
+    hint: "класи за часткою у валі — товар може бути в топі продажів і майже без маржі",
+  },
+];
 
 const DIMENSIONS: Array<{ key: Dimension; label: string }> = [
   { key: "product", label: "Товари" },
@@ -97,10 +112,11 @@ function abcTone(cls: AbcClass): "good" | "warn" | "neutral" {
 
 export function AbcTab({ period, rep }: { period: Period; rep: string | null }) {
   const [dimension, setDimension] = useState<Dimension>("product");
+  const [basis, setBasis] = useState<Basis>("amount");
 
   const repParam = rep ? `&rep=${rep}` : "";
   const { data, loading, error, reload } = useApi<AbcResponse>(
-    `/api/admin/sales-analytics/abc?from=${period.from}&to=${period.to}&dimension=${dimension}${repParam}`
+    `/api/admin/sales-analytics/abc?from=${period.from}&to=${period.to}&dimension=${dimension}&basis=${basis}${repParam}`
   );
 
   const switcher = (
@@ -116,6 +132,23 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
           }`}
         >
           {d.label}
+        </button>
+      ))}
+      {/* База класифікації. Окрема група кнопок, а не ще один вимір: «товари
+          за прибутком» і «клієнти за прибутком» — це перетин двох виборів. */}
+      <span className="mx-1 w-px self-stretch bg-g200" aria-hidden />
+      {BASES.map((b) => (
+        <button
+          key={b.key}
+          type="button"
+          onClick={() => setBasis(b.key)}
+          aria-pressed={basis === b.key}
+          title={b.hint}
+          className={`cursor-pointer rounded-[var(--radius-btn)] px-3 py-1.5 text-[13px] font-medium transition-colors ${
+            basis === b.key ? "bg-bk text-white" : "bg-g100 text-g600 hover:text-bk"
+          }`}
+        >
+          {b.label}
         </button>
       ))}
     </div>
@@ -159,10 +192,14 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
               />
             ))}
             <StatCard
-              label="Оборот за період"
+              label={basis === "profit" ? "Вал за період" : "Оборот за період"}
               value={money(data.total)}
               unit="₴"
-              hint={`${ABC_MEANING.A} — ${num(data.summary.find((s) => s.abc === "A")?.count ?? 0)} шт.`}
+              hint={
+                basis === "profit"
+                  ? `собівартість відома для ${num(data.coverage, 0)}% обороту · клас A — ${num(data.summary.find((s) => s.abc === "A")?.count ?? 0)} шт.`
+                  : `${ABC_MEANING.A} — ${num(data.summary.find((s) => s.abc === "A")?.count ?? 0)} шт.`
+              }
             />
           </div>
 
@@ -232,7 +269,7 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
                 }
               />
             </div>
-            <TableScroll minWidth={820}>
+            <TableScroll minWidth={960}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -240,7 +277,11 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
                       {dimension === "client" ? "Клієнт" : dimension === "brand" ? "Бренд" : "Товар"}
                     </th>
                     <th className="px-4 py-2.5 text-right">Оборот, грн</th>
-                    <th className="px-4 py-2.5 text-right">Частка</th>
+                    <th className="px-4 py-2.5 text-right">Вал, грн</th>
+                    <th className="px-4 py-2.5 text-right">Рент.</th>
+                    <th className="px-4 py-2.5 text-right">
+                      Частка{basis === "profit" ? " валу" : ""}
+                    </th>
                     <th className="px-4 py-2.5 text-right">Накопичено</th>
                     <th className="px-4 py-2.5 text-right">Док.</th>
                     <th className="px-4 py-2.5 text-center">ABC</th>
@@ -258,6 +299,20 @@ export function AbcTab({ period, rep }: { period: Period; rep: string | null }) 
                       </td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">
                         {money(r.amount)}
+                      </td>
+                      {/* Вал і рентабельність позиції. При basis="profit" саме вал є
+                          базою класу, тож він виділений; інакше довідково. */}
+                      <td className={`px-4 py-3 text-right tabular-nums ${basis === "profit" ? "font-semibold text-bk" : "text-g600"}`}>
+                        {r.profit !== 0 ? money(r.profit) : <span className="text-g400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {r.marginPct === null ? (
+                          <span className="text-g400">—</span>
+                        ) : (
+                          <span className={r.marginPct < 5 ? "font-medium text-red-600" : "text-g600"}>
+                            {num(r.marginPct, 1)}%
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-g600">
                         {num(r.share, 1)}%

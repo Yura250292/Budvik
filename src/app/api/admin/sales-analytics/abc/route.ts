@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parsePeriod } from "@/lib/analytics/period";
-import { buildAbcReport, type AbcDimension } from "@/lib/analytics/abc";
+import { buildAbcReport, type AbcBasis, type AbcDimension } from "@/lib/analytics/abc";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +44,15 @@ export async function GET(req: Request) {
   const dimParam = url.searchParams.get("dimension") as AbcDimension | null;
   const dimension: AbcDimension = dimParam && DIMENSIONS.has(dimParam) ? dimParam : "product";
 
+  // Оборот за замовчуванням: класи за прибутком мають сенс лише там, де
+  // приїхала собівартість, а це залежить від періоду.
+  const basisParam = url.searchParams.get("basis");
+  const basis: AbcBasis = basisParam === "profit" ? "profit" : "amount";
+
   // Торговий бачить лише власні продажі, що б не стояло в параметрах.
   const restrictToRep = isFullAccess ? repFilter : (userId ?? null);
 
-  const report = await buildAbcReport(period.from, period.to, dimension, restrictToRep, ROWS_LIMIT);
+  const report = await buildAbcReport(period.from, period.to, dimension, restrictToRep, ROWS_LIMIT, basis);
 
   return NextResponse.json({
     period: { from: period.fromDay, to: period.toDay, days: period.days, clamped: period.clamped },

@@ -69,7 +69,7 @@ function RegisterForm() {
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-g50 py-12 px-4">
       <div className="max-w-md w-full bg-white rounded-xl shadow-md p-8">
-        <h1 className="text-2xl font-bold text-center text-bk mb-6">Реєстрація в Budvik</h1>
+        <h1 className="text-2xl font-bold text-center text-bk mb-6">Реєстрація в БУДВІК27</h1>
 
         {/* Банер «50 Болтів бонусу» прихований разом із програмою лояльності. */}
 

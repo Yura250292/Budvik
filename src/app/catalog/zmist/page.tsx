@@ -5,7 +5,7 @@ import { getCatalogToc } from "@/lib/catalog/sections";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 
 export const metadata = {
-  title: "Зміст каталогу — Budvik",
+  title: "Зміст каталогу — Budvik27",
   description: "Уся номенклатура за групами товарів",
 };
 

@@ -49,7 +49,7 @@ export default function CheckoutPage() {
   if (loading) {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
-        <div className="animate-spin w-10 h-10 border-3 border-orange-600 border-t-transparent rounded-full mx-auto" />
+        <div className="animate-spin w-10 h-10 border-3 border-[#FFD600] border-t-transparent rounded-full mx-auto" />
       </div>
     );
   }
@@ -58,7 +58,7 @@ export default function CheckoutPage() {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
         <p className="text-red-600 font-bold">Замовлення не знайдено</p>
-        <Link href="/dashboard/orders" className="text-orange-600 hover:underline mt-4 inline-block">
+        <Link href="/dashboard/orders" className="text-[#FFB800] hover:underline mt-4 inline-block">
           Мої замовлення
         </Link>
       </div>
@@ -138,7 +138,7 @@ export default function CheckoutPage() {
               <div className="flex flex-col gap-3">
                 <Link
                   href="/dashboard/orders"
-                  className="bg-orange-600 text-white py-3 rounded-lg font-semibold hover:bg-orange-500 transition text-center"
+                  className="btn-primary py-3 text-center"
                 >
                   Мої замовлення
                 </Link>

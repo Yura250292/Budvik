@@ -82,7 +82,7 @@ function LoginForm() {
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-g50 py-12 px-4">
       <div className="max-w-md w-full bg-white rounded-xl shadow-md p-8">
-        <h1 className="text-2xl font-bold text-center text-bk mb-6">Вхід до Budvik</h1>
+        <h1 className="text-2xl font-bold text-center text-bk mb-6">Вхід до БУДВІК27</h1>
 
         {error && (
           <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>

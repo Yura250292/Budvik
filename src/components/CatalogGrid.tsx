@@ -18,6 +18,7 @@ interface Product {
   stock: number;
   image?: string | null;
   category?: { name: string } | null;
+  brand?: { name: string } | null;
 }
 
 export default function CatalogGrid({ products }: { products: Product[] }) {

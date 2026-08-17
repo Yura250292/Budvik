@@ -6,6 +6,7 @@ import Image from "next/image";
 import { getCompareList, removeFromCompare, clearCompare } from "@/lib/compare";
 import { addToCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/utils";
+import { productLabel } from "@/lib/catalog/category-display";
 
 interface FullProduct {
   id: string;
@@ -21,6 +22,7 @@ interface FullProduct {
   chuckMm: number | null;
   weightKg: number | null;
   category: { name: string };
+  brand: { name: string } | null;
 }
 
 const SPEC_ROWS: { key: keyof FullProduct; label: string; format?: (v: any) => string }[] = [
@@ -171,12 +173,12 @@ export default function ComparePage() {
                 ))}
               </tr>
 
-              {/* Category — hide "Імпорт з 1С" */}
+              {/* Категорія, а для звалища «Імпорт з 1С» — бренд */}
               <tr className="border-t border-[#EFEFEF]">
                 <td className="py-4 text-sm font-medium text-[#9E9E9E]">Категорія</td>
                 {products.map((p) => (
                   <td key={p.id} className="py-4 text-center text-sm text-[#555]">
-                    {p.category?.name && !p.category.name.includes("Імпорт") ? p.category.name : "—"}
+                    {productLabel(p.category, p.brand) ?? "—"}
                   </td>
                 ))}
               </tr>

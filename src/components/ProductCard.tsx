@@ -10,6 +10,7 @@ import { toggleCompare, isInCompare } from "@/lib/compare";
 import { useSession } from "next-auth/react";
 import { useWholesaleDiscounts } from "@/lib/useWholesaleDiscounts";
 import { getWholesalePrice } from "@/lib/wholesale-price-calc";
+import { productLabel } from "@/lib/catalog/category-display";
 
 type ViewMode = "grid" | "list" | "gallery";
 
@@ -26,10 +27,12 @@ interface ProductCardProps {
   stock: number;
   image?: string | null;
   category?: { name: string };
+  brand?: { name: string } | null;
   viewMode?: ViewMode;
 }
 
-export default function ProductCard({ id, name, slug, description, price, wholesalePrice, isPromo, promoPrice, promoLabel, stock, image, category, viewMode = "grid" }: ProductCardProps) {
+export default function ProductCard({ id, name, slug, description, price, wholesalePrice, isPromo, promoPrice, promoLabel, stock, image, category, brand, viewMode = "grid" }: ProductCardProps) {
+  const label = productLabel(category, brand);
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const isWholesale = role === "WHOLESALE";
@@ -191,8 +194,8 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           </div>
           {/* Info */}
           <div className="p-3 sm:p-5">
-            {category && !/^\d+$/.test(category.name) && (
-              <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{category.name}</span>
+            {label && (
+              <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{label}</span>
             )}
             <h3 className={`text-sm sm:text-lg font-semibold mb-1 transition ${stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"}`}>
               {name}
@@ -304,10 +307,10 @@ export default function ProductCard({ id, name, slug, description, price, wholes
         </div>
 
         <div className="p-2.5 sm:p-4">
-          {/* Category badge */}
-          {category && !/^\d+$/.test(category.name) && (
+          {/* Категорія, а якщо вона службова — бренд */}
+          {label && (
             <span className="inline-block text-[8px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1 sm:px-2 py-0.5 rounded mb-1 sm:mb-2 font-medium truncate max-w-full">
-              {category.name}
+              {label}
             </span>
           )}
 

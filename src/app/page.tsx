@@ -47,7 +47,7 @@ export default async function HomePage() {
         AND: [{ image: { not: null } }, { NOT: { image: "" } }],
         OR: popularKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
       },
-      include: { category: true },
+      include: { category: true, brand: { select: { name: true } } },
       take: 8,
       orderBy: { price: "asc" },
     }),
@@ -107,7 +107,7 @@ export default async function HomePage() {
             OR: seasonalConditions,
             NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
           },
-          include: { category: true },
+          include: { category: true, brand: { select: { name: true } } },
           orderBy: [{ priority: "desc" }, { stock: "desc" }],
           take: 8,
         })
@@ -115,7 +115,7 @@ export default async function HomePage() {
     bestSellerIds.length > 0
       ? prisma.product.findMany({
           where: { id: { in: bestSellerIds }, isActive: true, stock: { gt: 0 }, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
-          include: { category: true },
+          include: { category: true, brand: { select: { name: true } } },
         })
       : Promise.resolve([]),
   ]);

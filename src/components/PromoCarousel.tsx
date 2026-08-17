@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
+import { productLabel } from "@/lib/catalog/category-display";
 
 interface PromoProduct {
   id: string;
@@ -16,6 +17,7 @@ interface PromoProduct {
   image: string | null;
   stock: number;
   category: { name: string };
+  brand?: { name: string } | null;
 }
 
 export default function PromoCarousel({ products }: { products: PromoProduct[] }) {
@@ -112,7 +114,11 @@ export default function PromoCarousel({ products }: { products: PromoProduct[] }
               </div>
 
               <div className="p-3 sm:p-4">
-                <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1.5 sm:px-2 py-0.5 rounded-md mb-1.5 sm:mb-2 font-medium truncate max-w-full">{product.category.name}</span>
+                {productLabel(product.category, product.brand) && (
+                  <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-1.5 sm:px-2 py-0.5 rounded-md mb-1.5 sm:mb-2 font-medium truncate max-w-full">
+                    {productLabel(product.category, product.brand)}
+                  </span>
+                )}
                 <h3 className="font-semibold text-[#0A0A0A] group-hover:text-[#FFB800] transition duration-200 mb-2 line-clamp-2 text-[13px] sm:text-sm leading-snug">
                   {product.name}
                 </h3>

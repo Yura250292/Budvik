@@ -8,8 +8,6 @@ import { CardSkeleton } from "@/components/ui/Skeleton";
 import { STATUS, CATEGORICAL, NEUTRAL } from "@/lib/analytics/colors";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
-import { InsightsPanel } from "./InsightsPanel";
-import { anchorResolver, type SourceResolver } from "./InsightCard";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 import { TableScroll } from "@/components/ui/TableScroll";
@@ -119,14 +117,6 @@ export function BenchmarkTab({ period }: { period: Period }) {
     [roster]
   );
 
-  // Посилання «джерело» з інсайту про бренди мусить спершу розгорнути
-  // матрицю — інакше якір скролив би до згорнутої картки без таблиці.
-  const resolveSource = useCallback<SourceResolver>((source) => {
-    const link = anchorResolver(source);
-    if (!link) return null;
-    return source === "brands" ? { ...link, onClick: () => setShowMatrix(true) } : link;
-  }, []);
-
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (loading && !data) return <CardSkeleton rows={8} />;
   if (!data) return null;
@@ -209,17 +199,30 @@ export function BenchmarkTab({ period }: { period: Period }) {
         </Card>
       )}
 
-      <InsightsPanel
-        endpoint={`/api/admin/sales-analytics/insights/team?from=${period.from}&to=${period.to}${repsQS}`}
-        title={picked ? `АІ-аналіз обраних (${picked.size})` : "АІ-аналіз команди"}
-        hint={
-          picked
-            ? "Аналіз лише обраних торгових: перцентилі й медіани — всередині вибірки. Такий звіт не кешується — генерується щоразу."
-            : "Хто витягує команду, хто провисає і в чому саме. Порівняння за перцентилями, числа пораховані з бази."
-        }
-        saveContext={{ kind: "team", fromDay: period.from, toDay: period.to }}
-        resolveSource={resolveSource}
-      />
+      {/*
+        Командний АІ-аналіз переїхав у розділ «AI аналіз фірми».
+        Тут стояла панель, яка робила те саме — читала ті самі цифри й
+        описувала ту саму команду, але без чеклістів дзвінків по клієнтах і
+        без переходів у дані. Тримати два аналізи означало платити токенами
+        двічі за одну відповідь; лишилося посилання на повний.
+      */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-bk">АІ-аналіз команди</h2>
+            <p className="mt-0.5 text-xs text-g500">
+              Переїхав у «AI аналіз фірми»: там по кожному торговому сильні й слабкі сторони,
+              кому дзвонити і навіщо, плюс товари, логістика і стратегія.
+            </p>
+          </div>
+          <Link
+            href={`/admin/ai-analysis?tab=reps&from=${period.from}&to=${period.to}`}
+            className="shrink-0 cursor-pointer rounded-[var(--radius-btn)] bg-bk px-3.5 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Відкрити аналіз
+          </Link>
+        </div>
+      </Card>
 
       {/* id-якорі (team-*) — цілі посилань «джерело» з АІ-інсайтів */}
       <div id="team-benchmark" className="scroll-mt-20">

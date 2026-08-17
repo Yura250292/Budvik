@@ -34,6 +34,12 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const { month, periodStart, from, to } = parseMonth(searchParams.get("month"));
 
+  // Метрика плану: оборот (типово) або вал. Плани по обороту й по прибутку
+  // живуть у SalesPlan окремими рядками, тож і читати їх треба окремо —
+  // змішати в одній таблиці означало б порівнювати гривні з гривнями, які
+  // означають різне.
+  const metric = searchParams.get("metric") === "PROFIT" ? "PROFIT" : "REVENUE";
+
   const requestedRep = searchParams.get("repId");
   const repFilter = isFullAccess ? (requestedRep && requestedRep !== "ALL" ? requestedRep : null) : session.user.id;
 
@@ -41,7 +47,7 @@ export async function GET(req: NextRequest) {
     prisma.salesPlan.findMany({
       where: {
         period: "MONTH",
-        metric: "REVENUE",
+        metric,
         periodStart,
         ...(repFilter ? { repId: repFilter } : {}),
       },
@@ -61,12 +67,16 @@ export async function GET(req: NextRequest) {
     revenueByRepBrand(from, to, repFilter),
   ]);
 
+  // Факт залежить від метрики: для PROFIT це вал, для REVENUE — оборот.
+  const factOf = (r: { amount: number; profit: number }) =>
+    metric === "PROFIT" ? r.profit : r.amount;
+
   const totalByRep = new Map(byRep.map((r) => [r.repId, r]));
   const brandKey = (repId: string, brandId: string | null) => `${repId}::${brandId ?? ""}`;
   const brandActual = new Map<string, number>();
   for (const row of byRepBrand) {
     if (!row.brandId) continue; // «Без бренду» не має плану — див. нижче
-    brandActual.set(brandKey(row.repId, row.brandId), row.amount);
+    brandActual.set(brandKey(row.repId, row.brandId), factOf(row));
   }
 
   const planned = new Map(plans.map((p) => [brandKey(p.repId ?? "", p.brandId), p.targetValue]));
@@ -85,7 +95,8 @@ export async function GET(req: NextRequest) {
   const brandNameById = new Map(brands.map((b) => [b.id, b.name]));
 
   for (const rep of reps) {
-    const totalActual = totalByRep.get(rep.id)?.amount ?? 0;
+    const totalRow = totalByRep.get(rep.id);
+    const totalActual = totalRow ? factOf(totalRow) : 0;
     const totalTarget = planned.get(brandKey(rep.id, null)) ?? 0;
 
     rows.push({
@@ -95,7 +106,7 @@ export async function GET(req: NextRequest) {
       brandName: null,
       target: totalTarget,
       actual: totalActual,
-      attainment: attainmentPercent("REVENUE", totalActual, totalTarget),
+      attainment: attainmentPercent(metric, totalActual, totalTarget),
     });
 
     for (const brand of brands) {
@@ -110,7 +121,7 @@ export async function GET(req: NextRequest) {
         brandName: brandNameById.get(brand.id) ?? null,
         target,
         actual,
-        attainment: attainmentPercent("REVENUE", actual, target),
+        attainment: attainmentPercent(metric, actual, target),
       });
     }
   }
@@ -130,12 +141,13 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     month,
+    metric,
     scope: isFullAccess ? (repFilter ? "single" : "all") : "own",
     rows,
     totals: {
       target: teamTarget,
       actual: teamActual,
-      attainment: attainmentPercent("REVENUE", teamActual, teamTarget),
+      attainment: attainmentPercent(metric, teamActual, teamTarget),
     },
     // Темп рахуємо по команді загалом і по кожному торговому: керівник
     // дивиться, чи витягне місяць відділ, торговий — чи витягне він сам.

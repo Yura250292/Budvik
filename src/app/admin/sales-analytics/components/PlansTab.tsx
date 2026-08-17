@@ -53,17 +53,24 @@ const cellKey = (repId: string, brandId: string | null) => `${repId}::${brandId 
 export function PlansTab() {
   const [month, setMonth] = useState(() => kyivToday().slice(0, 7));
   const [mode, setMode] = useState<"edit" | "view">("view");
+  /**
+   * Метрика плану: оборот або вал. Плани по них — окремі рядки в базі, тож
+   * перемикач не перезаписує один одним, а показує інший набір цілей.
+   */
+  const [metric, setMetric] = useState<"REVENUE" | "PROFIT">("REVENUE");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   const repFilter = useRepFilter("kpi.plans.hiddenReps");
 
-  const plans = useApi<PlansResponse>(`/api/admin/sales-plans?month=${month}`);
-  const attainment = useApi<AttainmentResponse>(`/api/admin/sales-plans/attainment?month=${month}`);
+  const plans = useApi<PlansResponse>(`/api/admin/sales-plans?month=${month}&metric=${metric}`);
+  const attainment = useApi<AttainmentResponse>(`/api/admin/sales-plans/attainment?month=${month}&metric=${metric}`);
 
   // Чернетка перезаливається з сервера при зміні місяця — інакше значення
   // попереднього місяця «перетікали» б у новий і збереглися випадково.
+  // Скидається і при зміні метрики: інакше цифри плану обороту лишились би
+  // у полях, коли перемкнути на вал, і збереглися б як план по прибутку.
   useEffect(() => {
     if (!plans.data) return;
     const next: Record<string, string> = {};
@@ -122,7 +129,7 @@ export function PlansTab() {
       const res = await fetch("/api/admin/sales-plans", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, entries }),
+        body: JSON.stringify({ month, metric, entries }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти");
@@ -225,14 +232,48 @@ export function PlansTab() {
         </div>
       )}
 
+      {/* Метрика плану. Оборот і вал — окремі набори цілей: план «продати на
+          мільйон» і план «заробити 150 тисяч» живуть у базі різними рядками,
+          тож перемикач показує інші цифри, а не переводить ті самі. */}
+      <div className="flex gap-1" role="group" aria-label="Метрика плану">
+        {(
+          [
+            { key: "REVENUE" as const, label: "план обороту" },
+            { key: "PROFIT" as const, label: "план валу" },
+          ]
+        ).map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => setMetric(m.key)}
+            aria-pressed={metric === m.key}
+            className={`cursor-pointer rounded-[var(--radius-btn)] px-3 py-1.5 text-[13px] font-medium transition-colors ${
+              metric === m.key ? "bg-bk text-white" : "bg-g100 text-g600 hover:text-bk"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
       <Card padded={false}>
         <div className="p-4 sm:p-5">
           <CardHeader
-            title={mode === "edit" ? "Плани обороту на місяць" : "Виконання планів"}
+            title={
+              mode === "edit"
+                ? metric === "PROFIT"
+                  ? "Плани по валу на місяць"
+                  : "Плани обороту на місяць"
+                : "Виконання планів"
+            }
             hint={
               mode === "edit"
-                ? "Порожнє або 0 = плану немає. «Загальний» — план на весь оборот, колонки брендів — окремо по фірмах."
-                : "Факт по бренду рахується з позицій документів, загальний — із сум документів."
+                ? `Порожнє або 0 = плану немає. «Загальний» — план на весь ${
+                    metric === "PROFIT" ? "вал" : "оборот"
+                  }, колонки брендів — окремо по фірмах.`
+                : metric === "PROFIT"
+                  ? "Вал = виручка мінус собівартість із 1С. По бренду рахується з позицій, загальний — із сум документів (там знижка), тож сума брендів більша за загальний на суму знижок."
+                  : "Факт по бренду рахується з позицій документів, загальний — із сум документів."
             }
             action={
               mode === "edit" ? (

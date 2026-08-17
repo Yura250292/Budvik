@@ -118,10 +118,14 @@ export type PreloadedFacts = {
  * (охоплені клієнти) і SKU_COUNT (пропрацьовані позиції). Останні дві
  * беруться з тих самих фактів, що й оборот, — окремих запитів не треба.
  *
- * Не рахуються PROFIT (собівартість із 1С не приходить, profitAmount ≈ 0 —
- * план по прибутку показував би нуль виконання завжди), CHECKPOINTS і
- * OVERDUE_RATIO. Правило, що посилається на непораховану метрику, просто
- * не дає рядка: рушій трактує відсутній ключ як «плану немає».
+ * PROFIT (вал) рахується з того ж джерела, що й у вкладці «Розрахунок»:
+ * виручка мінус собівартість із РегистрНакопления.ПродажиСебестоимость.
+ * Доти метрика була заблокована — обмін собівартості не привозив, і план
+ * по прибутку показував би нуль виконання незалежно від роботи.
+ *
+ * Не рахуються CHECKPOINTS і OVERDUE_RATIO. Правило, що посилається на
+ * непораховану метрику, просто не дає рядка: рушій трактує відсутній ключ
+ * як «плану немає».
  */
 async function planAttainmentByRep(
   month: string,
@@ -141,13 +145,16 @@ async function planAttainmentByRep(
   ]);
 
   const revenueTotal = new Map(revByRep.map((r) => [r.repId, r.amount]));
+  const profitTotal = new Map(revByRep.map((r) => [r.repId, r.profit]));
   // Клієнтів усього беремо з revenueByRep: там той самий COUNT DISTINCT за
   // тими самими фільтрами, тож другого джерела для цього числа не заводимо.
   const clientsTotal = new Map(revByRep.map((r) => [r.repId, r.clients]));
   const revenueBrand = new Map<string, number>();
+  const profitBrand = new Map<string, number>();
   for (const row of revByBrand) {
     if (!row.brandId) continue;
     revenueBrand.set(`${row.repId}::${row.brandId}`, row.amount);
+    profitBrand.set(`${row.repId}::${row.brandId}`, row.profit);
   }
 
   const collectedTotal = collectedTotals(collectedInMonth);
@@ -188,8 +195,13 @@ async function planAttainmentByRep(
     if (metric === "CLIENTS_COUNT") {
       return brandId ? clientsBrand.get(key) ?? 0 : clientsTotal.get(repId) ?? 0;
     }
-    // PROFIT свідомо не рахуємо: собівартість із 1С не приходить, і план
-    // по прибутку показував би нуль виконання незалежно від роботи.
+    if (metric === "PROFIT") {
+      // Загальний вал — із шапок документів (там живе знижка), брендовий —
+      // із рядків (шапку не розкласти на бренди). Через це сума планів по
+      // брендах не зійдеться із загальним на суму знижок, і це очікувано:
+      // див. коментар до RepBrandRevenue.profit.
+      return brandId ? profitBrand.get(key) ?? 0 : profitTotal.get(repId) ?? 0;
+    }
     // CHECKPOINTS та OVERDUE_RATIO — ще не заведені.
     return null;
   };

@@ -36,7 +36,23 @@ export type RepRevenue = {
   /** Сума повернень за період, додатна — щоб показати її окремою колонкою. */
   returns: number;
 };
-export type RepBrandRevenue = { repId: string; brandId: string | null; brandName: string | null; amount: number; qty: number };
+export type RepBrandRevenue = {
+  repId: string;
+  brandId: string | null;
+  brandName: string | null;
+  amount: number;
+  qty: number;
+  /**
+   * Вал по рядках бренду з відомою собівартістю.
+   *
+   * Рахується З РЯДКІВ, а не з шапки: шапку не розкласти на бренди, бо один
+   * документ везе кілька виробників. Наслідок — знижка з шапки в цей розріз
+   * не входить, тож вал бренду виходить трохи оптимістичнішим за вал
+   * компанії. Та сама причина, через яку сума по брендах не сходиться з
+   * оборотом документів.
+   */
+  profit: number;
+};
 
 /**
  * Що вважається продажем торгового. Експортується, щоб той самий фільтр стояв
@@ -280,7 +296,9 @@ export async function revenueByRepBrand(from: Date, to: Date, repId?: string | n
       p."brandId"    AS "brandId",
       b.name         AS "brandName",
       SUM(i.quantity * i."sellingPrice")::float AS amount,
-      SUM(i.quantity)::float AS qty
+      SUM(i.quantity)::float AS qty,
+      COALESCE(SUM(i.quantity * (i."sellingPrice" - i."purchasePrice"))
+        FILTER (WHERE i."purchasePrice" > 0), 0)::float AS profit
     FROM "SalesDocumentItem" i
     JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
     JOIN "Product" p ON p.id = i."productId"
@@ -290,6 +308,57 @@ export async function revenueByRepBrand(from: Date, to: Date, repId?: string | n
       AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
       ${repCondition}
     GROUP BY s."salesRepId", p."brandId", b.name
+    ORDER BY amount DESC NULLS LAST
+  `;
+}
+
+/** Рентабельність бренду за період. */
+export type BrandProfit = {
+  brandId: string | null;
+  brandName: string | null;
+  /** Оборот по позиціях бренду, ₴ */
+  amount: number;
+  qty: number;
+  /** Оборот лише тих рядків, де собівартість відома — знаменник маржі */
+  costedAmount: number;
+  /** Вал по рядках із відомою собівартістю */
+  profit: number;
+  docs: number;
+};
+
+/**
+ * Вал у розрізі бренду.
+ *
+ * Тут, на відміну від revenueByRep, маржа рахується З РЯДКІВ, а не з шапки:
+ * шапку документа не можна розкласти на бренди, бо один документ везе
+ * товари кількох виробників. Наслідок — знижка з шапки в цей розріз не
+ * потрапляє, тож рентабельність бренду виходить трохи оптимістичнішою за
+ * рентабельність компанії. Це та сама причина, через яку сума по брендах
+ * не сходиться з оборотом документів (див. revenueByRepBrand).
+ *
+ * purchasePrice > 0 — «собівартість відома»: нуль у базі означає, що обмін
+ * її не привіз, а не що товар продали по собівартості. Тому costedAmount
+ * повертається поруч: маржа рахується лише від нього.
+ */
+export async function profitByBrand(from: Date, to: Date): Promise<BrandProfit[]> {
+  from = clampFrom(from);
+
+  return prisma.$queryRaw<BrandProfit[]>`
+    SELECT
+      p."brandId" AS "brandId",
+      b.name      AS "brandName",
+      SUM(i.quantity * i."sellingPrice")::float AS amount,
+      SUM(i.quantity)::float AS qty,
+      COALESCE(SUM(i.quantity * i."sellingPrice") FILTER (WHERE i."purchasePrice" > 0), 0)::float AS "costedAmount",
+      COALESCE(SUM(i.quantity * (i."sellingPrice" - i."purchasePrice")) FILTER (WHERE i."purchasePrice" > 0), 0)::float AS profit,
+      COUNT(DISTINCT s.id)::int AS docs
+    FROM "SalesDocumentItem" i
+    JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+    JOIN "Product" p ON p.id = i."productId"
+    LEFT JOIN "Brand" b ON b.id = p."brandId"
+    WHERE ${SOURCE_FILTER}
+      AND s."createdAt" >= ${from} AND s."createdAt" <= ${to}
+    GROUP BY p."brandId", b.name
     ORDER BY amount DESC NULLS LAST
   `;
 }

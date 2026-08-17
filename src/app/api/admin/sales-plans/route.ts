@@ -1,7 +1,9 @@
 /**
  * Плани продажів (КПІ) на місяць: торговий × бренд.
  *
- * Використовує наявну модель SalesPlan (period = MONTH, metric = REVENUE).
+ * Використовує наявну модель SalesPlan (period = MONTH). Метрика — REVENUE
+ * (оборот) або PROFIT (вал): плани по них живуть окремими рядками, тож
+ * ставити можна обидва одночасно, і одне не затирає інше.
  * brandId = null означає «загальний оборот за місяць», інакше — план по
  * конкретному бренду.
  */
@@ -30,13 +32,14 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const { month, periodStart } = parseMonth(searchParams.get("month"));
+  const metric = searchParams.get("metric") === "PROFIT" ? "PROFIT" : "REVENUE";
 
   // Торговий бачить лише свої плани — незалежно від параметрів запиту.
   const repScope = canEdit ? {} : { repId: session.user.id };
 
   const [plans, reps, brands] = await Promise.all([
     prisma.salesPlan.findMany({
-      where: { period: "MONTH", metric: "REVENUE", periodStart, ...repScope },
+      where: { period: "MONTH", metric, periodStart, ...repScope },
       select: { id: true, repId: true, brandId: true, targetValue: true, notes: true },
     }),
     prisma.user.findMany({
@@ -62,12 +65,13 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => null)) as { month?: string; entries?: Entry[] } | null;
+  const body = (await req.json().catch(() => null)) as { month?: string; metric?: string; entries?: Entry[] } | null;
   if (!body || !Array.isArray(body.entries)) {
     return NextResponse.json({ error: "Очікується { month, entries: [] }" }, { status: 400 });
   }
 
   const { month, periodStart } = parseMonth(body.month ?? null);
+  const metric = body.metric === "PROFIT" ? "PROFIT" : "REVENUE";
   const authorId = session.user.id;
 
   const entries = body.entries.filter((e) => e && typeof e.repId === "string");
@@ -87,7 +91,7 @@ export async function PUT(req: NextRequest) {
       const target = Number(entry.targetValue);
 
       const existing = await tx.salesPlan.findFirst({
-        where: { period: "MONTH", metric: "REVENUE", periodStart, repId: entry.repId, brandId },
+        where: { period: "MONTH", metric, periodStart, repId: entry.repId, brandId },
         select: { id: true },
       });
 
@@ -107,7 +111,7 @@ export async function PUT(req: NextRequest) {
         await tx.salesPlan.create({
           data: {
             period: "MONTH",
-            metric: "REVENUE",
+            metric,
             periodStart,
             repId: entry.repId,
             brandId,

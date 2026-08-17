@@ -250,8 +250,13 @@ export type GenerateResult = {
   rejected: number;
 };
 
-/** Числа з зведення, з якими звіряються evidence. */
-function collectNumbers(value: unknown, out: Set<number>, depth = 0): void {
+/**
+ * Числа з зведення, з якими звіряються evidence.
+ *
+ * Експортоване: тим самим набором користується company-insights.ts, і
+ * розійтися ці дві перевірки не мають права.
+ */
+export function collectNumbers(value: unknown, out: Set<number>, depth = 0): void {
   if (depth > 12) return;
   if (typeof value === "number") {
     if (Number.isFinite(value)) out.add(value);
@@ -274,7 +279,7 @@ function collectNumbers(value: unknown, out: Set<number>, depth = 0): void {
  * JSON лежить 3404559.42. Допуск відносний, бо абсолютна похибка в 1 грн
  * і в 1% — це різні речі на сумі 3 млн і на сумі 12.
  */
-function isKnownNumber(value: number, known: Set<number>): boolean {
+export function isKnownNumber(value: number, known: Set<number>): boolean {
   if (!Number.isFinite(value)) return false;
   if (known.has(value)) return true;
 
@@ -297,7 +302,7 @@ function isKnownNumber(value: number, known: Set<number>): boolean {
  * Нуль пропускаємо завжди: «жодного нового клієнта» — це відсутність
  * числа, а не число, і вимагати його присутності у зведенні безглуздо.
  */
-function validate(insights: Insight[], facts: unknown): { kept: Insight[]; rejected: number } {
+export function validate(insights: Insight[], facts: unknown): { kept: Insight[]; rejected: number } {
   const known = new Set<number>();
   collectNumbers(facts, known);
 

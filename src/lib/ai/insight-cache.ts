@@ -14,13 +14,32 @@ import { prisma } from "@/lib/prisma";
 import type { Insight, InsightKind } from "@/lib/ai/insights";
 
 /**
+ * Види звітів АІ-аналізу фірми.
+ *
+ * Лежать у тій самій таблиці й під тим самим ключем, що звіти по торговому
+ * й команді: складений унікальний індекс (вид, торговий, межі періоду) це
+ * вміщає без міграції, а repId у них завжди null — секція описує всю фірму.
+ *
+ * Payload у них не Insight[], а власна структура секції (блоки по людях,
+ * списки дій), тому нижче тип поля ослаблений до unknown, а старі виклики
+ * лишили свій Insight[] через дженерик.
+ */
+export type CompanyKind =
+  | "company_reps"
+  | "company_products"
+  | "company_logistics"
+  | "company_strategy";
+
+export type ReportKind = InsightKind | CompanyKind;
+
+/**
  * Скільки живе звіт. Доба, бо обмін із 1С іде вночі повним прогоном: до
  * ранку цифри однаково ті самі, а вранці вже нові.
  */
 export const CACHE_TTL_HOURS = 24;
 
-export type CachedReport = {
-  insights: Insight[];
+export type CachedReport<T = Insight[]> = {
+  insights: T;
   facts: unknown;
   model: string;
   tokens: number;
@@ -29,12 +48,12 @@ export type CachedReport = {
   fresh: boolean;
 };
 
-export async function readReport(
-  kind: InsightKind,
+export async function readReport<T = Insight[]>(
+  kind: ReportKind,
   repId: string | null,
   fromDay: string,
   toDay: string
-): Promise<CachedReport | null> {
+): Promise<CachedReport<T> | null> {
   // findFirst, а не findUnique: у складеному ключі є nullable repId (null у
   // командного звіту), а Prisma не приймає null у where складеного унікального
   // індексу. Та сама причина, що в sales-plans.
@@ -46,7 +65,7 @@ export async function readReport(
   const ageHours = (Date.now() - row.createdAt.getTime()) / 3_600_000;
 
   return {
-    insights: (row.insights as unknown as Insight[]) ?? [],
+    insights: (row.insights as unknown as T) ?? ([] as unknown as T),
     facts: row.facts,
     model: row.model,
     tokens: row.tokens,
@@ -56,11 +75,11 @@ export async function readReport(
 }
 
 export async function writeReport(input: {
-  kind: InsightKind;
+  kind: ReportKind;
   repId: string | null;
   fromDay: string;
   toDay: string;
-  insights: Insight[];
+  insights: unknown;
   facts: unknown;
   model: string;
   tokens: number;

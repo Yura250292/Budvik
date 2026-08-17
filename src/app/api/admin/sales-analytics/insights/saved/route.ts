@@ -12,7 +12,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { Insight } from "@/lib/ai/insights";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +31,50 @@ function guard(role: string | undefined) {
   return null;
 }
 
+/**
+ * Види звітів, які можна відкладати в архів.
+ *
+ * Секції АІ-аналізу фірми лежать тут разом зі звітами по торговому й
+ * команді: архів — це матеріал до розмови, і звіт про неліквід потрібен у
+ * ньому не менше, ніж звіт про людину. Payload у них не Insight[], а
+ * структура секції, тож перевірка «є що зберігати» нижче рахує не довжину
+ * масиву, а непорожність об'єкта.
+ */
+const COMPANY_KINDS = [
+  "company_reps",
+  "company_products",
+  "company_logistics",
+  "company_strategy",
+] as const;
+
+const SAVED_KINDS = ["rep", "team", ...COMPANY_KINDS] as const;
+type SavedKind = (typeof SAVED_KINDS)[number];
+
+const COMPANY_TITLES: Record<(typeof COMPANY_KINDS)[number], string> = {
+  company_reps: "АІ аналіз фірми — торгові",
+  company_products: "АІ аналіз фірми — товари",
+  company_logistics: "АІ аналіз фірми — логістика",
+  company_strategy: "АІ аналіз фірми — стратегія",
+};
+
 /** Підпис за замовчуванням, якщо керівник не ввів свій. */
-function defaultTitle(kind: string, repName: string | null, fromDay: string, toDay: string): string {
+function defaultTitle(kind: SavedKind, repName: string | null, fromDay: string, toDay: string): string {
+  if (kind in COMPANY_TITLES) {
+    return `${COMPANY_TITLES[kind as keyof typeof COMPANY_TITLES]}, ${fromDay} — ${toDay}`;
+  }
   const who = kind === "team" ? "Команда" : (repName ?? "Торговий");
   return `${who}, ${fromDay} — ${toDay}`;
+}
+
+/** Чи є в payload хоч щось. Порожній звіт найчастіше слід збою. */
+function hasContent(payload: unknown): boolean {
+  if (Array.isArray(payload)) return payload.length > 0;
+  if (payload && typeof payload === "object") {
+    return Object.values(payload).some((v) =>
+      Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim().length > 0 : v != null
+    );
+  }
+  return false;
 }
 
 export async function GET(req: NextRequest) {
@@ -49,7 +88,7 @@ export async function GET(req: NextRequest) {
 
   const rows = await prisma.savedAiReport.findMany({
     where: {
-      ...(kind === "rep" || kind === "team" ? { kind } : {}),
+      ...(kind && (SAVED_KINDS as readonly string[]).includes(kind) ? { kind } : {}),
       ...(repId ? { repId } : {}),
     },
     orderBy: { createdAt: "desc" },
@@ -103,7 +142,8 @@ export async function POST(req: NextRequest) {
     toDay?: string;
     title?: string;
     note?: string;
-    insights?: Insight[];
+    /** Insight[] у звітах по торговому й команді; структура секції — у звітах фірми */
+    insights?: unknown;
     facts?: unknown;
     model?: string;
     tokens?: number;
@@ -114,18 +154,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Некоректний запит" }, { status: 400 });
   }
 
-  const kind = body.kind === "team" ? "team" : body.kind === "rep" ? "rep" : null;
+  const kind = (SAVED_KINDS as readonly string[]).includes(body.kind ?? "")
+    ? (body.kind as SavedKind)
+    : null;
   if (!kind) {
     return NextResponse.json({ error: "Невідомий вид звіту" }, { status: 400 });
   }
   if (!body.fromDay || !body.toDay) {
     return NextResponse.json({ error: "Не вказано період" }, { status: 400 });
   }
-  if (!Array.isArray(body.insights) || body.insights.length === 0) {
+  if (!hasContent(body.insights)) {
     // Порожній звіт відкладати нема сенсу — і найчастіше це слід збою,
     // а не «все спокійно».
     return NextResponse.json(
-      { error: "Немає що зберігати: у звіті жодного інсайту" },
+      { error: "Немає що зберігати: у звіті жодного висновку" },
       { status: 400 }
     );
   }

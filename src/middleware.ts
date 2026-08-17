@@ -42,6 +42,10 @@ export default withAuth(
          // нема чого: розділ виїхав із «Аналітики торгових», де він жив
          // під MANAGER_ONLY, тож блокування має переїхати разом із ним.
          pathname.startsWith("/admin/drivers") ||
+         // AI аналіз фірми — маржа всієї компанії, борги всієї бази і
+         // зарплати водіїв в одному місці. Скоупити тут нічого: секція
+         // «Торгові» за визначенням про всю команду.
+         pathname.startsWith("/admin/ai-analysis") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {

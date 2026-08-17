@@ -47,6 +47,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // Поруч із торговими: обидва розділи читають з тієї самої панелі,
       // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
       { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },
+      // Стоїть після трьох розділів, які він зводить: аналіз читають, коли
+      // вже бачили цифри й хочуть почути, з чого починати.
+      { href: "/admin/ai-analysis", title: "AI аналіз фірми", desc: "Торгові, товари, логістика, стратегія", iconKey: "star", roles: AM },
       { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Зміни, накладні, продуктивність", iconKey: "report", roles: AM },
       { href: "/admin/erp/reports", title: "Бухгалтерські звіти", desc: "Рух коштів, дебіторка, аванси", iconKey: "report", roles: AM },
     ],
@@ -173,6 +176,7 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/warehouse-reports",
     "/admin/integration",
     "/admin/drivers",
+    "/admin/ai-analysis",
   ];
   if (pathname === "/admin/sales") return false;
   return !blocked.some((p) => pathname.startsWith(p));

@@ -35,7 +35,10 @@ export default async function HomePage() {
 
   const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгова пил", "болгарк", "шліфмашин", "генератор", "дриль", "дрель", "перфоратор"];
 
-  const [featuredProducts, topOrderedItems] = await Promise.all([
+  // Дві хвилі запитів замість чотирьох послідовних: сезонні промо і дерево
+  // брендів ні від чого не залежать, тож їдуть разом із першою хвилею. На
+  // кожному revalidate-місі це мінус два послідовні RTT до бази.
+  const [featuredProducts, topOrderedItems, seasonalPromos, brandTree] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
@@ -55,19 +58,18 @@ export default async function HomePage() {
       orderBy: { _sum: { quantity: "desc" } },
       take: 8,
     }),
+    prisma.seasonalPromo.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { season },
+          { season: "custom", startDate: { lte: new Date() }, endDate: { gte: new Date() } },
+        ],
+      },
+      orderBy: { sortOrder: "asc" },
+    }),
+    getBrandTree(),
   ]);
-
-  // Fetch seasonal products
-  const seasonalPromos = await prisma.seasonalPromo.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { season },
-        { season: "custom", startDate: { lte: new Date() }, endDate: { gte: new Date() } },
-      ],
-    },
-    orderBy: { sortOrder: "asc" },
-  });
 
   let seasonalProducts: any[] = [];
   const seasonalKeywords = seasonalPromos.length > 0
@@ -87,20 +89,32 @@ export default async function HomePage() {
     seasonalConditions.push({ id: { in: seasonalProductIds } });
   }
 
-  if (seasonalConditions.length > 0) {
-    seasonalProducts = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        stock: { gt: 0 },
-        price: { gte: 200 },
-        AND: [{ image: { not: null } }, { NOT: { image: "" } }],
-        OR: seasonalConditions,
-      },
-      include: { category: true },
-      orderBy: [{ priority: "desc" }, { stock: "desc" }],
-      take: 8,
-    });
-  }
+  // Друга хвиля: сезонні товари і бестселери залежать від першої, але не
+  // одне від одного — тож теж разом.
+  const bestSellerIds = topOrderedItems.map((i) => i.productId);
+  const [seasonalFound, bestSellers] = await Promise.all([
+    seasonalConditions.length > 0
+      ? prisma.product.findMany({
+          where: {
+            isActive: true,
+            stock: { gt: 0 },
+            price: { gte: 200 },
+            AND: [{ image: { not: null } }, { NOT: { image: "" } }],
+            OR: seasonalConditions,
+          },
+          include: { category: true },
+          orderBy: [{ priority: "desc" }, { stock: "desc" }],
+          take: 8,
+        })
+      : Promise.resolve([]),
+    bestSellerIds.length > 0
+      ? prisma.product.findMany({
+          where: { id: { in: bestSellerIds }, isActive: true, stock: { gt: 0 }, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
+          include: { category: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  seasonalProducts = seasonalFound;
 
   const seasonalTitle = seasonalPromos.length > 0
     ? seasonalPromos[0].title
@@ -114,14 +128,6 @@ export default async function HomePage() {
     ? seasonalPromos[0].color
     : seasonColor;
 
-  // Fetch best seller product details
-  const bestSellerIds = topOrderedItems.map((i) => i.productId);
-  const bestSellers = bestSellerIds.length > 0
-    ? await prisma.product.findMany({
-        where: { id: { in: bestSellerIds }, isActive: true, stock: { gt: 0 }, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
-        include: { category: true },
-      })
-    : [];
   // Keep order by sales
   const sortedBestSellers = bestSellerIds
     .map((id) => bestSellers.find((p) => p.id === id))
@@ -132,7 +138,6 @@ export default async function HomePage() {
   // а товари, де бренд у назві не згаданий, не рахувались зовсім — до того ж
   // рахунок ішов по вибірці з 500 назв, тож числа під логотипами були
   // випадковими.
-  const brandTree = await getBrandTree();
   const countBySlug = new Map(
     brandTree.main.concat(brandTree.tail).map((b) => [b.slug.toLowerCase(), b.count])
   );

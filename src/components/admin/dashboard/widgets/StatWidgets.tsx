@@ -20,46 +20,43 @@ let inflight: Promise<Counts> | null = null;
 
 /**
  * Лічильники тягнуться один раз на всі стат-віджети: кожен віджет окремо
- * бив би по тих самих чотирьох ендпоінтах.
+ * бив би по тому самому ендпоінту.
+ *
+ * Раніше тут було чотири повні списки (замовлення з товарами, користувачі,
+ * товари, заявки) заради .length — мегабайти на шість чисел, причому
+ * /api/products повертає об'єкт із пагінацією, тож «Товари» завжди
+ * показували 0. Тепер числа рахує база в /api/admin/counts.
  */
-async function loadCounts(withUsers: boolean): Promise<Counts> {
+async function loadCounts(): Promise<Counts> {
   if (cache && Date.now() - cache.at < 60_000) return cache.data;
   if (inflight) return inflight;
 
   inflight = (async () => {
-    const [users, orders, products, wholesaleApps] = await Promise.all([
-      withUsers ? fetch("/api/admin/users").then((r) => r.json()).catch(() => []) : Promise.resolve([]),
-      fetch("/api/orders").then((r) => r.json()).catch(() => []),
-      fetch("/api/products").then((r) => r.json()).catch(() => []),
-      fetch("/api/admin/wholesale").then((r) => r.json()).catch(() => []),
-    ]);
-    const usersList = Array.isArray(users) ? users : [];
-    const ordersList = Array.isArray(orders) ? orders : [];
-    const appsList = Array.isArray(wholesaleApps) ? wholesaleApps : [];
-    const data: Counts = {
-      orders: ordersList.length,
-      activeOrders: ordersList.filter((o: { status?: string }) => !["DELIVERED", "CANCELLED"].includes(o.status ?? ""))
-        .length,
-      products: Array.isArray(products) ? products.length : 0,
-      clients: usersList.filter((u: { role?: string }) => u.role === "CLIENT").length,
-      wholesale: usersList.filter((u: { role?: string }) => u.role === "WHOLESALE").length,
-      pendingWholesale: appsList.filter((a: { status?: string }) => a.status === "PENDING").length,
-    };
-    cache = { data, at: Date.now() };
-    inflight = null;
-    return data;
+    try {
+      const res = await fetch("/api/admin/counts");
+      const json = res.ok ? await res.json().catch(() => null) : null;
+      const data: Counts = { ...EMPTY, ...(json ?? {}) };
+      cache = { data, at: Date.now() };
+      return data;
+    } finally {
+      // Скидаємо і при помилці мережі — інакше віджети назавжди
+      // застрягли б на відхиленому промісі.
+      inflight = null;
+    }
   })();
 
   return inflight;
 }
 
-export function useCounts(withUsers: boolean) {
+// withUsers лишився в сигнатурі, щоб не чіпати всі місця виклику: роут
+// сам вирішує, які цифри віддати цій ролі.
+export function useCounts(_withUsers: boolean) {
   const [counts, setCounts] = useState<Counts>(cache?.data ?? EMPTY);
   const [loading, setLoading] = useState(!cache);
 
   useEffect(() => {
     let alive = true;
-    loadCounts(withUsers)
+    loadCounts()
       .then((data) => {
         if (alive) {
           setCounts(data);
@@ -70,7 +67,7 @@ export function useCounts(withUsers: boolean) {
     return () => {
       alive = false;
     };
-  }, [withUsers]);
+  }, []);
 
   return { counts, loading };
 }

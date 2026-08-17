@@ -8,6 +8,8 @@ import { addToCart } from "@/lib/cart";
 import { toggleWishlist, isInWishlist } from "@/lib/wishlist";
 import { toggleCompare, isInCompare } from "@/lib/compare";
 import { useSession } from "next-auth/react";
+import { useWholesaleDiscounts } from "@/lib/useWholesaleDiscounts";
+import { getWholesalePrice } from "@/lib/wholesale-price-calc";
 
 type ViewMode = "grid" | "list" | "gallery";
 
@@ -31,9 +33,13 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
   const isWholesale = role === "WHOLESALE";
-  // wholesalePrice сюди приходить уже порахованим (роздріб із 1С мінус
-  // знижка по бренду) — власного поля з бази компонент не читає.
-  const basePrice = isWholesale && wholesalePrice ? wholesalePrice : price;
+  // Оптова ціна: або прийшла вже порахованою (кабінети зі своїм API), або
+  // рахуємо на клієнті зі знижок по бренду — кешований каталог сесії не
+  // бачить і передати її з сервера не може.
+  const discounts = useWholesaleDiscounts();
+  const effectiveWholesale =
+    wholesalePrice ?? (isWholesale && discounts ? getWholesalePrice(price, name, discounts) : null);
+  const basePrice = isWholesale && effectiveWholesale ? effectiveWholesale : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
 
@@ -202,7 +208,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                     {hasDiscount && (
                       <span className="text-[10px] sm:text-xs text-[#9E9E9E] line-through ml-1">{formatPrice(price)}</span>
                     )}
-                    {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                    {isWholesale && effectiveWholesale != null && effectiveWholesale < price && !isPromo && (
                       <span className="block text-[10px] sm:text-xs text-[#FFB800] font-medium">Оптова ціна</span>
                     )}
                   </>
@@ -327,7 +333,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                   {hasDiscount && (
                     <span className="text-[9px] sm:text-[10px] text-[#9E9E9E] line-through ml-0.5 sm:ml-1">{formatPrice(price)}</span>
                   )}
-                  {isWholesale && wholesalePrice != null && wholesalePrice < price && !isPromo && (
+                  {isWholesale && effectiveWholesale != null && effectiveWholesale < price && !isPromo && (
                     <span className="block text-[8px] sm:text-[10px] text-[#FFB800] font-medium">Оптова ціна</span>
                   )}
                 </>

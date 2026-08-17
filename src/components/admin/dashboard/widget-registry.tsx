@@ -1,12 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { AdminRole } from "@/lib/admin-nav";
 import type { IconKey } from "../icons";
 import type { WidgetSize, WidgetType } from "./layout-schema";
 import { StatClients, StatOrders, StatProducts, StatWholesale } from "./widgets/StatWidgets";
 import RecentOrders from "./widgets/RecentOrders";
 import { MoneyWidget, OverdueReps, PlanAttainment, SalesTotals, TopReps } from "./widgets/SalesWidgets";
-import { BrandsWidget, RevenueTimeline, TopClients, TopProducts } from "./widgets/OverviewWidgets";
+// Єдине місце, де recharts потрапляв у бандл дашборду статично: через
+// next/dynamic бібліотека (~150 КБ gzip) їде окремим чанком лише тоді,
+// коли віджет справді на екрані — так само, як уже зроблено в Charts.tsx.
+const RevenueTimeline = dynamic(() => import("./widgets/OverviewWidgets").then((m) => m.RevenueTimeline));
+const BrandsWidget = dynamic(() => import("./widgets/OverviewWidgets").then((m) => m.BrandsWidget));
+const TopClients = dynamic(() => import("./widgets/OverviewWidgets").then((m) => m.TopClients));
+const TopProducts = dynamic(() => import("./widgets/OverviewWidgets").then((m) => m.TopProducts));
 import {
   WarehouseNomenclature,
   WarehouseProductivity,

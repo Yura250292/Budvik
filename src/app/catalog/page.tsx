@@ -1,7 +1,5 @@
 export const revalidate = 60;
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
@@ -9,7 +7,6 @@ import CatalogFilters from "@/components/catalog/CatalogFilters";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
-import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 
 type SP = Record<string, string | undefined>;
 
@@ -28,25 +25,27 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const filters = parseFilters(params);
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
-  const [{ products: rawProducts, total }, tree, priceBounds, session] = await Promise.all([
-    fetchCatalogPage(filters, page),
-    getBrandTree(),
-    getPriceBounds(),
-    getServerSession(authOptions),
-  ]);
-
   // Групи товарів показуємо в розрізі обраного бренда: «свердло» всередині
   // YATO — осмислений фільтр, а «свердло» по всьому каталогу на 49 тис.
   // позицій лише повторює пошук.
+  //
+  // Сесії тут навмисно немає: читання cookies мовчки вимикає ISR для всієї
+  // сторінки, і 98% роздрібних відвідувачів чекали б живий рендер заради
+  // оптової ціни для 2%. Оптовик добирає свою знижку на клієнті
+  // (useWholesaleDiscounts у ProductCard).
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const types = singleBrand ? await getBrandTypes(singleBrand) : [];
+  const [{ products: rawProducts, total }, tree, priceBounds, types] = await Promise.all([
+    fetchCatalogPage(filters, page),
+    getBrandTree(),
+    getPriceBounds(),
+    singleBrand ? getBrandTypes(singleBrand) : Promise.resolve([]),
+  ]);
 
-  const isWholesale = session?.user?.role === "WHOLESALE";
-  const brandDiscounts = isWholesale ? await getBrandDiscounts() : new Map<string, number>();
-
+  // Картці потрібен лише короткий анонс без розмітки — повний опис у
+  // пропсах їхав би в HTML двічі (розмітка + RSC-payload для гідрації).
   const products = rawProducts.map((p) => ({
     ...p,
-    wholesalePrice: isWholesale ? getWholesalePrice(p.price, p.name, brandDiscounts) : undefined,
+    description: p.description.replace(/<[^>]*>/g, "").slice(0, 220),
   }));
 
   const totalPages = Math.ceil(total / CATALOG_PAGE_SIZE);

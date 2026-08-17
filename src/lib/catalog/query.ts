@@ -1,7 +1,8 @@
+import { unstable_cache } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { productType } from "@/lib/catalog/brand-tree";
-import { skuSearchConditions } from "@/lib/catalog/sku-search";
+import { productType, CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
+import { skuSearchConditions, looksLikeSku } from "@/lib/catalog/sku-search";
 
 /**
  * Фільтри каталогу в одному місці.
@@ -165,19 +166,66 @@ export function filtersToQuery(f: Partial<CatalogFilters>, page?: number): strin
 
 export const CATALOG_PAGE_SIZE = 24;
 
-/** Товари за фільтрами — спільний шлях для сторінки каталогу і API. */
+/**
+ * Товари за фільтрами — спільний шлях для сторінки каталогу і API.
+ *
+ * Сторінка /catalog динамічна в принципі (searchParams не пререндеряться),
+ * тож кешуємо не сторінку, а самі дані: типові комбінації бренд+сортування+
+ * сторінка віддаються з кешу 60 с і не ходять у базу на кожного відвідувача.
+ * Пошук навмисно повз кеш — унікальних запитів безліч, і кожен створював би
+ * одноразовий запис.
+ */
 export async function fetchCatalogPage(f: CatalogFilters, page: number) {
+  if (f.search) return fetchCatalogPageUncached(f, page);
+  return fetchCatalogPageCached(f, page);
+}
+
+const fetchCatalogPageCached = unstable_cache(fetchCatalogPageUncached, ["catalog-page"], {
+  revalidate: 60,
+  tags: [CATALOG_CACHE_TAG],
+});
+
+async function fetchCatalogPageUncached(f: CatalogFilters, page: number) {
   const where = await buildWhere(f);
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      include: { category: { select: { name: true, slug: true } }, brand: { select: { name: true, slug: true } } },
+      // Явний select замість include: include тягнув усі 25+ колонок Product
+      // (syncedAt, externalId, характеристики…), і весь цей баласт їхав у
+      // RSC-payload сторінки. Тут — рівно те, що читають картки каталогу.
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        sku: true,
+        description: true,
+        price: true,
+        isPromo: true,
+        promoPrice: true,
+        promoLabel: true,
+        stock: true,
+        image: true,
+        category: { select: { name: true, slug: true } },
+        brand: { select: { name: true, slug: true } },
+      },
       orderBy: buildOrderBy(f.sort),
       skip: (page - 1) * CATALOG_PAGE_SIZE,
       take: CATALOG_PAGE_SIZE,
     }),
     prisma.product.count({ where }),
   ]);
+
+  // Точний артикул — нагору першої сторінки.
+  //
+  // Сортування йде в SQL по залишку, тож «50-122» ховався за 90 товарами, де
+  // просто трапилось «122»: людина шукає конкретний артикул і не гортає.
+  // Переставляємо лише в межах уже вибраної сторінки, щоб не зламати пагінацію.
+  if (page === 1 && f.search && looksLikeSku(f.search)) {
+    const needle = f.search.trim().toLowerCase();
+    const exact = products.findIndex((p) => p.sku?.toLowerCase() === needle);
+    if (exact > 0) products.unshift(...products.splice(exact, 1));
+  }
+
   return { products, total };
 }
 

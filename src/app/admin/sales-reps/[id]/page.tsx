@@ -58,13 +58,16 @@ export default function SalesRepDetailPage() {
   // Load user info
   useEffect(() => {
     if (!["ADMIN", "MANAGER"].includes(role)) return;
-    fetch("/api/admin/users")
-      .then((r) => r.json())
-      .then((data) => {
-        const u = (Array.isArray(data) ? data : []).find((u: any) => u.id === userId);
-        setUser(u || null);
+    // Точковий роут замість повного списку користувачів: сторінці потрібні
+    // лише ім'я/пошта/телефон одного торгового, а список — це тисячі рядків
+    // на кожне відкриття картки.
+    fetch(`/api/admin/users/${userId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => {
+        setUser(u && u.id ? u : null);
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, [role, userId]);
 
   // Load tab data

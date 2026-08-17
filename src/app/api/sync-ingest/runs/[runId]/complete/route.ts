@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { CATEGORIES_CACHE_TAG } from "@/lib/categories-cache";
+import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { authenticateAgent } from "@/lib/sync-ingest/auth";
 import { setSyncState } from "@/lib/sync-ingest/context";
 import {
@@ -123,6 +124,10 @@ export async function POST(
   // лише через годину після обміну.
   if (status !== "failed") {
     revalidateTag(CATEGORIES_CACHE_TAG, { expire: 3600 });
+    // Дерево брендів, зміст і кешовані сторінки видачі каталогу — все, що
+    // читає товари з кешу. Без цього нові ціни й залишки чекали б кінця
+    // вікна кешу (до години для дерева брендів).
+    revalidateTag(CATALOG_CACHE_TAG, { expire: 3600 });
     // Головна і каталог кешуються по часу (revalidate). Без явного скидання
     // нові ціни й залишки з обміну чекали б кінця вікна кешу.
     revalidatePath("/");

@@ -8,9 +8,19 @@ import { NAV_GROUPS, TOP_ITEMS, type AdminRole, type NavItem } from "@/lib/admin
 
 const COLLAPSED_GROUPS_KEY = "budvik:admin:sidebar:collapsed-groups:v1";
 
-function itemIsActive(pathname: string, href: string) {
-  if (href === "/admin") return pathname === "/admin";
-  return pathname === href || pathname.startsWith(href + "/");
+/**
+ * Активний пункт — ОДИН, з найдовшим збігом префікса. Перевірка кожного
+ * пункту окремо підсвічувала два розділи одразу, бо шляхи бувають
+ * вкладені: «Закупівлі» (/admin/procurement) і «Оборотність складу»
+ * (/admin/procurement/turnover) збігаються обидва.
+ */
+function activeHrefOf(pathname: string, hrefs: string[]): string | null {
+  let best: string | null = null;
+  for (const href of hrefs) {
+    const hit = href === "/admin" ? pathname === "/admin" : pathname === href || pathname.startsWith(href + "/");
+    if (hit && (!best || href.length > best.length)) best = href;
+  }
+  return best;
 }
 
 function NavLink({
@@ -88,6 +98,10 @@ export default function SidebarNav({
   const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(role)) })).filter(
     (g) => g.items.length > 0
   );
+  const activeHref = activeHrefOf(
+    pathname,
+    [...topItems, ...groups.flatMap((g) => g.items)].map((i) => i.href)
+  );
 
   return (
     <nav className="flex flex-col gap-1 px-2 py-3" aria-label="Розділи адмінки">
@@ -95,14 +109,14 @@ export default function SidebarNav({
         <NavLink
           key={item.href}
           item={item}
-          active={itemIsActive(pathname, item.href)}
+          active={item.href === activeHref}
           railCollapsed={railCollapsed}
           onNavigate={onNavigate}
         />
       ))}
 
       {groups.map((group) => {
-        const hasActiveChild = group.items.some((i) => itemIsActive(pathname, i.href));
+        const hasActiveChild = group.items.some((i) => i.href === activeHref);
         // Згорнута група з активним маршрутом все одно відкрита —
         // інакше користувач не бачить, де він знаходиться.
         const open = !collapsedGroups.has(group.id) || hasActiveChild;
@@ -114,7 +128,7 @@ export default function SidebarNav({
                 <NavLink
                   key={item.href}
                   item={item}
-                  active={itemIsActive(pathname, item.href)}
+                  active={item.href === activeHref}
                   railCollapsed
                   onNavigate={onNavigate}
                 />
@@ -149,7 +163,7 @@ export default function SidebarNav({
                   <NavLink
                     key={item.href}
                     item={item}
-                    active={itemIsActive(pathname, item.href)}
+                    active={item.href === activeHref}
                     railCollapsed={false}
                     onNavigate={onNavigate}
                   />

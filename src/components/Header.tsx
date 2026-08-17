@@ -85,9 +85,10 @@ export default function Header() {
                 {role === "WAREHOUSE" && (
                   <Link href="/warehouse" className={navLinkClass}>Склад</Link>
                 )}
-                {/* Робоче меню — усім, крім звичайних покупців (CLIENT/WHOLESALE).
-                    Список збігається з тим, кого пускає middleware у /admin. */}
-                {(role === "ADMIN" || role === "MANAGER" || role === "SALES") && (
+                {/* Робоче меню — лише ADMIN і MANAGER. Middleware пускає в /admin
+                    ще й SALES (скоуплена аналітика), але в меню торговому цей
+                    пункт не показуємо — його робоче місце «Торговий». */}
+                {(role === "ADMIN" || role === "MANAGER") && (
                   <Link href="/admin" className={navLinkClass}>CRM/ERP</Link>
                 )}
                 {/* «Кабінет» покупця прихований — функціонал ще порожній; лишились

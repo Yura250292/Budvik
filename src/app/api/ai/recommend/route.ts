@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { findSimilarProducts } from "@/lib/ai/embeddings";
 import { showableProductWhere } from "@/lib/catalog/showable";
 import { isServiceCategory } from "@/lib/catalog/category-display";
+import { findComplementary } from "@/lib/catalog/related";
 
 export async function GET(req: Request) {
   try {
@@ -33,15 +34,22 @@ export async function GET(req: Request) {
       const orderIds = ordersWithProduct.map((o) => o.orderId);
 
       if (orderIds.length === 0) {
-        // Fallback: без історії замовлень радимо «сусідів». Для товарів зі
-        // звалища «Імпорт з 1С» категорія нічого не значить (40+ тис.
-        // випадкових позицій) — там сусідів беремо за брендом.
+        // Без історії замовлень блок має лишатись осмисленим: до круга
+        // радимо болгарку і захист, до бура — перфоратор. Це СУПУТНІ товари,
+        // а не «схожі» — інакше цей блок дублює нижній.
         const product = await prisma.product.findUnique({
           where: { id: productId },
           include: { category: true },
         });
         if (!product) return NextResponse.json({ products: [], type: "bought_together" });
 
+        const complementary = await findComplementary(product, 4);
+        if (complementary.length > 0) {
+          return NextResponse.json({ products: complementary, type: "bought_together" });
+        }
+
+        // Тип не розпізнали — лишається сусідство. Для товарів зі звалища
+        // «Імпорт з 1С» категорія нічого не значить, тому там беремо бренд.
         const neighborhood =
           isServiceCategory(product.category?.name) && product.brandId
             ? { brandId: product.brandId }

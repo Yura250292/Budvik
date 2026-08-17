@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
+import { isServiceCategory } from "@/lib/catalog/category-display";
 
 interface Product {
   id: string;
@@ -87,7 +88,7 @@ export default function AiRecommendations({ productId, type, title }: AiRecommen
               )}
             </div>
             <div className="p-2.5">
-              {product.category && !/^\d+$/.test(product.category.name) && (
+              {product.category && !isServiceCategory(product.category.name) && (
                 <span className="text-[10px] text-g400 uppercase tracking-wide">{product.category.name}</span>
               )}
               <h4 className="font-medium text-xs text-bk group-hover:text-primary-dark transition line-clamp-2 mt-0.5 mb-1.5">

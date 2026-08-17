@@ -6,6 +6,7 @@ import { formatPrice } from "@/lib/utils";
 import { isRealSku } from "@/lib/catalog/sku-search";
 import { showableProductWhere } from "@/lib/catalog/showable";
 import { isServiceCategory, productLabel } from "@/lib/catalog/category-display";
+import { findSameType } from "@/lib/catalog/related";
 import Link from "next/link";
 import Image from "next/image";
 import AiRecommendations from "@/components/ai/AiRecommendations";
@@ -27,20 +28,27 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
   if (!product) notFound();
 
-  // «З цієї категорії»: у звалищі «Імпорт з 1С» категорія — це 40+ тис.
-  // випадкових позицій упереміш зі службовими групами по 0 ₴, тож там
-  // сусідів беремо за брендом, а сміття відсікає showableProductWhere().
-  const relatedProducts = await prisma.product.findMany({
-    where: {
-      ...(isServiceCategory(product.category.name) && product.brandId
-        ? { brandId: product.brandId }
-        : { categoryId: product.categoryId }),
-      id: { not: product.id },
-      ...showableProductWhere(),
-    },
-    select: { id: true, name: true, slug: true, price: true, image: true },
-    take: 4,
-  });
+  // Схожі товари — той самий тип, але інші розміри й виробники (для круга
+  // відрізного це круги інших фірм і діаметрів). Категорія тут не помічник:
+  // у звалищі «Імпорт з 1С» лежить 40+ тис. випадкових позицій, тож тип
+  // визначаємо за назвою, а на бренд спираємось лише як на запасний варіант.
+  const sameType = await findSameType(product, 4);
+  const relatedProducts =
+    sameType.length > 0
+      ? sameType
+      : await prisma.product.findMany({
+          where: {
+            ...(isServiceCategory(product.category.name) && product.brandId
+              ? { brandId: product.brandId }
+              : { categoryId: product.categoryId }),
+            id: { not: product.id },
+            ...showableProductWhere(),
+          },
+          // brandId — щоб обидві гілки давали однаковий тип, інакше union
+          // двох різних масивів ламає вивід типу в .map() нижче
+          select: { id: true, name: true, slug: true, price: true, image: true, brandId: true },
+          take: 4,
+        });
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
@@ -144,7 +152,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-bk">З цієї категорії</h2>
+            <h2 className="text-xl font-bold text-bk">Інші розміри та виробники</h2>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
             {relatedProducts.map((p) => (

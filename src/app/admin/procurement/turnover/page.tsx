@@ -23,6 +23,7 @@ import { TableSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { TurnoverReport } from "@/lib/analytics/turnover";
+import { DEFAULT_VELOCITY_DAYS, VELOCITY_OPTIONS } from "@/lib/analytics/velocity-window";
 
 type Brand = { id: string; name: string; products: number };
 
@@ -50,10 +51,11 @@ function turnsTone(turns: number | null): "good" | "warn" | "bad" | "neutral" {
 
 export default function TurnoverPage() {
   const [brandId, setBrandId] = useState("");
+  const [days, setDays] = useState(DEFAULT_VELOCITY_DAYS);
 
   const { data: brandsData } = useSWR<{ brands: Brand[] }>("/api/admin/procurement/brands", fetcher);
   const { data, error, isLoading } = useSWR<{ report: TurnoverReport }>(
-    `/api/admin/procurement/turnover${brandId ? `?brandId=${brandId}` : ""}`,
+    `/api/admin/procurement/turnover?days=${days}${brandId ? `&brandId=${brandId}` : ""}`,
     fetcher,
     { keepPreviousData: true }
   );
@@ -92,6 +94,27 @@ export default function TurnoverPage() {
             </option>
           ))}
         </select>
+
+        {/*
+          Період — це вікно, за яким визначається «рухається / стоїть»:
+          коротше вікно суворіше (більше позицій виглядають мертвими),
+          довше — м'якше. Кнопки замість селекта: варіантів чотири, і між
+          ними порівнюють, а не шукають у списку.
+        */}
+        <div className="flex overflow-hidden rounded-[var(--radius-btn)] border border-g200">
+          {VELOCITY_OPTIONS.map((d) => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`h-[38px] cursor-pointer px-3 text-sm transition-colors ${
+                days === d ? "bg-bk text-white" : "bg-white text-g600 hover:bg-g50"
+              }`}
+            >
+              {d} дн.
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-g400">рух рахується за цей період</span>
       </div>
 
       {error && <ErrorBox message={String(error.message ?? error)} />}
@@ -195,7 +218,7 @@ export default function TurnoverPage() {
                   hint="Відсортовано за сумою мертвого запасу — з чого починати розбір"
                 />
               </div>
-              <TableScroll minWidth={760}>
+              <TableScroll minWidth={760} stickyHeader>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
@@ -247,7 +270,7 @@ export default function TurnoverPage() {
                   hint={`Позиції без жодного продажу за ${report.velocityDays} днів, найдорожчі зверху`}
                 />
               </div>
-              <TableScroll minWidth={720}>
+              <TableScroll minWidth={720} stickyHeader>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">

@@ -6,6 +6,7 @@ import { Card, EmptyState } from "@/components/ui/Card";
 import { TableScroll } from "@/components/ui/TableScroll";
 import { ProductPanel } from "./ProductPanel";
 import type { LowStockItem, LowStockReport, LowStockSection } from "@/lib/procurement/low-stock";
+import { DEFAULT_VELOCITY_DAYS, VELOCITY_OPTIONS } from "@/lib/analytics/velocity-window";
 
 /**
  * Закупівлі: що замовити.
@@ -45,6 +46,7 @@ export default function ProcurementPage() {
   const [expensiveMin, setExpensiveMin] = useState(5);
   const [cheapMin, setCheapMin] = useState(10);
   const [includeDead, setIncludeDead] = useState(false);
+  const [days, setDays] = useState(DEFAULT_VELOCITY_DAYS);
   const [minSeverity, setMinSeverity] = useState(2); // показувати все, що < 3
   const [showSettings, setShowSettings] = useState(false);
   const [showBrands, setShowBrands] = useState(false);
@@ -53,9 +55,11 @@ export default function ProcurementPage() {
 
   const { data: brandsData } = useSWR<{ brands: Brand[] }>("/api/admin/procurement/brands", fetcher);
 
+  // days їде і в SWR-запит, і (через replace шляху) в лінк «звіт в Excel» —
+  // вивантаження має відповідати тому, що на екрані.
   const query =
     `/api/admin/procurement?expensivePrice=${expensivePrice}&expensiveMin=${expensiveMin}` +
-    `&cheapMin=${cheapMin}${brandId ? `&brandId=${brandId}` : ""}` +
+    `&cheapMin=${cheapMin}&days=${days}${brandId ? `&brandId=${brandId}` : ""}` +
     `${includeDead ? "&includeDead=1" : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`;
 
   const { data, error, isLoading } = useSWR<{ report: LowStockReport }>(query, fetcher, { keepPreviousData: true });
@@ -135,7 +139,7 @@ export default function ProcurementPage() {
         <div>
           <h1 className="text-xl font-bold">Закупівлі</h1>
           <p className="text-sm text-g400">
-            Що замовити: сигнал дає обіг за {report?.velocityDays ?? 90} днів. Лише номенклатура з 1С.
+            Що замовити: сигнал дає обіг за {report?.velocityDays ?? days} днів. Лише номенклатура з 1С.
           </p>
         </div>
         <a
@@ -219,6 +223,22 @@ export default function ProcurementPage() {
                 {o.label}
               </button>
             ))}
+          </div>
+
+          {/* Вікно обігу: за скільки днів рахуються продажі й дефіцит. */}
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded-[var(--radius-btn)] border border-g100">
+              {VELOCITY_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDays(d)}
+                  className={`h-10 px-3 text-sm ${days === d ? "bg-bk text-white" : "bg-white hover:bg-g50"}`}
+                >
+                  {d} дн.
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-g400">обіг за цей період</span>
           </div>
 
           <button
@@ -328,7 +348,7 @@ export default function ProcurementPage() {
               позицій: {section.total} · замовити: <b className="text-bk">{section.toOrder}</b>
             </span>
           </div>
-          <TableScroll minWidth={980}>
+          <TableScroll minWidth={980} stickyHeader>
             <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #F3F4F6" }}>

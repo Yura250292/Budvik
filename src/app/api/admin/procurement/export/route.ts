@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { buildLowStockReport, DEFAULT_PARAMS, type LowStockReport } from "@/lib/procurement/low-stock";
+import { parseVelocityDays } from "@/lib/analytics/velocity-window";
 
 /**
  * Вивантаження у .xlsx — у двох режимах.
@@ -53,7 +54,7 @@ async function fullReportBook(report: LowStockReport) {
 
   const title = report.brand?.name ?? "Усі бренди";
   ws.insertRow(1, [
-    `${title}: що замовити, ${new Date().toLocaleDateString("uk-UA")} — позицій ${report.total}, ` +
+    `${title}: що замовити, ${new Date().toLocaleDateString("uk-UA")} — обіг за ${report.velocityDays} днів, позицій ${report.total}, ` +
       `замовити ${report.toOrder} (з них терміново ${report.urgent}), сума ~${report.orderCost.toLocaleString("uk-UA")} грн`,
   ]);
   ws.mergeCells("A1:I1");
@@ -127,6 +128,7 @@ export async function GET(req: NextRequest) {
     cheapMin: num("cheapMin"),
     includeDead: searchParams.get("includeDead") === "1",
     search: searchParams.get("search") ?? undefined,
+    velocityDays: parseVelocityDays(searchParams.get("days")),
   });
   if (!report) return NextResponse.json({ error: "Бренд не знайдено" }, { status: 404 });
 

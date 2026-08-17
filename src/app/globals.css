@@ -281,10 +281,24 @@ html {
 @media print {
   .table-scroll {
     overflow: visible !important;
+    max-height: none !important;
   }
   .table-scroll-inner {
     min-width: 0 !important;
   }
+}
+
+/* Липка шапка таблиці (TableScroll stickyHeader).
+   Sticky вішаємо на th, а не на thead: sticky-thead у таблицях досі
+   глючить у частині браузерів. Межі рядка шапки малюємо тінню на самій
+   клітинці — бордери tr лишаються на місці розмітки і зі sticky не їдуть,
+   з тієї ж причини th потрібен власний фон. */
+.table-sticky-head thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-g50);
+  box-shadow: inset 0 1px 0 var(--color-g200), inset 0 -1px 0 var(--color-g200);
 }
 
 /* Мобільний drawer адмінки: підкладка і виїзд панелі */

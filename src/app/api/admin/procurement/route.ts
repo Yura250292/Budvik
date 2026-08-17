@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { buildLowStockReport, DEFAULT_PARAMS } from "@/lib/procurement/low-stock";
+import { parseVelocityDays } from "@/lib/analytics/velocity-window";
 
 /**
  * Звіт закупівель.
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
     cheapMin: num("cheapMin"),
     includeDead: searchParams.get("includeDead") === "1",
     search: searchParams.get("search") ?? undefined,
+    velocityDays: parseVelocityDays(searchParams.get("days")),
   });
   if (!report) return NextResponse.json({ error: "Бренд не знайдено" }, { status: 404 });
   return NextResponse.json({ report });

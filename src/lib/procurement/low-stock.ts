@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { DEFAULT_VELOCITY_DAYS } from "@/lib/analytics/velocity-window";
 
 /**
  * Звіт закупівельника: що замовити.
@@ -14,18 +15,18 @@ import { prisma } from "@/lib/prisma";
  * продажів: дорога техніка обертається одиницями, оснастка йде пачками.
  */
 
-const VELOCITY_DAYS = 90;
-
 export type LowStockParams = {
   /** null — усі бренди (огляд по складу). */
   brandId: string | null;
   expensivePrice: number;
   expensiveMin: number;
   cheapMin: number;
-  /** Показувати позиції без продажів за 90 днів (за замовчуванням — ні). */
+  /** Показувати позиції без продажів за вікно (за замовчуванням — ні). */
   includeDead?: boolean;
   /** Пошук за назвою або артикулом. */
   search?: string;
+  /** Вікно руху в днях (дозволені варіанти — velocity-window.ts). */
+  velocityDays?: number;
 };
 
 export const DEFAULT_PARAMS = { expensivePrice: 1000, expensiveMin: 5, cheapMin: 10 };
@@ -48,7 +49,7 @@ export type LowStockItem = {
   expensive: boolean;
   threshold: number;
   severity: Severity;
-  /** Продано за 90 днів (з урахуванням повернень). */
+  /** Продано за вікно velocityDays (з урахуванням повернень). */
   sold90: number;
   /** Середній продаж на місяць. */
   perMonth: number;
@@ -164,15 +165,15 @@ function classify(name: string, categoryPath: string[]): { section: string; grou
   return { section: SEC.INS, group: "Некласифіковане" };
 }
 
-/** Продано за VELOCITY_DAYS днів по кожному товару (повернення вже з мінусом). */
-async function loadVelocity(): Promise<Map<string, number>> {
+/** Продано за вікно днів по кожному товару (повернення вже з мінусом). */
+async function loadVelocity(velocityDays: number): Promise<Map<string, number>> {
   const rows = await prisma.$queryRaw<Array<{ productId: string; sold: bigint }>>`
     SELECT i."productId", SUM(i.quantity)::bigint AS sold
     FROM "SalesDocumentItem" i
     JOIN "SalesDocument" d ON d.id = i."salesDocumentId"
     WHERE d."docType" IN ('REALIZATION','RETURN')
       AND d.status = 'CONFIRMED'
-      AND d."createdAt" >= NOW() - INTERVAL '90 days'
+      AND d."createdAt" >= NOW() - (${velocityDays} * INTERVAL '1 day')
     GROUP BY i."productId"
   `;
   return new Map(rows.map((r) => [r.productId, Number(r.sold)]));
@@ -185,7 +186,8 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
   if (params.brandId && !brand) return null;
 
   const search = params.search?.trim();
-  const velocityPromise = loadVelocity();
+  const velocityDays = params.velocityDays ?? DEFAULT_VELOCITY_DAYS;
+  const velocityPromise = loadVelocity(velocityDays);
   // Мертві товари (0 продажів і 0 залишку) — 33 з 40 тисяч. Відсікаємо їх
   // у SQL, а не в JS: інакше з бази щоразу їде 40 тис. рядків заради 7 тис.
   // потрібних, і огляд по всіх брендах стає вчетверо повільнішим.
@@ -262,9 +264,14 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
   let orderCost = 0;
   let noPrice = 0;
 
+  // «Регулярний» товар — від двох продажів за квартал; для іншого вікна
+  // поріг масштабується, інакше на 30 днях половина живих позицій
+  // виглядала б разовими, а на 180 — навпаки.
+  const REGULAR = Math.max(1, Math.round(2 * (velocityDays / 90)));
+
   for (const p of goods) {
     const sold90 = Math.max(0, velocity.get(p.id) ?? 0);
-    const perMonth = sold90 / 3;
+    const perMonth = sold90 / (velocityDays / 30);
 
     // Ціна 0 — це «ціна не приїхала з 1С», а не дешевий товар (див.
     // [[product-grouping-brand-not-category]]: 486 позицій без ціни).
@@ -274,10 +281,8 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     const daysLeft = perMonth > 0 ? Math.round((p.stock / perMonth) * 30) : null;
 
     // Одна продажа за квартал — це разове замовлення під клієнта, а не
-    // товар, який магазин тримає. Без цієї межі половина «термінових»
+    // товар, який магазин тримає. Без межі REGULAR половина «термінових»
     // виявлялась позиціями, проданими один раз, і ховала справжні дірки.
-    const REGULAR = 2;
-
     let severity: Severity;
     if (sold90 >= REGULAR && p.stock === 0) severity = 0;
     else if (daysLeft !== null && daysLeft < 30) severity = 1;
@@ -350,7 +355,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       expensivePrice: params.expensivePrice, expensiveMin: params.expensiveMin,
       cheapMin: params.cheapMin, includeDead: params.includeDead, search: params.search,
     },
-    velocityDays: VELOCITY_DAYS,
+    velocityDays,
     total: goods.length,
     toOrder,
     zeroStock,

@@ -24,34 +24,31 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-
-/**
- * Вікно, за яким визначається рух. Те саме, що в звіті закупівель
- * (lib/procurement/low-stock.ts): дефіцит і неліквід — дві сторони одного
- * питання, і рахувати їх за різними вікнами означало б давати
- * закупівельникові два різні уявлення про той самий товар.
- */
-const VELOCITY_DAYS = 90;
+import { DEFAULT_VELOCITY_DAYS } from "@/lib/analytics/velocity-window";
 
 /** Скільки днів запасу вважати надлишком: понад півроку продажів на полиці. */
 const OVERSTOCK_DAYS = 180;
 
 export type StaleBucket = "never" | "d365" | "d180" | "d90";
 
-/** Групи неліквіду за давністю останнього продажу. */
-export const STALE_LABELS: Record<StaleBucket, string> = {
+/**
+ * Групи неліквіду за давністю останнього продажу. Наймолодша група — «від
+ * вікна руху до 180 днів», тому її підпис залежить від обраного періоду і
+ * добудовується у buildTurnoverReport.
+ */
+const staleLabels = (velocityDays: number): Record<StaleBucket, string> => ({
   never: "жодного продажу",
   d365: "понад рік тому",
   d180: "180–365 днів тому",
-  d90: "90–180 днів тому",
-};
+  d90: `${velocityDays}–180 днів тому`,
+});
 
 export type TurnoverBrand = {
   brandId: string | null;
   brandName: string;
   /** Позицій із залишком. */
   items: number;
-  /** Позицій без руху за VELOCITY_DAYS. */
+  /** Позицій без руху за вікно velocityDays. */
   stale: number;
   stockQty: number;
   /** Вартість запасу в цінах продажу. */
@@ -138,12 +135,16 @@ function bucketOf(lastSale: Date | null, now: number): StaleBucket {
  * Будує звіт оборотності.
  *
  * `brandId` звужує до одного бренду — так закупівельник дивиться свій
- * напрямок, не гортаючи весь склад.
+ * напрямок, не гортаючи весь склад. `velocityDays` — вікно, за яким
+ * визначається рух (дозволені варіанти — у velocity-window.ts); за
+ * замовчуванням те саме, що в звіті закупівель.
  */
 export async function buildTurnoverReport(
   brandId?: string | null,
-  worstLimit = 100
+  opts?: { worstLimit?: number; velocityDays?: number }
 ): Promise<TurnoverReport> {
+  const worstLimit = opts?.worstLimit ?? 100;
+  const velocityDays = opts?.velocityDays ?? DEFAULT_VELOCITY_DAYS;
   const brandCondition = brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty;
 
   // Один запит замість трьох проходів: залишок, швидкість і дата останнього
@@ -157,7 +158,7 @@ export async function buildTurnoverReport(
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
         AND s."docType" IN ('REALIZATION', 'RETURN')
-        AND s."createdAt" >= NOW() - (${VELOCITY_DAYS} * INTERVAL '1 day')
+        AND s."createdAt" >= NOW() - (${velocityDays} * INTERVAL '1 day')
       GROUP BY i."productId"
     ),
     last_sale AS (
@@ -237,7 +238,7 @@ export async function buildTurnoverReport(
     // Повернення можуть перекрити продажі — тоді нетто від'ємне, і для
     // швидкості це те саме, що нуль: товар нікуди не поїхав.
     const sold = Math.max(0, p.sold90);
-    const perDay = sold / VELOCITY_DAYS;
+    const perDay = sold / velocityDays;
     const daysOfStock = perDay > 0 ? p.stock / perDay : null;
     const isStale = sold <= 0;
 
@@ -303,20 +304,20 @@ export async function buildTurnoverReport(
   // Рахується по бренду в цілому, а не як середнє по товарах — інакше одна
   // рідкісна позиція з мікрозалишком роздувала б показник напрямку.
   const turnsOf = (sold: number, qty: number): number | null =>
-    qty > 0 && sold > 0 ? (sold / qty) * (365 / VELOCITY_DAYS) : null;
+    qty > 0 && sold > 0 ? (sold / qty) * (365 / velocityDays) : null;
 
   const byBrand = [...brands.values()]
     .map((b) => ({
       ...b,
       turns: turnsOf(b.sold, b.stockQty),
-      daysOfStock: b.sold > 0 ? (b.stockQty / (b.sold / VELOCITY_DAYS)) : null,
+      daysOfStock: b.sold > 0 ? (b.stockQty / (b.sold / velocityDays)) : null,
     }))
     .sort((a, b) => b.staleValue - a.staleValue || b.stockValue - a.stockValue);
 
   const byBucket = (["never", "d365", "d180", "d90"] as const)
     .map((bucket) => ({
       bucket,
-      label: STALE_LABELS[bucket],
+      label: staleLabels(velocityDays)[bucket],
       items: buckets.get(bucket)?.items ?? 0,
       value: buckets.get(bucket)?.value ?? 0,
     }))
@@ -328,7 +329,7 @@ export async function buildTurnoverReport(
   const stockQtyTotal = goods.reduce((s, p) => s + p.stock, 0);
 
   return {
-    velocityDays: VELOCITY_DAYS,
+    velocityDays,
     valuedAt: "cost_where_known",
     totals: {
       items: goods.length,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { buildTurnoverReport } from "@/lib/analytics/turnover";
+import { parseVelocityDays } from "@/lib/analytics/velocity-window";
 
 /**
  * Оборотність складу і неліквіди — зворотний бік звіту закупівель.
@@ -16,7 +17,9 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const report = await buildTurnoverReport(searchParams.get("brandId") || null);
+  const report = await buildTurnoverReport(searchParams.get("brandId") || null, {
+    velocityDays: parseVelocityDays(searchParams.get("days")),
+  });
 
   return NextResponse.json({ report });
 }

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findSimilarProducts } from "@/lib/ai/embeddings";
+import { showableProductWhere } from "@/lib/catalog/showable";
+import { isServiceCategory } from "@/lib/catalog/category-display";
 
 export async function GET(req: Request) {
   try {
@@ -14,7 +16,7 @@ export async function GET(req: Request) {
       // Find semantically similar products
       const similar = await findSimilarProducts(productId, 6);
       const products = await prisma.product.findMany({
-        where: { id: { in: similar.map((s) => s.productId) }, isActive: true },
+        where: { id: { in: similar.map((s) => s.productId) }, ...showableProductWhere() },
         include: { category: true },
       });
       const scoreMap = new Map(similar.map((s) => [s.productId, s.score]));
@@ -31,12 +33,22 @@ export async function GET(req: Request) {
       const orderIds = ordersWithProduct.map((o) => o.orderId);
 
       if (orderIds.length === 0) {
-        // Fallback to category-based
-        const product = await prisma.product.findUnique({ where: { id: productId } });
+        // Fallback: без історії замовлень радимо «сусідів». Для товарів зі
+        // звалища «Імпорт з 1С» категорія нічого не значить (40+ тис.
+        // випадкових позицій) — там сусідів беремо за брендом.
+        const product = await prisma.product.findUnique({
+          where: { id: productId },
+          include: { category: true },
+        });
         if (!product) return NextResponse.json({ products: [], type: "bought_together" });
 
+        const neighborhood =
+          isServiceCategory(product.category?.name) && product.brandId
+            ? { brandId: product.brandId }
+            : { categoryId: product.categoryId };
+
         const products = await prisma.product.findMany({
-          where: { categoryId: product.categoryId, id: { not: productId }, isActive: true },
+          where: { ...neighborhood, id: { not: productId }, ...showableProductWhere() },
           include: { category: true },
           take: 4,
         });
@@ -51,7 +63,7 @@ export async function GET(req: Request) {
       // Count co-occurrences
       const counts: Record<string, { product: typeof coItems[0]["product"]; count: number }> = {};
       for (const item of coItems) {
-        if (!item.product.isActive) continue;
+        if (!item.product.isActive || item.product.stock <= 0 || item.product.price <= 0) continue;
         if (!counts[item.productId]) {
           counts[item.productId] = { product: item.product, count: 0 };
         }

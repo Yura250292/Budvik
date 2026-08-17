@@ -1,47 +1,44 @@
 export const revalidate = 60;
 
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import { isRealSku } from "@/lib/catalog/sku-search";
-import AddToCartButton from "./AddToCartButton";
+import { showableProductWhere } from "@/lib/catalog/showable";
+import { isServiceCategory, productLabel } from "@/lib/catalog/category-display";
 import Link from "next/link";
 import Image from "next/image";
 import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
 import ProductDescription from "@/components/ProductDescription";
-import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
+import ProductPriceBlock from "./ProductPriceBlock";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
+  // Сесії на сторінці навмисно немає: читання cookies вимикало ISR, і кожен
+  // відвідувач чекав живий рендер. Оптова ціна тепер рахується на клієнті
+  // (ProductPriceBlock), а сторінка кешується на revalidate = 60.
   const product = await prisma.product.findUnique({
     where: { slug },
-    include: { category: true },
+    include: { category: true, brand: { select: { name: true, slug: true } } },
   });
 
   if (!product) notFound();
 
-  const session = await getServerSession(authOptions);
-  const isWholesale = session?.user?.role === "WHOLESALE";
-  // Оптова ціна = роздріб із 1С мінус знижка по бренду. Поле wholesalePrice
-  // тут більше не джерело: 1С його не передає, і в базі лишились старі
-  // значення з магазину, які синхронізація ніколи не оновлює.
-  const brandDiscounts = isWholesale ? await getBrandDiscounts() : null;
-  const basePrice =
-    isWholesale && brandDiscounts ? getWholesalePrice(product.price, product.name, brandDiscounts) : product.price;
-  const displayPrice = product.isPromo && product.promoPrice ? product.promoPrice : basePrice;
-
+  // «З цієї категорії»: у звалищі «Імпорт з 1С» категорія — це 40+ тис.
+  // випадкових позицій упереміш зі службовими групами по 0 ₴, тож там
+  // сусідів беремо за брендом, а сміття відсікає showableProductWhere().
   const relatedProducts = await prisma.product.findMany({
     where: {
-      categoryId: product.categoryId,
+      ...(isServiceCategory(product.category.name) && product.brandId
+        ? { brandId: product.brandId }
+        : { categoryId: product.categoryId }),
       id: { not: product.id },
-      isActive: true,
+      ...showableProductWhere(),
     },
-    include: { category: true },
+    select: { id: true, name: true, slug: true, price: true, image: true },
     take: 4,
   });
 
@@ -50,10 +47,23 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       <nav className="breadcrumb-scroll text-sm text-[#9E9E9E] mb-4 sm:mb-6">
         <Link href="/catalog" className="hover:text-[#FFB800]">Каталог</Link>
         <span className="text-[#DADADA]">{" / "}</span>
-        <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-[#FFB800]">
-          {product.category.name}
-        </Link>
-        <span className="text-[#DADADA]">{" / "}</span>
+        {/* Службова категорія 1С покупцю нічого не каже — там ведемо по бренду,
+            бо саме він працює навігацією каталогу. */}
+        {!isServiceCategory(product.category.name) ? (
+          <>
+            <Link href={`/catalog?category=${product.category.slug}`} className="hover:text-[#FFB800]">
+              {product.category.name}
+            </Link>
+            <span className="text-[#DADADA]">{" / "}</span>
+          </>
+        ) : product.brand ? (
+          <>
+            <Link href={`/catalog?brand=${product.brand.slug}`} className="hover:text-[#FFB800]">
+              {product.brand.name}
+            </Link>
+            <span className="text-[#DADADA]">{" / "}</span>
+          </>
+        ) : null}
         <span className="text-[#0A0A0A]">{product.name}</span>
       </nav>
 
@@ -73,7 +83,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
         {/* Right column — info */}
         <div>
-          <span className="text-sm text-primary-dark font-medium">{product.category.name}</span>
+          {productLabel(product.category, product.brand) && (
+            <span className="text-sm text-primary-dark font-medium">
+              {productLabel(product.category, product.brand)}
+            </span>
+          )}
           <h1 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mt-1 mb-2 leading-snug">{product.name}</h1>
 
           {/* Артикул: за ним клієнт замовляє по телефону і шукає повторно.
@@ -85,52 +99,18 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           )}
 
           {/* Price + availability + cart — right after title */}
-          <div className="bg-g50 rounded-xl p-4 sm:p-5 mb-5 border border-g100">
-            <div className="flex items-baseline gap-2 sm:gap-3 mb-3 flex-wrap">
-              <span className="text-2xl sm:text-4xl font-bold text-[#0A0A0A]">
-                {formatPrice(displayPrice)}
-              </span>
-              {product.isPromo && product.promoPrice && product.promoPrice < product.price && (
-                <>
-                  <span className="text-lg text-g400 line-through">{formatPrice(product.price)}</span>
-                  <span className="text-sm bg-primary/15 text-primary-dark px-2 py-0.5 rounded-full font-medium">
-                    {product.promoLabel || `- ${Math.round((1 - product.promoPrice / product.price) * 100)}%`}
-                  </span>
-                </>
-              )}
-              {isWholesale && basePrice < product.price && !product.isPromo && (
-                <>
-                  <span className="text-lg text-g400 line-through">{formatPrice(product.price)}</span>
-                  <span className="text-sm bg-primary/15 text-primary-dark px-2 py-0.5 rounded-full font-medium">Оптова ціна</span>
-                </>
-              )}
-            </div>
-
-            <div className="mb-3">
-              {product.stock > 0 ? (
-                <span className="inline-flex items-center gap-1 text-green-600 text-sm font-medium">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  {isWholesale ? `В наявності (${product.stock} шт.)` : "В наявності"}
-                </span>
-              ) : (
-                <span className="text-red-500 text-sm font-medium">Немає в наявності</span>
-              )}
-            </div>
-
-            {product.stock > 0 && (
-              <AddToCartButton
-                productId={product.id}
-                name={product.name}
-                price={displayPrice}
-                slug={product.slug}
-                image={product.image}
-              />
-            )}
-
-            {/* Рядок кешбеку в Болтах прихований разом із програмою лояльності. */}
-          </div>
+          <ProductPriceBlock
+            id={product.id}
+            name={product.name}
+            slug={product.slug}
+            price={product.price}
+            isPromo={product.isPromo}
+            promoPrice={product.promoPrice}
+            promoLabel={product.promoLabel}
+            stock={product.stock}
+            image={product.image}
+            packQty={product.packQty}
+          />
 
           {/* Кнопка «Симулювати продуктивність» прихована разом із розділом симуляції. */}
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { chatWithGemini } from "@/lib/ai/gemini";
 import { getProductCatalogContext } from "@/lib/ai/context";
+import { showableProductWhere } from "@/lib/catalog/showable";
 
 export async function GET(req: Request) {
   try {
@@ -72,7 +73,7 @@ export async function GET(req: Request) {
     const candidates = prefixes.length
       ? await prisma.product.findMany({
           where: {
-            isActive: true,
+            ...showableProductWhere(),
             id: { not: productId },
             OR: prefixes.map((p) => ({ name: { contains: p, mode: "insensitive" as const } })),
           },
@@ -102,7 +103,7 @@ export async function GET(req: Request) {
     if (matched.length === 0) {
       const fallback = await prisma.product.findMany({
         where: {
-          isActive: true,
+          ...showableProductWhere(),
           id: { not: productId },
           categoryId: { not: product.categoryId },
         },

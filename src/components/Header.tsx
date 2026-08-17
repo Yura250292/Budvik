@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -52,9 +51,11 @@ export default function Header() {
 
           {/* Logo — mobile: centered, desktop: left with brand name */}
           <Link href="/" className="flex items-center gap-2.5 flex-shrink-0 md:relative absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-10">
-            <Image src="/logo-gold.png" alt="БУДВІК" width={48} height={48} className="h-11 w-auto md:h-9 logo-glow" />
-            <div className="hidden md:flex flex-col">
-              <span className="text-lg font-extrabold leading-none logo-text-animated tracking-wide">БУДВІК</span>
+            <div className="w-10 h-10 md:w-9 md:h-9 bg-[#FFD600] rounded-[10px] flex items-center justify-center logo-glow flex-shrink-0">
+              <span className="text-[#0A0A0A] font-black text-[15px] md:text-sm leading-none">27</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-lg font-extrabold leading-none logo-text-animated tracking-wide">БУДВІК27</span>
               <span className="text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
             </div>
           </Link>

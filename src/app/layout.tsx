@@ -10,7 +10,7 @@ import PageTransition from "@/components/PageTransition";
 import TestBanner from "@/components/TestBanner";
 
 export const metadata: Metadata = {
-  title: "Budvik - Інструменти для професіоналів",
+  title: "Budvik27 - Інструменти для професіоналів",
   description: "Магазин електро та ручного інструменту. Великий вибір, програма лояльності, швидка доставка.",
   manifest: "/manifest.json",
   icons: {
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Budvik",
+    title: "Budvik27",
   },
 };
 

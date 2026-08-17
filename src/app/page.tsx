@@ -161,11 +161,11 @@ export default async function HomePage() {
         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
         <div className="max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
-            <span className="text-[#FFD600]">БУДВІК</span> — Ваш свiт iнструментiв
+            <span className="text-[#FFD600]">БУДВІК27</span> — Ваш світ інструментів
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
-            Електро та ручний iнструмент вiд провiдних виробникiв.
-            Широкий асортимент i швидка доставка!
+            Електро та ручний інструмент від провідних виробників.
+            Широкий асортимент і швидка доставка!
           </p>
           <HeroCta />
         </div>
@@ -242,7 +242,7 @@ export default async function HomePage() {
         <section className="py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
             <h2 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-1 sm:mb-2 text-center">Бренди</h2>
-            <p className="text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Iнструменти вiд провiдних виробникiв</p>
+            <p className="text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Інструменти від провідних виробників</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
               {activeBrands.map((brand) => (
                 <BrandCard

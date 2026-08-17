@@ -1,6 +1,6 @@
 {
-  "name": "Budvik - Інструменти",
-  "short_name": "Budvik",
+  "name": "Budvik27 - Інструменти",
+  "short_name": "Budvik27",
   "description": "Магазин електро та ручного інструменту. Програма лояльності Болти.",
   "start_url": "/",
   "display": "standalone",
@@ -70,10 +70,18 @@
       "short_name": "Карта дня",
       "description": "Маршрут, чек-ліст клієнтів і запис треку",
       "url": "/driver/tablet",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ],
-  "categories": ["shopping", "business"],
+  "categories": [
+    "shopping",
+    "business"
+  ],
   "lang": "uk",
   "dir": "ltr"
 }

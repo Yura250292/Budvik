@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 
@@ -26,8 +25,10 @@ export default function Footer() {
           {/* Про компанію */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Image src="/logo-gold.png" alt="БУДВІК" width={28} height={28} className="logo-glow" />
-              <span className="text-lg font-bold logo-text-animated">БУДВІК</span>
+              <div className="w-7 h-7 bg-[#FFD600] rounded-lg flex items-center justify-center logo-glow flex-shrink-0">
+                <span className="text-[#0A0A0A] font-black text-[11px] leading-none">27</span>
+              </div>
+              <span className="text-lg font-bold logo-text-animated">БУДВІК27</span>
             </div>
             <p className="text-sm leading-relaxed mb-4">
               Багаторічний досвід у сфері консультацій, підбору та продажу інструментів.
@@ -124,7 +125,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-white/10 mt-10 pt-6 flex flex-col md:flex-row items-center justify-between gap-3">
           <p className="text-xs text-[#9E9E9E]">
-            &copy; 2026 БУДВІК. Усі права захищені.
+            &copy; 2026 БУДВІК27. Усі права захищені.
           </p>
           <p className="text-xs text-[#555]">
             Всі ціни на сайті вказано в гривнях (UAH) з урахуванням ПДВ.

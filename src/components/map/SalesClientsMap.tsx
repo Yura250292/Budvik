@@ -149,6 +149,9 @@ export default function SalesClientsMap({
   onAction,
   extras = { clientCardHref: "/sales/clients/" },
   height = "100%",
+  pinning = false,
+  onMapClick,
+  focus = null,
 }: {
   clients: SalesClientPoint[];
   route: SalesRoute;
@@ -158,18 +161,29 @@ export default function SalesClientsMap({
   /** Які дії показувати в попапі — набір різний у торгового й водія. */
   extras?: PopupExtras;
   height?: string;
+  /** Чекаємо тап по карті, щоб поставити клієнту пін. */
+  pinning?: boolean;
+  onMapClick?: (lat: number, lng: number) => void;
+  /** Куди підлетіти після пошуку; nonce — щоб повторний вибір теж спрацював. */
+  focus?: { lat: number; lng: number; id?: string; nonce: number } | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layersRef = useRef<L.LayerGroup | null>(null);
   const meRef = useRef<L.CircleMarker | null>(null);
   const fittedRef = useRef(false);
+  /** id → маркер: пошук має не лише підлетіти, а й розкрити потрібну точку. */
+  const markersRef = useRef(new Map<string, L.CircleMarker>());
   /** Колбек у ref: інакше кожен новий рендер сторінки перемальовував би точки. */
   const actionRef = useRef(onAction);
   actionRef.current = onAction;
   /** Теж у ref: `extras` — літерал, новий на кожен рендер сторінки. */
   const extrasRef = useRef(extras);
   extrasRef.current = extras;
+  const clickRef = useRef(onMapClick);
+  clickRef.current = onMapClick;
+  const pinningRef = useRef(pinning);
+  pinningRef.current = pinning;
 
   const key = useMemo(
     () =>
@@ -212,6 +226,13 @@ export default function SalesClientsMap({
           };
         });
       });
+
+      // Тап по карті ставить пін лише коли його справді чекають: у звичайному
+      // режимі торговий тапає по карті просто щоб закрити попап.
+      mapRef.current.on("click", (e: L.LeafletMouseEvent) => {
+        if (!pinningRef.current) return;
+        clickRef.current?.(e.latlng.lat, e.latlng.lng);
+      });
     }
 
     const map = mapRef.current;
@@ -240,8 +261,9 @@ export default function SalesClientsMap({
       bounds.extend([s.lat, s.lng]);
     });
 
+    markersRef.current.clear();
     spread(clients).forEach((c) => {
-      L.circleMarker([c.lat, c.lng], {
+      const marker = L.circleMarker([c.lat, c.lng], {
         radius: 9, // більше за адмінські 7: ціль для пальця
         color: "#fff",
         weight: 2,
@@ -250,6 +272,7 @@ export default function SalesClientsMap({
       })
         .bindPopup(popupHtml(c, extrasRef.current), { minWidth: 190 })
         .addTo(group);
+      markersRef.current.set(c.id, marker);
       bounds.extend([c.lat, c.lng]);
     });
 
@@ -283,6 +306,26 @@ export default function SalesClientsMap({
         .addTo(map);
     }
   }, [me]);
+
+  // Політ до знайденого пошуком клієнта.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus) return;
+    map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 15), { duration: 0.7 });
+    if (focus.id) {
+      // Попап відкриваємо після польоту: під час анімації Leaflet тягне його
+      // разом із картою, і він встигає моргнути в кутку.
+      const marker = markersRef.current.get(focus.id);
+      if (marker) map.once("moveend", () => marker.openPopup());
+    }
+  }, [focus]);
+
+  // Приціл замість стрілки: видно, що зараз чекають тап по карті.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.getContainer().style.cursor = pinning ? "crosshair" : "";
+  }, [pinning]);
 
   useEffect(() => {
     return () => {

@@ -32,8 +32,8 @@ type Row = {
   id: string;
   name: string;
   address: string | null;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   geoSource: string | null;
   receivable: number;
   overdue: number;
@@ -95,8 +95,6 @@ export async function GET(req: NextRequest) {
                )::float AS overdue
         FROM "Counterparty" c
         WHERE c."isActive"
-          AND c."deliveryLat" IS NOT NULL
-          AND c."deliveryLng" IS NOT NULL
           AND (
             EXISTS (SELECT 1 FROM "SalesRepClient" s
                      WHERE s."counterpartyId" = c.id AND s."salesRepId" = ${repId})
@@ -124,16 +122,37 @@ export async function GET(req: NextRequest) {
     resolveRouteForDay(repId, day),
   ]);
 
+  /**
+   * Клієнти без координат ідуть окремим списком, а не відкидаються.
+   *
+   * Раніше їх різало прямо в SQL, і виходило замкнене коло: щоб поставити
+   * клієнту пін, торговий мав знайти його на карті, а на карту він не
+   * потрапляв саме тому, що піна немає. Тепер такий клієнт знаходиться
+   * пошуком і пін йому ставиться тапом по карті.
+   *
+   * У counts вони не входять: підпис під картою рахує намальовані точки.
+   */
+  type Base = {
+    id: string;
+    name: string;
+    address: string | null;
+    state: ClientState;
+    geoSource: string | null;
+    receivable: number;
+    overdue: number;
+    daysSinceLast: number | null;
+  };
+
   const counts: Record<string, number> = {};
-  const clients = rows.map((r) => {
+  const clients: Array<Base & { lat: number; lng: number; approximate: boolean }> = [];
+  const unmapped: Base[] = [];
+
+  for (const r of rows) {
     const state = classify(r);
-    counts[state] = (counts[state] ?? 0) + 1;
-    return {
+    const point: Base = {
       id: r.id,
       name: r.name,
       address: r.address,
-      lat: r.lat,
-      lng: r.lng,
       state,
       geoSource: r.geoSource,
       receivable: r.receivable,
@@ -141,14 +160,27 @@ export async function GET(req: NextRequest) {
       daysSinceLast: r.lastDocAt
         ? Math.max(0, Math.floor((Date.now() - r.lastDocAt.getTime()) / DAY_MS))
         : null,
+    };
+
+    if (r.lat == null || r.lng == null) {
+      unmapped.push(point);
+      continue;
+    }
+
+    counts[state] = (counts[state] ?? 0) + 1;
+    clients.push({
+      ...point,
+      lat: r.lat,
+      lng: r.lng,
       /** Скільки клієнтів ще стоять «приблизно» — привід уточнити пін. */
       approximate: r.geoSource !== "MANUAL",
-    };
-  });
+    });
+  }
 
   return NextResponse.json({
     day,
     clients,
+    unmapped,
     counts,
     route: route
       ? {

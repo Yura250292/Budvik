@@ -392,7 +392,7 @@ export default function ClientMap({
         <div className="pointer-events-none absolute left-1/2 top-3 z-[400] -translate-x-1/2 rounded-full bg-bk/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
           {mode === "addProspect"
             ? "Клікніть на карті, де стоїть майбутній клієнт"
-            : "Клікніть на карті, куди перенести точку"}
+            : "Клікніть на карті, де стоїть клієнт"}
         </div>
       )}
 

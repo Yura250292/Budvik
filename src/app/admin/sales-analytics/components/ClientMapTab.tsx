@@ -245,12 +245,17 @@ export function ClientMapTab({ period }: { period: Period }) {
   const pickSuggestion = useCallback((s: Picked) => {
     setSearchOpen(false);
     setQuery(s.name);
+    setActionError(null);
     if (s.lat != null && s.lng != null) {
       setFocus({ lat: s.lat, lng: s.lng, id: s.kind === "client" ? s.id : undefined, nonce: Date.now() });
-    } else {
-      // Координат немає — показуємо його в списку «кого немає на карті».
-      setShowUnmapped(true);
+      return;
     }
+    // Координат немає — одразу пропонуємо їх поставити, а не лише показуємо
+    // клієнта в списку. Пошук тут потрібен здебільшого саме для цього:
+    // знайти того, хто не геокодувався, і виставити йому пін кліком.
+    setMovingId({ kind: "client", id: s.id });
+    setMode("movePin");
+    setShowUnmapped(true);
   }, []);
 
   const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -461,6 +466,13 @@ export function ClientMapTab({ period }: { period: Period }) {
 
   const pending = geo.data?.pending ?? 0;
   const failed = geo.data?.failed ?? 0;
+  const movingName = !movingId
+    ? null
+    : movingId.kind === "prospect"
+      ? (data.prospects.find((p) => p.id === movingId.id)?.name ?? null)
+      : (data.clients.find((c) => c.counterpartyId === movingId.id)?.name ??
+        data.unmapped.find((u) => u.counterpartyId === movingId.id)?.name ??
+        null);
   const counts: Record<string, number> = { ...data.counts, PROSPECT: data.prospects.length };
 
   return (
@@ -592,6 +604,25 @@ export function ClientMapTab({ period }: { period: Period }) {
 
         {actionError && <div className="mb-3"><ErrorBox message={actionError} /></div>}
 
+        {/* Кому саме ставимо пін: коли режим увімкнувся з пошуку, назва
+            клієнта більше ніде на екрані не видно. */}
+        {mode === "movePin" && movingName && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-line bg-bg2 px-3 py-2 text-sm">
+            <span className="text-gr">Ставимо точку:</span>
+            <strong className="text-bk">{movingName}</strong>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("view");
+                setMovingId(null);
+              }}
+              className="ml-auto text-xs underline text-gr"
+            >
+              Скасувати
+            </button>
+          </div>
+        )}
+
         <ClientMap
           clients={visibleClients}
           prospects={visibleProspects}
@@ -657,6 +688,7 @@ export function ClientMapTab({ period }: { period: Period }) {
                   <th className="px-3 py-2">Адреса</th>
                   <th className="px-3 py-2">Стан</th>
                   <th className="px-3 py-2 text-right">Оборот</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -670,6 +702,19 @@ export function ClientMapTab({ period }: { period: Period }) {
                       {CLIENT_STATE[c.state].label}
                     </td>
                     <td className="px-3 py-1.5 text-right">{money(c.amount)}</td>
+                    <td className="px-3 py-1.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setMovingId({ kind: "client", id: c.counterpartyId });
+                          setMode("movePin");
+                        }}
+                        className="whitespace-nowrap text-xs underline text-gr hover:text-bk"
+                      >
+                        Поставити пін
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

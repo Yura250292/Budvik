@@ -12,7 +12,7 @@
  * рамки — це мінус видима територія.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
@@ -25,12 +25,27 @@ const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap")
   loading: () => <div style={{ height: "100%", width: "100%", background: "#EEE" }} />,
 });
 
+/** Клієнт, якому ще не поставили пін: усе те саме, лише без координат. */
+type UnmappedClient = Omit<SalesClientPoint, "lat" | "lng" | "approximate">;
+
 type Resp = {
   day: string;
   clients: SalesClientPoint[];
+  unmapped: UnmappedClient[];
   counts: Record<string, number>;
   route: SalesRoute;
   approximateCount: number;
+};
+
+/** Що показує пошук: точка на карті або клієнт, якого туди ще треба поставити. */
+type Suggestion = {
+  id: string;
+  name: string;
+  hint: string;
+  state: ClientStateKey;
+  lat: number | null;
+  lng: number | null;
+  rank: number;
 };
 
 /** Порядок у легенді: спершу те, з чим треба працювати. */
@@ -48,6 +63,19 @@ export default function SalesMapPage() {
     name: string;
     state: ClientStateKey;
   } | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [focus, setFocus] = useState<{
+    lat: number;
+    lng: number;
+    id?: string;
+    nonce: number;
+  } | null>(null);
+  /** Кому зараз ставимо пін; поки не null — тап по карті зберігає координати. */
+  const [pinFor, setPinFor] = useState<{ id: string; name: string } | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   /**
    * Трек торгового вмикається кнопкою, а не сам.
@@ -88,6 +116,153 @@ export default function SalesMapPage() {
     );
   }, []);
 
+  /**
+   * Підказки пошуку.
+   *
+   * Дані вже в пам'яті, тож список звужується з кожною літерою без запиту —
+   * саме те, що просили: набрав перші букви й одразу бачиш, кого мав на увазі.
+   * Шукаємо і по назві, і по адресі: клієнта пам'ятають або на прізвище, або
+   * по тому, де він стоїть. Збіг на початку слова важить більше за збіг
+   * усередині — «Стрий» має знайти Стрий, а не «Бистриця».
+   *
+   * Клієнти без піна теж у списку, і саме заради них усе робилося: інакше
+   * пошук мовчить про клієнта, якого просто не геокодували, і це виглядає
+   * так, ніби його немає в базі.
+   */
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2 || !data) return [];
+
+    const rank = (haystack: string) => {
+      const h = haystack.toLowerCase();
+      const at = h.indexOf(q);
+      if (at < 0) return -1;
+      if (at === 0) return 0;
+      return /[\s(,.«"]/.test(h[at - 1]) ? 1 : 2;
+    };
+
+    const rankOf = (name: string, address: string | null) =>
+      Math.min(...[rank(name), rank(address ?? "")].filter((x) => x >= 0).concat([99]));
+
+    const out: Suggestion[] = [];
+
+    for (const c of data.clients) {
+      const r = rankOf(c.name, c.address);
+      if (r === 99) continue;
+      out.push({
+        id: c.id,
+        name: c.name,
+        hint: c.approximate ? "точка приблизна" : CLIENT_STATE[c.state].label,
+        state: c.state,
+        lat: c.lat,
+        lng: c.lng,
+        rank: r,
+      });
+    }
+
+    // Без піна — нижче за тих, хто на карті, але в тому ж списку.
+    for (const u of data.unmapped) {
+      const r = rankOf(u.name, u.address);
+      if (r === 99) continue;
+      out.push({
+        id: u.id,
+        name: u.name,
+        hint: "немає на карті",
+        state: u.state,
+        lat: null,
+        lng: null,
+        rank: r + 3,
+      });
+    }
+
+    return out.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, "uk")).slice(0, 12);
+  }, [query, data]);
+
+  /**
+   * Вибір у пошуку.
+   *
+   * Клієнт із піном — просто підлітаємо до нього. Без піна — вмикаємо режим
+   * постановки: далі торговий або тапає по карті, або тисне «Я тут» і пін
+   * стає по GPS. Другий шлях головний: він стоїть біля дверей магазину, і
+   * його власна позиція точніша за будь-який тап пальцем по мапі.
+   */
+  const pickSuggestion = useCallback((s: Suggestion) => {
+    setSearchOpen(false);
+    setQuery("");
+    setPinError(null);
+    if (s.lat != null && s.lng != null) {
+      setPinFor(null);
+      setFocus({ lat: s.lat, lng: s.lng, id: s.id, nonce: Date.now() });
+    } else {
+      setPinFor({ id: s.id, name: s.name });
+    }
+  }, []);
+
+  /** Зберігає пін і оновлює карту, не перезавантажуючи весь список. */
+  const savePin = useCallback(
+    async (lat: number, lng: number) => {
+      if (!pinFor) return;
+      setPinBusy(true);
+      setPinError(null);
+      try {
+        const res = await fetch(`/api/admin/client-map/${pinFor.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lng }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+
+        // Переносимо клієнта з «без піна» на карту тут же: перезапит забрав
+        // би секунди й скинув би вигляд карти, а нових даних, крім координат,
+        // у відповіді немає.
+        setData((prev) => {
+          if (!prev) return prev;
+          const moved = prev.unmapped.find((u) => u.id === pinFor.id);
+          const counts = { ...prev.counts };
+          if (moved) counts[moved.state] = (counts[moved.state] ?? 0) + 1;
+          return {
+            ...prev,
+            unmapped: prev.unmapped.filter((u) => u.id !== pinFor.id),
+            clients: moved
+              ? [...prev.clients, { ...moved, lat, lng, geoSource: "MANUAL", approximate: false }]
+              : prev.clients.map((c) =>
+                  c.id === pinFor.id
+                    ? { ...c, lat, lng, geoSource: "MANUAL", approximate: false }
+                    : c
+                ),
+            counts,
+          };
+        });
+        setPinFor(null);
+        setFocus({ lat, lng, id: pinFor.id, nonce: Date.now() });
+      } catch (e) {
+        setPinError(e instanceof Error ? e.message : "Не вдалося зберегти точку");
+      } finally {
+        setPinBusy(false);
+      }
+    },
+    [pinFor]
+  );
+
+  /** «Я зараз тут» — пін по власному GPS. */
+  const pinHere = useCallback(() => {
+    if (!navigator.geolocation) {
+      setPinError("Телефон не дає геолокацію");
+      return;
+    }
+    setPinBusy(true);
+    setPinError(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => savePin(p.coords.latitude, p.coords.longitude),
+      () => {
+        setPinBusy(false);
+        setPinError("Не вдалося отримати ваше місце. Увімкніть геолокацію або тапніть по карті.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }, [savePin]);
+
   const toggle = (k: string) =>
     setHidden((prev) => {
       const next = new Set(prev);
@@ -115,9 +290,21 @@ export default function SalesMapPage() {
           clients={visible}
           route={data?.route ?? null}
           me={track.position ?? me}
+          pinning={!!pinFor}
+          onMapClick={savePin}
+          focus={focus}
+          // «Уточнити точку» прямо з попапа: приблизний пін видно саме тоді,
+          // коли торговий стоїть біля магазину й дивиться на карту.
+          extras={{ clientCardHref: "/sales/clients/", pin: true }}
           onAction={(a) => {
             const c = data?.clients.find((x) => x.id === a.id);
-            if (c) setOrderFor({ id: c.id, name: c.name, state: c.state });
+            if (!c) return;
+            if (a.kind === "pin") {
+              setPinError(null);
+              setPinFor({ id: c.id, name: c.name });
+              return;
+            }
+            setOrderFor({ id: c.id, name: c.name, state: c.state });
           }}
         />
       </div>
@@ -142,24 +329,108 @@ export default function SalesMapPage() {
           </svg>
         </Link>
 
-        <div
-          className="min-w-0 flex-1 rounded-full px-3 py-1.5"
-          style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
-        >
-          {data?.route ? (
-            <p className="truncate" style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A" }}>
-              Сьогодні: {data.route.name}
-              {data.route.totalDistanceKm ? (
-                <span style={{ color: "#9CA3AF", fontWeight: 400 }}>
-                  {" "}
-                  · {Math.round(data.route.totalDistanceKm)} км
-                </span>
-              ) : null}
-            </p>
-          ) : (
-            <p className="truncate" style={{ fontSize: "13px", color: "#9CA3AF" }}>
-              {data ? "Маршрут на сьогодні не призначений" : "Завантаження…"}
-            </p>
+        {/* Пошук на місці смужки маршруту: у полі його відкривають, щоб
+            знайти конкретного клієнта, а назва маршруту — довідка, яку
+            досить бачити в розгорнутій панелі внизу. */}
+        <div className="relative min-w-0 flex-1">
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            // Затримка: без неї тап по підказці не встигає спрацювати —
+            // blur ховає список раніше за onClick.
+            onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+            placeholder="Пошук клієнта: прізвище, адреса…"
+            aria-label="Пошук клієнта"
+            className="w-full rounded-full px-3.5 py-2"
+            style={{
+              background: "#fff",
+              boxShadow: "0 1px 6px rgba(0,0,0,0.12)",
+              border: "none",
+              fontSize: "14px",
+              color: "#0A0A0A",
+              outline: "none",
+            }}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setSearchOpen(false);
+              }}
+              aria-label="Очистити пошук"
+              className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full"
+              style={{ background: "none", border: "none", color: "#9CA3AF", fontSize: "17px" }}
+            >
+              ×
+            </button>
+          )}
+
+          {searchOpen && suggestions.length > 0 && (
+            <ul
+              className="absolute left-0 right-0 top-full mt-1 overflow-y-auto rounded-2xl"
+              style={{
+                background: "#fff",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+                maxHeight: "min(52vh, 340px)",
+                listStyle: "none",
+                margin: "4px 0 0",
+                padding: 0,
+              }}
+            >
+              {suggestions.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickSuggestion(s)}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+                    style={{ background: "none", border: "none" }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        width: "9px",
+                        height: "9px",
+                        borderRadius: "50%",
+                        background: CLIENT_STATE[s.state].color,
+                        flexShrink: 0,
+                        // Порожнистий кружок — клієнт ще не на карті.
+                        boxShadow: s.lat == null ? "inset 0 0 0 9px #fff, 0 0 0 1.5px currentColor" : "none",
+                        color: CLIENT_STATE[s.state].color,
+                      }}
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      style={{ fontSize: "14px", color: "#0A0A0A" }}
+                    >
+                      {s.name}
+                    </span>
+                    <span
+                      className="shrink-0"
+                      style={{ fontSize: "11px", color: s.lat == null ? "#D97706" : "#9CA3AF" }}
+                    >
+                      {s.hint}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {searchOpen && query.trim().length >= 2 && suggestions.length === 0 && (
+            <div
+              className="absolute left-0 right-0 top-full mt-1 rounded-2xl px-3 py-2.5"
+              style={{ background: "#fff", boxShadow: "0 6px 20px rgba(0,0,0,0.18)" }}
+            >
+              <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>
+                Нічого не знайдено серед ваших клієнтів.
+              </p>
+            </div>
           )}
         </div>
 
@@ -225,6 +496,62 @@ export default function SalesMapPage() {
         </div>
       )}
 
+      {/* Постановка піна: панель угорі, щоб не закривати карту знизу, де
+          зазвичай і цілять пальцем. */}
+      {pinFor && (
+        <div
+          className="absolute inset-x-3 z-[600] rounded-2xl p-3"
+          style={{ top: "62px", background: "#0A0A0A", boxShadow: "0 6px 20px rgba(0,0,0,0.3)" }}
+        >
+          <p style={{ fontSize: "13px", color: "#fff", fontWeight: 600, margin: 0 }}>
+            {pinFor.name}
+          </p>
+          <p style={{ fontSize: "12px", color: "#D1D5DB", margin: "3px 0 0", lineHeight: 1.4 }}>
+            {pinBusy
+              ? "Зберігаю…"
+              : "Тапніть по карті, де стоїть клієнт, або натисніть «Я тут», якщо ви вже на місці."}
+          </p>
+          {pinError && (
+            <p style={{ fontSize: "12px", color: "#FCA5A5", margin: "6px 0 0" }}>{pinError}</p>
+          )}
+          <div className="mt-2.5 flex gap-2">
+            <button
+              type="button"
+              onClick={pinHere}
+              disabled={pinBusy}
+              className="flex-1 rounded-full px-3 py-2"
+              style={{
+                background: "#fff",
+                color: "#0A0A0A",
+                border: "none",
+                fontSize: "13px",
+                fontWeight: 600,
+                opacity: pinBusy ? 0.6 : 1,
+              }}
+            >
+              Я зараз тут
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPinFor(null);
+                setPinError(null);
+              }}
+              disabled={pinBusy}
+              className="rounded-full px-3 py-2"
+              style={{
+                background: "transparent",
+                color: "#D1D5DB",
+                border: "1px solid #4B5563",
+                fontSize: "13px",
+              }}
+            >
+              Скасувати
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Нижня панель: легенда-фільтр. Згорнута — смужка з підсумком,
           щоб не з'їдати карту; розгортається тапом. */}
       {data && (
@@ -255,6 +582,11 @@ export default function SalesMapPage() {
                   ⌖ {data.approximateCount} приблизних
                 </span>
               )}
+              {data.unmapped.length > 0 && (
+                <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
+                  {data.unmapped.length} без піна
+                </span>
+              )}
               <svg
                 className="ml-auto h-4 w-4"
                 style={{ transform: sheetOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}
@@ -269,6 +601,19 @@ export default function SalesMapPage() {
 
             {sheetOpen && (
               <div className="px-3 pb-3">
+                {/* Маршрут дня переїхав сюди з шапки, коли там став пошук. */}
+                <p style={{ fontSize: "12px", color: "#6B7280", margin: "0 0 8px" }}>
+                  {data.route ? (
+                    <>
+                      Сьогодні: <strong style={{ color: "#0A0A0A" }}>{data.route.name}</strong>
+                      {data.route.totalDistanceKm
+                        ? ` · ${Math.round(data.route.totalDistanceKm)} км`
+                        : ""}
+                    </>
+                  ) : (
+                    "Маршрут на сьогодні не призначений"
+                  )}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
                   {LEGEND.map((k) => {
                     const off = hidden.has(k);
@@ -302,8 +647,8 @@ export default function SalesMapPage() {
                 </div>
                 <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
                   Тапніть точку, щоб побачити, що клієнт брав і що йому запропонувати.
-                  Приблизні точки можна уточнити в картці — станьте біля магазину
-                  й натисніть «Я зараз тут».
+                  Щоб виправити чи поставити пін — знайдіть клієнта пошуком угорі:
+                  станьте біля магазину й натисніть «Я зараз тут».
                 </p>
               </div>
             )}

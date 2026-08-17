@@ -7,6 +7,7 @@ import Link from "next/link";
 import { getCart, updateCartQty, clearCart, getCartTotal, CartItem } from "@/lib/cart";
 import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
+import { packLabel, stepPack } from "@/lib/pack-qty";
 
 export default function CartPage() {
   const { data: session } = useSession();
@@ -129,6 +130,11 @@ export default function CartPage() {
                     {item.name}
                   </Link>
                   <p className="text-[#0A0A0A] font-bold text-sm sm:text-base mt-0.5">{formatPrice(item.price)}</p>
+                  {packLabel(item.packQty && item.packQty > 1 ? item.packQty : 1, item.name) && (
+                    <p className="text-[#9E9E9E] text-xs mt-0.5">
+                      {packLabel(item.packQty!, item.name)}
+                    </p>
+                  )}
                 </div>
                 <button onClick={() => updateCartQty(item.productId, 0)} className="text-[#9E9E9E] hover:text-[#0A0A0A] flex-shrink-0 p-1">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -138,9 +144,9 @@ export default function CartPage() {
               </div>
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#EFEFEF]">
                 <div className="flex items-center border border-[#DADADA] rounded-lg overflow-hidden">
-                  <button onClick={() => updateCartQty(item.productId, item.quantity - 1)} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">-</button>
-                  <span className="w-10 h-9 flex items-center justify-center text-sm font-medium border-x border-[#DADADA]">{item.quantity}</span>
-                  <button onClick={() => updateCartQty(item.productId, item.quantity + 1)} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">+</button>
+                  <button onClick={() => updateCartQty(item.productId, stepPack(item.quantity, item.packQty || 1, -1))} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">-</button>
+                  <span className="w-12 h-9 flex items-center justify-center text-sm font-medium border-x border-[#DADADA]">{item.quantity}</span>
+                  <button onClick={() => updateCartQty(item.productId, stepPack(item.quantity, item.packQty || 1, 1))} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">+</button>
                 </div>
                 <span className="font-bold text-[#0A0A0A] text-base">{formatPrice(item.price * item.quantity)}</span>
               </div>

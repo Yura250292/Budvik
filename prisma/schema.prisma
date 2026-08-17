@@ -367,6 +367,10 @@ model Product {
   isPromo        Boolean  @default(false)
   promoPrice     Float?
   promoLabel     String?
+  // Кратність: товар продається пачками, замовляти можна лише 10, 20, 30...
+  // Джерело — назва з 1С («кратно 10шт», «Уп. 5 шт»), розбирає src/lib/pack-qty.ts.
+  // Квадратні дужки [N] у назві НЕ кратність, а кількість у ящику (там буває [1] і [500]).
+  packQty        Int? // 1/null — поштучно
   // Tool specification fields (optional)
   powerWatts     Int? // Потужність (Вт)
   rpm            Int? // Обороти (об/хв)
@@ -490,6 +494,12 @@ model OrderItem {
 
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])
+
+  // Без цих індексів groupBy по productId на головній і будь-який join
+  // позицій до замовлення — повний скан таблиці. Зараз вона мала, але
+  // росте з кожним замовленням, і деградація була б непомітною до болю.
+  @@index([orderId])
+  @@index([productId])
 }
 
 model BoltsTransaction {

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { BOLTS_CASHBACK_RATE, BOLTS_MAX_USAGE_RATE } from "@/lib/utils";
 import { getBrandDiscounts, getWholesalePrice } from "@/lib/wholesale-pricing";
 import { findSalesRepByRefCode, REF_COOKIE } from "@/lib/ref-code";
+import { packQtyOf, roundUpToPack } from "@/lib/pack-qty";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -18,7 +19,11 @@ export async function GET() {
   const orders = await prisma.order.findMany({
     where,
     include: {
-      items: { include: { product: true } },
+      // Споживачі списку читають із товару лише назву (плюс quantity/price з
+      // позиції) — повний Product на кожен рядок роздував відповідь у
+      // мегабайти: description і характеристики їхали для кожної позиції
+      // кожного замовлення.
+      items: { include: { product: { select: { id: true, name: true, slug: true, image: true } } } },
       user: { select: { name: true, email: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -51,7 +56,11 @@ export async function POST(req: NextRequest) {
   for (const item of items) {
     const product = products.find((p) => p.id === item.productId);
     if (!product) continue;
-    if (product.stock < item.quantity) {
+    // Кратність тримаємо на сервері, а не лише в кошику: у localStorage міг
+    // лежати старий рядок без packQty, та й запит може прийти повз інтерфейс.
+    const pack = packQtyOf(product);
+    const quantity = roundUpToPack(item.quantity, pack);
+    if (product.stock < quantity) {
       return NextResponse.json(
         { error: `Недостатньо товару "${product.name}" на складі` },
         { status: 400 }
@@ -65,10 +74,10 @@ export async function POST(req: NextRequest) {
     }
     orderItems.push({
       productId: product.id,
-      quantity: item.quantity,
+      quantity,
       price: itemPrice,
     });
-    totalAmount += itemPrice * item.quantity;
+    totalAmount += itemPrice * quantity;
   }
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });

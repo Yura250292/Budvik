@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
 import { getLatestPurchasePrice } from "@/lib/erp/sales";
 import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { packQtyOf, roundUpToPack } from "@/lib/pack-qty";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -83,11 +84,21 @@ export async function POST(req: NextRequest) {
 
   const number = await getNextDocumentNumber("SD");
 
+  // Кратність пачки: беремо з бази, бо клієнт міг надіслати некратну кількість.
+  const packs = new Map(
+    (
+      await prisma.product.findMany({
+        where: { id: { in: items.map((i: { productId: string }) => i.productId) } },
+        select: { id: true, packQty: true },
+      })
+    ).map((p) => [p.id, packQtyOf(p)])
+  );
+
   // Auto-fill purchase prices for items that don't have them
   const processedItems = await Promise.all(
     items.map(async (item: { productId: string; quantity: number; sellingPrice: number; purchasePrice?: number; discountPercent?: number }) => ({
       productId: item.productId,
-      quantity: item.quantity,
+      quantity: roundUpToPack(item.quantity, packs.get(item.productId) ?? 1),
       sellingPrice: item.sellingPrice,
       purchasePrice: item.purchasePrice || (await getLatestPurchasePrice(item.productId)),
       discountPercent: item.discountPercent || 0,

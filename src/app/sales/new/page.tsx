@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import { packLabel, stepPack, roundUpToPack } from "@/lib/pack-qty";
 
 interface CartItem {
   productId: string;
@@ -16,6 +17,7 @@ interface CartItem {
   purchasePrice: number;
   sellingPrice: number;
   quantity: number;
+  packQty?: number | null;
 }
 
 export default function NewOrderPage() {
@@ -76,9 +78,12 @@ function NewOrderContent() {
   }, [productSearch, searchProducts]);
 
   const addToCart = (product: any) => {
+    const pack = product.packQty && product.packQty > 1 ? product.packQty : 1;
     const existing = cart.find((c) => c.productId === product.id);
     if (existing) {
-      setCart(cart.map((c) => c.productId === product.id ? { ...c, quantity: c.quantity + 1 } : c));
+      setCart(cart.map((c) => c.productId === product.id
+        ? { ...c, quantity: stepPack(c.quantity, pack, 1) }
+        : c));
     } else {
       setCart([...cart, {
         productId: product.id,
@@ -89,7 +94,8 @@ function NewOrderContent() {
         basePrice: product.price,
         purchasePrice: product.purchasePrice || product.wholesalePrice || 0,
         sellingPrice: product.price,
-        quantity: 1,
+        quantity: pack,
+        packQty: product.packQty ?? null,
       }]);
     }
     setProductSearch("");
@@ -269,6 +275,14 @@ function NewOrderContent() {
                       <span>{item.sku}</span>
                       <span>|</span>
                       <span>Залишок: {item.stock}</span>
+                      {item.packQty && item.packQty > 1 && (
+                        <>
+                          <span>|</span>
+                          <span style={{ color: "#B45309", fontWeight: 600 }}>
+                            {packLabel(item.packQty, item.name)}
+                          </span>
+                        </>
+                      )}
                       {item.purchasePrice > 0 && (
                         <>
                           <span>|</span>
@@ -281,11 +295,15 @@ function NewOrderContent() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1">
-                    <button onClick={() => updateCartItem(idx, "quantity", Math.max(1, item.quantity - 1))}
+                    <button onClick={() => updateCartItem(idx, "quantity", stepPack(item.quantity, item.packQty || 1, -1))}
                       className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: "1px solid #E5E7EB", fontSize: "16px" }}>-</button>
-                    <input type="number" value={item.quantity} onChange={(e) => updateCartItem(idx, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
+                    {/* Округлюємо на blur, а не на кожну натиснуту клавішу: інакше
+                        неможливо набрати «20» — на «2» одразу підскочить до пачки. */}
+                    <input type="number" value={item.quantity}
+                      onChange={(e) => updateCartItem(idx, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
+                      onBlur={() => updateCartItem(idx, "quantity", roundUpToPack(item.quantity, item.packQty || 1))}
                       className="w-14 text-center" style={{ padding: "4px", border: "1px solid #E5E7EB", borderRadius: "8px", fontSize: "15px", fontWeight: 600 }} />
-                    <button onClick={() => updateCartItem(idx, "quantity", item.quantity + 1)}
+                    <button onClick={() => updateCartItem(idx, "quantity", stepPack(item.quantity, item.packQty || 1, 1))}
                       className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ border: "1px solid #E5E7EB", fontSize: "16px" }}>+</button>
                   </div>
                   <div style={{ fontSize: "12px", color: "#9CA3AF" }}>&times;</div>

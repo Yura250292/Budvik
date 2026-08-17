@@ -13,6 +13,8 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
+import { parsePackQty } from "@/lib/pack-qty";
+import { isRealSku } from "@/lib/catalog/sku-search";
 import crypto from "crypto";
 import type { ProductRecord } from "./types";
 import { ApplyContext } from "./context";
@@ -65,6 +67,7 @@ export async function applyProducts(
       description: true,
       categoryId: true,
       brandId: true,
+      packQty: true,
     },
   });
 
@@ -242,6 +245,7 @@ export async function applyProducts(
         stock: 0, // залишок приїде окремим батчем entityType: "stock"
         categoryId,
         brandId: detectBrandId(rec.name),
+        packQty: parsePackQty(rec.name),
         isActive: true,
         syncedAt: new Date(),
         syncSource: "1C",
@@ -249,6 +253,7 @@ export async function applyProducts(
       const selectFields = {
         id: true, externalId: true, sku: true, name: true,
         slug: true, description: true, categoryId: true, brandId: true,
+        packQty: true,
       };
 
       let createdProduct = null;
@@ -296,7 +301,21 @@ export async function applyProducts(
     if (!existing.externalId) updates.externalId = rec.externalId;
 
     // Дозаписуємо артикул, якщо на сайті його не було.
-    if (!existing.sku && rec.sku?.trim()) updates.sku = rec.sku.trim();
+    //
+    // Заглушку «1C-XXXXXXXX» теж вважаємо за «не було»: раніше умова звучала
+    // як `!existing.sku`, але порожнього sku в базі не буває — при створенні
+    // товару туди одразу лягає згенерована заглушка. Через це справжній
+    // артикул із 1С мовчки відкидався, і 11 тис. товарів лишались без нього.
+    // Торгові шукають саме за артикулом, тож це ламало їм пошук.
+    if (rec.sku?.trim() && !isRealSku(existing.sku)) {
+      const incoming = rec.sku.trim();
+      // Артикул унікальний у схемі — не вішаємо його, якщо ним уже володіє
+      // інший товар (у цьому ж батчі або деінде в базі), інакше впаде батч.
+      if (!takenSkus.has(incoming) && !ambiguousSkus.has(incoming)) {
+        updates.sku = incoming;
+        takenSkus.add(incoming);
+      }
+    }
 
     // Назву оновлюємо, опис — ні: опис на сайті збагачений вручну/AI
     // і завжди якісніший за той, що приходить з 1С.
@@ -326,6 +345,14 @@ export async function applyProducts(
     if (!existing.brandId) {
       const detected = detectBrandId(rec.name);
       if (detected) updates.brandId = detected;
+    }
+
+    // Кратність — за тим самим правилом, що й бренд: дозаповнюємо з назви,
+    // але виставлену вручну не чіпаємо. Якщо в 1С перейменували товар і
+    // додали «кратно 10шт» — підхопимо з нової назви на наступному циклі.
+    if (existing.packQty == null) {
+      const pack = parsePackQty(rec.name || existing.name);
+      if (pack) updates.packQty = pack;
     }
 
     if (Object.keys(updates).length === 0) {

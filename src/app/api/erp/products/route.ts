@@ -120,6 +120,7 @@ export async function GET(req: NextRequest) {
       slug: p.slug,
       price: p.price,
       stock: p.stock,
+      packQty: p.packQty,
       reserved,
       available: p.stock - reserved,
       image: p.image,

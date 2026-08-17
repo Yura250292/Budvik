@@ -35,7 +35,7 @@ export default function AdminProductsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0", packQty: "" });
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -75,7 +75,7 @@ export default function AdminProductsPage() {
   };
 
   const resetForm = () => {
-    setForm({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0" });
+    setForm({ name: "", description: "", price: "", stock: "", categoryId: "", isPromo: false, promoPrice: "", promoLabel: "", priority: "0", packQty: "" });
     setEditingProduct(null);
     setShowForm(false);
   };
@@ -95,6 +95,7 @@ export default function AdminProductsPage() {
         promoPrice: product.promoPrice,
         promoLabel: product.promoLabel,
         priority: product.priority || 0,
+        packQty: product.packQty ?? null,
       }),
     });
     if (res.ok) fetchProducts(page, searchQuery);
@@ -116,6 +117,7 @@ export default function AdminProductsPage() {
         promoPrice: product.promoPrice,
         promoLabel: product.promoLabel,
         priority: newPriority,
+        packQty: product.packQty ?? null,
       }),
     });
     if (res.ok) fetchProducts(page, searchQuery);
@@ -132,6 +134,7 @@ export default function AdminProductsPage() {
       promoPrice: product.promoPrice ? String(product.promoPrice) : "",
       promoLabel: product.promoLabel || "",
       priority: String(product.priority || 0),
+      packQty: product.packQty ? String(product.packQty) : "",
     });
     setEditingProduct(product);
     setShowForm(true);
@@ -264,6 +267,20 @@ export default function AdminProductsPage() {
                 min="0"
                 className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-g600 mb-1">Кратність (шт у пачці)</label>
+              <input
+                type="number"
+                value={form.packQty}
+                onChange={(e) => setForm({ ...form, packQty: e.target.value })}
+                min="1"
+                placeholder="порожньо — поштучно"
+                className="w-full border border-g300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-g500 mt-1">
+                Замовляти можна лише кратну кількість: круги по 10 — 10, 20, 30…
+              </p>
             </div>
             <div className="md:col-span-2 border-t pt-4 mt-2">
               <div className="flex items-center gap-4 mb-4">

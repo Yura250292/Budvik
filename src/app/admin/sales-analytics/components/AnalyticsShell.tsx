@@ -19,6 +19,7 @@ import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
 import { ReturnsTab } from "./ReturnsTab";
 import { AbcTab } from "./AbcTab";
+import { DiscountsTab } from "./DiscountsTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { RoutesTab } from "./RoutesTab";
@@ -53,6 +54,9 @@ const SUBTABS = {
   overview: [
     { key: "sales", label: "Продажі" },
     { key: "abc", label: "ABC / XYZ" },
+    // Знижки тут, а не в «Клієнтах»: це аналіз того, ЯК продаємо, і читати
+    // його треба поруч зі структурою продажів.
+    { key: "discounts", label: "Знижки" },
   ],
   reps: [
     { key: "list", label: "Показники" },
@@ -357,6 +361,7 @@ export function AnalyticsShell() {
           <OverviewTab period={period} rep={rep} onRepChange={setRep} isManager={isManager} />
         )}
         {tab === "overview" && view === "abc" && <AbcTab period={period} rep={rep} />}
+        {tab === "overview" && view === "discounts" && <DiscountsTab period={period} rep={rep} />}
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}

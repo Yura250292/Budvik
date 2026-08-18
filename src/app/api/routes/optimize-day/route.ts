@@ -93,7 +93,11 @@ export async function POST(req: NextRequest) {
       ? session.user.id
       : body.driverId || session.user.id;
 
-  const route = await resolveDriverDay(driverId, day);
+  // Логіст оптимізує чернетку (PLANNED) до передачі водієві — інакше
+  // резолвер пропускав би її і падав на запасний лист 1С, чий порядок
+  // зберегти не можна. Водій, як і раніше, бачить лише передані маршрути.
+  const isManager = session.user.role === "ADMIN" || session.user.role === "MANAGER";
+  const route = await resolveDriverDay(driverId, day, { includePlanned: isManager });
   const withCoords = route.stops.filter(
     (s) => s.lat != null && s.lng != null && s.counterpartyId
   );

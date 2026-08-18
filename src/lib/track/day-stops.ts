@@ -187,7 +187,11 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
 }
 
 /** Плановий маршрут сайту на цей день. */
-async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRoute | null> {
+async function fromDeliveryRoute(
+  driverId: string,
+  day: string,
+  includePlanned: boolean
+): Promise<DayRoute | null> {
   const route = await prisma.deliveryRoute.findFirst({
     where: {
       driverId,
@@ -195,7 +199,9 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
       // Тільки передані маршрути. PLANNED — чернетка логіста: він ще
       // складає точки, і водієві її показувати зарано. До появи статусу
       // ASSIGNED планшет брав будь-який PLANNED, і водій бачив недороблене.
-      status: { in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
+      // Виняток — сам логіст (includePlanned): він оптимізує порядок точок
+      // саме в чернетці, до передачі водієві.
+      status: { in: includePlanned ? ["PLANNED", "ASSIGNED", "IN_PROGRESS", "COMPLETED"] : ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
     },
     orderBy: { createdAt: "desc" },
     include: {
@@ -284,8 +290,12 @@ async function fromDeliveryRoute(driverId: string, day: string): Promise<DayRout
 }
 
 /** Точки водія на день: маршрут сайту, інакше (малоймовірно) лист із 1С. */
-export async function resolveDriverDay(driverId: string, day: string): Promise<DayRoute> {
-  const planned = await fromDeliveryRoute(driverId, day);
+export async function resolveDriverDay(
+  driverId: string,
+  day: string,
+  opts?: { includePlanned?: boolean }
+): Promise<DayRoute> {
+  const planned = await fromDeliveryRoute(driverId, day, opts?.includePlanned ?? false);
   if (planned) return planned;
 
   const sheet = await fromRouteSheet(driverId, day);

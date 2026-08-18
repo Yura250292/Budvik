@@ -141,6 +141,36 @@ export default function RouteOptimizer({
     [plan, build]
   );
 
+  /**
+   * Прибрати точку прямо з карти-прев'ю.
+   *
+   * Видаляє точку з маршруту по-справжньому (той самий ендпоінт, що «✕» у
+   * планувальнику: перенумерація, накладна звільняється) і одразу
+   * перераховує обидва варіанти — карта показує маршрут уже без неї.
+   */
+  const removeStop = useCallback(
+    async (key: string) => {
+      if (!key.startsWith("ds:")) {
+        setError("Цю точку можна прибрати лише після конверсії листа в маршрут сайту");
+        return;
+      }
+      if (!confirm("Прибрати точку з маршруту?\n\nНакладна повернеться у «спосіб доставки не визначено».")) {
+        return;
+      }
+      setError(null);
+      try {
+        const res = await fetch(`/api/erp/delivery-routes/stop/${key.slice(3)}`, { method: "DELETE" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? "Не вдалося прибрати точку");
+        onApplied();
+        await build(direction);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не вдалося прибрати точку");
+      }
+    },
+    [direction, build, onApplied]
+  );
+
   const apply = useCallback(
     async (which: "cheapest" | "balanced") => {
       const variant = which === "cheapest" ? plan?.cheapest : plan?.balanced;
@@ -316,6 +346,7 @@ export default function RouteOptimizer({
                   label: s.name,
                   sequence: s.sequence,
                   type: "stop" as const,
+                  id: s.key,
                 })),
             ];
             return (
@@ -324,6 +355,7 @@ export default function RouteOptimizer({
                   stops={mapStops}
                   routeGeometry={(variant.geometry as GeoJSON.LineString | null) ?? null}
                   height="420px"
+                  onRemoveStop={removeStop}
                 />
               </div>
             );

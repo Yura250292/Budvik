@@ -12,6 +12,8 @@ export interface GeoPoint {
   address?: string;
   sequence?: number;
   type?: "start" | "stop";
+  /** Зовнішній ключ точки — потрібен лише для дій у попапі (onRemoveStop) */
+  id?: string;
 }
 
 interface DeliveryMapProps {
@@ -20,6 +22,8 @@ interface DeliveryMapProps {
   height?: string;
   onMapClick?: (lat: number, lng: number) => void;
   pickingMode?: boolean; // show crosshair cursor when picking location
+  /** Дія «прибрати точку» в попапі піна. Показується лише для точок з id. */
+  onRemoveStop?: (id: string) => void;
 }
 
 function createNumberedIcon(num: number, isStart: boolean): L.DivIcon {
@@ -44,11 +48,16 @@ function createNumberedIcon(num: number, isStart: boolean): L.DivIcon {
   });
 }
 
-export default function DeliveryMap({ stops, routeGeometry, height = "500px", onMapClick, pickingMode }: DeliveryMapProps) {
+export default function DeliveryMap({ stops, routeGeometry, height = "500px", onMapClick, pickingMode, onRemoveStop }: DeliveryMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const onMapClickRef = useRef(onMapClick);
   onMapClickRef.current = onMapClick;
+  // Реф, а не залежність ефекту: інакше кожен новий колбек перемальовував
+  // би всі маркери.
+  const onRemoveStopRef = useRef(onRemoveStop);
+  onRemoveStopRef.current = onRemoveStop;
+  const hasRemove = !!onRemoveStop;
   const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
@@ -97,11 +106,32 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
       const marker = L.marker([stop.lat, stop.lng], { icon }).addTo(map);
 
       const label = stop.label || (isStart ? "Старт" : `Зупинка ${seq}`);
-      const popup = `<div style="font-family:system-ui;font-size:13px;">
-        <strong>${label}</strong>
-        ${stop.address ? `<br/><span style="color:#6B7280">${stop.address}</span>` : ""}
-      </div>`;
-      marker.bindPopup(popup);
+      // Попап збираємо DOM-вузлами, а не рядком: назви клієнтів приходять
+      // з 1С як довільний текст, і кнопці потрібен справжній обробник.
+      const popupEl = document.createElement("div");
+      popupEl.style.cssText = "font-family:system-ui;font-size:13px;min-width:160px;";
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      popupEl.appendChild(strong);
+      if (stop.address) {
+        const addr = document.createElement("div");
+        addr.style.cssText = "color:#6B7280;margin-top:2px;";
+        addr.textContent = stop.address;
+        popupEl.appendChild(addr);
+      }
+      if (!isStart && stop.id && hasRemove) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Прибрати з маршруту";
+        btn.style.cssText =
+          "margin-top:8px;display:block;width:100%;padding:6px 10px;border-radius:6px;" +
+          "border:1px solid #FCA5A5;background:#fff;color:#B91C1C;font-size:12px;" +
+          "font-weight:600;cursor:pointer;";
+        const stopId = stop.id;
+        btn.onclick = () => onRemoveStopRef.current?.(stopId);
+        popupEl.appendChild(btn);
+      }
+      marker.bindPopup(popupEl);
 
       bounds.extend([stop.lat, stop.lng]);
     });
@@ -124,7 +154,7 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
     // onWheelChange стабільний — див. useWheelGate.
-  }, [stops, routeGeometry, onWheelChange]);
+  }, [stops, routeGeometry, onWheelChange, hasRemove]);
 
   // Cleanup on unmount
   useEffect(() => {

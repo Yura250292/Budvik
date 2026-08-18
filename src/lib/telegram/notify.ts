@@ -9,13 +9,20 @@
 const BOT_TOKEN = process.env.TELEGRAM_SKLAD_BOT_TOKEN || "";
 const API_BASE = "https://api.telegram.org";
 
-export async function sendTelegramMessage(
+/**
+ * Результат надсилання. status потрібен рівно для одного випадку — 403
+ * («bot was blocked by the user»): такого адресата немає сенсу смикати
+ * далі, і розсилка замовлень вимикає його сама.
+ */
+export type SendResult = { ok: boolean; status: number | null };
+
+export async function sendTelegramMessageResult(
   chatId: string,
   text: string
-): Promise<boolean> {
+): Promise<SendResult> {
   if (!BOT_TOKEN) {
     console.warn("TELEGRAM_SKLAD_BOT_TOKEN не налаштовано — повідомлення не надіслано");
-    return false;
+    return { ok: false, status: null };
   }
 
   try {
@@ -31,13 +38,17 @@ export async function sendTelegramMessage(
 
     if (!res.ok) {
       console.error("Telegram sendMessage failed:", res.status, await res.text());
-      return false;
+      return { ok: false, status: res.status };
     }
-    return true;
+    return { ok: true, status: res.status };
   } catch (e) {
     console.error("Telegram sendMessage error:", e);
-    return false;
+    return { ok: false, status: null };
   }
+}
+
+export async function sendTelegramMessage(chatId: string, text: string): Promise<boolean> {
+  return (await sendTelegramMessageResult(chatId, text)).ok;
 }
 
 /**

@@ -5,10 +5,15 @@
  * Без цього повідомлення менеджер дізнається про нього, лише коли сам зайде,
  * а покупець тим часом чекає дзвінка.
  *
- * Відсутність ORDER_ALERT_CHAT_ID не є помилкою — алерти просто не йдуть.
+ * Адресатів двоє видів і вони не взаємозамінні:
+ *  - ORDER_ALERT_CHAT_ID — один чат (зазвичай група) з env, історичний;
+ *  - OrderAlertRecipient — список людей, який адмін веде на
+ *    /admin/orders/alerts і кожен отримує замовлення в особисті.
+ * Порожні обидва — алерти просто не йдуть, це не помилка.
  */
 
-import { sendTelegramMessage } from "@/lib/telegram/notify";
+import { prisma } from "@/lib/prisma";
+import { sendTelegramMessageResult } from "@/lib/telegram/notify";
 import { formatPrice } from "@/lib/utils";
 
 function escapeHtml(s: string): string {
@@ -29,10 +34,7 @@ export interface NewOrderAlert {
   items: { name: string; quantity: number }[];
 }
 
-export async function notifyStaffNewOrder(order: NewOrderAlert): Promise<void> {
-  const chatId = process.env.ORDER_ALERT_CHAT_ID;
-  if (!chatId) return;
-
+function buildText(order: NewOrderAlert): string {
   const where =
     order.deliveryMethod === "PICKUP"
       ? "Самовивіз"
@@ -47,15 +49,49 @@ export async function notifyStaffNewOrder(order: NewOrderAlert): Promise<void> {
 
   const base = process.env.NEXTAUTH_URL || "";
 
-  await sendTelegramMessage(
-    chatId,
+  return (
     `🛒 <b>Нове замовлення № ${order.orderNumber}</b>${order.isGuest ? " (гість)" : ""}\n` +
-      `${escapeHtml(order.contactName || "—")} — <code>${escapeHtml(order.phone || "—")}</code>\n` +
-      `${escapeHtml(where)}\n` +
-      (order.comment ? `Коментар: ${escapeHtml(order.comment)}\n` : "") +
-      `Оплата при отриманні\n\n` +
-      `${lines}${more}\n\n` +
-      `<b>Разом: ${formatPrice(order.totalAmount)}</b>` +
-      (base ? `\n${base}/admin/orders` : "")
+    `${escapeHtml(order.contactName || "—")} — <code>${escapeHtml(order.phone || "—")}</code>\n` +
+    `${escapeHtml(where)}\n` +
+    (order.comment ? `Коментар: ${escapeHtml(order.comment)}\n` : "") +
+    `Оплата при отриманні\n\n` +
+    `${lines}${more}\n\n` +
+    `<b>Разом: ${formatPrice(order.totalAmount)}</b>` +
+    (base ? `\n${base}/admin/orders` : "")
   );
+}
+
+export async function notifyStaffNewOrder(order: NewOrderAlert): Promise<void> {
+  const recipients = await prisma.orderAlertRecipient.findMany({
+    where: { active: true, telegramId: { not: null } },
+    select: { id: true, telegramId: true },
+  });
+
+  const envChat = process.env.ORDER_ALERT_CHAT_ID;
+  // Група з env і людина зі списку можуть вказувати на той самий чат —
+  // тоді повідомлення прийшло б двічі.
+  const chats = new Set<string>(recipients.map((r) => r.telegramId!));
+  if (envChat) chats.add(envChat);
+  if (chats.size === 0) return;
+
+  const text = buildText(order);
+
+  // Послідовно, а не Promise.all: Telegram ріже ~30 повідомлень за секунду,
+  // а адресатів тут одиниці — паралелізм нічого не пришвидшить, зате
+  // ризикує впертись у 429 і мовчки загубити частину сповіщень.
+  const blocked: string[] = [];
+  for (const chatId of chats) {
+    const res = await sendTelegramMessageResult(chatId, text);
+    if (!res.ok && res.status === 403) blocked.push(chatId);
+  }
+
+  // 403 означає, що людина заблокувала бота або видалила чат — писати їй
+  // більше нікуди. Вимикаємо, щоб адмін бачив це у списку, а не гадав,
+  // чому «приходить не всім».
+  if (blocked.length > 0) {
+    await prisma.orderAlertRecipient.updateMany({
+      where: { telegramId: { in: blocked } },
+      data: { active: false },
+    });
+  }
 }

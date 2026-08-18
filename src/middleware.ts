@@ -46,6 +46,9 @@ export default withAuth(
          // зарплати водіїв в одному місці. Скоупити тут нічого: секція
          // «Торгові» за визначенням про всю команду.
          pathname.startsWith("/admin/ai-analysis") ||
+         // Замовлення торговий бачить, а список отримувачів сповіщень — ні:
+         // це роздача доступу до контактів усіх покупців у чужий Telegram.
+         pathname.startsWith("/admin/orders/alerts") ||
          pathname.startsWith("/admin/integration")) &&
         token?.role !== "ADMIN" && token?.role !== "MANAGER"
       ) {

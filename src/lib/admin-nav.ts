@@ -102,6 +102,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/products", title: "Товари", desc: "Каталог", iconKey: "products", roles: AM },
       { href: "/admin/orders", title: "Замовлення", desc: "Усі замовлення", iconKey: "orders", roles: ALL },
+      // Поруч із замовленнями, бо питання «чому ми його не побачили»
+      // виникає саме на тому екрані.
+      { href: "/admin/orders/alerts", title: "Сповіщення про замовлення", desc: "Кому бот шле нові замовлення", iconKey: "orders", roles: AM },
       { href: "/admin/wholesale", title: "Оптовики", desc: "Заявки та акаунти", iconKey: "wholesale", roles: AM },
     ],
   },

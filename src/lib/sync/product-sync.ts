@@ -189,6 +189,24 @@ export async function previewProductSync(parsed: ParsedProduct[]): Promise<SyncP
 }
 
 /** Apply product sync — batch operations for speed */
+/**
+ * Контрагент, а не товар.
+ *
+ * У номенклатурі 1С поруч із товарами лежать записи виду «Ковалишин М.
+ * (м.Львів)» — це клієнти, і 884 таких приїхали в каталог як товари з
+ * описами на кшталт «Замовлення від клієнта з міста Ужгород». Одноразове
+ * прибирання від цього не рятує: наступний імпорт заводить нових.
+ *
+ * Пастка: «(м.» буває і в справжніх товарів, де це МІСТО ВИРОБНИЦТВА —
+ * «Кукурудзолущілка ручна (м.Вінниця)», «Верстат ИЭ-6009 (м.Могильов)».
+ * Тому самої назви замало: відсіюємо лише те, що водночас без ціни і без
+ * залишку. Товар із ціною проходить завжди, навіть якщо назва схожа.
+ */
+function isContractorRecord(p: { name: string; price?: number; stock?: number }): boolean {
+  if ((p.price ?? 0) > 0 || (p.stock ?? 0) > 0) return false;
+  return /\(м\./.test(p.name);
+}
+
 export async function applyProductSync(
   parsed: ParsedProduct[],
   fileName: string
@@ -237,6 +255,21 @@ export async function applyProductSync(
     const existing = bySku.get(sku) || byName.get(p.name.toLowerCase());
 
     if (!existing) {
+      // Контрагента в каталог не заводимо — але фіксуємо в розбіжностях,
+      // щоб пропуск було видно, а не щоб він тихо зник.
+      if (isContractorRecord(p)) {
+        discrepancyBatch.push({
+          syncJobId: syncJob.id,
+          entityType: "product",
+          entityRef: sku,
+          entityName: p.name,
+          field: "SKIPPED",
+          value1C: "схоже на контрагента: без ціни й залишку",
+          valueBudvik: "не створено",
+        });
+        continue;
+      }
+
       // Prepare new product.
       //
       // Суфікс колізії — з артикула, а не з Date.now(): slug — це URL

@@ -74,17 +74,17 @@ export function BrandPlanList({ brands }: { brands: PlanBrand[] }) {
             <table className="w-full min-w-[380px] text-xs">
               <thead>
                 <tr className="border-b border-g200 bg-g50 text-left font-medium text-g500">
-                  <th className="px-4 py-2">Фірма</th>
-                  <th className="px-4 py-2 text-right">План</th>
-                  <th className="px-4 py-2 text-right">Виконано</th>
-                  <th className="px-4 py-2 text-right">Зібрано</th>
-                  <th className="px-4 py-2 text-right">Заробіток</th>
+                  <th className="py-2 pl-4 pr-2">Фірма</th>
+                  <th className="px-2 py-2 text-right">План</th>
+                  <th className="px-2 py-2 text-right">Виконано</th>
+                  <th className="px-2 py-2 text-right">Зібрано</th>
+                  <th className="py-2 pl-2 pr-4 text-right">Заробіток</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-g100">
                 {planned.map((b) => (
                   <tr key={b.brandId}>
-                    <td className="px-4 py-2">
+                    <td className="py-2 pl-4 pr-2">
                       <span className="inline-flex min-w-0 items-center gap-1.5">
                         <span
                           aria-hidden
@@ -94,13 +94,13 @@ export function BrandPlanList({ brands }: { brands: PlanBrand[] }) {
                         <span className="truncate text-bk">{b.brandName}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-g600">{money(b.target)}</td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-bk">
+                    <td className="px-2 py-2 text-right tabular-nums text-g600">{money(b.target)}</td>
+                    <td className="px-2 py-2 text-right font-semibold tabular-nums text-bk">
                       {money(b.actual)}
                       <span className="ml-1 font-normal text-g400">{num(b.attainment)}%</span>
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-g600">{money(b.collected)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">
+                    <td className="px-2 py-2 text-right tabular-nums text-g600">{money(b.collected)}</td>
+                    <td className="py-2 pl-2 pr-4 text-right tabular-nums">
                       {b.earned === null ? (
                         <span className="text-g400">—</span>
                       ) : (

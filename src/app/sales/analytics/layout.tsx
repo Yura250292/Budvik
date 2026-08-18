@@ -8,7 +8,9 @@
 export default function SalesAnalyticsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-lg px-4 pt-4">{children}</div>
+      {/* max-w-lg скроєний під телефон: на планшеті таблиця «План по фірмах»
+          (5 колонок) у 512px не влазила і різала «Заробіток». */}
+      <div className="mx-auto max-w-lg px-4 pt-4 sm:max-w-2xl">{children}</div>
     </div>
   );
 }

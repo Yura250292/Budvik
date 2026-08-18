@@ -172,9 +172,12 @@ export default function AdminOrdersPage() {
                   {/* Top row: ID + status + price */}
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="text-sm font-bold text-bk tracking-wide font-mono">
+                      <Link
+                        href={`/admin/orders/${order.id}`}
+                        className="text-sm font-bold text-bk tracking-wide font-mono hover:text-primary-dark hover:underline"
+                      >
                         № {order.orderNumber}
-                      </span>
+                      </Link>
                       {!order.userId && (
                         <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-g100 text-g500">
                           Гість
@@ -253,10 +256,20 @@ export default function AdminOrdersPage() {
                   </div>
 
                   {/* Status changer */}
-                  {order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
-                    <div className="mt-3 pt-3 border-t border-g200">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[12px] text-g400 font-medium">Змінити статус:</span>
+                  <div className="mt-3 pt-3 border-t border-g200">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/admin/orders/${order.id}`}
+                        className="flex items-center gap-1 rounded-[var(--radius-btn)] bg-bk px-3 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+                      >
+                        Відкрити для комплектації
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </Link>
+                      {order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
+                        <>
+                        <span className="text-[12px] text-g400 font-medium">Статус:</span>
                         <select
                           value={order.status}
                           onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
@@ -273,9 +286,10 @@ export default function AdminOrdersPage() {
                             <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>
                           ))}
                         </select>
-                      </div>
+                        </>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             ))}

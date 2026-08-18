@@ -22,6 +22,10 @@ function hrefFor(n: Notification) {
   // relatedId тут — id маршруту, і в /admin/erp/sales його нема чого шукати.
   if (n.type === "ROUTE_ASSIGNED") return "/driver/tablet";
   if (!n.relatedId) return "/admin";
+  // Замовлення з сайту — це Order, а не SalesDocument. Без цієї гілки
+  // сповіщення відкривало ERP-картку продажу, яка про роздріб не знає нічого:
+  // порожній покупець і «Немає товарів».
+  if (n.type === "NEW_ORDER" || n.type === "ORDER_STATUS") return `/admin/orders/${n.relatedId}`;
   // Решта типів (WHOLESALE_ORDER_REQUEST, SALES_DOC_CONFIRMED) кладуть у
   // relatedId id документа продажу.
   return `/admin/erp/sales/${n.relatedId}`;

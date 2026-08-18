@@ -5,8 +5,10 @@ import { getCatalogToc } from "@/lib/catalog/sections";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 
 export const metadata = {
-  title: "Зміст каталогу — Budvik27",
-  description: "Уся номенклатура за групами товарів",
+  title: "Зміст каталогу",
+  description:
+    "Уся номенклатура Budvik27 за групами товарів: малярний і ручний інструмент, електроінструмент, оснастка, сантехніка, кріплення та інше.",
+  alternates: { canonical: "/catalog/zmist" },
 };
 
 /**
@@ -112,7 +114,7 @@ export default async function CatalogTocPage() {
               {section.lines.map((line) => (
                 <li key={line.key}>
                   <Link
-                    href={`/catalog?type=${encodeURIComponent(line.key)}`}
+                    href={`/catalog/typ/${encodeURIComponent(line.key)}`}
                     className="group flex min-h-11 items-baseline gap-2 rounded px-1.5 py-1 transition hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15"
                   >
                     <span className="self-center text-sm text-[#1A1A1A] group-hover:text-[#0A0A0A] group-hover:underline">
@@ -138,7 +140,7 @@ export default async function CatalogTocPage() {
               {toc.other.map((line) => (
                 <li key={line.key}>
                   <Link
-                    href={`/catalog?type=${encodeURIComponent(line.key)}`}
+                    href={`/catalog/typ/${encodeURIComponent(line.key)}`}
                     className="group flex items-baseline gap-2 rounded px-1.5 py-1 transition hover:bg-[#FFD600]/10"
                   >
                     <span className="text-sm text-[#1A1A1A] group-hover:underline">{line.label}</span>
@@ -159,7 +161,7 @@ export default async function CatalogTocPage() {
           {tree.main.map((b) => (
             <Link
               key={b.id}
-              href={`/catalog?brand=${b.slug}`}
+              href={`/brand/${b.slug}`}
               className="rounded-lg border border-[#EFEFEF] bg-[#FAFAFA] px-3 py-1.5 text-sm text-[#1A1A1A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10"
             >
               {b.name}

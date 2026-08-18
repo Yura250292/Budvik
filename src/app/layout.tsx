@@ -9,10 +9,24 @@ import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import PageTransition from "@/components/PageTransition";
 import AppMain from "@/components/AppMain";
 import TestBanner from "@/components/TestBanner";
+import { SITE_URL } from "@/lib/seo/site";
 
 export const metadata: Metadata = {
-  title: "Budvik27 - Інструменти для професіоналів",
-  description: "Магазин електро та ручного інструменту. Великий вибір, програма лояльності, швидка доставка.",
+  // metadataBase перетворює відносні canonical і og:image сторінок на
+  // абсолютні — без нього Google ігнорує і те, і те.
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Budvik27 — інструменти для професіоналів у Львові",
+    template: "%s — Budvik27",
+  },
+  description:
+    "Інтернет-магазин електро та ручного інструменту Budvik27: понад 40 000 товарів, ціни від виробників, доставка по Україні. Магазин у Львові, вул. Липинського, 36.",
+  openGraph: {
+    type: "website",
+    locale: "uk_UA",
+    siteName: "Budvik27",
+    images: ["/logo.png"],
+  },
   manifest: "/manifest.json",
   icons: {
     icon: [

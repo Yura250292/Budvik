@@ -237,13 +237,20 @@ export async function applyProductSync(
     const existing = bySku.get(sku) || byName.get(p.name.toLowerCase());
 
     if (!existing) {
-      // Prepare new product
-      let slug = generateSlug(p.name) || `product-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      if (allSlugs.has(slug)) slug = `${slug}-${Date.now().toString(36)}`;
-      allSlugs.add(slug);
-
-      const finalSku = allSkus.has(sku) ? `${sku}-${Date.now().toString(36)}` : sku;
+      // Prepare new product.
+      //
+      // Суфікс колізії — з артикула, а не з Date.now(): slug — це URL
+      // сторінки, і машинний хвіст-мітка часу означав би, що однойменний
+      // товар при перезаливці отримує нову адресу, а стара випадає з
+      // індексу Google.
+      const finalSku = allSkus.has(sku) ? `${sku}-${Math.random().toString(36).slice(2, 6)}` : sku;
       allSkus.add(finalSku);
+
+      const skuSlug = generateSlug(finalSku) || Math.random().toString(36).slice(2, 8);
+      let slug = generateSlug(p.name) || `product-${skuSlug}`;
+      if (allSlugs.has(slug)) slug = `${slug}-${skuSlug}`;
+      if (allSlugs.has(slug)) slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+      allSlugs.add(slug);
 
       newProducts.push({
         name: p.name,

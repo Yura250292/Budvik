@@ -1,5 +1,7 @@
 export const revalidate = 60;
 
+import { cache } from "react";
+import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
@@ -9,6 +11,7 @@ import { isServiceCategory, productLabel } from "@/lib/catalog/category-display"
 import { findSameType } from "@/lib/catalog/related";
 import Link from "next/link";
 import Image from "next/image";
+import NoPhoto from "@/components/ui/NoPhoto";
 import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
@@ -16,6 +19,48 @@ import ProductDescription from "@/components/ProductDescription";
 import ProductAside, { ProductTerms } from "@/components/product/ProductAside";
 import { splitDescription } from "@/lib/catalog/description-sections";
 import ProductPriceBlock from "./ProductPriceBlock";
+import JsonLd from "@/components/JsonLd";
+import { productJsonLd, breadcrumbJsonLd } from "@/lib/seo/jsonld";
+import { isIndexableProduct } from "@/lib/seo/indexable";
+import { stripHtml, formatUAH } from "@/lib/seo/site";
+
+// cache() — щоб generateMetadata і сторінка ділили один запит до бази,
+// а не ходили за тим самим товаром двічі на кожен рендер.
+const getProduct = cache((slug: string) =>
+  prisma.product.findUnique({
+    where: { slug },
+    include: { category: true, brand: { select: { name: true, slug: true } } },
+  })
+);
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const product = await getProduct(slug);
+  if (!product) return {};
+
+  const price = product.isPromo && product.promoPrice ? product.promoPrice : product.price;
+  const plainDescription = stripHtml(product.description);
+  const description =
+    plainDescription.length > 40
+      ? plainDescription.slice(0, 158)
+      : `Купити ${product.name} в інтернет-магазині Budvik27. Ціна ${formatUAH(price)} грн, ${
+          product.stock > 0 ? "в наявності" : "під замовлення"
+        }, доставка по Україні.`;
+
+  return {
+    title: `${product.name} — купити, ціна ${formatUAH(price)} грн`,
+    description,
+    alternates: { canonical: `/catalog/${product.slug}` },
+    openGraph: {
+      title: product.name,
+      description,
+      ...(product.image ? { images: [product.image] } : {}),
+    },
+    // Порожні картки (без ціни, фото чи опису) в індекс не пускаємо —
+    // ті самі критерії, що відбирають товари в sitemap.
+    robots: isIndexableProduct(product) ? undefined : { index: false, follow: true },
+  };
+}
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -23,10 +68,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   // Сесії на сторінці навмисно немає: читання cookies вимикало ISR, і кожен
   // відвідувач чекав живий рендер. Оптова ціна тепер рахується на клієнті
   // (ProductPriceBlock), а сторінка кешується на revalidate = 60.
-  const product = await prisma.product.findUnique({
-    where: { slug },
-    include: { category: true, brand: { select: { name: true, slug: true } } },
-  });
+  const product = await getProduct(slug);
 
   if (!product) notFound();
 
@@ -56,8 +98,22 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           take: 4,
         });
 
+  // Крихти для JSON-LD — той самий ланцюжок, що видно в <nav> нижче.
+  const crumbs = [
+    { name: "Головна", path: "/" },
+    { name: "Каталог", path: "/catalog" },
+    ...(!isServiceCategory(product.category.name)
+      ? [{ name: product.category.name, path: `/catalog?category=${product.category.slug}` }]
+      : product.brand
+        ? [{ name: product.brand.name, path: `/brand/${product.brand.slug}` }]
+        : []),
+    { name: product.name },
+  ];
+
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
+      <JsonLd data={productJsonLd(product)} />
+      <JsonLd data={breadcrumbJsonLd(crumbs)} />
       <nav className="breadcrumb-scroll text-sm text-[#9E9E9E] mb-4 sm:mb-6">
         <Link href="/catalog" className="hover:text-[#FFB800]">Каталог</Link>
         <span className="text-[#DADADA]">{" / "}</span>
@@ -72,7 +128,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           </>
         ) : product.brand ? (
           <>
-            <Link href={`/catalog?brand=${product.brand.slug}`} className="hover:text-[#FFB800]">
+            <Link href={`/brand/${product.brand.slug}`} className="hover:text-[#FFB800]">
               {product.brand.name}
             </Link>
             <span className="text-[#DADADA]">{" / "}</span>
@@ -91,9 +147,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             <ProductImageZoom src={product.image} alt={product.name} />
           ) : (
             <div className="bg-g100 rounded-xl flex items-center justify-center aspect-square">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 text-g300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              </svg>
+              <NoPhoto label={productLabel(product.category, product.brand)} size="lg" />
             </div>
           )}
         </div>
@@ -193,9 +247,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                   {p.image ? (
                     <Image src={p.image} alt={p.name} fill className="object-contain p-2" sizes="(max-width: 640px) 33vw, 25vw" />
                   ) : (
-                    <svg className="w-10 h-10 text-g300 group-hover:text-primary-hover transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                    </svg>
+                    <NoPhoto label={null} size="sm" />
                   )}
                 </div>
                 <div className="p-2.5">

@@ -1,5 +1,6 @@
 export const revalidate = 60;
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
@@ -9,6 +10,47 @@ import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
+
+/**
+ * Метатеги каталогу залежать від фільтрів, тож рахуються на запит.
+ *
+ * Індексується лише чистий /catalog: комбінації фільтрів — нескінченні
+ * дублі однієї видачі, їм noindex,follow (робот іде далі по посиланнях на
+ * товари, але сторінку в індекс не кладе). Видача одного бренда чи типу
+ * канонікалом показує на свою «справжню» сторінку /brand/... чи
+ * /catalog/typ/... — саме вони мають збирати позиції.
+ */
+export async function generateMetadata({ searchParams }: { searchParams: Promise<SP> }): Promise<Metadata> {
+  const params = await searchParams;
+  const f = parseFilters(params);
+
+  const noExtras = (skip: "brand" | "type") =>
+    (skip === "brand" || !f.brands.length) &&
+    (skip === "type" || !f.types.length) &&
+    !f.search && f.priceMin === undefined && f.priceMax === undefined &&
+    !f.inStock && !f.withImage && !f.categorySlug && !f.sort && !params.page;
+
+  const onlyBrand = f.brands.length === 1 && f.brands[0] !== "none" && noExtras("brand");
+  const onlyType = f.types.length === 1 && noExtras("type");
+  const isFiltered =
+    f.brands.length > 0 || f.types.length > 0 || !!f.search ||
+    f.priceMin !== undefined || f.priceMax !== undefined ||
+    f.inStock || f.withImage || !!f.categorySlug || !!f.sort || !!params.page;
+
+  return {
+    title: f.search ? `Пошук: ${f.search}` : "Каталог інструментів",
+    description:
+      "Каталог електро та ручного інструменту Budvik27: понад 40 000 товарів з цінами й наявністю. Перфоратори, болгарки, шуруповерти, ручний інструмент і оснастка.",
+    alternates: {
+      canonical: onlyBrand
+        ? `/brand/${f.brands[0]}`
+        : onlyType
+          ? `/catalog/typ/${encodeURIComponent(f.types[0])}`
+          : "/catalog",
+    },
+    robots: isFiltered ? { index: false, follow: true } : undefined,
+  };
+}
 
 /**
  * Вітрина каталогу.

@@ -13,6 +13,12 @@
 export const revalidate = 300;
 
 import Link from "next/link";
+import JsonLd from "@/components/JsonLd";
+import { localBusinessJsonLd, websiteJsonLd } from "@/lib/seo/jsonld";
+
+export const metadata = {
+  alternates: { canonical: "/" },
+};
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
@@ -161,6 +167,10 @@ export default async function HomePage() {
 
   return (
     <div>
+      {/* Магазин у Львові і пошук по сайту — для локальної видачі Google
+          і sitelinks searchbox. Дані ті самі, що показує футер. */}
+      <JsonLd data={localBusinessJsonLd()} />
+      <JsonLd data={websiteJsonLd()} />
       {/* Hero */}
       <section className="relative text-white py-7 sm:py-12 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
         {/* Yellow accent line under header */}

@@ -1,6 +1,29 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { skuSearchConditions } from "@/lib/catalog/sku-search";
+import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
+import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
+
+const LIMIT = 8;
+
+/**
+ * Службові рядки-групи з 1С активні, але без ціни й фото. У підказках вони
+ * найшкідливіші: займають місця з восьми доступних, а натиснути на них
+ * немає сенсу.
+ */
+const SHOWABLE = { isActive: true, price: { gt: 0 } } as const;
+
+/** Поля, які малює рядок підказки. */
+const SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  sku: true,
+  price: true,
+  image: true,
+  stock: true,
+  category: { select: { name: true } },
+} as const;
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -14,17 +37,9 @@ export async function GET(req: Request) {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 1);
+    .filter((w) => w.length > 1)
+    .map(stemTerm);
 
-  const select = {
-    name: true,
-    slug: true,
-    sku: true,
-    price: true,
-    image: true,
-    stock: true,
-    category: { select: { name: true } },
-  } as const;
 
   /**
    * Артикул — перший і головний кандидат: якщо людина набирає «GR-30030»,
@@ -34,8 +49,8 @@ export async function GET(req: Request) {
   const bySku = skuSearchConditions(q);
   const skuMatches = bySku
     ? await prisma.product.findMany({
-        where: { isActive: true, OR: bySku },
-        select,
+        where: { ...SHOWABLE, OR: bySku },
+        select: SELECT,
         orderBy: [{ stock: "desc" }, { name: "asc" }],
         take: 8,
       })
@@ -66,30 +81,53 @@ export async function GET(req: Request) {
   const skuSlugs = skuMatches.map((p) => p.slug);
 
   const nameMatches = await prisma.product.findMany({
-    where: { isActive: true, AND: nameConditions, slug: { notIn: skuSlugs } },
-    select,
+    where: { ...SHOWABLE, AND: nameConditions, slug: { notIn: skuSlugs } },
+    select: SELECT,
     orderBy: [{ stock: "desc" }, { name: "asc" }],
-    take: 8 - skuMatches.length,
+    take: LIMIT - skuMatches.length,
   });
 
-  if (skuMatches.length + nameMatches.length >= 8) {
+  if (skuMatches.length + nameMatches.length >= LIMIT) {
     return NextResponse.json([...skuMatches, ...nameMatches]);
   }
 
   // Fill remaining with category-only matches
   const nameIds = [...skuSlugs, ...nameMatches.map((p) => p.slug)];
-  const remaining = 8 - skuMatches.length - nameMatches.length;
+  const remaining = LIMIT - skuMatches.length - nameMatches.length;
   const categoryMatches = await prisma.product.findMany({
     where: {
-      isActive: true,
+      ...SHOWABLE,
       AND: broadConditions,
       slug: { notIn: nameIds },
       NOT: { AND: nameConditions },
     },
-    select,
+    select: SELECT,
     orderBy: [{ stock: "desc" }, { name: "asc" }],
     take: remaining,
   });
 
-  return NextResponse.json([...skuMatches, ...nameMatches, ...categoryMatches]);
+  const found = [...skuMatches, ...nameMatches, ...categoryMatches];
+  if (found.length > 0) return NextResponse.json(found);
+
+  // Нічого не знайшлось — та сама драбина, що й у каталозі: інша розкладка,
+  // потім схожість. Порожній список підказок людина читає як «такого немає».
+  return NextResponse.json(await rescue(q));
+}
+
+async function rescue(q: string) {
+  for (const variant of translitVariants(q)) {
+    const byVariant = await prisma.product.findMany({
+      where: { ...SHOWABLE, name: { contains: variant, mode: "insensitive" } },
+      select: SELECT,
+      orderBy: [{ stock: "desc" }, { name: "asc" }],
+      take: LIMIT,
+    });
+    if (byVariant.length > 0) return byVariant;
+  }
+
+  const ids = await trigramSearchIds(q, LIMIT);
+  if (ids.length === 0) return [];
+
+  const items = await prisma.product.findMany({ where: { id: { in: ids } }, select: SELECT });
+  return reorderByIds(items, ids);
 }

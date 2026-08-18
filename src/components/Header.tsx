@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { getCart, getCartCount } from "@/lib/cart";
 import { getWishlistCount } from "@/lib/wishlist";
 import { getCompareCount } from "@/lib/compare";
+import HeaderSearch from "@/components/search/HeaderSearch";
+import SearchOverlay from "@/components/search/SearchOverlay";
 
 export default function Header() {
   const pathname = usePathname();
@@ -14,6 +16,7 @@ export default function Header() {
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
   const [compareCount, setCompareCount] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     const updateCart = () => setCartCount(getCartCount(getCart()));
@@ -46,8 +49,19 @@ export default function Header() {
       <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
       <div className="max-w-7xl mx-auto px-4">
         <div className="relative flex items-center justify-between h-14 md:h-16 gap-3">
-          {/* Mobile: empty spacer for left side balance */}
-          <div className="w-8 md:hidden" />
+          {/* Mobile: пошук на місці колишнього порожнього спейсера —
+              баланс центрованого лого зберігається, а вхід у пошук
+              зʼявляється на кожній сторінці, не лише в каталозі */}
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Пошук товарів"
+            className="w-8 md:hidden flex items-center justify-center text-white/70 hover:text-[#FFD600] active:text-[#FFD600] active:scale-90 transition-[color,transform] duration-100 p-2 -m-1"
+          >
+            <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </button>
 
           {/* Logo — mobile: centered, desktop: left with brand name */}
           <Link href="/" className="flex items-center gap-2.5 flex-shrink-0 md:relative absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 z-10">
@@ -59,6 +73,14 @@ export default function Header() {
               <span className="text-[10px] font-medium leading-tight mt-0.5 logo-subtitle-animated">Ваш світ інструментів</span>
             </div>
           </Link>
+
+          {/* На сторінці каталогу своє велике поле пошуку — два інпути на
+              одному екрані лише збивають з пантелику */}
+          {!pathname?.startsWith("/catalog") && (
+            <div className="hidden md:flex flex-1 justify-center">
+              <HeaderSearch />
+            </div>
+          )}
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-4 lg:gap-5 flex-shrink-0">
@@ -115,6 +137,19 @@ export default function Header() {
                 </span>
               )}
             </Link>
+
+            {/* Mobile: порівняння. Кнопка «додати до порівняння» є на кожній
+                картці, а відкрити саме порівняння з телефона було ніде */}
+            {compareCount > 0 && (
+              <Link href="/compare" className="relative md:hidden flex items-center justify-center text-[#FFD600] active:scale-90 transition-transform duration-100 p-2 -m-1" title="Порівняння">
+                <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+                </svg>
+                <span className="absolute -top-0.5 -right-0.5 bg-[#FFD600] text-[#0A0A0A] text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold">
+                  {compareCount}
+                </span>
+              </Link>
+            )}
 
             {/* Mobile: cart icon */}
             <Link href="/cart" className="relative md:hidden flex items-center justify-center text-white/70 hover:text-[#FFD600] active:text-[#FFD600] active:scale-90 transition-[color,transform] duration-100 p-2 -m-1" title="Кошик">
@@ -209,6 +244,8 @@ export default function Header() {
           </div>
         </div>
       </div>
+
+      {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
     </header>
   );
 }

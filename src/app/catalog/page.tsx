@@ -34,7 +34,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   // оптової ціни для 2%. Оптовик добирає свою знижку на клієнті
   // (useWholesaleDiscounts у ProductCard).
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const [{ products: rawProducts, total }, tree, priceBounds, types] = await Promise.all([
+  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, types] = await Promise.all([
     fetchCatalogPage(filters, page),
     getBrandTree(),
     getPriceBounds(),
@@ -48,7 +48,9 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
     description: p.description.replace(/<[^>]*>/g, "").slice(0, 220),
   }));
 
-  const totalPages = Math.ceil(total / CATALOG_PAGE_SIZE);
+  // Приблизна видача — це одна купка схожих товарів, а не зріз каталогу:
+  // сторінки по ній не мають сенсу, «Далі» вело б у порожнечу.
+  const totalPages = isFuzzy ? 1 : Math.ceil(total / CATALOG_PAGE_SIZE);
   const allBrands = tree.main.concat(tree.tail);
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
 
@@ -84,7 +86,11 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       <div className="mb-4">
         <h1 className="mb-1 text-2xl font-bold text-[#0A0A0A] sm:text-3xl">{title}</h1>
         <p className="text-sm text-[#9E9E9E] sm:text-base">
-          {total > 0 ? `Знайдено ${total.toLocaleString("uk-UA")} товарів` : "Товарів не знайдено"}
+          {isFuzzy
+            ? `За запитом «${filters.search}» точних збігів немає. Можливо, ви шукали:`
+            : total > 0
+              ? `Знайдено ${total.toLocaleString("uk-UA")} товарів`
+              : "Товарів не знайдено"}
         </p>
       </div>
 

@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { productType, CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { skuSearchConditions, looksLikeSku } from "@/lib/catalog/sku-search";
+import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
+import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
 
 /**
  * Фільтри каталогу в одному місці.
@@ -66,6 +68,16 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
   const where: Prisma.ProductWhereInput = { isActive: true };
   const and: Prisma.ProductWhereInput[] = [];
 
+  /**
+   * Службові рядки-групи з 1С («01.03.02. Бури для бетону SDS-plus») активні,
+   * але без ціни й фото — їх 8 тис. на 49 тис. активних, тобто кожен шостий
+   * рядок видачі був заголовком розділу з написом «Ціна не вказана».
+   *
+   * Фільтруємо саме по ціні, а не showableProductWhere(): вимога фото і
+   * залишку сховала б і справжній товар, який просто закінчився.
+   */
+  and.push({ price: { gt: 0 } });
+
   if (f.brands.length) {
     const slugs = f.brands.filter((b) => b !== "none");
     const includeUnbranded = f.brands.includes("none");
@@ -91,11 +103,14 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
      */
     const skuMatch = skuSearchConditions(f.search);
 
+    // Стемимо саме запит, а не базу: скорочений терм лишається підрядком
+    // усіх форм слова, тож «валики» тепер знаходять «Валик малярний».
     const terms = f.search
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
-      .filter((w) => w.length > 1);
+      .filter((w) => w.length > 1)
+      .map(stemTerm);
 
     const byText: Prisma.ProductWhereInput[] =
       terms.length > 1
@@ -109,7 +124,9 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
         : [
             {
               OR: [
-                { name: { contains: f.search, mode: "insensitive" as const } },
+                // terms[0] — те саме слово, але без закінчення; сирий рядок
+                // лишається запасним для запитів на кшталт «GR-30030»
+                { name: { contains: terms[0] ?? f.search, mode: "insensitive" as const } },
                 { sku: { contains: f.search, mode: "insensitive" as const } },
               ],
             },
@@ -185,6 +202,23 @@ const fetchCatalogPageCached = unstable_cache(fetchCatalogPageUncached, ["catalo
   tags: [CATALOG_CACHE_TAG],
 });
 
+/** Поля, які читають картки каталогу. Один список на всі шляхи вибірки. */
+const CARD_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  sku: true,
+  description: true,
+  price: true,
+  isPromo: true,
+  promoPrice: true,
+  promoLabel: true,
+  stock: true,
+  image: true,
+  category: { select: { name: true, slug: true } },
+  brand: { select: { name: true, slug: true } },
+} as const;
+
 async function fetchCatalogPageUncached(f: CatalogFilters, page: number) {
   const where = await buildWhere(f);
   const [products, total] = await Promise.all([
@@ -193,21 +227,7 @@ async function fetchCatalogPageUncached(f: CatalogFilters, page: number) {
       // Явний select замість include: include тягнув усі 25+ колонок Product
       // (syncedAt, externalId, характеристики…), і весь цей баласт їхав у
       // RSC-payload сторінки. Тут — рівно те, що читають картки каталогу.
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        sku: true,
-        description: true,
-        price: true,
-        isPromo: true,
-        promoPrice: true,
-        promoLabel: true,
-        stock: true,
-        image: true,
-        category: { select: { name: true, slug: true } },
-        brand: { select: { name: true, slug: true } },
-      },
+      select: CARD_SELECT,
       orderBy: buildOrderBy(f.sort),
       skip: (page - 1) * CATALOG_PAGE_SIZE,
       take: CATALOG_PAGE_SIZE,
@@ -226,7 +246,47 @@ async function fetchCatalogPageUncached(f: CatalogFilters, page: number) {
     if (exact > 0) products.unshift(...products.splice(exact, 1));
   }
 
+  // Порожня видача — остання спроба, а не кінець розмови.
+  if (total === 0 && f.search && page === 1) {
+    const rescued = await rescueSearch(f);
+    if (rescued.length > 0) {
+      return { products: rescued, total: rescued.length, isFuzzy: true as const };
+    }
+  }
+
   return { products, total };
+}
+
+/**
+ * Драбина рятувальних спроб, коли точний пошук дав нуль.
+ *
+ * Спершу інша розкладка (людина набрала «drel» замість «дриль»), далі —
+ * схожість за трилітерними шматками (одрук). Обидві дорогі, тому працюють
+ * лише на порожній видачі й лише на першій сторінці: тоді ціна нульова для
+ * тих 99% запитів, які й так щось знайшли.
+ */
+async function rescueSearch(f: CatalogFilters) {
+  const search = f.search!;
+
+  for (const variant of translitVariants(search)) {
+    const where = await buildWhere({ ...f, search: variant });
+    const found = await prisma.product.findMany({
+      where,
+      select: CARD_SELECT,
+      orderBy: buildOrderBy(f.sort),
+      take: CATALOG_PAGE_SIZE,
+    });
+    if (found.length > 0) return found;
+  }
+
+  const ids = await trigramSearchIds(search, CATALOG_PAGE_SIZE);
+  if (ids.length === 0) return [];
+
+  const found = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: CARD_SELECT,
+  });
+  return reorderByIds(found, ids);
 }
 
 /** Ре-експорт, щоб сторінки тягли типізацію з одного модуля. */

@@ -177,6 +177,25 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/*
+        Вхід у зміст за розділами. Раніше він жив лише в шапці десктопу і
+        всередині каталогу: людина, яка не знає назви товару, з головної
+        сторінки не мала жодного способу зорієнтуватись у 49 тис. позицій.
+      */}
+      <section className="bg-white py-4">
+        <div className="max-w-7xl mx-auto px-4">
+          <Link
+            href="/catalog/zmist"
+            className="flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-[#E0E0E0] bg-white px-4 text-sm font-bold text-[#0A0A0A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+            Каталог за розділами
+          </Link>
+        </div>
+      </section>
+
       {/* Seasonal Products */}
       {seasonalProducts.length > 0 && (
         <section className="py-8 sm:py-10" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>

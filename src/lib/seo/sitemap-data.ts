@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { absoluteUrl } from "@/lib/seo/site";
+import { absoluteUrl, escapeXml } from "@/lib/seo/site";
 import { indexableProductWhere } from "@/lib/seo/indexable";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCatalogToc } from "@/lib/catalog/sections";
@@ -96,13 +96,4 @@ export function renderIndex(ids: string[]): string {
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${items}
 </sitemapindex>`;
-}
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/'/g, "&apos;")
-    .replace(/"/g, "&quot;");
 }

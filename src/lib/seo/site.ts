@@ -32,11 +32,26 @@ export function formatUAH(price: number): string {
     : price.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** HTML з опису 1С → чистий текст для meta description і JSON-LD. */
+/** Екранування тексту для XML (sitemap, товарний фід). */
+export function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/'/g, "&apos;")
+    .replace(/"/g, "&quot;");
+}
+
+/** HTML з опису 1С → чистий текст для meta description, JSON-LD і фіда. */
 export function stripHtml(html: string): string {
   return html
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/g, " ")
+    .replace(/&deg;/g, "°")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();

@@ -75,9 +75,12 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <span className="text-[#0A0A0A]">{product.name}</span>
       </nav>
 
-      <div className="grid md:grid-cols-2 gap-4 sm:gap-8 relative items-start">
-        {/* Left column — sticky image */}
-        <div className="md:sticky md:top-4">
+      {/* Фото пливе ліворуч, а не стоїть колонкою сітки: у сітці довгий опис
+          тягнувся вузьким стовпчиком і лишав під фото пів екрана порожнечі.
+          З float опис обтікає фото, а нижче його межі йде на всю ширину. */}
+      <div className="relative flow-root">
+        {/* Left column — image */}
+        <div className="mb-4 md:float-left md:mb-6 md:mr-8 md:w-[calc(50%_-_1rem)]">
           {product.image ? (
             <ProductImageZoom src={product.image} alt={product.name} />
           ) : (
@@ -89,8 +92,9 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           )}
         </div>
 
-        {/* Right column — info */}
-        <div>
+        {/* Right column — info. flow-root робить свій контекст форматування,
+            щоб блок ціни став поруч із фото, а не заповз під нього фоном. */}
+        <div className="md:flow-root">
           {productLabel(product.category, product.brand) && (
             <span className="text-sm text-primary-dark font-medium">
               {productLabel(product.category, product.brand)}
@@ -121,10 +125,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           />
 
           {/* Кнопка «Симулювати продуктивність» прихована разом із розділом симуляції. */}
-
-          {/* Description below price block */}
-          <ProductDescription description={product.description} />
         </div>
+
+        {/* Опис — сусід, а не вкладення: перші рядки лягають праворуч від фото,
+            решта продовжується під ним на всю ширину сторінки. */}
+        <ProductDescription description={product.description} />
       </div>
 
       {/* AI Accessories */}

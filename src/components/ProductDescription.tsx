@@ -112,7 +112,7 @@ export default function ProductDescription({ description }: Props) {
   if (hasHtml) {
     return (
       <div
-        className="product-description text-g500 leading-relaxed"
+        className="product-description mt-5 text-g500 leading-relaxed"
         dangerouslySetInnerHTML={{ __html: description }}
       />
     );
@@ -123,7 +123,7 @@ export default function ProductDescription({ description }: Props) {
 
   return (
     <div
-      className="product-description text-g500 leading-relaxed"
+      className="product-description mt-5 text-g500 leading-relaxed"
       dangerouslySetInnerHTML={{ __html: formatted }}
     />
   );

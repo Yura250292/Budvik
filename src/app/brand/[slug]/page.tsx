@@ -34,7 +34,7 @@ const getBrand = cache((slug: string) =>
 const brandFilters = (slug: string) => ({
   brands: [slug],
   types: [],
-  inStock: false,
+  showAll: false,
   withImage: false,
 });
 

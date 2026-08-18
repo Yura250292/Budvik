@@ -50,10 +50,10 @@ export default function ActiveFilterChips({
     });
   }
 
-  if (filters.inStock) {
+  if (filters.showAll) {
     chips.push({
-      label: "В наявності",
-      href: `${basePath}${filtersToQuery({ ...filters, inStock: false })}`,
+      label: "З відсутніми",
+      href: `${basePath}${filtersToQuery({ ...filters, showAll: false })}`,
     });
   }
 

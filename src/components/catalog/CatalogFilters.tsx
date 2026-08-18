@@ -58,7 +58,7 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
       types: (sp.get("type") || "").split(",").filter(Boolean),
       priceMin: sp.get("priceMin") || "",
       priceMax: sp.get("priceMax") || "",
-      inStock: sp.get("inStock") === "1",
+      showAll: sp.get("all") === "1",
       withImage: sp.get("withImage") === "1",
       search: sp.get("search") || "",
       sort: sp.get("sort") || "",
@@ -78,7 +78,7 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
     current.types.length +
     (current.priceMin ? 1 : 0) +
     (current.priceMax ? 1 : 0) +
-    (current.inStock ? 1 : 0) +
+    (current.showAll ? 1 : 0) +
     (current.withImage ? 1 : 0);
 
   const apply = useCallback(
@@ -89,7 +89,7 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
       if (next.search) q.set("search", next.search);
       if (next.priceMin) q.set("priceMin", next.priceMin);
       if (next.priceMax) q.set("priceMax", next.priceMax);
-      if (next.inStock) q.set("inStock", "1");
+      if (next.showAll) q.set("all", "1");
       if (next.withImage) q.set("withImage", "1");
       if (next.sort) q.set("sort", next.sort);
       const qs = q.toString();
@@ -107,7 +107,7 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
   };
 
   const reset = () => {
-    const cleared = { ...draft, brands: [], types: [], priceMin: "", priceMax: "", inStock: false, withImage: false };
+    const cleared = { ...draft, brands: [], types: [], priceMin: "", priceMax: "", showAll: false, withImage: false };
     setDraft(cleared);
     apply(cleared);
   };
@@ -167,8 +167,10 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
       {/* Наявність */}
       <FilterBlock title="Показувати">
         <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]">
-          <Check checked={draft.inStock} onChange={() => setDraft((d) => ({ ...d, inStock: !d.inStock }))} />
-          <span className="text-sm text-[#1A1A1A]">Лише в наявності</span>
+          {/* Навпаки до колишнього «лише в наявності»: наявність тепер
+              за замовчуванням, а галочка відкриває решту асортименту. */}
+          <Check checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))} />
+          <span className="text-sm text-[#1A1A1A]">Показати відсутні</span>
         </label>
         <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]">
           <Check checked={draft.withImage} onChange={() => setDraft((d) => ({ ...d, withImage: !d.withImage }))} />

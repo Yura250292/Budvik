@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import NoPhoto from "@/components/ui/NoPhoto";
 import { useState, useEffect } from "react";
 import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
@@ -98,9 +99,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             {image ? (
               <Image src={image} alt={name} className="h-full w-full object-contain p-1.5" width={96} height={96} loading="lazy" sizes="96px" />
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-[#DADADA]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              </svg>
+              <NoPhoto label={label} size="sm" />
             )}
             {isPromo && stock > 0 && (
               <span className="absolute top-1 left-1 bg-[#0A0A0A] text-[#FFD600] text-[7px] font-bold px-1 py-0.5 rounded">
@@ -167,9 +166,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             {image ? (
               <Image src={image} alt={name} className="h-full w-full object-contain p-4" width={288} height={288} loading="lazy" sizes="288px" />
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className={`h-20 w-20 transition ${stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              </svg>
+              <NoPhoto label={label} size="md" />
             )}
             {isPromo && stock > 0 && (
               <span className="absolute top-2 left-2 bg-[#0A0A0A] text-[#FFD600] text-xs font-bold px-2.5 py-1 rounded-lg">
@@ -256,11 +253,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               sizes="192px"
             />
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className={`h-10 sm:h-20 w-10 sm:w-20 transition duration-200 ${
-              stock > 0 ? "text-[#DADADA] group-hover:text-[#FFD600]" : "text-[#DADADA]"
-            }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
+            <NoPhoto label={label} size="md" />
           )}
           {isPromo && stock > 0 && (
             <span className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-[#0A0A0A] text-[#FFD600] text-[8px] sm:text-xs font-bold px-1 sm:px-2.5 py-0.5 sm:py-1 rounded sm:rounded-lg">

@@ -28,14 +28,14 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     (skip === "brand" || !f.brands.length) &&
     (skip === "type" || !f.types.length) &&
     !f.search && f.priceMin === undefined && f.priceMax === undefined &&
-    !f.inStock && !f.withImage && !f.categorySlug && !f.sort && !params.page;
+    !f.showAll && !f.withImage && !f.categorySlug && !f.sort && !params.page;
 
   const onlyBrand = f.brands.length === 1 && f.brands[0] !== "none" && noExtras("brand");
   const onlyType = f.types.length === 1 && noExtras("type");
   const isFiltered =
     f.brands.length > 0 || f.types.length > 0 || !!f.search ||
     f.priceMin !== undefined || f.priceMax !== undefined ||
-    f.inStock || f.withImage || !!f.categorySlug || !!f.sort || !!params.page;
+    f.showAll || f.withImage || !!f.categorySlug || !!f.sort || !!params.page;
 
   return {
     title: f.search ? `Пошук: ${f.search}` : "Каталог інструментів",

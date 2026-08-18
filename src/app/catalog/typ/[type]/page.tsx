@@ -30,7 +30,7 @@ const MIN_PRODUCTS = 5;
 const typeFilters = (type: string) => ({
   brands: [],
   types: [type],
-  inStock: false,
+  showAll: false,
   withImage: false,
 });
 

@@ -21,8 +21,19 @@ export interface CatalogFilters {
   search?: string;
   priceMin?: number;
   priceMax?: number;
-  /** Лише те, що зараз є на складі. */
-  inStock: boolean;
+  /**
+   * Показати і те, чого зараз немає на складі.
+   *
+   * За замовчуванням каталог показує ЛИШЕ наявне: з 49 306 активних карток
+   * товар є лише на 6 764, а 25 709 узагалі не мають звʼязку з 1С — це
+   * залишки старого сайту, які ніколи не отримають залишок. Покупцю, що
+   * гортає сторінки відсутнього товару, каталог здається великим і
+   * непрацюючим одночасно.
+   *
+   * Кабінет торгового вмикає це явно: там відсутню позицію беруть під
+   * замовлення, і бачити її треба.
+   */
+  showAll: boolean;
   /** Лише позиції з фото — щоб було що показати клієнту. */
   withImage: boolean;
   categorySlug?: string;
@@ -50,7 +61,7 @@ export function parseFilters(sp: URLSearchParams | Record<string, string | undef
     search: get("search")?.trim() || undefined,
     priceMin: num("priceMin"),
     priceMax: num("priceMax"),
-    inStock: get("inStock") === "1",
+    showAll: get("all") === "1",
     withImage: get("withImage") === "1",
     categorySlug: get("category") || undefined,
     sort: get("sort") || undefined,
@@ -144,7 +155,7 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
     and.push({ price });
   }
 
-  if (f.inStock) and.push({ stock: { gt: 0 } });
+  if (!f.showAll) and.push({ stock: { gt: 0 } });
   if (f.withImage) and.push({ image: { not: null } }, { NOT: { image: "" } });
 
   if (and.length) where.AND = and;
@@ -172,7 +183,7 @@ export function filtersToQuery(f: Partial<CatalogFilters>, page?: number): strin
   if (f.search) sp.set("search", f.search);
   if (f.priceMin !== undefined) sp.set("priceMin", String(f.priceMin));
   if (f.priceMax !== undefined) sp.set("priceMax", String(f.priceMax));
-  if (f.inStock) sp.set("inStock", "1");
+  if (f.showAll) sp.set("all", "1");
   if (f.withImage) sp.set("withImage", "1");
   if (f.categorySlug) sp.set("category", f.categorySlug);
   if (f.sort) sp.set("sort", f.sort);

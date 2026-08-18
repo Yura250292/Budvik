@@ -19,7 +19,10 @@ type SP = Record<string, string | undefined>;
  */
 export default async function SalesCatalogListPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
-  const filters = parseFilters(params);
+  // Торговий бачить увесь асортимент, а не лише наявне: відсутню позицію
+  // він бере під замовлення, і сховати її означало б сховати продаж.
+  // Покупцю в магазині навпаки — там showAll лишається вимкненим.
+  const filters = { ...parseFilters(params), showAll: true };
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
   const [{ products, total }, tree, priceBounds] = await Promise.all([

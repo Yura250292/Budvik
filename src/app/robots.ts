@@ -35,7 +35,7 @@ export default function robots(): MetadataRoute.Robots {
           "/catalog?*sort=",
           "/catalog?*priceMin=",
           "/catalog?*priceMax=",
-          "/catalog?*inStock=",
+          "/catalog?*all=",
           "/catalog?*withImage=",
           "/catalog?*search=",
         ],

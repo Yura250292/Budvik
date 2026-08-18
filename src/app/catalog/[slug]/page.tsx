@@ -13,6 +13,8 @@ import AiRecommendations from "@/components/ai/AiRecommendations";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
 import ProductDescription from "@/components/ProductDescription";
+import ProductAside, { ProductTerms } from "@/components/product/ProductAside";
+import { splitDescription } from "@/lib/catalog/description-sections";
 import ProductPriceBlock from "./ProductPriceBlock";
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -32,6 +34,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   // відрізного це круги інших фірм і діаметрів). Категорія тут не помічник:
   // у звалищі «Імпорт з 1С» лежить 40+ тис. випадкових позицій, тож тип
   // визначаємо за назвою, а на бренд спираємось лише як на запасний варіант.
+  // Факти («Характеристики», «Комплектація») виносимо з опису в картки під
+  // фото — див. lib/catalog/description-sections. Проза лишається текстом.
+  const { specs, kit, rest: descriptionRest } = splitDescription(product.description);
+
   const sameType = await findSameType(product, 4);
   const relatedProducts =
     sameType.length > 0
@@ -80,7 +86,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           З float опис обтікає фото, а нижче його межі йде на всю ширину. */}
       <div className="relative flow-root">
         {/* Left column — image */}
-        <div className="mb-4 md:float-left md:mb-6 md:mr-8 md:w-[calc(50%_-_1rem)]">
+        <div className="mb-4 md:float-left md:mb-0 md:mr-8 md:w-[calc(50%_-_1rem)]">
           {product.image ? (
             <ProductImageZoom src={product.image} alt={product.name} />
           ) : (
@@ -125,11 +131,28 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           />
 
           {/* Кнопка «Симулювати продуктивність» прихована разом із розділом симуляції. */}
+
+          {/* Як заберу і чим заплачу — питання, що виникає рівно біля кнопки. */}
+          <div className="mt-4">
+            <ProductTerms />
+          </div>
         </div>
+
+        {/* Другий плаваючий блок під фото: факти з опису й умови покупки.
+            clear-left ставить його рівно під фото, тож опис обтікає спершу
+            фото, потім картки — і йде на всю ширину лише там, де ліворуч
+            справді нічого немає. У DOM він перед описом навмисно: інакше
+            обтікати не буде що, а на телефоні порядок «фото → ціна →
+            факти → опис» саме той, що треба. */}
+        {(specs.length > 0 || kit.length > 0) && (
+          <div className="md:clear-left md:float-left md:mb-6 md:mr-8 md:w-[calc(50%_-_1rem)]">
+            <ProductAside specs={specs} kit={kit} />
+          </div>
+        )}
 
         {/* Опис — сусід, а не вкладення: перші рядки лягають праворуч від фото,
             решта продовжується під ним на всю ширину сторінки. */}
-        <ProductDescription description={product.description} />
+        <ProductDescription description={descriptionRest} />
       </div>
 
       {/* AI Accessories */}

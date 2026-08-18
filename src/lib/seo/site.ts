@@ -4,7 +4,9 @@
  * сайтів. NEXTAUTH_URL сюди не годиться — у розробці там localhost, і він
  * потрапляв би в canonical прев'ю-збірок.
  */
-export const SITE_URL = "https://budvik27.com";
+// Саме з www: Vercel 308-редіректить budvik27.com → www.budvik27.com, і
+// canonical/sitemap мають називати кінцеву адресу, а не редірект.
+export const SITE_URL = "https://www.budvik27.com";
 
 export const SITE_NAME = "Budvik27";
 

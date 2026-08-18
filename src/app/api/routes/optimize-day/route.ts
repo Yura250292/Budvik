@@ -245,6 +245,9 @@ export async function POST(req: NextRequest) {
       day,
       startedFromFirstStop,
       startName,
+      // [lng, lat] — карті-прев'ю і посиланню на Google Maps потрібна
+      // точка виїзду, а не лише її назва.
+      start,
       fuel,
       cheapest: { ...result.cheapest, stops: decorate(result.cheapest.order) },
       balanced: result.balanced

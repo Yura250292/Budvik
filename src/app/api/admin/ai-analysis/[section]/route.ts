@@ -25,6 +25,7 @@ import {
   buildProductsSectionFacts,
   buildLogisticsSectionFacts,
   buildStrategySectionFacts,
+  missingSections,
 } from "@/lib/analytics/company/company-facts";
 import {
   generateCompanySection,
@@ -162,12 +163,24 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ section: st
 
   const cached = await readReport(KIND[section], null, keyPeriod.fromDay, keyPeriod.toDay);
 
+  /*
+   * Для стратегії GET одразу каже, яких секцій бракує.
+   *
+   * Раніше про це можна було дізнатися лише з 409 ПІСЛЯ натискання
+   * «Згенерувати»: людина тиснула кнопку, чекала і отримувала помилку. А
+   * стратегія ще й стоїть першою вкладкою, тож саме на неї тиснуть одразу.
+   * Перевірка дешева — це три читання кешу, без звернення до моделі.
+   */
+  const missing =
+    section === "strategy" && !cached ? await missingSections(keyPeriod) : undefined;
+
   return NextResponse.json({
     section,
     configured: companyInsightsConfigured(),
     report: cached,
     period: { from: keyPeriod.fromDay, to: keyPeriod.toDay, days: keyPeriod.days },
     periodNote: note,
+    ...(missing?.length ? { missing } : {}),
   });
 }
 

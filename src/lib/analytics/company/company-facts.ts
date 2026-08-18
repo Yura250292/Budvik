@@ -546,6 +546,23 @@ export type StrategyFactsResult =
   | { ok: false; missing: string[] };
 
 /**
+ * Яких секцій бракує для стратегії за цей період.
+ *
+ * Окремо від buildStrategySectionFacts, бо потрібне ще до генерації: GET
+ * викликає це, щоб панель показала «спершу згенеруйте…» одразу при відкритті
+ * вкладки, а не після марного натискання кнопки. Три читання кешу, без моделі.
+ */
+export async function missingSections(period: Period): Promise<string[]> {
+  const entries = await Promise.all(
+    (Object.keys(SECTION_KINDS) as Array<keyof typeof SECTION_KINDS>).map(async (key) => ({
+      key,
+      report: await readReport(SECTION_KINDS[key], null, period.fromDay, period.toDay),
+    }))
+  );
+  return entries.filter((e) => !e.report).map((e) => SECTION_LABELS[e.key]);
+}
+
+/**
  * Дайджест трьох секцій — вхід для стратегії.
  *
  * Стратегія не перераховує компанію заново: вона будується на вже
@@ -563,6 +580,7 @@ export async function buildStrategySectionFacts(period: Period): Promise<Strateg
 
   const missing = entries.filter((e) => !e.report).map((e) => SECTION_LABELS[e.key]);
   if (missing.length > 0) return { ok: false, missing };
+
 
   const byKey = new Map(entries.map((e) => [e.key, e.report!]));
 

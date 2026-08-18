@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { CardSkeleton } from "@/components/ui/Skeleton";
@@ -32,6 +33,13 @@ type Response = {
   rejected?: number;
   error?: string;
   missing?: string[];
+};
+
+/** Назва розділу з відповіді сервера → вкладка, куди вести. */
+const MISSING_TABS: Record<string, string> = {
+  Торгові: "reps",
+  Товари: "products",
+  Логістика: "logistics",
 };
 
 const KIND: Record<string, string> = {
@@ -88,6 +96,9 @@ export function SectionPanel({
       setConfigured(data.configured !== false);
       setReport(data.report ?? null);
       setNote(data.periodNote ?? null);
+      // Стратегія повідомляє про брак сусідніх секцій уже при відкритті —
+      // щоб людина побачила це до натискання, а не після.
+      setMissing(data.missing?.length ? data.missing : null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -152,6 +163,9 @@ export function SectionPanel({
     }
   }, [report, section, period, saveNote]);
 
+  /** Генерувати нема сенсу: бракує секцій, на яких стоїть ця. */
+  const blocked = !report && !!missing?.length;
+
   if (loading) return <CardSkeleton rows={6} />;
 
   if (!configured) {
@@ -182,11 +196,19 @@ export function SectionPanel({
                   Зберегти
                 </button>
               )}
+              {/* Заблокована кнопка з поясненням краща за активну, яка
+                  через хвилину віддасть 409: людина бачить, чого бракує,
+                  ще до того, як витратить час. */}
               <button
                 type="button"
                 onClick={generate}
-                disabled={generating}
-                className="cursor-pointer rounded-[var(--radius-btn)] bg-bk px-3.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                disabled={generating || blocked}
+                title={
+                  blocked
+                    ? `Спершу згенеруйте: ${missing!.join(", ")}`
+                    : undefined
+                }
+                className="cursor-pointer rounded-[var(--radius-btn)] bg-bk px-3.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {generating ? "Аналізую…" : report ? "Оновити" : "Згенерувати"}
               </button>
@@ -261,18 +283,37 @@ export function SectionPanel({
         </div>
       </Card>
 
-      {missing && (
+      {missing && !report && (
         <Card>
-          <EmptyState
-            title="Спершу згенеруйте інші розділи"
-            hint={`Стратегія будується на висновках розділів: ${missing.join(", ")}. Відкрийте їх за цей самий період і натисніть «Згенерувати».`}
-          />
+          <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <h3 className="text-sm font-semibold text-bk">Спершу згенеруйте інші розділи</h3>
+            <p className="max-w-lg text-sm text-g500">
+              Стратегія не рахує компанію заново — вона зводить висновки решти розділів. Бракує:{" "}
+              <span className="font-medium text-g700">{missing.join(", ")}</span>. Згенеруйте їх за
+              цей самий період і поверніться сюди.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {missing.map((label) => {
+                const key = MISSING_TABS[label];
+                if (!key) return null;
+                return (
+                  <Link
+                    key={label}
+                    href={`/admin/ai-analysis?tab=${key}&from=${period.from}&to=${period.to}`}
+                    className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-3.5 py-2 text-xs font-medium text-g600 transition-colors hover:border-g300 hover:text-bk"
+                  >
+                    {label} →
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
         </Card>
       )}
 
       {error && !missing && <ErrorBox message={error} onRetry={load} />}
 
-      {!report && !error && !generating && (
+      {!report && !error && !generating && !missing && (
         <Card>
           <EmptyState
             title="Ще не аналізували"

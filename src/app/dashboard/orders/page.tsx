@@ -54,7 +54,7 @@ export default function OrdersPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <span className="font-semibold text-bk">
-                      Замовлення #{order.id.slice(-8).toUpperCase()}
+                      Замовлення № {order.orderNumber}
                     </span>
                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${ORDER_STATUS_COLORS[order.status as keyof typeof ORDER_STATUS_COLORS]}`}>
                       {ORDER_STATUS_LABELS[order.status as keyof typeof ORDER_STATUS_LABELS]}

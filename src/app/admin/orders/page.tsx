@@ -3,7 +3,13 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { formatPrice, formatDate, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/utils";
+import {
+  formatPrice,
+  formatDate,
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_COLORS,
+  DELIVERY_METHOD_LABELS,
+} from "@/lib/utils";
 import { OrderStatus } from "@prisma/client";
 
 const ALL_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PACKAGING", "IN_TRANSIT", "DELIVERED", "CANCELLED"];
@@ -49,7 +55,9 @@ export default function AdminOrdersPage() {
 
   const filtered = filterStatus === "ALL" ? orders : orders.filter((o) => o.status === filterStatus);
 
-  if (role !== "ADMIN" && role !== "SALES") {
+  // MANAGER отримує сповіщення про нові замовлення нарівні з адміном —
+  // логічно, щоб він міг їх і вести.
+  if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="w-14 h-14 bg-[#FFEAEA] rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -165,8 +173,13 @@ export default function AdminOrdersPage() {
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <span className="text-sm font-bold text-bk tracking-wide font-mono">
-                        #{order.id.slice(-8).toUpperCase()}
+                        № {order.orderNumber}
                       </span>
+                      {!order.userId && (
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-g100 text-g500">
+                          Гість
+                        </span>
+                      )}
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide ${ORDER_STATUS_COLORS[order.status as keyof typeof ORDER_STATUS_COLORS]}`}>
                         <span
                           className="w-1.5 h-1.5 rounded-full"
@@ -187,10 +200,42 @@ export default function AdminOrdersPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
                       <span className="text-g500">
-                        <span className="font-medium text-g600">{order.user?.name}</span>
-                        <span className="text-g400 ml-1 hidden sm:inline">{order.user?.email}</span>
+                        <span className="font-medium text-g600">
+                          {order.contactName || order.user?.name || "—"}
+                        </span>
+                        {order.phone ? (
+                          // Менеджер дзвонить із цього ж екрана — на телефоні
+                          // це один тап замість переписування номера
+                          <a href={`tel:${order.phone}`} className="text-primary-dark ml-2 hover:underline">
+                            {order.phone}
+                          </a>
+                        ) : (
+                          <span className="text-g400 ml-1 hidden sm:inline">{order.user?.email}</span>
+                        )}
                       </span>
                     </div>
+                    {order.deliveryMethod && (
+                      <div className="flex items-start gap-2 text-[13px]">
+                        <svg className="w-3.5 h-3.5 text-g400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span className="text-g500">
+                          {DELIVERY_METHOD_LABELS[order.deliveryMethod as "DELIVERY" | "PICKUP"]}
+                          {order.deliveryMethod === "DELIVERY" &&
+                            (order.city || order.address) &&
+                            `: ${[order.city, order.address].filter(Boolean).join(", ")}`}
+                        </span>
+                      </div>
+                    )}
+                    {order.comment && (
+                      <div className="flex items-start gap-2 text-[13px]">
+                        <svg className="w-3.5 h-3.5 text-g400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                        <span className="text-g500 line-clamp-2">{order.comment}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 text-[13px]">
                       <svg className="w-3.5 h-3.5 text-g400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

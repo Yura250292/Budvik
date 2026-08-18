@@ -22,13 +22,28 @@ export function formatDate(date: Date | string): string {
   }).format(new Date(date));
 }
 
+/**
+ * Оплата — при отриманні, тож «Очікує оплати» більше не описує стан: нове
+ * замовлення одразу йде в роботу, а PAID означає підтвердження менеджером.
+ * Значення enum лишились ті самі — перейменування зачепило б драйверський
+ * контур, фільтри адмінки і всі наявні рядки.
+ */
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  PENDING: "Очікує оплати",
-  PAID: "Оплачено",
+  PENDING: "Нове",
+  PAID: "Підтверджено",
   PACKAGING: "На упакуванні",
   IN_TRANSIT: "В дорозі",
   DELIVERED: "Доставлено",
   CANCELLED: "Скасовано",
+};
+
+export const DELIVERY_METHOD_LABELS: Record<"DELIVERY" | "PICKUP", string> = {
+  DELIVERY: "Доставка",
+  PICKUP: "Самовивіз",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<"COD", string> = {
+  COD: "Оплата при отриманні",
 };
 
 export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {

@@ -45,6 +45,20 @@ enum BoltsType {
   SPENT
 }
 
+/// Спосіб отримання роздрібного замовлення з сайту. ERP-шний DeliveryMethod
+/// (DRIVER / SALES_REP_PICKUP / SELF_PICKUP) описує інший контур — рух накладної
+/// 1С, а не вибір покупця в кошику, тому тут окремий вузький enum.
+enum RetailDelivery {
+  DELIVERY
+  PICKUP
+}
+
+/// Спосіб оплати роздрібного замовлення. Поки єдиний — при отриманні;
+/// enum, а не boolean, щоб онлайн-оплата колись додалась без міграції даних.
+enum PaymentMethod {
+  COD
+}
+
 // ========== ERP Enums ==========
 
 enum DocumentStatus {
@@ -450,6 +464,20 @@ model Promotion {
   updatedAt   DateTime      @updatedAt
 }
 
+/// Токен відновлення пароля. Зберігаємо хеш, а не сам токен: витік дампа бази
+/// інакше дав би змогу зайти в будь-який акаунт. Лишається невикористаним, поки
+/// не підключено поштового провайдера — надсилати листа зараз нічим.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model ImportLog {
   id        String   @id @default(cuid())
   type      String
@@ -464,8 +492,32 @@ model ImportLog {
 }
 
 model Order {
-  id          String      @id @default(cuid())
-  userId      String
+  id String @id @default(cuid())
+
+  /// Номер для людей: «№ 1043» замість хвоста cuid. autoincrement, бо номер
+  /// потрібен саме послідовний і атомарний; DocumentSequence лишається для
+  /// ERP-документів, де номер має префікс і власний лічильник по типах.
+  orderNumber Int @unique @default(autoincrement())
+
+  /// null — гостьове замовлення (оформлене без акаунта). Контактні дані такого
+  /// замовлення живуть у полях нижче, а не в User.
+  userId String?
+
+  /// Контакти й доставка — знімок на момент оформлення, а не join до User:
+  /// людина може замовити на іншу адресу чи інший телефон, ніж у профілі,
+  /// а профіль потім змінити — минуле замовлення має лишитись як було.
+  contactName    String?
+  phone          String?
+  city           String?
+  address        String?
+  deliveryMethod RetailDelivery @default(DELIVERY)
+  paymentMethod  PaymentMethod  @default(COD)
+  comment        String?
+
+  /// Секрет для відстеження замовлення без акаунта: /order/[token].
+  /// randomUUID — 122 біти, перебором не знайти.
+  guestToken String? @unique
+
   totalAmount Float
   boltsUsed   Float       @default(0)
   boltsEarned Float       @default(0)
@@ -479,10 +531,11 @@ model Order {
   salesRepId String?
   salesRep   User?   @relation("orderSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
 
-  user  User        @relation(fields: [userId], references: [id])
+  user  User?       @relation(fields: [userId], references: [id])
   items OrderItem[]
 
   @@index([salesRepId])
+  @@index([userId])
 }
 
 model OrderItem {

@@ -1,14 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { formatPrice, formatDate, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from "@/lib/utils";
+import { addToCart } from "@/lib/cart";
+import {
+  formatPrice,
+  formatDate,
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_COLORS,
+  DELIVERY_METHOD_LABELS,
+  PAYMENT_METHOD_LABELS,
+} from "@/lib/utils";
+import OrderStatusProgress from "@/components/OrderStatusProgress";
 
-export default function OrderDetailPage() {
+function OrderDetail() {
   const params = useParams();
+  const router = useRouter();
+  const justOrdered = useSearchParams().get("success") === "1";
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetch(`/api/orders/${params.id}`)
@@ -18,6 +30,35 @@ export default function OrderDetailPage() {
         setLoading(false);
       });
   }, [params.id]);
+
+  const handleCancel = async () => {
+    if (!confirm("Скасувати замовлення? Товари повернуться в продаж.")) return;
+    setBusy(true);
+    const res = await fetch(`/api/orders/${params.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "CANCELLED" }),
+    });
+    if (res.ok) setOrder(await res.json());
+    setBusy(false);
+  };
+
+  const handleReorder = () => {
+    for (const item of order.items) {
+      addToCart(
+        {
+          productId: item.product.id,
+          name: item.product.name,
+          price: item.product.price ?? item.price,
+          slug: item.product.slug,
+          image: item.product.image,
+          packQty: item.product.packQty,
+        },
+        item.quantity
+      );
+    }
+    router.push("/cart");
+  };
 
   if (loading) {
     return (
@@ -36,8 +77,10 @@ export default function OrderDetailPage() {
     );
   }
 
-  const statusSteps = ["PENDING", "PAID", "PACKAGING", "IN_TRANSIT", "DELIVERED"];
-  const currentStep = statusSteps.indexOf(order.status);
+  const where =
+    order.deliveryMethod === "PICKUP"
+      ? null
+      : [order.city, order.address].filter(Boolean).join(", ");
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -45,59 +88,57 @@ export default function OrderDetailPage() {
         &larr; Назад до замовлень
       </Link>
 
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-bk">
-          Замовлення #{order.id.slice(-8).toUpperCase()}
-        </h1>
+      {justOrdered && (
+        <div className="bg-[#E8F5E9] border border-[#A5D6A7] text-[#1B5E20] rounded-xl p-4 mb-6">
+          <p className="font-bold">Дякуємо! Замовлення № {order.orderNumber} прийнято.</p>
+          <p className="text-sm mt-1">Менеджер зателефонує для підтвердження. Оплата — при отриманні.</p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-bold text-bk">Замовлення № {order.orderNumber}</h1>
         <span className={`px-4 py-2 rounded-full text-sm font-medium ${ORDER_STATUS_COLORS[order.status as keyof typeof ORDER_STATUS_COLORS]}`}>
           {ORDER_STATUS_LABELS[order.status as keyof typeof ORDER_STATUS_LABELS]}
         </span>
       </div>
 
-      {/* Status Progress */}
-      {order.status !== "CANCELLED" && (
-        <div className="bg-white border rounded-lg p-6 mb-6">
-          <div className="flex items-center justify-between">
-            {statusSteps.map((step, i) => (
-              <div key={step} className="flex items-center flex-1">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                      i <= currentStep ? "bg-primary text-bk" : "bg-g200 text-g400"
-                    }`}
-                  >
-                    {i <= currentStep ? "✓" : i + 1}
-                  </div>
-                  <span className="text-xs mt-1 text-g400 text-center hidden sm:block">
-                    {ORDER_STATUS_LABELS[step as keyof typeof ORDER_STATUS_LABELS]}
-                  </span>
-                </div>
-                {i < statusSteps.length - 1 && (
-                  <div className={`flex-1 h-1 mx-2 ${i < currentStep ? "bg-primary" : "bg-g200"}`} />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="mb-6">
+        <OrderStatusProgress status={order.status} />
+      </div>
 
-      {/* Order Details */}
-      <div className="bg-white border rounded-lg overflow-hidden mb-6">
-        <div className="p-4 bg-g50 border-b">
-          <p className="text-sm text-g400">Дата: {formatDate(order.createdAt)}</p>
+      <div className="bg-white border border-g200 rounded-xl overflow-hidden mb-6">
+        <div className="p-4 bg-g50 border-b border-g200 text-sm text-g500 space-y-1">
+          <p>Дата: {formatDate(order.createdAt)}</p>
+          {order.deliveryMethod && (
+            <p>
+              {DELIVERY_METHOD_LABELS[order.deliveryMethod as "DELIVERY" | "PICKUP"]}
+              {where ? `: ${where}` : ""}
+            </p>
+          )}
+          {order.paymentMethod && <p>{PAYMENT_METHOD_LABELS[order.paymentMethod as "COD"]}</p>}
+          {order.phone && (
+            <p>
+              {order.contactName} · {order.phone}
+            </p>
+          )}
+          {order.comment && <p>Коментар: {order.comment}</p>}
         </div>
-        <div className="divide-y">
+        <div className="divide-y divide-g200">
           {order.items.map((item: any) => (
-            <div key={item.id} className="p-4 flex items-center justify-between">
-              <div>
-                <p className="font-medium text-bk">{item.product.name}</p>
-                <p className="text-sm text-g400">{item.quantity} x {formatPrice(item.price)}</p>
+            <div key={item.id} className="p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <Link href={`/catalog/${item.product.slug}`} className="font-medium text-bk hover:text-primary-dark">
+                  {item.product.name}
+                </Link>
+                <p className="text-sm text-g400">
+                  {item.quantity} × {formatPrice(item.price)}
+                </p>
               </div>
-              <span className="font-bold">{formatPrice(item.price * item.quantity)}</span>
+              <span className="font-bold whitespace-nowrap">{formatPrice(item.price * item.quantity)}</span>
             </div>
           ))}
         </div>
-        <div className="p-4 bg-g50 border-t space-y-1">
+        <div className="p-4 bg-g50 border-t border-g200 space-y-1">
           {order.boltsUsed > 0 && (
             <div className="flex justify-between text-sm text-green-600">
               <span>Знижка Болтами</span>
@@ -106,13 +147,39 @@ export default function OrderDetailPage() {
           )}
           <div className="flex justify-between text-lg font-bold">
             <span>Всього</span>
-            <span className="text-primary">{formatPrice(order.totalAmount)}</span>
+            <span className="text-bk">{formatPrice(order.totalAmount)}</span>
           </div>
           {order.boltsEarned > 0 && (
-            <p className="text-sm text-primary">Кешбек: +{order.boltsEarned} Болтів</p>
+            <p className="text-sm text-primary-dark">Кешбек: +{order.boltsEarned} Болтів</p>
           )}
         </div>
       </div>
+
+      <div className="flex flex-wrap gap-3">
+        <button onClick={handleReorder} className="btn-primary px-5 py-2.5 text-sm">
+          Повторити замовлення
+        </button>
+        {/* Скасувати можна лише поки менеджер не взяв замовлення в роботу —
+            далі товар уже комплектують, і рішення за телефоном. */}
+        {order.status === "PENDING" && (
+          <button
+            onClick={handleCancel}
+            disabled={busy}
+            className="px-5 py-2.5 text-sm border border-g300 rounded-lg text-g600 hover:bg-g50 disabled:opacity-50"
+          >
+            {busy ? "Скасовуємо…" : "Скасувати замовлення"}
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+// useSearchParams вимагає Suspense — без нього збірка Next падає
+export default function OrderDetailPage() {
+  return (
+    <Suspense>
+      <OrderDetail />
+    </Suspense>
   );
 }

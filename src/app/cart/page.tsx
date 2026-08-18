@@ -34,10 +34,11 @@ export default function CartPage() {
   const boltsEarned = isWholesale ? 0 : Math.floor(finalTotal * 0.05);
 
   const handleCheckout = async () => {
+    // Оптовику потрібен акаунт — заявка йде його торговому. Роздріб оформлює
+    // замовлення і гостем: вимога зареєструватись до покупки коштувала більше,
+    // ніж давала.
     if (!session) {
-      // З callbackUrl, інакше після входу людину відносило в кабінет —
-      // із зібраним кошиком, але без жодної підказки, що робити далі
-      router.push(`/login?callbackUrl=${encodeURIComponent("/cart")}`);
+      router.push("/checkout");
       return;
     }
 
@@ -67,25 +68,7 @@ export default function CartPage() {
       return;
     }
 
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-        useBolts,
-      }),
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error || "Помилка при оформленні замовлення");
-      setLoading(false);
-      return;
-    }
-
-    const order = await res.json();
-    clearCart();
-    router.push(`/cart/checkout/${order.id}`);
+    router.push("/checkout");
   };
 
   if (cart.length === 0) {
@@ -181,8 +164,6 @@ export default function CartPage() {
           >
             {loading
               ? "Відправка..."
-              : !session
-              ? "Увійти для замовлення"
               : isWholesale
               ? "Надіслати запит торговому"
               : "Оформити замовлення"}

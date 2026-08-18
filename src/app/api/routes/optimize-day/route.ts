@@ -18,7 +18,13 @@ import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 import { resolveDriverDay } from "@/lib/track/day-stops";
 import { explainScore, scoreClient } from "@/lib/routes/priority";
 import { optimizeRoute, type OptimizeStop, type FuelParams } from "@/lib/routes/optimize";
-import { DORMANT_DAYS, LOST_DAYS, SLIPPING_FACTOR, type ClientState } from "@/lib/analytics/clients";
+import {
+  DORMANT_DAYS,
+  LOST_DAYS,
+  MIN_SLIPPING_DAYS,
+  SLIPPING_FACTOR,
+  type ClientState,
+} from "@/lib/analytics/clients";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +41,7 @@ type HistRow = {
   counterpartyId: string;
   turnover: number;
   docs: number;
+  days: number;
   firstDocAt: Date | null;
   lastDocAt: Date | null;
 };
@@ -47,8 +54,11 @@ function classifyNow(row: HistRow | undefined): ClientState | null {
   if (now - row.firstDocAt.getTime() < 30 * DAY_MS) return "NEW";
   if (daysSinceLast >= LOST_DAYS && row.docs >= 2) return "LOST";
   if (daysSinceLast >= DORMANT_DAYS) return "DORMANT";
+  if (daysSinceLast < MIN_SLIPPING_DAYS) return "ACTIVE";
+  // Ритм — за днями з покупками, не за документами (кілька накладних
+  // за одну поставку — не «бере щодня»).
   const spanDays = Math.max(1, (row.lastDocAt.getTime() - row.firstDocAt.getTime()) / DAY_MS);
-  const avgInterval = row.docs > 1 ? spanDays / (row.docs - 1) : spanDays;
+  const avgInterval = row.days > 1 ? spanDays / (row.days - 1) : spanDays;
   if (daysSinceLast > avgInterval * SLIPPING_FACTOR) return "SLIPPING";
   return "ACTIVE";
 }
@@ -110,6 +120,7 @@ export async function POST(req: NextRequest) {
       SELECT s."counterpartyId",
              COALESCE(SUM(s."totalAmount"), 0)::float AS turnover,
              COUNT(*)::int AS docs,
+             COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)::int AS days,
              MIN(s."createdAt") AS "firstDocAt",
              MAX(s."createdAt") AS "lastDocAt"
       FROM "SalesDocument" s

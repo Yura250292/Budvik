@@ -36,6 +36,18 @@ export const LOST_DAYS = 90;
 export const SLIPPING_FACTOR = 1.5;
 
 /**
+ * Пауза, коротша за це, не вважається згасанням незалежно від ритму.
+ *
+ * Ритм рахується за ДНЯМИ з покупками, а не за документами: клієнт часто
+ * бере кілька накладних за одну поставку, і рахунок по документах приписував
+ * такому «ритм» у 2-3 дні. Разом із цим у найчастіших клієнтів поріг
+ * SLIPPING виходив коротшим за вихідні — тому нижня межа: тиждень без
+ * документа лежить у нормальному циклі закупівлі (раз на 2-4 тижні, див.
+ * вище) і не тривожний ні для кого.
+ */
+export const MIN_SLIPPING_DAYS = 7;
+
+/**
  * Мінімум документів, щоб вважати клієнта втраченим.
  *
  * Один документ за всю історію — це разова покупка, а не втрачений клієнт.
@@ -56,7 +68,7 @@ export type PortfolioClient = {
   /** Документи й оборот за обраний період */
   docs: number;
   amount: number;
-  /** Середній інтервал між документами за всю історію, днів */
+  /** Середній інтервал між днями з покупками за всю історію, днів */
   avgIntervalDays: number;
   skuCount: number;
   brandCount: number;
@@ -92,6 +104,8 @@ type PortfolioRow = {
   firstDocAt: Date;
   lastDocAt: Date;
   historyDocs: number;
+  /** Різних днів із покупками за історію — ритм рахується по них, не по документах */
+  historyDays: number;
   docs: number;
   amount: number;
   skuCount: number;
@@ -142,7 +156,9 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
         d."counterpartyId",
         MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
         MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
-        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
+        COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+          FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1
     ),
@@ -163,6 +179,7 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
       h."firstDocAt"     AS "firstDocAt",
       h."lastDocAt"      AS "lastDocAt",
       h."historyDocs"    AS "historyDocs",
+      h."historyDays"    AS "historyDays",
       COALESCE(pd.docs, 0)::int      AS docs,
       COALESCE(pd.amount, 0)::float  AS amount,
       COALESCE(a."skuCount", 0)::int   AS "skuCount",
@@ -203,18 +220,23 @@ function classify(row: PortfolioRow, period: Period): ClientState {
   if (daysSinceLast >= LOST_DAYS && row.historyDocs >= MIN_DOCS_FOR_LOST) return "LOST";
   if (daysSinceLast >= DORMANT_DAYS) return "DORMANT";
 
-  // Власний ритм клієнта: скільки днів історії припадає на один документ.
+  // Коротка пауза — не сигнал, навіть якщо клієнт зазвичай бере частіше.
+  if (daysSinceLast < MIN_SLIPPING_DAYS) return "ACTIVE";
+
+  // Власний ритм клієнта: скільки днів історії припадає на один ДЕНЬ із
+  // покупками. По документах рахувати не можна — кілька накладних за одну
+  // поставку робили б ритм штучно швидким.
   const spanDays = Math.max(1, (row.lastDocAt.getTime() - row.firstDocAt.getTime()) / DAY_MS);
-  const avgInterval = row.historyDocs > 1 ? spanDays / (row.historyDocs - 1) : spanDays;
+  const avgInterval = row.historyDays > 1 ? spanDays / (row.historyDays - 1) : spanDays;
 
   if (daysSinceLast > avgInterval * SLIPPING_FACTOR) return "SLIPPING";
   return "ACTIVE";
 }
 
 function avgIntervalDays(row: PortfolioRow): number {
-  if (row.historyDocs <= 1) return 0;
+  if (row.historyDays <= 1) return 0;
   const spanDays = (row.lastDocAt.getTime() - row.firstDocAt.getTime()) / DAY_MS;
-  return spanDays / (row.historyDocs - 1);
+  return spanDays / (row.historyDays - 1);
 }
 
 /** Портфель клієнтів торгового зі станами й підсумками. */
@@ -325,7 +347,9 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
         d."counterpartyId",
         MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
         MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
-        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
+        COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
+        COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+          FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1
     )
@@ -335,6 +359,7 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
       h."firstDocAt"     AS "firstDocAt",
       h."lastDocAt"      AS "lastDocAt",
       h."historyDocs"    AS "historyDocs",
+      h."historyDays"    AS "historyDays",
       COALESCE(pd.docs, 0)::int     AS docs,
       COALESCE(pd.amount, 0)::float AS amount,
       0::int   AS "skuCount",
@@ -443,7 +468,9 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
       SELECT d."salesRepId", d."counterpartyId",
              MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
              MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
-             COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs"
+             COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
+             COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+               FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1, 2
     )
@@ -454,6 +481,7 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
       h."firstDocAt"     AS "firstDocAt",
       h."lastDocAt"      AS "lastDocAt",
       h."historyDocs"    AS "historyDocs",
+      h."historyDays"    AS "historyDays",
       COALESCE(pd.docs, 0)::int     AS docs,
       COALESCE(pd.amount, 0)::float AS amount,
       0::int   AS "skuCount",

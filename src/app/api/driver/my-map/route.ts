@@ -15,7 +15,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
-import { DORMANT_DAYS, LOST_DAYS, SLIPPING_FACTOR, type ClientState } from "@/lib/analytics/clients";
+import {
+  DORMANT_DAYS,
+  LOST_DAYS,
+  MIN_SLIPPING_DAYS,
+  SLIPPING_FACTOR,
+  type ClientState,
+} from "@/lib/analytics/clients";
 import { kyivDate } from "@/lib/date/kyiv";
 import { resolveDriverDay } from "@/lib/track/day-stops";
 
@@ -37,6 +43,7 @@ type Row = {
   firstDocAt: Date | null;
   lastDocAt: Date | null;
   historyDocs: number;
+  historyDays: number;
   visits: number;
   lastVisitAt: Date | null;
   mine: boolean;
@@ -50,8 +57,11 @@ function classify(row: Row): ClientState {
   if (now - row.firstDocAt.getTime() < 30 * DAY_MS) return "NEW";
   if (daysSinceLast >= LOST_DAYS && row.historyDocs >= MIN_DOCS_FOR_LOST) return "LOST";
   if (daysSinceLast >= DORMANT_DAYS) return "DORMANT";
+  if (daysSinceLast < MIN_SLIPPING_DAYS) return "ACTIVE";
+  // Ритм — за днями з покупками, не за документами (кілька накладних
+  // за одну поставку — не «бере щодня»).
   const spanDays = Math.max(1, (row.lastDocAt.getTime() - row.firstDocAt.getTime()) / DAY_MS);
-  const avgInterval = row.historyDocs > 1 ? spanDays / (row.historyDocs - 1) : spanDays;
+  const avgInterval = row.historyDays > 1 ? spanDays / (row.historyDays - 1) : spanDays;
   if (daysSinceLast > avgInterval * SLIPPING_FACTOR) return "SLIPPING";
   return "ACTIVE";
 }
@@ -140,7 +150,9 @@ export async function GET(req: NextRequest) {
         SELECT s."counterpartyId",
                MIN(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "firstDocAt",
                MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastDocAt",
-               COUNT(*) FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDocs"
+               COUNT(*) FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDocs",
+               COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+                 FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDays"
         FROM "SalesDocument" s
         WHERE ${SOURCE_FILTER}
           AND s."counterpartyId" IN (SELECT id FROM mine)
@@ -158,6 +170,7 @@ export async function GET(req: NextRequest) {
       SELECT m.*,
              h."firstDocAt", h."lastDocAt",
              COALESCE(h."historyDocs", 0)::int AS "historyDocs",
+             COALESCE(h."historyDays", 0)::int AS "historyDays",
              COALESCE(vi.visits, 0)::int AS visits,
              vi."lastVisitAt"
       FROM mine m

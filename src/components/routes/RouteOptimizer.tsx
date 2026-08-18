@@ -49,31 +49,47 @@ export default function RouteOptimizer({
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState<"cheapest" | "balanced" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "farthest" — спершу довгий перегін у найдальшу точку, хвіст дня біля
+  // складу: недовезене сьогодні водій легко закриває завтра, бо це поруч.
+  const [direction, setDirection] = useState<"nearest" | "farthest">("nearest");
 
   const day = date?.slice(0, 10);
 
-  const build = useCallback(async () => {
-    if (!driverId) {
-      setError("Спершу призначте водія — маршрут будується для конкретної людини");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/routes/optimize-day", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driverId, day }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
-      setPlan(json as Plan);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
-    } finally {
-      setLoading(false);
-    }
-  }, [driverId, day]);
+  const build = useCallback(
+    async (dir: "nearest" | "farthest") => {
+      if (!driverId) {
+        setError("Спершу призначте водія — маршрут будується для конкретної людини");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/routes/optimize-day", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driverId, day, direction: dir }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+        setPlan(json as Plan);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [driverId, day]
+  );
+
+  // Перемикання напрямку з уже показаним планом одразу перераховує:
+  // тримати на екрані план одного напрямку під підписом іншого не можна.
+  const switchDirection = useCallback(
+    (dir: "nearest" | "farthest") => {
+      setDirection(dir);
+      if (plan) build(dir);
+    },
+    [plan, build]
+  );
 
   const apply = useCallback(
     async (which: "cheapest" | "balanced") => {
@@ -114,7 +130,7 @@ export default function RouteOptimizer({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={build}
+            onClick={() => build(direction)}
             disabled={loading}
             className="cursor-pointer transition-colors duration-200"
             style={{
@@ -130,9 +146,11 @@ export default function RouteOptimizer({
           >
             {loading ? "Рахую маршрут…" : "Прокласти маршрут"}
           </button>
+          <DirectionToggle direction={direction} disabled={loading} onChange={switchDirection} />
           <span style={{ fontSize: "12px", color: "#6B7280" }}>
             Порахує найкоротший обʼїзд і варіант, у якому боржники та важливі
-            клієнти йдуть раніше
+            клієнти йдуть раніше. «Спершу дальні» — виїзд одразу в найдальшу
+            точку, кінець дня біля складу.
           </span>
         </div>
       ) : (
@@ -144,6 +162,7 @@ export default function RouteOptimizer({
                 <span style={{ fontWeight: 400, color: "#6B7280" }}> · старт: {plan.startName}</span>
               )}
             </span>
+            <DirectionToggle direction={direction} disabled={loading || applying !== null} onChange={switchDirection} />
             <button
               type="button"
               onClick={() => setPlan(null)}
@@ -217,6 +236,58 @@ export default function RouteOptimizer({
       {error && (
         <p style={{ fontSize: "12px", color: "#B91C1C", marginTop: "8px" }}>{error}</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Напрямок обʼїзду. Це не третій варіант маршруту, а дзеркало тих самих
+ * двох: тому перемикач живе окремо від карток і перераховує план одразу.
+ */
+function DirectionToggle({
+  direction,
+  disabled,
+  onChange,
+}: {
+  direction: "nearest" | "farthest";
+  disabled: boolean;
+  onChange: (dir: "nearest" | "farthest") => void;
+}) {
+  const options = [
+    { key: "nearest" as const, label: "Спершу ближні" },
+    { key: "farthest" as const, label: "Спершу дальні" },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Напрямок обʼїзду"
+      style={{ display: "inline-flex", borderRadius: "8px", border: "1px solid #E5E7EB", overflow: "hidden" }}
+    >
+      {options.map((o) => {
+        const active = direction === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => !active && onChange(o.key)}
+            className="cursor-pointer transition-colors duration-200"
+            style={{
+              minHeight: "40px",
+              padding: "0 12px",
+              fontSize: "12px",
+              fontWeight: 600,
+              border: "none",
+              background: active ? "#0A0A0A" : "#fff",
+              color: active ? "#fff" : "#6B7280",
+              opacity: disabled ? 0.6 : 1,
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

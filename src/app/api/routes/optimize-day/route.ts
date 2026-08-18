@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
     start?: [number, number];
     fuel?: Partial<FuelParams>;
     maxDetourPercent?: number;
+    /** "farthest" — спершу найдальша точка, хвіст дня біля складу */
+    direction?: string;
   };
   try {
     body = await req.json();
@@ -212,8 +214,10 @@ export async function POST(req: NextRequest) {
       ? Math.max(0, Math.min(60, body.maxDetourPercent)) / 100
       : undefined;
 
+  const direction = body.direction === "farthest" ? "farthest" : "nearest";
+
   try {
-    const result = await optimizeRoute(start, optimizeStops, fuel, maxDetour);
+    const result = await optimizeRoute(start, optimizeStops, fuel, maxDetour, direction);
 
     // Порядок повертаємо як список точок із причиною, а не голі id:
     // інтерфейс має пояснити водію, ЧОМУ боржник опинився другим.

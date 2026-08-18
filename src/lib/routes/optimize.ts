@@ -28,6 +28,15 @@ export type OptimizeStop = {
   score: number;
 };
 
+/**
+ * Напрямок обʼїзду. "nearest" — як їде OSRM Trip: від складу через ближні
+ * точки, кінець маршруту в найдальшій. "farthest" — той самий ланцюжок
+ * задом наперед: спершу довгий перегін у найдальшу точку, далі назад у бік
+ * дому. Так хвіст дня опиняється біля складу, і якщо водій не встиг —
+ * недовезене поруч і легко закривається завтра.
+ */
+export type Direction = "nearest" | "farthest";
+
 export type RouteVariant = {
   /** Порядок id зупинок */
   order: string[];
@@ -157,7 +166,8 @@ export async function optimizeRoute(
   start: [number, number],
   stops: OptimizeStop[],
   fuel: FuelParams,
-  maxDetour: number = DEFAULT_MAX_DETOUR
+  maxDetour: number = DEFAULT_MAX_DETOUR,
+  direction: Direction = "nearest"
 ): Promise<OptimizeResult> {
   if (stops.length === 0) {
     throw new Error("Немає точок для оптимізації");
@@ -193,20 +203,34 @@ export async function optimizeRoute(
     if (originalIdx === 0) return;
     ordered[newPos - 1] = stops[originalIdx - 1];
   });
-  const cheapestOrder = ordered.filter(Boolean);
+  let cheapestOrder = ordered.filter(Boolean);
+  let cheapestKm = trip.totalDistanceKm;
+  let cheapestMin = trip.totalDurationMin;
+  let cheapestGeometry: GeoJSON.LineString | null = trip.geometry;
 
-  // Trip API рахує маршрут між точками у своєму порядку, але геометрію
-  // без фінального стрибка назад — беремо її як є.
+  // «Спершу дальні» — це не нова оптимізація, а той самий найкоротший
+  // ланцюжок у зворотному напрямку. Кілометраж при цьому інший (перший
+  // перегін — одразу в найдальшу точку), тому цифри перераховує OSRM по
+  // реальному порядку, а не беруться з прямого варіанта.
+  if (direction === "farthest" && cheapestOrder.length > 1) {
+    const reversed = [...cheapestOrder].reverse();
+    const route = await getRoute([start, ...reversed.map((s) => [s.lng, s.lat] as [number, number])]);
+    cheapestOrder = reversed;
+    cheapestKm = route.totalDistanceKm;
+    cheapestMin = route.totalDurationMin;
+    cheapestGeometry = route.geometry;
+  }
+
   const cheapest: RouteVariant = {
     order: cheapestOrder.map((s) => s.id),
-    distanceKm: trip.totalDistanceKm,
-    durationMin: trip.totalDurationMin,
-    fuelCost: fuelCostFor(trip.totalDistanceKm, fuel),
-    geometry: trip.geometry,
+    distanceKm: cheapestKm,
+    durationMin: cheapestMin,
+    fuelCost: fuelCostFor(cheapestKm, fuel),
+    geometry: cheapestGeometry,
     priorityScore: orderQuality(cheapestOrder),
   };
 
-  const balancedRaw = await balanceOrder(start, stops, cheapestOrder, trip.totalDistanceKm, maxDetour);
+  const balancedRaw = await balanceOrder(start, stops, cheapestOrder, cheapestKm, maxDetour);
 
   if (!balancedRaw) {
     return { cheapest, balanced: null, detourPercent: 0 };
@@ -222,7 +246,7 @@ export async function optimizeRoute(
   };
 
   const detourPercent =
-    trip.totalDistanceKm > 0
+    cheapest.distanceKm > 0
       ? Math.round(((balanced.distanceKm - cheapest.distanceKm) / cheapest.distanceKm) * 1000) / 10
       : 0;
 

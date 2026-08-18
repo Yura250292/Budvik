@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { Period } from "@/components/ui/PeriodPicker";
+import { kyivToday, shiftDay, type Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money, num } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
@@ -162,8 +162,14 @@ function ActualKmEditor({
 }
 
 export function SheetsTab({ period }: { period: Period }) {
+  // 1С виписує маршрутний лист на завтрашній день доставки, а PeriodPicker
+  // не дає вибрати майбутню дату — без розширення завтрашній лист було б
+  // неможливо побачити взагалі. Тому «живий» період (що впирається в
+  // сьогодні) тягнемо на тиждень уперед; історичні вибірки не чіпаємо.
+  const today = kyivToday();
+  const fetchTo = period.to >= today ? shiftDay(today, 7) : period.to;
   const { data, loading, error, reload } = useApi<SheetsResponse>(
-    `/api/admin/drivers/route-sheets?from=${period.from}&to=${period.to}`
+    `/api/admin/drivers/route-sheets?from=${period.from}&to=${fetchTo}`
   );
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -271,7 +277,7 @@ export function SheetsTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Маршрутні листи"
-            hint="Головне джерело — маршрути сайту; «1С» — запасні листи з обміну. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» — плановий, поки адмін не ввів фактичний у деталі."
+            hint="Головне джерело — маршрути сайту; «1С» — запасні листи з обміну. Листи на найближчі дні показуються наперед — з них можна одразу зробити маршрут. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» — плановий, поки адмін не ввів фактичний у деталі."
           />
         </div>
 
@@ -303,6 +309,11 @@ export function SheetsTab({ period }: { period: Period }) {
                       {r.source === "SHEET_1C" && (
                         <span className="ml-2 inline-block align-middle">
                           <Badge status="neutral">1С</Badge>
+                        </span>
+                      )}
+                      {r.day > today && (
+                        <span className="ml-2 inline-block align-middle">
+                          <Badge status="info">{r.day === shiftDay(today, 1) ? "на завтра" : "наперед"}</Badge>
                         </span>
                       )}
                       {!r.posted && (

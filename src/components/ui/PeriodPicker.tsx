@@ -21,7 +21,7 @@ export function kyivToday(): string {
   }).format(new Date());
 }
 
-function shift(day: string, deltaDays: number): string {
+export function shiftDay(day: string, deltaDays: number): string {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + deltaDays);
   return d.toISOString().slice(0, 10);
@@ -50,15 +50,15 @@ function clampDay(day: string): string {
 
 export const PRESETS: Array<{ key: string; label: string; make: () => Period }> = [
   { key: "today", label: "Сьогодні", make: () => ({ from: kyivToday(), to: kyivToday() }) },
-  { key: "week", label: "7 днів", make: () => ({ from: shift(kyivToday(), -6), to: kyivToday() }) },
-  { key: "month", label: "30 днів", make: () => ({ from: shift(kyivToday(), -29), to: kyivToday() }) },
+  { key: "week", label: "7 днів", make: () => ({ from: shiftDay(kyivToday(), -6), to: kyivToday() }) },
+  { key: "month", label: "30 днів", make: () => ({ from: shiftDay(kyivToday(), -29), to: kyivToday() }) },
   {
     key: "curmonth",
     label: "Цей місяць",
     make: () => ({ from: `${kyivToday().slice(0, 7)}-01`, to: kyivToday() }),
   },
-  { key: "quarter", label: "90 днів", make: () => ({ from: clampDay(shift(kyivToday(), -89)), to: kyivToday() }) },
-  { key: "year", label: "Рік", make: () => ({ from: clampDay(shift(kyivToday(), -364)), to: kyivToday() }) },
+  { key: "quarter", label: "90 днів", make: () => ({ from: clampDay(shiftDay(kyivToday(), -89)), to: kyivToday() }) },
+  { key: "year", label: "Рік", make: () => ({ from: clampDay(shiftDay(kyivToday(), -364)), to: kyivToday() }) },
 ];
 
 export function PeriodPicker({

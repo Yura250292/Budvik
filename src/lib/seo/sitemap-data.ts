@@ -64,6 +64,7 @@ async function coreEntries(): Promise<SitemapEntry[]> {
 
   return [
     { url: absoluteUrl("/") },
+    { url: absoluteUrl("/about") },
     { url: absoluteUrl("/catalog") },
     { url: absoluteUrl("/catalog/zmist") },
     ...tree.main.map((b) => ({ url: absoluteUrl(`/brand/${b.slug}`) })),

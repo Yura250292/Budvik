@@ -64,6 +64,7 @@ export default function Footer() {
           <div>
             <h4 className="font-semibold text-white mb-4 text-sm uppercase tracking-wide">Інформація</h4>
             <ul className="space-y-2.5 text-sm">
+              <li><Link href="/about" className="hover:text-[#FFD600] transition">Про нас</Link></li>
               <li><span className="text-[#9E9E9E]">Оплата і доставка</span></li>
               <li><span className="text-[#9E9E9E]">Обмін та повернення</span></li>
               <li><span className="text-[#9E9E9E]">Гарантія</span></li>

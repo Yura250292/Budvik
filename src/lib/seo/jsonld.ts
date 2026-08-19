@@ -75,6 +75,12 @@ export function localBusinessJsonLd() {
       addressCountry: SITE_CONTACTS.country,
     },
     priceRange: "₴",
+    // Зв'язує сайт із профілями в соцмережах і майбутнім Google Business
+    // Profile — Google склеює їх в одну сутність бізнесу.
+    sameAs: [
+      "https://www.instagram.com/budvik.ua/",
+      "https://www.facebook.com/budvik.ua/",
+    ],
   };
 }
 

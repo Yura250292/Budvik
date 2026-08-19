@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCart, getCartCount } from "@/lib/cart";
 import SearchOverlay from "@/components/search/SearchOverlay";
 
@@ -12,6 +12,9 @@ export default function BottomNav() {
   const { data: session } = useSession();
   const [cartCount, setCartCount] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Поп бейджа, коли лічильник виріс (а не просто прогідратувався)
+  const [cartPop, setCartPop] = useState(false);
+  const prevCartRef = useRef<number | null>(null);
 
   useEffect(() => {
     const update = () => setCartCount(getCartCount(getCart()));
@@ -19,6 +22,16 @@ export default function BottomNav() {
     window.addEventListener("cart-updated", update);
     return () => window.removeEventListener("cart-updated", update);
   }, []);
+
+  useEffect(() => {
+    if (prevCartRef.current !== null && cartCount > prevCartRef.current) {
+      setCartPop(true);
+      const t = window.setTimeout(() => setCartPop(false), 400);
+      prevCartRef.current = cartCount;
+      return () => window.clearTimeout(t);
+    }
+    prevCartRef.current = cartCount;
+  }, [cartCount]);
 
   const role = (session?.user as any)?.role;
 
@@ -37,7 +50,7 @@ export default function BottomNav() {
   const inactiveClass = "text-white/50";
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] border-t border-white/10 z-50 safe-area-bottom" style={{ boxShadow: '0 -2px 8px rgba(0,0,0,0.3)' }}>
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] border-t border-white/10 z-50 safe-area-bottom shadow-[0_-2px_8px_rgba(0,0,0,0.3)]">
       <div className="flex items-center justify-around h-16 px-2">
         {/* Home */}
         <Link href="/" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 active:scale-90 transition-transform duration-100 ${isActive("/") && !isActive("/catalog") && !isActive("/cart") && !isActive("/dashboard") && !isActive("/admin") ? activeClass : inactiveClass}`}>
@@ -70,12 +83,12 @@ export default function BottomNav() {
 
         {/* Cart */}
         <Link href="/cart" className={`flex flex-col items-center gap-0.5 min-w-[56px] py-2 relative active:scale-90 transition-transform duration-100 ${isActive("/cart") ? activeClass : inactiveClass}`}>
-          <div className="relative">
+          <div className="relative" data-cart-target>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
             </svg>
             {cartCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-[#FFD600] text-[#0A0A0A] text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+              <span className={`absolute -top-1.5 -right-1.5 bg-[#FFD600] text-[#0A0A0A] text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold${cartPop ? " badge-pop" : ""}`}>
                 {cartCount > 9 ? "9+" : cartCount}
               </span>
             )}

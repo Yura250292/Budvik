@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { addToCart } from "@/lib/cart";
+import { flyToCart } from "@/lib/fly-to-cart";
 import { packLabel, stepPack, roundUpToPack } from "@/lib/pack-qty";
 
 export default function AddToCartButton({ productId, name, price, slug, image, packQty }: {
@@ -13,7 +14,8 @@ export default function AddToCartButton({ productId, name, price, slug, image, p
   const [qty, setQty] = useState(pack);
   const [added, setAdded] = useState(false);
 
-  const handleAdd = () => {
+  const handleAdd = (e: React.MouseEvent) => {
+    flyToCart(e.currentTarget as HTMLElement);
     addToCart({ productId, name, price, slug, image, packQty: pack }, qty);
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);

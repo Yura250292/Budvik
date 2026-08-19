@@ -17,6 +17,17 @@ export default function CartPage() {
   const [useBolts, setUseBolts] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Рядки, що зараз згортаються: спершу анімація, потім видалення зі стану
+  const [removing, setRemoving] = useState<string[]>([]);
+
+  const handleRemove = (productId: string) => {
+    if (removing.includes(productId)) return;
+    setRemoving((prev) => [...prev, productId]);
+    window.setTimeout(() => {
+      updateCartQty(productId, 0);
+      setRemoving((prev) => prev.filter((id) => id !== productId));
+    }, 300);
+  };
 
   useEffect(() => {
     const update = () => setCart(getCart());
@@ -98,7 +109,7 @@ export default function CartPage() {
       <div className="grid md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-4">
           {cart.map((item) => (
-            <div key={item.productId} className="bg-white border border-[#EFEFEF] rounded-xl p-3 sm:p-4">
+            <div key={item.productId} className={`cart-row bg-white border border-[#EFEFEF] rounded-xl p-3 sm:p-4${removing.includes(item.productId) ? " cart-row--removing" : ""}`}>
               <div className="flex items-start gap-3">
                 <div className="relative w-12 h-12 sm:w-16 sm:h-16 bg-[#FAFAFA] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {item.image ? (
@@ -118,7 +129,7 @@ export default function CartPage() {
                     </p>
                   )}
                 </div>
-                <button onClick={() => updateCartQty(item.productId, 0)} className="text-[#9E9E9E] hover:text-[#0A0A0A] flex-shrink-0 p-1">
+                <button onClick={() => handleRemove(item.productId)} className="text-[#9E9E9E] hover:text-[#0A0A0A] flex-shrink-0 p-1">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
@@ -127,7 +138,9 @@ export default function CartPage() {
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#EFEFEF]">
                 <div className="flex items-center border border-[#DADADA] rounded-lg overflow-hidden">
                   <button onClick={() => updateCartQty(item.productId, stepPack(item.quantity, item.packQty || 1, -1))} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">-</button>
-                  <span className="w-12 h-9 flex items-center justify-center text-sm font-medium border-x border-[#DADADA]">{item.quantity}</span>
+                  <span className="w-12 h-9 flex items-center justify-center text-sm font-medium border-x border-[#DADADA]">
+                    <span key={item.quantity} className="qty-tick">{item.quantity}</span>
+                  </span>
                   <button onClick={() => updateCartQty(item.productId, stepPack(item.quantity, item.packQty || 1, 1))} className="w-9 h-9 flex items-center justify-center hover:bg-[#F7F7F7] active:bg-[#EFEFEF] text-[#0A0A0A]">+</button>
                 </div>
                 <span className="font-bold text-[#0A0A0A] text-base">{formatPrice(item.price * item.quantity)}</span>
@@ -159,7 +172,7 @@ export default function CartPage() {
           <button
             onClick={handleCheckout}
             disabled={loading}
-            className="btn-primary w-full py-3 text-sm disabled:opacity-50"
+            className="btn-primary btn-lift w-full py-3 text-sm disabled:opacity-50"
           >
             {loading
               ? "Відправка..."

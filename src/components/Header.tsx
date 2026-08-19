@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCart, getCartCount } from "@/lib/cart";
 import { getWishlistCount } from "@/lib/wishlist";
 import { getCompareCount } from "@/lib/compare";
@@ -17,6 +17,38 @@ export default function Header() {
   const [wishlistCount, setWishlistCount] = useState(0);
   const [compareCount, setCompareCount] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Шапка «скляніє» після початку скролу
+  const [scrolled, setScrolled] = useState(false);
+  // Поп бейджа, коли лічильник кошика виріс (а не просто прогідратувався)
+  const [cartPop, setCartPop] = useState(false);
+  const prevCartRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setScrolled(window.scrollY > 8);
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (prevCartRef.current !== null && cartCount > prevCartRef.current) {
+      setCartPop(true);
+      const t = window.setTimeout(() => setCartPop(false), 400);
+      prevCartRef.current = cartCount;
+      return () => window.clearTimeout(t);
+    }
+    prevCartRef.current = cartCount;
+  }, [cartCount]);
 
   useEffect(() => {
     const updateCart = () => setCartCount(getCartCount(getCart()));
@@ -44,10 +76,16 @@ export default function Header() {
   const navLinkClass = "text-white/80 hover:text-[#FFD600] active:text-[#FFD600] active:scale-95 transition-[color,transform] duration-100 text-sm font-medium text-center py-1 -my-1";
 
   return (
-    <header className="bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] text-white sticky top-0 z-50" style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.2)' }}>
-      {/* Yellow accent line */}
-      <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
-      <div className="max-w-7xl mx-auto px-4">
+    <header className={`text-white sticky top-0 z-50 transition-shadow duration-300 ${scrolled ? "shadow-[0_4px_16px_rgba(0,0,0,0.35)]" : "shadow-[0_1px_6px_rgba(0,0,0,0.2)]"}`}>
+      {/* Два шари тла: щільний градієнт у спокої ↔ скло з блюром при скролі.
+          Кросфейд opacity — градієнт сам по собі не анімується. */}
+      <div aria-hidden className={`absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-[#141414] to-[#1A1A1A] transition-opacity duration-300 ${scrolled ? "opacity-0" : "opacity-100"}`} />
+      <div aria-hidden className={`absolute inset-0 transition-opacity duration-300 ${scrolled ? "opacity-100 bg-[#0A0A0A]/80 backdrop-blur-md" : "opacity-0"}`} />
+      {/* Yellow accent line + прогрес прокрутки поверх неї (нуль JS) */}
+      <div className="relative h-[2px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent">
+        <div aria-hidden className="scroll-progress absolute inset-0 bg-[#FFD600]" />
+      </div>
+      <div className="relative max-w-7xl mx-auto px-4">
         <div className="relative flex items-center justify-between h-14 md:h-16 gap-3">
           {/* Mobile: пошук на місці колишнього порожнього спейсера —
               баланс центрованого лого зберігається, а вхід у пошук
@@ -157,7 +195,7 @@ export default function Header() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-[#FFD600] text-[#0A0A0A] text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold">
+                <span className={`absolute -top-0.5 -right-0.5 bg-[#FFD600] text-[#0A0A0A] text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold${cartPop ? " badge-pop" : ""}`}>
                   {cartCount > 9 ? "9+" : cartCount}
                 </span>
               )}
@@ -204,12 +242,12 @@ export default function Header() {
             )}
 
             {/* Cart - desktop */}
-            <Link href="/cart" className="relative hidden md:flex items-center justify-center bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] active:scale-95 text-[#0A0A0A] rounded-lg px-2.5 py-1.5 transition-[background-color,transform] duration-100">
+            <Link href="/cart" data-cart-target className="relative hidden md:flex items-center justify-center bg-[#FFD600] hover:bg-[#FFC400] active:bg-[#FFB800] active:scale-95 text-[#0A0A0A] rounded-lg px-2.5 py-1.5 transition-[background-color,transform] duration-100">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-white text-[#0A0A0A] text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                <span className={`absolute -top-1.5 -right-1.5 bg-white text-[#0A0A0A] text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold${cartPop ? " badge-pop" : ""}`}>
                   {cartCount}
                 </span>
               )}

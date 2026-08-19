@@ -22,7 +22,9 @@ export const metadata = {
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
+import BrandMarquee from "@/components/BrandMarquee";
 import HeroCta from "@/components/HeroCta";
+import HeroMatrixRain from "@/components/HeroMatrixRain";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
@@ -171,19 +173,26 @@ export default async function HomePage() {
           і sitelinks searchbox. Дані ті самі, що показує футер. */}
       <JsonLd data={localBusinessJsonLd()} />
       <JsonLd data={websiteJsonLd()} />
-      {/* Hero */}
+      {/* Hero: креслярська сітка, дрейфуючий прожектор і каскадна поява —
+          чистий CSS на серверному JSX; канвас з інструментами — окремий
+          клієнтський лист, лише десктоп */}
       <section className="relative text-white py-7 sm:py-12 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
-        {/* Yellow accent line under header */}
-        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
-            <span className="text-[#FFD600]">БУДВІК27</span> — Ваш світ інструментів
+        <div aria-hidden className="hero-blueprint absolute inset-0" />
+        <div aria-hidden className="hero-spotlight absolute inset-0" />
+        <HeroMatrixRain />
+        {/* Yellow accent line under header + пробіжка «заряду» */}
+        <div className="hero-accent-charge absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
+        <div className="relative max-w-7xl mx-auto px-4 text-center">
+          <h1 className="hero-rise text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
+            <span className="logo-text-animated">БУДВІК27</span> — Ваш світ інструментів
           </h1>
-          <p className="text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
+          <p className="hero-rise hero-rise-2 text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
             Електро та ручний інструмент від провідних виробників.
             Широкий асортимент і швидка доставка!
           </p>
-          <HeroCta />
+          <div className="hero-rise hero-rise-3">
+            <HeroCta />
+          </div>
         </div>
       </section>
 
@@ -210,7 +219,7 @@ export default async function HomePage() {
       {seasonalProducts.length > 0 && (
         <section className="py-8 sm:py-10" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-4 sm:mb-7">
+            <div className="reveal flex items-center gap-3 mb-4 sm:mb-7">
               <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: `${activeSeasonColor}20` }}>
                 {seasonalPromos[0]?.icon || seasonIcon}
               </div>
@@ -232,7 +241,7 @@ export default async function HomePage() {
       {sortedBestSellers.length > 0 && (
         <section className="py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-4 sm:mb-7">
+            <div className="reveal flex items-center gap-3 mb-4 sm:mb-7">
               <div className="w-11 h-11 bg-[#0A0A0A] rounded-xl flex items-center justify-center">
                 <svg className="h-5 w-5 text-[#FFD600]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -255,13 +264,13 @@ export default async function HomePage() {
       {/* Featured Products */}
       <section className="py-8 sm:py-10">
         <div className="max-w-7xl mx-auto px-4">
-          <h2 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-4 sm:mb-8 text-center">Популярні товари</h2>
+          <h2 className="reveal text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-4 sm:mb-8 text-center">Популярні товари</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
             {featuredProducts.map((product) => (
               <ProductCard key={product.id} {...product} category={product.category} />
             ))}
           </div>
-          <div className="text-center mt-10">
+          <div className="reveal text-center mt-10">
             <Link
               href="/catalog"
               className="inline-block bg-[#FFD600] hover:bg-[#FFC400] text-[#0A0A0A] px-8 py-3.5 rounded-[10px] font-bold transition duration-200 hover:-translate-y-px"
@@ -272,12 +281,15 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Жива стрічка брендів — розділювач перед сіткою брендів */}
+      <BrandMarquee brands={activeBrands} />
+
       {/* Brands */}
       {activeBrands.length > 0 && (
         <section className="py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
-            <h2 className="text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-1 sm:mb-2 text-center">Бренди</h2>
-            <p className="text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Інструменти від провідних виробників</p>
+            <h2 className="reveal text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-1 sm:mb-2 text-center">Бренди</h2>
+            <p className="reveal text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Інструменти від провідних виробників</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
               {activeBrands.map((brand) => (
                 <BrandCard

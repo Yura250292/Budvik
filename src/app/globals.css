@@ -31,6 +31,14 @@ a, button, [role="button"], input, select, textarea, label {
   --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08), 0 10px 30px rgba(0,0,0,0.12);
   --shadow-sidebar: 0 1px 3px rgba(0,0,0,0.03), 0 6px 20px rgba(0,0,0,0.05);
   --shadow-header: 0 1px 3px rgba(0,0,0,0.04);
+
+  /* Motion: єдині криві й тривалості для всієї вітрини */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 150ms;
+  --duration-base: 300ms;
+  --duration-slow: 600ms;
 }
 
 @theme inline {
@@ -63,6 +71,13 @@ a, button, [role="button"], input, select, textarea, label {
   --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08), 0 10px 30px rgba(0,0,0,0.12);
   --shadow-card-lg: 0 6px 20px rgba(0,0,0,0.05);
   --shadow-card-lg-hover: 0 12px 30px rgba(0,0,0,0.08);
+  /* Hover-тінь з тонкою жовтою окантовкою — фірмовий «підсвіт» картки */
+  --shadow-card-glow: 0 4px 12px rgba(0,0,0,0.08), 0 10px 30px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,214,0,0.35);
+
+  /* Motion easings — Tailwind генерує з них утиліти ease-out-expo тощо */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Border radius */
   --radius-btn: 10px;
@@ -519,7 +534,7 @@ input:focus, select:focus, textarea:focus {
   background: #F7F7F7;
   z-index: 61;
   transform: translateX(-100%);
-  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 0.35s var(--ease-drawer);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-top: env(safe-area-inset-top, 0px);
@@ -642,4 +657,196 @@ input:focus, select:focus, textarea:focus {
 @keyframes cartflash {
   0% { background-color: rgba(21, 128, 61, 0.22); }
   100% { background-color: #fff; }
+}
+
+/* ===== Вітрина: система «wow»-руху ===== */
+
+/*
+ * Герой головної. Всі шари — чистий CSS на серверному JSX: ISR не
+ * страждає, гідратації нуль. Анімується лише transform/opacity.
+ */
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hero-rise { animation: hero-rise 0.7s var(--ease-out-expo) both; }
+.hero-rise-2 { animation-delay: 120ms; }
+.hero-rise-3 { animation-delay: 240ms; }
+
+/* Жовтий прожектор, що повільно дрейфує по темному тлу */
+@keyframes hero-spot-drift {
+  0%, 100% { transform: translate3d(-12%, -8%, 0) scale(1); }
+  33% { transform: translate3d(10%, 6%, 0) scale(1.15); }
+  66% { transform: translate3d(-4%, 10%, 0) scale(0.95); }
+}
+.hero-spotlight {
+  background: radial-gradient(600px circle at 50% 45%, rgba(255, 214, 0, 0.14), transparent 70%);
+  animation: hero-spot-drift 16s ease-in-out infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* Слабка «креслярська» сітка — індустріальна текстура без картинки */
+.hero-blueprint {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+  pointer-events: none;
+}
+
+/* «Заряд», що пробігає жовтою акцентною лінією раз на ~6 секунд */
+.hero-accent-charge { overflow: hidden; }
+.hero-accent-charge::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+  transform: translateX(-110%);
+  animation: hero-charge-sweep 6s ease-in-out infinite;
+}
+@keyframes hero-charge-sweep {
+  0% { transform: translateX(-110%); }
+  /* ширина 40% від батька → 260% власної ширини = правий край */
+  30%, 100% { transform: translateX(260%); }
+}
+
+/*
+ * Scroll-reveal без жодного JS: кожен елемент їде по власному view()-
+ * таймлайну, тож stagger у сітці виходить сам собою. Браузери без
+ * підтримки просто показують статичний контент — база лишається видимою,
+ * тому «застряглого» opacity:0 не буває ніде й ніколи.
+ */
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(18px); }
+}
+@supports (animation-timeline: view()) {
+  .reveal {
+    animation: reveal-up 0.6s var(--ease-out-expo) both;
+    animation-timeline: view();
+    /* Те, що вже у в'юпорті при завантаженні, одразу у фінальному стані */
+    animation-range: entry 0% entry 35%;
+  }
+}
+
+/* Серце-«вибух» при додаванні в обране: поп + розбіжне кільце */
+@keyframes heart-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+@keyframes heart-ring {
+  from { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  to { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
+.heart-burst {
+  animation: heart-pop 0.4s var(--ease-spring), heart-ring 0.5s ease-out;
+}
+
+/* Поп бейджа кошика, коли лічильник виріс */
+@keyframes badge-pop-kf {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+.badge-pop { animation: badge-pop-kf 0.35s var(--ease-spring); }
+
+/* Кнопка «У кошик» після успіху — короткий поп галочки */
+.btn-added-pop { animation: badge-pop-kf 0.3s var(--ease-spring); }
+
+/*
+ * Шимер skeleton: рухомий відблиск із жовтуватим відтінком замість
+ * animate-pulse. Розміри елементів не чіпає — геометрія loading.tsx
+ * і далі збігається з реальною сіткою (CLS).
+ */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65) 45%, rgba(255,214,0,0.08) 55%, transparent);
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  100% { transform: translateX(100%); }
+}
+
+/* Рядок кошика: плавне згортання перед видаленням зі стану */
+.cart-row {
+  overflow: hidden;
+  max-height: 500px;
+  transition: opacity 0.3s var(--ease-out-expo), transform 0.3s var(--ease-out-expo), max-height 0.35s var(--ease-out-expo);
+}
+.cart-row--removing {
+  opacity: 0;
+  transform: translateX(16px);
+  max-height: 0;
+}
+
+/* «Тік» числа кількості при зміні (елемент перемонтовується через key) */
+@keyframes qty-tick-kf {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+.qty-tick { animation: qty-tick-kf 180ms var(--ease-out-expo); }
+
+/*
+ * Підйом кнопки з жовтим сяйвом. Окремий клас, а не утиліти: btn-primary
+ * задає transition поза @layer, тож layered-утиліти Tailwind його не
+ * перебили б — цей клас нижче в каскаді і перебиває.
+ */
+.btn-lift {
+  transition: background 0.2s ease, transform 0.3s var(--ease-out-expo), box-shadow 0.3s var(--ease-out-expo);
+}
+.btn-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(255, 214, 0, 0.35);
+}
+.btn-lift:active {
+  transform: translateY(0);
+}
+
+/* Кросфейд сітки каталогу при перемиканні grid/list/gallery */
+@keyframes view-switch-kf {
+  from { opacity: 0; transform: scale(0.98); }
+}
+.view-switch-in { animation: view-switch-kf 250ms var(--ease-out-expo) both; }
+
+/*
+ * Жовтий прогрес читання в шапці — керується scroll(root), нуль JS.
+ * Без підтримки таймлайнів бар просто не малюється: лишається звичайна
+ * акцентна лінія, як і було.
+ */
+.scroll-progress { display: none; }
+@supports (animation-timeline: scroll()) {
+  .scroll-progress {
+    display: block;
+    transform-origin: left;
+    transform: scaleX(0);
+    animation: scroll-progress-kf linear both;
+    animation-timeline: scroll(root);
+  }
+}
+@keyframes scroll-progress-kf {
+  to { transform: scaleX(1); }
+}
+
+/*
+ * Глобальний вимикач руху. Один шар накриває все: лого-пульс, маркізу,
+ * герой, reveal, шимер — і все, що додасться потім. Тривалість 0.01ms
+ * замість none: анімації з fill-mode одразу стрибають у фінальний стан,
+ * тож контент ніколи не лишається прихованим.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
 }

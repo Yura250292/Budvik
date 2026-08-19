@@ -91,8 +91,10 @@ export default function CatalogGrid({ products }: { products: Product[] }) {
         </button>
       </div>
 
-      {/* Products */}
-      <div className={gridClass}>
+      {/* Products. key={view} перемонтовує сітку при зміні вигляду (так було
+          і раніше — картки все одно міняють розмітку), а view-switch-in дає
+          цьому перемонтуванню короткий кросфейд замість стрибка. */}
+      <div key={view} className={`view-switch-in ${gridClass}`}>
         {products.map((product) => (
           <ProductCard
             key={product.id}

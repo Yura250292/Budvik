@@ -8,7 +8,6 @@ import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import PageTransition from "@/components/PageTransition";
 import AppMain from "@/components/AppMain";
-import TestBanner from "@/components/TestBanner";
 import { SITE_URL } from "@/lib/seo/site";
 
 export const metadata: Metadata = {
@@ -78,7 +77,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen flex flex-col antialiased bg-[#F7F7F7]">
         <Providers>
           <Header />
-          <TestBanner />
+          {/* TestBanner знято 19.08 на прохання власника — компонент лишається в repo. */}
           <PageTransition>
             <AppMain>{children}</AppMain>
           </PageTransition>

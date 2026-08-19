@@ -22,9 +22,7 @@ export const metadata = {
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
-import BrandMarquee from "@/components/BrandMarquee";
 import HeroCta from "@/components/HeroCta";
-import HeroMatrixRain from "@/components/HeroMatrixRain";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
@@ -174,19 +172,18 @@ export default async function HomePage() {
       <JsonLd data={localBusinessJsonLd()} />
       <JsonLd data={websiteJsonLd()} />
       {/* Hero: креслярська сітка, дрейфуючий прожектор і каскадна поява —
-          чистий CSS на серверному JSX; канвас з інструментами — окремий
-          клієнтський лист, лише десктоп */}
-      <section className="relative text-white py-7 sm:py-12 md:py-20 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
+          чистий CSS на серверному JSX. Свідомо компактний: власник просив,
+          щоб товари було видно одразу, без прокрутки повз банер. */}
+      <section className="relative text-white py-5 sm:py-6 md:py-8 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
         <div aria-hidden className="hero-blueprint absolute inset-0" />
         <div aria-hidden className="hero-spotlight absolute inset-0" />
-        <HeroMatrixRain />
         {/* Yellow accent line under header + пробіжка «заряду» */}
         <div className="hero-accent-charge absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
         <div className="relative max-w-7xl mx-auto px-4 text-center">
-          <h1 className="hero-rise text-2xl sm:text-3xl md:text-5xl font-bold mb-3 sm:mb-4 tracking-tight">
+          <h1 className="hero-rise text-xl sm:text-2xl md:text-3xl font-bold mb-2 tracking-tight">
             <span className="logo-text-animated">БУДВІК27</span> — Ваш світ інструментів
           </h1>
-          <p className="hero-rise hero-rise-2 text-sm sm:text-base md:text-lg text-[#9E9E9E] mb-5 sm:mb-7 max-w-xl mx-auto leading-relaxed px-2">
+          <p className="hero-rise hero-rise-2 text-sm md:text-base text-[#9E9E9E] mb-4 max-w-xl mx-auto leading-relaxed px-2">
             Електро та ручний інструмент від провідних виробників.
             Широкий асортимент і швидка доставка!
           </p>
@@ -280,9 +277,6 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* Жива стрічка брендів — розділювач перед сіткою брендів */}
-      <BrandMarquee brands={activeBrands} />
 
       {/* Brands */}
       {activeBrands.length > 0 && (

@@ -12,13 +12,25 @@ export const revalidate = 3600;
 
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
 import CountUp from "@/components/CountUp";
 import MouseFx from "@/components/promo/MouseFx";
 import Magnetic from "@/components/promo/Magnetic";
+import StoryPanels, { type StoryPhoto } from "@/components/promo/StoryPanels";
+import ProductStrip, { type StripProduct } from "@/components/promo/ProductStrip";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
+
+/*
+ * Фото до скрол-секцій підібрані вручну (передивлялись очима: студійні,
+ * білий фон, без водяних знаків). Якщо товар зникне з продажу — секція
+ * просто лишиться без фото, нічого не ламається.
+ */
+const STORY_PHOTO_SLUGS = [
+  "apro-dryl-shurupovert-20hdk-20-v-bez-akb-bez-zp-keys",
+  "apro-mashyna-shlifuval-na-kutova-180-2300-prm-bolharka-4088",
+  "sigma-henerator-benzynovyy-5-0-5-5kvt-4-kh-taktnyy-ruchnyy-pusk-2996",
+];
 
 export const metadata = {
   title: "Про БУДВІК27 — Ваш світ інструментів",
@@ -36,49 +48,6 @@ const MARQUEE_ITEMS = [
   "ВИТРАТНІ МАТЕРІАЛИ",
 ];
 
-const STORY = [
-  {
-    num: "01",
-    title: "Весь інструмент в одному місці",
-    text: "Від шурупа до генератора: електро- та ручний інструмент, кріплення і витратні матеріали. Тисячі позицій у наявності на складі — каталог синхронізується з обліком, тож ціни й залишки завжди справжні.",
-    dark: true,
-    icon: (
-      <svg className="draw-on-scroll h-14 w-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <path pathLength={1} d="M21 8l-9-5-9 5 9 5 9-5z" />
-        <path pathLength={1} d="M3 8v8l9 5v-8" />
-        <path pathLength={1} d="M21 8v8l-9 5" />
-      </svg>
-    ),
-  },
-  {
-    num: "02",
-    title: "Оптовикам — особливі умови",
-    text: "Персональні ціни, окремий кабінет і власний торговий менеджер, який веде ваше замовлення від заявки до відвантаження.",
-    dark: false,
-    icon: (
-      <svg className="draw-on-scroll h-14 w-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <path pathLength={1} d="M19 5L5 19" />
-        <circle pathLength={1} cx="6.5" cy="6.5" r="2.5" />
-        <circle pathLength={1} cx="17.5" cy="17.5" r="2.5" />
-      </svg>
-    ),
-  },
-  {
-    num: "03",
-    title: "Доставка власним транспортом",
-    text: "Розвозимо замовлення по Львову та області своїми машинами — швидко, дбайливо і без посередників.",
-    dark: true,
-    icon: (
-      <svg className="draw-on-scroll h-14 w-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <path pathLength={1} d="M1 7h13v9H1z" />
-        <path pathLength={1} d="M14 10h4l3 3v3h-7" />
-        <circle pathLength={1} cx="5.5" cy="18" r="1.8" />
-        <circle pathLength={1} cx="17.5" cy="18" r="1.8" />
-      </svg>
-    ),
-  },
-];
-
 /* Контурні інструменти, що плавають у героя і зсуваються за курсором */
 function FloatingTool({ className, depth, children }: {
   className: string;
@@ -93,7 +62,7 @@ function FloatingTool({ className, depth, children }: {
 }
 
 export default async function AboutPage() {
-  const [productCount, brandTree, showcase] = await Promise.all([
+  const [productCount, brandTree, stripRows, storyRows] = await Promise.all([
     prisma.product.count({ where: { isActive: true } }),
     getBrandTree(),
     prisma.product.findMany({
@@ -102,15 +71,26 @@ export default async function AboutPage() {
         stock: { gt: 0 },
         price: { gte: 500 },
         AND: [{ image: { not: null } }, { NOT: { image: "" } }],
-        OR: ["шуруповерт", "болгарк", "перфоратор", "бензопил"].map((kw) => ({
+        OR: ["шуруповерт", "болгарк", "перфоратор", "генератор", "пил"].map((kw) => ({
           name: { contains: kw, mode: "insensitive" as const },
         })),
       },
-      include: { category: true, brand: { select: { name: true } } },
-      take: 4,
+      select: { slug: true, name: true, image: true, price: true },
+      take: 10,
       orderBy: { price: "desc" },
     }),
+    prisma.product.findMany({
+      where: { slug: { in: STORY_PHOTO_SLUGS }, isActive: true },
+      select: { slug: true, name: true, image: true },
+    }),
   ]);
+
+  const storyBySlug = new Map(storyRows.map((r) => [r.slug, r]));
+  const storyPhotos: StoryPhoto[] = STORY_PHOTO_SLUGS.map((slug) => {
+    const r = storyBySlug.get(slug);
+    return r?.image ? { slug: r.slug, name: r.name, image: r.image } : null;
+  });
+  const stripProducts: StripProduct[] = stripRows.filter((p) => p.image) as StripProduct[];
 
   const countBySlug = new Map(
     brandTree.main.concat(brandTree.tail).map((b) => [b.slug.toLowerCase(), b.count])
@@ -208,51 +188,19 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      {/* Секції-«стос»: кожна наступна насувається на попередню */}
-      <div>
-        {STORY.map((s) => (
-          <section
-            key={s.num}
-            className={`sticky top-0 flex min-h-screen items-center overflow-hidden ${
-              s.dark ? "bg-[#0A0A0A] text-white" : "bg-[#FFD600] text-[#0A0A0A]"
-            }`}
-          >
-            {s.dark && <div aria-hidden className="hero-blueprint absolute inset-0" />}
-            <div className="relative mx-auto grid w-full max-w-6xl gap-6 px-4 py-20 sm:grid-cols-[auto_1fr] sm:gap-14">
-              <span
-                aria-hidden
-                className={`parallax-up text-[clamp(5rem,18vw,13rem)] font-black leading-none ${
-                  s.dark ? "text-white/10" : "text-[#0A0A0A]/10"
-                }`}
-              >
-                {s.num}
-              </span>
-              <div className="zoom-in self-center">
-                <div className={s.dark ? "text-[#FFD600]" : "text-[#0A0A0A]"}>{s.icon}</div>
-                <h2 className="mt-5 text-3xl font-black tracking-tight sm:text-5xl">{s.title}</h2>
-                <p className={`mt-5 max-w-xl text-base leading-relaxed sm:text-lg ${s.dark ? "text-[#DADADA]" : "text-[#1A1A1A]"}`}>
-                  {s.text}
-                </p>
-              </div>
-            </div>
-          </section>
-        ))}
-      </div>
+      {/* Секції-«стос» з фото товарів: слайди і зум за скролом (motion) */}
+      <StoryPanels photos={storyPhotos} />
 
-      {/* Вітрина з 3D-нахилом карток */}
-      <section className="relative bg-[#F7F7F7] py-16 sm:py-24">
+      {/* Драг-стрічка товарів */}
+      <section className="relative overflow-hidden bg-[#F7F7F7] py-16 sm:py-24">
         <div className="mx-auto max-w-7xl px-4">
           <h2 className="reveal text-center text-3xl font-black tracking-tight text-[#0A0A0A] sm:text-5xl">
             Живий каталог
           </h2>
-          <p className="reveal mt-3 text-center text-[#6B7280]">
-            Наведіть на товар — фото нахиляється за курсором
+          <p className="reveal mb-10 mt-3 text-center text-[#6B7280]">
+            Потягніть стрічку вбік — і клацніть товар, що сподобався
           </p>
-          <div className="mt-10 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4 md:gap-6">
-            {showcase.map((product) => (
-              <ProductCard key={product.id} {...product} category={product.category} />
-            ))}
-          </div>
+          <ProductStrip products={stripProducts} />
         </div>
       </section>
 

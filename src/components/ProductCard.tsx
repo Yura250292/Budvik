@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { formatPrice } from "@/lib/utils";
 import { addToCart } from "@/lib/cart";
 import { flyToCart } from "@/lib/fly-to-cart";
+import { tiltMove, tiltReset } from "@/lib/tilt";
 import { toggleWishlist, isInWishlist } from "@/lib/wishlist";
 import { toggleCompare, isInCompare } from "@/lib/compare";
 import { useSession } from "next-auth/react";
@@ -186,7 +187,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             : "border-[#EFEFEF] bg-[#FAFAFA] opacity-60"
         }`}>
           {/* Large image */}
-          <div className={`h-52 sm:h-72 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`}>
+          <div className={`h-52 sm:h-72 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`} onMouseMove={tiltMove} onMouseLeave={tiltReset}>
             {image ? (
               <Image src={image} alt={name} className="h-full w-full object-contain p-4 transition-transform duration-500 ease-out-expo group-hover:scale-105" width={288} height={288} loading="lazy" sizes="288px" />
             ) : (
@@ -264,7 +265,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
       }`}
       >
         {/* Image */}
-        <div className={`h-36 sm:h-48 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`}>
+        <div className={`h-36 sm:h-48 flex items-center justify-center relative ${stock > 0 ? "bg-[#FAFAFA]" : "bg-[#EFEFEF]"}`} onMouseMove={tiltMove} onMouseLeave={tiltReset}>
           {image ? (
             <Image
               src={image}

@@ -836,6 +836,38 @@ input:focus, select:focus, textarea:focus {
   to { transform: scaleX(1); }
 }
 
+/* ===== Промо-сторінка «Про нас» ===== */
+
+/* Підказка «прокрути вниз» */
+@keyframes scroll-hint-kf {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+.scroll-hint { animation: scroll-hint-kf 1.6s ease-in-out infinite; }
+
+/*
+ * Паралакс декоративних шарів через scroll-driven анімації: елемент їде
+ * повільніше/швидше за прокрутку. Без підтримки — просто статичний шар.
+ */
+@supports (animation-timeline: view()) {
+  .parallax-up {
+    animation: parallax-up-kf linear both;
+    animation-timeline: view();
+  }
+  .parallax-down {
+    animation: parallax-down-kf linear both;
+    animation-timeline: view();
+  }
+}
+@keyframes parallax-up-kf {
+  from { transform: translateY(60px); }
+  to { transform: translateY(-60px); }
+}
+@keyframes parallax-down-kf {
+  from { transform: translateY(-40px); }
+  to { transform: translateY(40px); }
+}
+
 /*
  * Глобальний вимикач руху. Один шар накриває все: лого-пульс, маркізу,
  * герой, reveal, шимер — і все, що додасться потім. Тривалість 0.01ms

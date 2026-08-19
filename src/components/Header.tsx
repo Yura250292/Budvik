@@ -124,6 +124,7 @@ export default function Header() {
           <nav className="hidden md:flex items-center gap-4 lg:gap-5 flex-shrink-0">
             <Link href="/catalog" className={navLinkClass}>Каталог</Link>
             <Link href="/catalog/zmist" className={navLinkClass}>За розділами</Link>
+            <Link href="/about" className={navLinkClass}>Про нас</Link>
             {/* «Симуляція» і «AI Підбір» приховані до готовності — сторінки лишаються на місці. */}
             {session ? (
               <>

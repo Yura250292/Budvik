@@ -66,7 +66,7 @@ export default function Footer() {
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/about" className="hover:text-[#FFD600] transition">Про нас</Link></li>
               <li><span className="text-[#9E9E9E]">Оплата і доставка</span></li>
-              <li><span className="text-[#9E9E9E]">Обмін та повернення</span></li>
+              <li><Link href="/povernennya" className="hover:text-[#FFD600] transition">Обмін та повернення</Link></li>
               <li><span className="text-[#9E9E9E]">Гарантія</span></li>
               <li><span className="text-[#9E9E9E]">Договір оферти</span></li>
               <li><Link href="/register" className="hover:text-[#FFD600] transition">Реєстрація</Link></li>

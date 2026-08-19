@@ -27,6 +27,8 @@ export const metadata: Metadata = {
     siteName: "Budvik27",
     images: ["/logo.png"],
   },
+  // Підтвердження власності в Google Search Console.
+  verification: { google: "EYoWJZRWS7oIhjobw1sd2dbdnAvMuTE1T6nJG3I-8tM" },
   manifest: "/manifest.json",
   icons: {
     icon: [

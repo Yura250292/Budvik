@@ -78,7 +78,13 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "image/png",
-        "Cache-Control": `public, max-age=${CACHE_SECONDS}`,
+        // s-maxage кладе тайл у CDN Vercel: кілька планшетів в одному місті
+        // дивляться ті самі тайли, і без спільного кешу кожен з них щохвилини
+        // викликав функцію (а це окремий рахунок за кожен виклик). Кешована
+        // відповідь віддається і без сесії, але тайл пробок — публічні дані
+        // TomTom, а «прогріти» кеш без авторизації все одно неможливо:
+        // промах кешу впирається в перевірку сесії вище.
+        "Cache-Control": `public, max-age=${CACHE_SECONDS}, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${CACHE_SECONDS * 4}`,
       },
     });
   } catch {

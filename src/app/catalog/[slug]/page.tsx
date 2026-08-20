@@ -1,4 +1,8 @@
-export const revalidate = 60;
+// Година, а не хвилина: свіжість цін і залишків забезпечує обмін з 1С —
+// його завершення скидає всі сторінки товарів (api/sync-ingest/runs/[runId]/
+// complete), а оптова ціна і так рахується на клієнті. Хвилинне вікно
+// змушувало функції ре-рендерити 26 тис. карток під кожним обходом бота.
+export const revalidate = 3600;
 
 import { cache } from "react";
 import type { Metadata } from "next";
@@ -67,7 +71,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
   // Сесії на сторінці навмисно немає: читання cookies вимикало ISR, і кожен
   // відвідувач чекав живий рендер. Оптова ціна тепер рахується на клієнті
-  // (ProductPriceBlock), а сторінка кешується на revalidate = 60.
+  // (ProductPriceBlock), а сторінка живе в кеші до наступного обміну з 1С.
   const product = await getProduct(slug);
 
   if (!product) notFound();

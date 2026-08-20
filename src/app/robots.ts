@@ -38,6 +38,11 @@ export default function robots(): MetadataRoute.Robots {
           "/catalog?*all=",
           "/catalog?*withImage=",
           "/catalog?*search=",
+          // Пагінація видачі — теж нескінченні комбінації з фільтрами, і
+          // кожен такий запит рендериться функцією наживо (searchParams
+          // вимикає ISR). Товари робот знаходить через sitemap, тож обхід
+          // сторінок пагінації — чистий спалений бюджет і наші гроші.
+          "/catalog?*page=",
         ],
       },
     ],

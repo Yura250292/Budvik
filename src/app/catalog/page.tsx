@@ -1,4 +1,7 @@
-export const revalidate = 60;
+// 15 хвилин замість хвилини: після обміну з 1С сторінку і так скидає
+// revalidatePath("/catalog") у sync-ingest, тож часте вікно лише палило
+// рендери під ботами.
+export const revalidate = 900;
 
 import type { Metadata } from "next";
 import Link from "next/link";

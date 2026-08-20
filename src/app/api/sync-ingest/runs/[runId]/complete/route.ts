@@ -132,6 +132,12 @@ export async function POST(
     // нові ціни й залишки з обміну чекали б кінця вікна кешу.
     revalidatePath("/");
     revalidatePath("/catalog");
+    // Сторінки товарів, брендів і типів тримають кеш годину саме тому, що
+    // обмін скидає їх сам: без цих рядків нова ціна на картці чекала б до
+    // години після обміну.
+    revalidatePath("/catalog/[slug]", "page");
+    revalidatePath("/catalog/typ/[type]", "page");
+    revalidatePath("/brand/[slug]", "page");
   }
 
   return NextResponse.json<CompleteRunResponse>({

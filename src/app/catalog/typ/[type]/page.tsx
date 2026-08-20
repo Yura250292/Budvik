@@ -1,4 +1,6 @@
-export const revalidate = 300;
+// Свіжість дає обмін з 1С (скидає ці сторінки в sync-ingest), тож часове
+// вікно — лише страховка, а не джерело оновлень.
+export const revalidate = 3600;
 
 import type { Metadata } from "next";
 import Link from "next/link";

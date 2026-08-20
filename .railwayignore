@@ -1,0 +1,13 @@
+# Воркер обміну не потребує ні збірки сайту, ні його статики.
+# Що менше вивантажуємо — то швидший деплой.
+.next
+.vercel
+node_modules
+output
+design
+public
+assets
+scripts
+agent
+docs
+*.md

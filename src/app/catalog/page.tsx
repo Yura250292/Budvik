@@ -5,6 +5,7 @@ export const revalidate = 900;
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogFilters from "@/components/catalog/CatalogFilters";
@@ -66,10 +67,22 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
  * таблиці Brand через brandId — тієї самої, якою вже користуються закупівлі
  * й аналітика.
  */
+/**
+ * Стеля номера сторінки.
+ *
+ * Без неї `?page=99999` — це окремий живий рендер із запитом у базу, і робот
+ * може згенерувати їх скільки завгодно. 20.08 краулер Meta зробив 27,9 тис.
+ * звернень до /catalog за годину — 78% усього трафіку сайту. Ста сторінок по
+ * 24 товари вистачає будь-якій людині: глибше йдуть фільтром, а не гортанням.
+ */
+const MAX_PAGE = 100;
+
 export default async function CatalogPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
   const filters = parseFilters(params);
-  const page = Math.max(1, parseInt(params.page || "1", 10));
+  const requestedPage = Math.max(1, parseInt(params.page || "1", 10));
+  if (requestedPage > MAX_PAGE) notFound();
+  const page = requestedPage;
 
   // Групи товарів показуємо в розрізі обраного бренда: «свердло» всередині
   // YATO — осмислений фільтр, а «свердло» по всьому каталогу на 49 тис.

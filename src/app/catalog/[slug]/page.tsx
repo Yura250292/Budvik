@@ -28,6 +28,15 @@ import { productJsonLd, breadcrumbJsonLd } from "@/lib/seo/jsonld";
 import { isIndexableProduct } from "@/lib/seo/indexable";
 import { stripHtml, formatUAH } from "@/lib/seo/site";
 
+// Без generateStaticParams Next 16 взагалі не кладе сторінки динамічного
+// сегмента в ISR-кеш: кожен запит — живий рендер (на проді це давало
+// no-store і мільйони викликів функцій під ботами). Порожній список — не
+// помилка: на збірці не рендеримо нічого (26 тис. карток), а кожен slug
+// кешується після першого запиту.
+export async function generateStaticParams(): Promise<{ slug: string }[]> {
+  return [];
+}
+
 // cache() — щоб generateMetadata і сторінка ділили один запит до бази,
 // а не ходили за тим самим товаром двічі на кожен рендер.
 const getProduct = cache((slug: string) =>

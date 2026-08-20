@@ -16,6 +16,26 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { startWebstats, track, flush, isNewSession } from "@/lib/webstats/client";
 
+/**
+ * Внутрішні кабінети, які до відвідуваності магазину не належать.
+ *
+ * Без цього власник, що півдня ходить по адмінці, потрапляв би у власний
+ * звіт як найактивніший «покупець», а «Найпопулярніші сторінки» очолював
+ * би /admin. Рахуємо лише вітрину — тих, хто прийшов купувати.
+ */
+const INTERNAL_PREFIXES = [
+  "/admin",
+  "/dashboard",
+  "/sales",
+  "/driver",
+  "/warehouse",
+  "/manager",
+];
+
+function isInternalPath(path: string): boolean {
+  return INTERNAL_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
 /** Види контактів, кліки по яких рахуємо як звернення. */
 const CONTACT_PATTERNS: Array<{ prefix: string; label: string }> = [
   { prefix: "tel:", label: "tel" },
@@ -51,7 +71,7 @@ export default function WebstatsTracker() {
       const href = link?.getAttribute("href");
       if (!href) return;
       const label = contactLabel(href);
-      if (label) {
+      if (label && !isInternalPath(window.location.pathname)) {
         track("phone_click", { label, path: window.location.pathname });
         // Телефон одразу відкриває дзвонилку й ховає вкладку — шлемо
         // не чекаючи чергового флашу.
@@ -78,6 +98,9 @@ export default function WebstatsTracker() {
           | { action?: string; productId?: string; qty?: number }
           | undefined;
         if (detail?.action !== "add") return;
+        // Торговий, що набирає замовлення клієнту в /sales/new, кладе
+        // товари тим самим addToCart — але це не покупець на вітрині.
+        if (isInternalPath(window.location.pathname)) return;
         track(type, {
           productId: detail.productId ?? null,
           value: detail.qty ?? null,
@@ -99,7 +122,7 @@ export default function WebstatsTracker() {
   // Перегляд сторінки. Реферер пишемо лише на першій сторінці візиту:
   // далі ним був би наш власний сайт.
   useEffect(() => {
-    if (!pathname) return;
+    if (!pathname || isInternalPath(pathname)) return;
     const fresh = isNewSession();
     const referrer = fresh && document.referrer ? document.referrer : null;
     track("page_view", {

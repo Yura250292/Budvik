@@ -30,6 +30,19 @@ const UNWANTED_CRAWLERS = [
   "Barkrowler",
   "ZoominfoBot",
   // Збирачі даних для навчання моделей
+  //
+  // meta-externalagent — головний винуватець рахунку за серпень 2026:
+  // 20.08 о 23:20 фаєрвол показав 29 700 його запитів за ГОДИНУ (8 за
+  // секунду) проти 3 500 у Google. Дев'ять із десяти запитів до сайту були
+  // його. Жодного відвідувача він при цьому не приводить.
+  //
+  // facebookexternalhit навмисно НЕ чіпаємо: це не краулер, а розгортач
+  // прев'ю, коли людина ділиться посиланням у Facebook чи Messenger.
+  "meta-externalagent",
+  "Meta-ExternalAgent",
+  "meta-externalfetcher",
+  "Meta-ExternalFetcher",
+  "FacebookBot",
   "GPTBot",
   "CCBot",
   "Bytespider",

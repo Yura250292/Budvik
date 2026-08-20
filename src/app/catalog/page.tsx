@@ -172,6 +172,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             <Link
               key={opt.value}
               href={`/catalog${filtersToQuery({ ...filters, sort: opt.value })}`}
+              // Сортування — двері в нескінченний простір адрес каталогу, і
+              // саме з чистого /catalog робот у них заходить. Для людини
+              // посилання лишається звичайним.
+              rel="nofollow"
               className={`flex-shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 (filters.sort || "") === opt.value
                   ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
@@ -217,6 +221,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   {page > 1 && (
                     <Link
                       href={`/catalog${filtersToQuery(filters, page - 1)}`}
+                      rel="nofollow"
                       className="rounded-[10px] border border-[#DADADA] bg-white px-4 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA]"
                     >
                       ← Назад
@@ -229,6 +234,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                       <Link
                         key={p}
                         href={`/catalog${filtersToQuery(filters, p as number)}`}
+                        rel="nofollow"
                         className={`rounded-[10px] px-3.5 py-2.5 text-sm font-medium transition ${
                           p === page
                             ? "bg-[#0A0A0A] text-[#FFD600]"
@@ -242,6 +248,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   {page < totalPages && (
                     <Link
                       href={`/catalog${filtersToQuery(filters, page + 1)}`}
+                      rel="nofollow"
                       className="rounded-[10px] border border-[#DADADA] bg-white px-4 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA]"
                     >
                       Далі →

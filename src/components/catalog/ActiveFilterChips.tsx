@@ -79,6 +79,7 @@ export default function ActiveFilterChips({
         <Link
           key={c.label}
           href={c.href}
+          rel="nofollow"
           className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#FFD600] bg-[#FFD600]/15 px-3 py-1.5 text-xs font-medium text-[#0A0A0A] transition hover:bg-[#FFD600]/30"
         >
           {c.label}

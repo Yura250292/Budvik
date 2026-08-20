@@ -24,15 +24,21 @@
 
 ## Розгортання
 
-Окремий сервіс у проєкті **Budvik** з цього ж репозиторію:
+Сервіс `budvik-sync-worker` у проєкті **Budvik**, домен `https://budvik-sync-worker-production.up.railway.app`. Публічний домен потрібен: агент приходить ззовні, з мережі клієнта.
 
-- **Build command:** `npm ci && npm run worker:prepare` — не залишати типовий, інакше Railway запустить `next build` і збиратиме весь сайт на кожен деплой воркера;
-- **Start command:** `npm run worker`;
-- **Healthcheck path:** `/healthz` — навмисно не торкається бази, щоб падіння Postgres не перезапускало справний контейнер по колу;
-- **Watch paths:** `worker/**`, `src/lib/sync-ingest/**`, `src/lib/prisma.ts`, `package.json` — інакше сервіс передеплоюється на кожен коміт сайту;
-- **Networking:** потрібен публічний домен — агент приходить ззовні, з мережі клієнта.
+Деплой — вивантаженням з робочої копії, як у `budvik-sklad-bot`:
 
-Після деплою вписати новий домен у `ingest.url` файлу `config.json` на сервері 1С (RDP).
+```bash
+railway up --service budvik-sync-worker --detach
+```
+
+Автодеплою з GitHub навмисно немає: інакше сервіс перезбирався б на кожен коміт сайту.
+
+Параметри збірки задані в [`railway.json`](../railway.json) в корені, окремо в панелі нічого налаштовувати не треба. Головне там — `buildCommand`, що зводиться до `prisma generate`: якби лишився типовий, Railway побачив би скрипт `build` і збирав би на кожен деплой увесь Next. Що не вивантажується — у [`.railwayignore`](../.railwayignore).
+
+`DATABASE_URL` заведено посиланням `${{Postgres.DATABASE_URL}}` — воно резолвиться у `postgres.railway.internal`, тобто в приватну мережу, заради якої все й затівалось.
+
+Після деплою вписати домен воркера в `ingest.url` файлу `config.json` на сервері 1С (RDP).
 
 ## Локальний запуск
 

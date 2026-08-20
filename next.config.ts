@@ -32,6 +32,32 @@ const nextConfig: NextConfig = {
     // сказати застосунку, скільки важить оновлення.
     "/api/app/version": ["./assets/app/**"],
   },
+  /**
+   * Стара пагінація лендінгів `?page=N` → сегмент шляху `/storinka/N`.
+   *
+   * Пагінацію перенесли в шлях, бо читання `searchParams` робило бренди й
+   * типи динамічними для всіх запитів — вони рендерились наживо на кожен
+   * обхід робота. Без цього редіректу старе посилання мовчки показувало б
+   * першу сторінку, а це гірше за помилку: людина не бачить, що потрапила
+   * не туди.
+   */
+  async redirects() {
+    const pageQuery = [{ type: "query" as const, key: "page", value: "(?<page>\\d{1,3})" }];
+    return [
+      {
+        source: "/brand/:slug",
+        has: pageQuery,
+        destination: "/brand/:slug/storinka/:page",
+        permanent: true,
+      },
+      {
+        source: "/catalog/typ/:type",
+        has: pageQuery,
+        destination: "/catalog/typ/:type/storinka/:page",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

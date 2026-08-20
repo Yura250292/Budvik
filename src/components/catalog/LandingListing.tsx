@@ -6,9 +6,13 @@ import { CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
  * Сітка товарів з пагінацією для SEO-лендінгів бренда і типу.
  *
  * Це навмисно не вся сторінка каталогу: лендінг живе на власному чистому
- * URL, і пагінація тут ходить по `${basePath}?page=N`, а не по клубку
+ * URL, і пагінація тут ходить по `${basePath}/storinka/N`, а не по клубку
  * query-фільтрів. Фільтрувати глибше людина йде у /catalog — посилання на
  * нього дає сторінка-господар.
+ *
+ * Чому сегмент шляху, а не `?page=N`: читання `searchParams` робить маршрут
+ * динамічним для ВСІХ запитів, і лендінги рендерились наживо на кожен обхід
+ * робота попри власний `revalidate`.
  */
 export default function LandingListing({
   products,
@@ -22,7 +26,7 @@ export default function LandingListing({
   basePath: string;
 }) {
   const totalPages = Math.ceil(total / CATALOG_PAGE_SIZE);
-  const pageHref = (p: number) => (p <= 1 ? basePath : `${basePath}?page=${p}`);
+  const pageHref = (p: number) => (p <= 1 ? basePath : `${basePath}/storinka/${p}`);
 
   if (products.length === 0) {
     return (

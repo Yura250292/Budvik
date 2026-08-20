@@ -27,7 +27,7 @@
     "realizationsFrom": "2026-01-01"
   },
   "ingest": {
-    "_comment": "Куди відправляти. agentSecret має збігатися зі SYNC_AGENT_SECRET на Vercel.",
+    "_comment": "Куди відправляти. Дані приймає воркер на Railway (див. worker/README.md); домен сайту тут — робочий шлях відкату. agentSecret має збігатися зі SYNC_AGENT_SECRET і на воркері, і на сайті.",
     "url": "https://www.budvik27.com",
     "agentId": "budvik-1c-prod",
     "agentSecret": "ЗАПОВНИТИ",

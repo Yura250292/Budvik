@@ -227,7 +227,7 @@ try {
 Section "8. ВИХІДНИЙ ЗВ'ЯЗОК"
 Note "Агент надсилає дані на сайт по HTTPS (443). Перевірка:"
 try {
-    $r = Invoke-WebRequest -Uri "https://budvik.up.railway.app/api/sync-ingest/health" `
+    $r = Invoke-WebRequest -Uri "https://www.budvik27.com/api/sync-ingest/health" `
          -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
     Note "  [$($r.StatusCode)] сайт відповідає — вихідний HTTPS працює"
 } catch {

@@ -7,7 +7,9 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate:prod": "vercel env pull .env --environment=production --yes && prisma migrate deploy"
+    "db:migrate:prod": "vercel env pull .env --environment=production --yes && prisma migrate deploy",
+    "worker": "tsx worker/index.ts",
+    "worker:prepare": "prisma generate"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
@@ -37,6 +39,7 @@
     "recharts": "^3.10.1",
     "remark-gfm": "^4.0.1",
     "swr": "^2.5.0",
+    "tsx": "^4.23.12",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

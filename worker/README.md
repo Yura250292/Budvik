@@ -36,6 +36,8 @@ railway up --service budvik-sync-worker --detach
 
 Параметри збірки задані в [`railway.json`](../railway.json) в корені, окремо в панелі нічого налаштовувати не треба. Головне там — `buildCommand`, що зводиться до `prisma generate`: якби лишився типовий, Railway побачив би скрипт `build` і збирав би на кожен деплой увесь Next. Що не вивантажується — у [`.railwayignore`](../.railwayignore).
 
+Версія Node закріплена в [`.nvmrc`](../.nvmrc): без нього Nixpacks бере Node 18, який уже поза підтримкою. На Vercel цей файл не впливає — там версія береться з налаштувань проєкту.
+
 `DATABASE_URL` заведено посиланням `${{Postgres.DATABASE_URL}}` — воно резолвиться у `postgres.railway.internal`, тобто в приватну мережу, заради якої все й затівалось.
 
 Після деплою вписати домен воркера в `ingest.url` файлу `config.json` на сервері 1С (RDP).

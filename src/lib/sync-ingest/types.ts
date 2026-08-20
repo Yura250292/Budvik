@@ -424,4 +424,6 @@ export const SYNC_STATE_KEYS = {
   agentLastSeen: "agent:lastSeen",
   /** ISO-час останньої повної звірки. */
   lastFullRun: "sync:lastFullRun",
+  /** ISO-час останнього скидання кешу вітрини — див. throttle у complete. */
+  lastCacheBust: "sync:lastCacheBust",
 } as const;

@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { CATEGORIES_CACHE_TAG } from "@/lib/categories-cache";
 import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { authenticateAgent } from "@/lib/sync-ingest/auth";
-import { setSyncState } from "@/lib/sync-ingest/context";
+import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 import {
   alertMassPriceChange,
   alertMissingEntities,
@@ -29,6 +29,9 @@ import {
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+/** Як часто обмін має право скидати кеш вітрини. Див. коментар нижче. */
+const CACHE_BUST_INTERVAL_MS = 15 * 60_000;
 
 export async function POST(
   req: Request,
@@ -119,25 +122,36 @@ export async function POST(
     }
   }
 
-  // Обмін міг додати/прибрати категорії й товари, а сайдбар каталогу читає їх
-  // з кешу на годину. Без цього скидання нова категорія з'явилась би на сайті
-  // лише через годину після обміну.
+  // Скидання кешу вітрини — не частіше, ніж раз на CACHE_BUST_INTERVAL_MS.
+  //
+  // Обмін інкрементальний і приходить КОЖНІ 5 ХВИЛИН цілодобово (288 разів
+  // на добу), щоразу з ~285 оновленими записами з 4600. Якщо скидати кеш на
+  // кожному прогоні, жодна сторінка не доживає до другого відвідувача: кеш
+  // вмирає раніше, ніж окупить свій перший — платний — рендер. Саме на цьому
+  // 20.08 згорів рахунок Vercel: 26 тис. карток перерендерювались наново
+  // кожні 5 хвилин під обходом ботів.
+  //
+  // Тому: раз на чверть години. Ціна й залишок на вітрині відстають щонайбільше
+  // на 15 хвилин — для магазину інструментів це непомітно, а на картці товару
+  // ціна й так підтягується блоком на клієнті.
+  //
+  // Сторінки товарів навмисно НЕ скидаємо пачкою: revalidatePath(route, "page")
+  // вбиває всі 26 тис. карток одним рядком. Їм вистачає власного revalidate =
+  // 3600 — година несвіжості на картці дешевша за перерендер усього каталогу.
   if (status !== "failed") {
-    revalidateTag(CATEGORIES_CACHE_TAG, { expire: 3600 });
-    // Дерево брендів, зміст і кешовані сторінки видачі каталогу — все, що
-    // читає товари з кешу. Без цього нові ціни й залишки чекали б кінця
-    // вікна кешу (до години для дерева брендів).
-    revalidateTag(CATALOG_CACHE_TAG, { expire: 3600 });
-    // Головна і каталог кешуються по часу (revalidate). Без явного скидання
-    // нові ціни й залишки з обміну чекали б кінця вікна кешу.
-    revalidatePath("/");
-    revalidatePath("/catalog");
-    // Сторінки товарів, брендів і типів тримають кеш годину саме тому, що
-    // обмін скидає їх сам: без цих рядків нова ціна на картці чекала б до
-    // години після обміну.
-    revalidatePath("/catalog/[slug]", "page");
-    revalidatePath("/catalog/typ/[type]", "page");
-    revalidatePath("/brand/[slug]", "page");
+    const last = await getSyncState(SYNC_STATE_KEYS.lastCacheBust);
+    const lastMs = last ? Date.parse(last) : 0;
+    const due = !Number.isFinite(lastMs) || Date.now() - lastMs >= CACHE_BUST_INTERVAL_MS;
+
+    if (due) {
+      revalidateTag(CATEGORIES_CACHE_TAG, { expire: 3600 });
+      // Дерево брендів, зміст і кешовані сторінки видачі каталогу — все, що
+      // читає товари з кешу.
+      revalidateTag(CATALOG_CACHE_TAG, { expire: 3600 });
+      revalidatePath("/");
+      revalidatePath("/catalog");
+      await setSyncState(SYNC_STATE_KEYS.lastCacheBust, new Date().toISOString());
+    }
   }
 
   return NextResponse.json<CompleteRunResponse>({

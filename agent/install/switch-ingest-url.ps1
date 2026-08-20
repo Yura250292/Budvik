@@ -42,29 +42,79 @@ function Warn($msg) { Write-Host $msg -ForegroundColor Yellow }
 
 # ---------------------------------------------------------------- пошук ----
 
+Say ("Машина: " + $env:COMPUTERNAME)
+
 if (-not $ConfigPath) {
     # Найнадійніше джерело — робоча папка самого завдання планувальника:
-    # саме звідти агент читає конфіг щоп'ять хвилин.
+    # саме звідти агент читає конфіг щоп'ять хвилин. Ім'я завдання шукаємо
+    # за підрядком: воно могло бути зареєстроване інакше або в підпапці.
     try {
-        $task = Get-ScheduledTask -TaskName "BudvikSyncLight" -ErrorAction Stop
-        $dir  = $task.Actions[0].WorkingDirectory
-        if ($dir) {
-            $candidate = Join-Path $dir "config.json"
-            if (Test-Path $candidate) { $ConfigPath = $candidate }
+        $tasks = Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $_.TaskName -match 'udvik' -or
+            (($_.Actions | ForEach-Object { [string]$_.Arguments + [string]$_.WorkingDirectory }) -match 'udvik')
         }
+        foreach ($t in $tasks) {
+            Say ("  завдання: " + $t.TaskPath + $t.TaskName)
+            foreach ($a in $t.Actions) {
+                foreach ($dir in @($a.WorkingDirectory)) {
+                    if ($dir) {
+                        $candidate = Join-Path $dir "config.json"
+                        if ((Test-Path $candidate) -and -not $ConfigPath) { $ConfigPath = $candidate }
+                    }
+                }
+                # Робоча папка могла бути не задана — тоді беремо шлях
+                # зі -File у аргументах.
+                if (-not $ConfigPath -and $a.Arguments -match '-File\s+"?([^"]+\.ps1)"?') {
+                    $candidate = Join-Path (Split-Path -Parent $Matches[1]) "config.json"
+                    if (Test-Path $candidate) { $ConfigPath = $candidate }
+                }
+            }
+        }
+        if (-not $tasks) { Warn "  завдань зі словом Budvik у планувальнику не видно (можливо, потрібні права адміністратора)" }
     } catch {
-        Warn "Завдання BudvikSyncLight не знайдено — шукаю конфіг у типових місцях."
+        Warn ("  планувальник недоступний: " + $_.Exception.Message)
     }
 }
 
 if (-not $ConfigPath) {
-    foreach ($guess in @("C:\budvik-agent\config.json", "C:\budvik-agent\ps\config.json")) {
+    foreach ($guess in @(
+        "C:\budvik-agent\config.json", "C:\budvik-agent\ps\config.json",
+        "C:\budvik\config.json",       "C:\budvik\ps\config.json",
+        "D:\budvik-agent\config.json", "D:\budvik-agent\ps\config.json",
+        "C:\1c-agent\config.json",     "C:\agent\config.json"
+    )) {
         if (Test-Path $guess) { $ConfigPath = $guess; break }
     }
 }
 
+if (-not $ConfigPath) {
+    # Остання спроба — знайти сам агент на диску за його скриптом. Повільно,
+    # тому лише якщо все інше не спрацювало.
+    Say ""
+    Say "Шукаю агент на дисках (це може зайняти хвилину)..."
+    $drives = Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue |
+              Where-Object { $_.Free -ne $null -and $_.Name.Length -eq 1 }
+    foreach ($d in $drives) {
+        $found = Get-ChildItem -Path ($d.Name + ":\") -Filter "extract.ps1" -Recurse -File `
+                 -ErrorAction SilentlyContinue | Select-Object -First 3
+        foreach ($f in $found) {
+            $candidate = Join-Path $f.DirectoryName "config.json"
+            Say ("  знайдено: " + $f.FullName)
+            if ((Test-Path $candidate) -and -not $ConfigPath) { $ConfigPath = $candidate }
+        }
+        if ($ConfigPath) { break }
+    }
+}
+
 if (-not $ConfigPath -or -not (Test-Path $ConfigPath)) {
-    throw "Не знайшов config.json. Запустіть ще раз, вказавши шлях: -ConfigPath C:\шлях\до\config.json"
+    Warn ""
+    Warn "Не знайшов config.json на цій машині."
+    Warn "Ймовірно, ви підключені не до того сервера, де стоїть агент 1С,"
+    Warn "або агент лежить у нетиповому місці."
+    Warn ""
+    Warn "Знайти вручну:  Get-ChildItem C:\ -Filter config.json -Recurse -ErrorAction SilentlyContinue | Select FullName"
+    Warn "Потім:          -ConfigPath <знайдений шлях>"
+    throw "Перемикання скасовано."
 }
 
 Say ("Конфіг: " + $ConfigPath)

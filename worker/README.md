@@ -18,7 +18,7 @@
 |---|---|
 | `DATABASE_URL` | **обов'язково через `postgres.railway.internal`** — заради цього все й затівалось |
 | `SYNC_AGENT_ID`, `SYNC_AGENT_SECRET` | ті самі значення, що в `config.json` агента і на Vercel |
-| `SITE_REVALIDATE_URL` | `https://www.budvik27.com/api/revalidate` |
+| `SITE_REVALIDATE_URL` | `https://www.budvik27.com/api/sync-ingest/revalidate` — шлях саме такий, бо у фаєрволі Vercel від бот-челенджу звільнено лише префікс `/api/sync-ingest` |
 | `TELEGRAM_SKLAD_BOT_TOKEN`, `SYNC_ALERT_CHAT_ID` | сповіщення; без них воркер працює мовчки |
 | `PORT` | Railway підставляє сам |
 

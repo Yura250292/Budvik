@@ -45,6 +45,10 @@ const SILENT_ALERT_COOLDOWN_MS = 6 * 60 * 60_000;
  * Підпис той самий, що й в агента: секрет спільний, окремий заводити не було б
  * за що. Тротл — у `handleCompleteRun` (стан у Postgres), тому сюди приходить
  * не частіше разу на 15 хвилин.
+ *
+ * `SITE_REVALIDATE_URL` мусить вести на `/api/sync-ingest/revalidate`: лише цей
+ * префікс звільнено від бот-челенджу у фаєрволі Vercel, решта шляхів віддає
+ * машині сторінку «Vercel Security Checkpoint» із кодом 429.
  */
 async function bustCacheRemotely(): Promise<void> {
   const url = process.env.SITE_REVALIDATE_URL;

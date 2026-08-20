@@ -14,7 +14,7 @@
 
 Логіка не роздвоєна: обидва шляхи викликають одні й ті самі функції з [handlers.ts](../src/lib/sync-ingest/handlers.ts). Маршрути `/api/sync-ingest/*` на сайті лишаються робочими — **щоб відкотитись, досить повернути старий `ingest.url` у `config.json` агента**.
 
-Одне залишилось на Vercel: `revalidateTag`/`revalidatePath` працюють лише всередині процесу Next, тому воркер просить сайт скинути кеш вітрини через `POST /api/revalidate` (той самий підпис, не частіше разу на 15 хвилин).
+Одне залишилось на Vercel: `revalidateTag`/`revalidatePath` працюють лише всередині процесу Next, тому воркер просить сайт скинути кеш вітрини через `POST /api/sync-ingest/revalidate` (той самий підпис, не частіше разу на 15 хвилин).
 
 Розгортання воркера — [worker/README.md](../worker/README.md).
 
@@ -27,7 +27,7 @@
 | `SYNC_AGENT_ID` | ✅ | ✅ | ідентифікатор агента, напр. `budvik-1c-prod` |
 | `SYNC_AGENT_SECRET` | ✅ | ✅ | спільний секрет для підпису (довгий випадковий рядок) |
 | `SYNC_ALERT_CHAT_ID` | ✅ | ✅ | Telegram-чат для сповіщень (необов'язково) |
-| `SITE_REVALIDATE_URL` | — | ✅ | `https://www.budvik27.com/api/revalidate` |
+| `SITE_REVALIDATE_URL` | — | ✅ | `https://www.budvik27.com/api/sync-ingest/revalidate` |
 
 Секрет генерується так:
 

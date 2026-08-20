@@ -19,7 +19,7 @@ import type {
   SyncEntityType,
   WarehouseRecord,
 } from "./types";
-import { ApplyContext } from "./context";
+import { ApplyContext, getSyncState, setSyncState } from "./context";
 import { applyProducts } from "./apply-products";
 import { applyPrices } from "./apply-prices";
 import { applyCategories } from "./apply-categories";
@@ -30,10 +30,83 @@ import { applyPayments } from "./apply-payments";
 import { applyRouteSheets } from "./apply-route-sheets";
 import { applyRouteSheetStops } from "./apply-route-sheet-stops";
 
+/**
+ * Довідники, які агент шле повним зрізом щоп'ять хвилин, хоч міняються раз
+ * на день. Контрагентів приходить 3 700 за прогін (44 400 на годину) — це
+ * 80% усього обміну, і кожен запис платно звіряється з базою, щоб знайти
+ * одиниці змін. Борги — те саме, лише вчетверо менше.
+ *
+ * Документи, оплати, залишки й маршрути сюди НЕ входять навмисно: це живі
+ * продажі та наявність, їх затримка на годину була б помітна в роботі.
+ *
+ * Пропуск безпечний саме тому, що це повний зріз: наступний прогін принесе
+ * ті самі записи цілком, тож нічого не губиться — на відміну від документів,
+ * де кожен батч може містити новий, який більше не повториться.
+ */
+const SLOW_ENTITIES: Partial<Record<SyncEntityType, number>> = {
+  counterparty: 60 * 60_000,
+  debt: 60 * 60_000,
+};
+
+const SLOW_STATE_PREFIX = "sync:lastEntity:";
+
+/**
+ * Чи обробляти цей довідник у цьому прогоні.
+ *
+ * Рішення приймається РАЗ НА ПРОГІН, а не на батч: контрагенти приходять
+ * вісьмома батчами, і якби кожен вирішував сам, перший відкрив би вікно, а
+ * решта сім побачили б «щойно робили» і пропустились — у базу потрапляла б
+ * восьма частина списку. Тому разом із часом запам'ятовуємо runId: усі
+ * наступні батчі того самого прогону проходять уже за ним.
+ */
+async function slowEntityDue(entityType: SyncEntityType, runId: string): Promise<boolean> {
+  const window = SLOW_ENTITIES[entityType];
+  if (!window) return true;
+
+  const key = `${SLOW_STATE_PREFIX}${entityType}`;
+  const raw = await getSyncState(key);
+
+  let at = 0;
+  let grantedRun: string | null = null;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { at?: string; runId?: string };
+      at = parsed.at ? Date.parse(parsed.at) : 0;
+      grantedRun = parsed.runId ?? null;
+    } catch {
+      // Старий формат (просто ISO-час) — читаємо як час без прив'язки до прогону.
+      at = Date.parse(raw);
+    }
+  }
+
+  // Цей прогін уже отримав дозвіл — далі йдуть його ж батчі.
+  if (grantedRun && grantedRun === runId) return true;
+
+  if (Number.isFinite(at) && at > 0 && Date.now() - at < window) return false;
+
+  await setSyncState(key, JSON.stringify({ at: new Date().toISOString(), runId }));
+  return true;
+}
+
 export async function dispatchBatch(
   batch: BatchRequest,
   ctx: ApplyContext
 ): Promise<void> {
+  // Довідник поза своїм вікном — записи проходять як пропущені: агент бачить
+  // штатну відповідь і не падає, а лічильники прогону лишаються чесними.
+  //
+  // Часті прогони (incremental) — єдині, кого обмежуємо. Нічна повна звірка і
+  // preview мусять бачити дані цілком: перша шукає зниклих контрагентів за
+  // повним зрізом, другий існує рівно для того, щоб показати людині все як є.
+  if (
+    ctx.kind === "incremental" &&
+    SLOW_ENTITIES[batch.entityType] &&
+    !(await slowEntityDue(batch.entityType, ctx.runId))
+  ) {
+    ctx.skipped += batch.records.length;
+    return;
+  }
+
   switch (batch.entityType) {
     case "category":
       await applyCategories(batch.records as CategoryRecord[], ctx);

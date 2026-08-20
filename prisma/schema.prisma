@@ -2666,3 +2666,92 @@ model ShiftOdometerRead {
   @@index([userId, createdAt])
   @@index([shiftId])
 }
+
+/// Подія відвідувача сайту: вебаналітика магазину.
+///
+/// Не плутати з Visit (візит торгового до контрагента) і з TrackPoint
+/// (GPS водія) — це різні світи, спільна лише назва «відвідування».
+///
+/// Пишеться пачками з браузера через /api/site-events. Ідентифікація
+/// анонімна й ЛИШЕ через localStorage: кука тут заборонена, бо читання
+/// cookies у серверному компоненті вимикає ISR каталогу — саме на цьому
+/// раніше згорів рахунок Vercel.
+model SiteEvent {
+  id String @id @default(cuid())
+
+  /// Анонімний id відвідувача з localStorage (bv_vid). Живе, поки живе
+  /// сховище браузера; чистка кешу = новий «відвідувач».
+  visitorId String
+  /// Id сесії (bv_sid). Обривається після 30 хвилин без подій.
+  sessionId String
+  /// Хто це був, якщо залогінений. Без FK: подія — це історія, вона
+  /// мусить пережити видалення користувача.
+  userId String?
+
+  /// page_view | product_view | search | add_to_cart | add_to_wishlist |
+  /// add_to_compare | order_placed | phone_click
+  ///
+  /// «Відкрив оформлення» окремою подією не пишемо — це page_view із
+  /// path = /checkout.
+  type String
+
+  /// Шлях сторінки без query-рядка
+  path String?
+  /// Товар події. Без FK — щоб інжест не ходив у базу перевіряти; у
+  /// звітах приєднується через LEFT JOIN.
+  productId String?
+  /// Пошуковий запит у нижньому регістрі
+  query String?
+  /// Уточнення: для phone_click — вид контакту (tel/mailto/viber/telegram),
+  /// для order_placed — id замовлення
+  label String?
+  /// Число події: к-ть знайдених товарів для search (0 = запит без
+  /// результатів), кількість для add_to_cart, сума для order_placed
+  value Int?
+
+  /// Хост, звідки прийшли. Пишеться лише на першій сторінці сесії:
+  /// далі реферером був би наш власний сайт.
+  referrer String?
+  /// Код торгового з QR-переходу (кука budvik_ref). Читається на інжесті —
+  /// цей роут не кешується, тож ISR не зачіпає.
+  refCode String?
+
+  /// mobile | desktop — з User-Agent на сервері
+  device String?
+  /// Chrome | Safari | Firefox | Edge | Opera | інше
+  browser String?
+  /// Країна й місто з заголовків Vercel. Безкоштовно й без сторонніх
+  /// сервісів; на локальній машині лишаються порожні.
+  country String?
+  city    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([sessionId])
+  @@index([productId, type])
+}
+
+/// Денний зріз вебаналітики за київською добою.
+///
+/// Живе вічно, тоді як сирі SiteEvent чистяться через 180 днів: графік
+/// «скільки людей заходило торік» мусить лишитися, а мільйони рядків
+/// заради нього тримати нема сенсу.
+model SiteDailyStat {
+  id   String   @id @default(cuid())
+  date DateTime @unique @db.Date
+
+  /// Унікальні visitorId за добу
+  visitors     Int @default(0)
+  sessions     Int @default(0)
+  pageViews    Int @default(0)
+  productViews Int @default(0)
+  searches     Int @default(0)
+  addToCarts   Int @default(0)
+  ordersPlaced Int @default(0)
+  phoneClicks  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

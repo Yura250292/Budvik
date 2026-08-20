@@ -37,7 +37,12 @@ export function toggleCompare(item: CompareItem): { added: boolean; full: boolea
   }
   list.push(item);
   localStorage.setItem(KEY, JSON.stringify(list));
-  window.dispatchEvent(new Event("compare-updated"));
+  // detail лише в гілці додавання — так само, як у cart.ts і wishlist.ts.
+  window.dispatchEvent(
+    new CustomEvent("compare-updated", {
+      detail: { action: "add", productId: item.productId },
+    })
+  );
   return { added: true, full: false };
 }
 

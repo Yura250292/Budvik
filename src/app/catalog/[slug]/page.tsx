@@ -23,6 +23,7 @@ import ProductDescription from "@/components/ProductDescription";
 import ProductAside, { ProductTerms } from "@/components/product/ProductAside";
 import { splitDescription } from "@/lib/catalog/description-sections";
 import ProductPriceBlock from "./ProductPriceBlock";
+import ProductViewTracker from "@/components/webstats/ProductViewTracker";
 import JsonLd from "@/components/JsonLd";
 import { productJsonLd, breadcrumbJsonLd } from "@/lib/seo/jsonld";
 import { isIndexableProduct } from "@/lib/seo/indexable";
@@ -127,6 +128,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
       <JsonLd data={productJsonLd(product)} />
       <JsonLd data={breadcrumbJsonLd(crumbs)} />
+      <ProductViewTracker productId={product.id} slug={product.slug} />
       <nav className="breadcrumb-scroll text-sm text-[#9E9E9E] mb-4 sm:mb-6">
         <Link href="/catalog" className="hover:text-[#FFB800]">Каталог</Link>
         <span className="text-[#DADADA]">{" / "}</span>

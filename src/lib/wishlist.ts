@@ -31,7 +31,13 @@ export function toggleWishlist(item: WishlistItem): boolean {
   }
   list.push(item);
   localStorage.setItem(KEY, JSON.stringify(list));
-  window.dispatchEvent(new Event("wishlist-updated"));
+  // detail лише в гілці додавання: аналітику цікавить інтерес до товару,
+  // а не зняття зірочки (див. WebstatsTracker).
+  window.dispatchEvent(
+    new CustomEvent("wishlist-updated", {
+      detail: { action: "add", productId: item.productId },
+    })
+  );
   return true;
 }
 

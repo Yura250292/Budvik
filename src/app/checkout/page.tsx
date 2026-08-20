@@ -8,6 +8,7 @@ import Image from "next/image";
 import { getCart, clearCart, getCartTotal, CartItem } from "@/lib/cart";
 import { formatPrice } from "@/lib/utils";
 import { formatPhoneInput, isValidUaPhone } from "@/lib/phone";
+import { track, flush } from "@/lib/webstats/client";
 
 /**
  * Останні контакти покупця. Гість без акаунта інакше набирав би адресу
@@ -144,6 +145,11 @@ export default function CheckoutPage() {
     }
 
     const order = await res.json();
+    // Кінець воронки: без цієї події перегляди й кошики не було б із чим
+    // порівнювати. Шлемо одразу, не чекаючи чергового флашу — далі йде
+    // перехід на сторінку подяки.
+    track("order_placed", { label: order.id ?? null, value: Math.round(total) });
+    flush();
     clearCart();
     router.push(
       order.guestToken

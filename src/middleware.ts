@@ -31,6 +31,10 @@ export default withAuth(
          // відкрита торговому, але збережені звіти лежать упереміш по всій
          // команді, і скоупити їх нічим.
          pathname.startsWith("/admin/sales-analytics/saved") ||
+         // Відвідуваність сайту — картина по всьому магазину, скоупити
+         // її до одного торгового нічим: у подій відвідувача немає
+         // «свого» торгового.
+         pathname.startsWith("/admin/site-analytics") ||
          pathname.startsWith("/admin/reports") ||
          pathname.startsWith("/admin/erp/reports") ||
          pathname.startsWith("/admin/erp/stats") ||

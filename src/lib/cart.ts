@@ -34,7 +34,15 @@ export function addToCart(item: Omit<CartItem, "quantity">, qty = 1) {
     cart.push({ ...item, quantity: roundUpToPack(qty, pack) });
   }
   localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  window.dispatchEvent(new Event("cart-updated"));
+  // CustomEvent замість Event: подія несе, ЩО саме поклали, і аналітика
+  // читає це з одного місця замість інструментування кожної кнопки
+  // «В кошик». Для наявних слухачів нічого не міняється — вони лише
+  // перераховують лічильник, а CustomEvent є Event.
+  window.dispatchEvent(
+    new CustomEvent("cart-updated", {
+      detail: { action: "add", productId: item.productId, qty },
+    })
+  );
 }
 
 export function updateCartQty(productId: string, quantity: number) {

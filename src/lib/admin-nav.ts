@@ -44,6 +44,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, надходження, борги", iconKey: "chart", roles: AM },
       { href: "/admin/sales-analytics", title: "Аналітика продажів", desc: "Прибуток і знижки, асортимент, клієнти, КПІ торгових", iconKey: "chart", roles: ALL },
+      // Друга половина картини: сусідні розділи рахують те, що вже
+      // продано, а цей — тих, хто ще нічого не купив.
+      { href: "/admin/site-analytics", title: "Відвідуваність сайту", desc: "Перегляди, пошук, кліки покупців", iconKey: "chart", roles: AM },
       // Поруч із торговими: обидва розділи читають з тієї самої панелі,
       // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
       { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },

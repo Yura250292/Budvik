@@ -9,6 +9,7 @@ import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogFilters from "@/components/catalog/CatalogFilters";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
+import SearchTracker from "@/components/webstats/SearchTracker";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
@@ -116,6 +117,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-8">
+      {/* Запит і кількість знахідок для аналітики: сюди сходяться всі три
+          поля пошуку, а нуль результатів — готовий список того, чого в
+          каталозі бракує. */}
+      {filters.search && <SearchTracker query={filters.search} total={total} />}
       <nav className="breadcrumb-scroll mb-4 flex items-center gap-2 text-sm text-[#9E9E9E] sm:mb-6">
         <Link href="/" className="transition duration-200 hover:text-[#FFB800]">Головна</Link>
         <span className="text-[#DADADA]">/</span>

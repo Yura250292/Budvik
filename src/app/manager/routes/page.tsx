@@ -4,8 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
-import RouteOptimizer from "@/components/routes/RouteOptimizer";
-import RouteStopsEditor from "@/components/routes/RouteStopsEditor";
+import RoutePlanPanel from "@/components/routes/RoutePlanPanel";
 import AssignDriverBar from "@/components/routes/AssignDriverBar";
 
 // PLANNED — чернетка логіста, водій її НЕ бачить; ASSIGNED — передано.
@@ -446,11 +445,10 @@ function RouteCard({
             drivers={drivers}
             onChanged={onChanged}
           />
-          {EDITABLE.includes(r.status) && r.stops?.length >= 2 && (
-            <RouteOptimizer routeId={r.id} driverId={r.driverId} date={r.date} onApplied={onChanged} />
-          )}
-          <RouteStopsEditor
+          <RoutePlanPanel
             routeId={r.id}
+            driverId={r.driverId}
+            date={r.date}
             stops={r.stops ?? []}
             editable={EDITABLE.includes(r.status)}
             availableOrders={freeOrders}

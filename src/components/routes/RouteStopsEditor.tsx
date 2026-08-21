@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { formatPrice } from "@/lib/utils";
 import StopPinModal from "@/components/routes/StopPinModal";
+import { appendMissing } from "@/lib/routes/order";
 
 type Stop = {
   id: string;
@@ -61,6 +62,7 @@ export default function RouteStopsEditor({
   editable,
   availableOrders,
   onChanged,
+  previewOrder,
 }: {
   routeId: string;
   stops: Stop[];
@@ -68,6 +70,12 @@ export default function RouteStopsEditor({
   editable: boolean;
   availableOrders: Order[];
   onChanged: () => void;
+  /**
+   * Непідтверджений порядок з «Прокласти маршрут»: id точок так, як їх
+   * пропонує обраний варіант. Список перебудовується одразу, ще до
+   * збереження, і саме його нумерацію повторюють піни на карті.
+   */
+  previewOrder?: string[] | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +87,24 @@ export default function RouteStopsEditor({
   const [exTitle, setExTitle] = useState("");
   const [exAddress, setExAddress] = useState("");
   const [exPay, setExPay] = useState("");
+
+  /**
+   * Порядок рядків на екрані.
+   *
+   * Точки, яких у запропонованому порядку немає (наприклад, без
+   * координат — вони не їдуть в OSRM), стають у хвіст: рівно так їх
+   * перенумерує й збереження. Список і карта мають показувати одне й те
+   * саме ще до натискання «Обрати цей».
+   */
+  const previewing = !!previewOrder?.length;
+  const byId = new Map(stops.map((s) => [s.id, s]));
+  // Той самий appendMissing, що й у збереженні порядку: список показує
+  // рівно те, що ляже в базу після «Обрати цей», а не схожий на нього
+  // порядок.
+  const shown = previewing
+    ? appendMissing(previewOrder!, stops.map((s) => s.id)).map((id) => byId.get(id)!)
+    : stops;
+
 
   const call = async (
     url: string,
@@ -127,8 +153,8 @@ export default function RouteStopsEditor({
 
   /** Обмін порядковими номерами з сусідом — той самий ефект, що перетягування. */
   const move = async (index: number, dir: -1 | 1) => {
-    const a = stops[index];
-    const b = stops[index + dir];
+    const a = shown[index];
+    const b = shown[index + dir];
     if (!a || !b) return;
     await call(
       `/api/erp/delivery-routes/${routeId}`,
@@ -182,6 +208,23 @@ export default function RouteStopsEditor({
 
   return (
     <div>
+      {previewing && (
+        <div
+          style={{
+            margin: "8px 20px",
+            padding: "8px 12px",
+            borderRadius: "8px",
+            background: "#EFF6FF",
+            border: "1px solid #BFDBFE",
+            color: "#1D4ED8",
+            fontSize: "12.5px",
+          }}
+        >
+          Показано <b>запропонований</b> порядок — той самий, що на карті вище.
+          Поки не натиснуто «Обрати цей», у маршруті збережено старий порядок,
+          тому стрілки ↑↓ тимчасово вимкнені.
+        </div>
+      )}
       {error && (
         <div
           style={{
@@ -204,7 +247,7 @@ export default function RouteStopsEditor({
         </p>
       )}
 
-      {stops.map((stop, idx) => {
+      {shown.map((stop, idx) => {
         const isErrand = stop.kind !== "DELIVERY";
         const rowBusy = busy?.endsWith(stop.id);
         const cp = stop.counterparty;
@@ -362,16 +405,16 @@ export default function RouteStopsEditor({
               {editable && (
                 <div className="flex items-center gap-1" style={{ marginTop: "4px" }}>
                   <IconBtn
-                    disabled={idx === 0 || !!busy}
+                    disabled={idx === 0 || !!busy || previewing}
                     onClick={() => move(idx, -1)}
-                    title="Вище"
+                    title={previewing ? "Спершу збережіть запропонований порядок" : "Вище"}
                   >
                     ↑
                   </IconBtn>
                   <IconBtn
-                    disabled={idx === stops.length - 1 || !!busy}
+                    disabled={idx === shown.length - 1 || !!busy || previewing}
                     onClick={() => move(idx, 1)}
-                    title="Нижче"
+                    title={previewing ? "Спершу збережіть запропонований порядок" : "Нижче"}
                   >
                     ↓
                   </IconBtn>

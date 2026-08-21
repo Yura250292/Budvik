@@ -13,15 +13,20 @@
  * розрахунок пального.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import DynamicDeliveryMap from "@/components/map/DynamicMap";
 
 type VariantStop = {
   key: string;
+  /** Рядки маршруту, які представляє точка (кілька накладних на адресу) */
+  mergedKeys: string[];
   name: string;
   reason: string;
   score: number;
+  /** Номер точки в СПИСКУ маршруту — той самий, що на пін і в редакторі */
   sequence: number;
+  /** false — точка без координат: у розрахунок км і на карту не потрапляє */
+  routed: boolean;
   lat: number | null;
   lng: number | null;
 };
@@ -83,11 +88,20 @@ export default function RouteOptimizer({
   driverId,
   date,
   onApplied,
+  onPreviewOrder,
 }: {
   routeId: string;
   driverId: string | null;
   date: string;
   onApplied: () => void;
+  /**
+   * Показати запропонований порядок у списку точок ПЕРЕД збереженням.
+   *
+   * Порядок спершу лягає в список, і вже список задає номери пінів —
+   * інакше карта нумерує лише геокодовані точки, список нумерує всі, і
+   * той самий номер означає в них різних клієнтів.
+   */
+  onPreviewOrder?: (stopIds: string[] | null) => void;
 }) {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,6 +136,10 @@ export default function RouteOptimizer({
         if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
         setPlan(json as Plan);
         setApplied(null);
+        // Одразу показуємо найдешевший: спершу порядок лягає у СПИСОК
+        // точок, і вже звідти — на карту. Дивитися на карту з номерами,
+        // яких немає в списку під нею, — це і був головний баг.
+        setPreview("cheapest");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не вдалося прокласти маршрут");
       } finally {
@@ -140,6 +158,27 @@ export default function RouteOptimizer({
     },
     [plan, build]
   );
+
+  /**
+   * Порядок обраного варіанта — у список точок під картками.
+   *
+   * Емітимо з ефекту, а не з обробника кнопки: план перераховується ще й
+   * при зміні напрямку обʼїзду та після видалення точки, і список має
+   * їхати за планом у всіх трьох випадках.
+   */
+  const previewVariant =
+    preview === "cheapest" ? plan?.cheapest ?? null : preview === "balanced" ? plan?.balanced ?? null : null;
+  useEffect(() => {
+    if (!onPreviewOrder) return;
+    onPreviewOrder(
+      previewVariant
+        ? previewVariant.order.filter((k) => k.startsWith("ds:")).map((k) => k.slice(3))
+        : null
+    );
+  }, [previewVariant, onPreviewOrder]);
+  // Панель згорнули разом із маршрутом — список має повернутись у свій
+  // збережений порядок, а не завмерти в непідтвердженому.
+  useEffect(() => () => onPreviewOrder?.(null), [onPreviewOrder]);
 
   /**
    * Прибрати точку прямо з карти-прев'ю.
@@ -260,7 +299,10 @@ export default function RouteOptimizer({
             <DirectionToggle direction={direction} disabled={loading || applying !== null} onChange={switchDirection} />
             <button
               type="button"
-              onClick={() => setPlan(null)}
+              onClick={() => {
+                setPlan(null);
+                setPreview(null);
+              }}
               className="cursor-pointer transition-colors duration-200"
               style={{
                 background: "none",
@@ -331,32 +373,49 @@ export default function RouteOptimizer({
           </div>
 
           {(() => {
-            const variant =
-              preview === "cheapest" ? plan.cheapest : preview === "balanced" ? plan.balanced : null;
+            const variant = previewVariant;
             if (!variant) return null;
+            // Номери пінів — це `sequence` зі списку, а не позиція в
+            // геокодованому підмножині: точка без координат теж займає
+            // свій номер у списку, і карта мусить це поважати, інакше
+            // «четвертий» на карті і «четвертий» у списку — різні люди.
             const mapStops = [
               ...(plan.start
                 ? [{ lat: plan.start[1], lng: plan.start[0], label: plan.startName ?? "Старт", type: "start" as const }]
                 : []),
               ...variant.stops
-                .filter((s) => s.lat != null && s.lng != null)
+                .filter((s) => s.routed && s.lat != null && s.lng != null)
                 .map((s) => ({
                   lat: s.lat!,
                   lng: s.lng!,
-                  label: s.name,
+                  label: `${s.sequence}. ${s.name}`,
                   sequence: s.sequence,
                   type: "stop" as const,
                   id: s.key,
                 })),
             ];
+            const unrouted = variant.stops.filter((s) => !s.routed);
             return (
-              <div style={{ marginTop: "12px", borderRadius: "10px", overflow: "hidden", border: "1px solid #E5E7EB" }}>
-                <DynamicDeliveryMap
-                  stops={mapStops}
-                  routeGeometry={(variant.geometry as GeoJSON.LineString | null) ?? null}
-                  height="420px"
-                  onRemoveStop={removeStop}
-                />
+              <div style={{ marginTop: "12px" }}>
+                <p style={{ fontSize: "12px", color: "#6B7280", marginBottom: "6px" }}>
+                  Номери на карті — це номери зі списку точок нижче. Порядок ще
+                  не збережено: натисніть «Обрати цей».
+                </p>
+                {unrouted.length > 0 && (
+                  <p style={{ fontSize: "12px", color: "#D97706", marginBottom: "6px" }}>
+                    Без координат, тому в кінці списку і не на карті:{" "}
+                    {unrouted.map((s) => `${s.sequence}. ${s.name}`).join("; ")}. Уточніть
+                    пін — і точка стане в маршрут.
+                  </p>
+                )}
+                <div style={{ borderRadius: "10px", overflow: "hidden", border: "1px solid #E5E7EB" }}>
+                  <DynamicDeliveryMap
+                    stops={mapStops}
+                    routeGeometry={(variant.geometry as GeoJSON.LineString | null) ?? null}
+                    height="420px"
+                    onRemoveStop={removeStop}
+                  />
+                </div>
               </div>
             );
           })()}
@@ -554,11 +613,15 @@ function Card({
       </div>
       <p style={{ fontSize: "11.5px", color: "#6B7280", margin: "3px 0 8px" }}>{note}</p>
 
-      <ol style={{ margin: "0 0 10px", padding: "0 0 0 18px", fontSize: "12px", color: "#374151" }}>
+      {/* Номери проставляємо самі, а не нумерацією <ol>: точка може
+          представляти кілька рядків маршруту, і тоді її номер у списку
+          не дорівнює позиції в цьому переліку. */}
+      <ul style={{ margin: "0 0 10px", padding: 0, listStyle: "none", fontSize: "12px", color: "#374151" }}>
         {variant.stops.slice(0, 5).map((s) => (
           <li key={s.key} style={{ lineHeight: 1.6 }}>
-            {s.name}
-            {s.score >= 0.35 && (
+            <span style={{ color: "#9CA3AF", fontWeight: 700 }}>{s.sequence}.</span> {s.name}
+            {!s.routed && <span style={{ color: "#D97706" }}> — без координат</span>}
+            {s.routed && s.score >= 0.35 && (
               <span style={{ color: "#9CA3AF" }}> — {s.reason}</span>
             )}
           </li>
@@ -566,7 +629,7 @@ function Card({
         {variant.stops.length > 5 && (
           <li style={{ color: "#9CA3AF" }}>ще {variant.stops.length - 5}…</li>
         )}
-      </ol>
+      </ul>
 
       <div className="flex gap-2">
         <button

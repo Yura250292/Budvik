@@ -14,10 +14,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDate } from "@/lib/date/kyiv";
 import { resolveDriverDay } from "@/lib/track/day-stops";
 import { explainScore, scoreClient } from "@/lib/routes/priority";
 import { optimizeRoute, type OptimizeStop, type FuelParams } from "@/lib/routes/optimize";
+import { sequenceByRows } from "@/lib/routes/order";
 import {
   DORMANT_DAYS,
   LOST_DAYS,
@@ -100,9 +101,11 @@ export async function POST(req: NextRequest) {
   // зберегти не можна. Водій, як і раніше, бачить лише передані маршрути.
   const isManager = session.user.role === "ADMIN" || session.user.role === "MANAGER";
   const route = await resolveDriverDay(driverId, day, { includePlanned: isManager });
-  const withCoords = route.stops.filter(
-    (s) => s.lat != null && s.lng != null && s.counterpartyId
-  );
+  // В OSRM їдуть лише точки з координатами. Решта з маршруту не зникає —
+  // вона піде хвостом списку (див. decorate нижче), інакше нумерація
+  // карти і нумерація списку розходяться.
+  const withCoords = route.stops.filter((s) => s.lat != null && s.lng != null);
+  const noCoords = route.stops.filter((s) => s.lat == null || s.lng == null);
 
   if (withCoords.length === 0) {
     return NextResponse.json(
@@ -116,7 +119,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const clientIds = withCoords.map((s) => s.counterpartyId!) as string[];
+  // Бонусна поїздка контрагента не має — вона все одно їде в маршрут,
+  // просто без рейтингу клієнта.
+  const clientIds = withCoords.map((s) => s.counterpartyId).filter(Boolean) as string[];
 
   // Оборот і ритм покупок — з реалізацій за півроку. Один запит на всі
   // точки: по одному на клієнта означало б N+1 на кожну оптимізацію.
@@ -152,8 +157,8 @@ export async function POST(req: NextRequest) {
   const clientById = new Map(clients.map((c) => [c.id, c]));
 
   const scored = withCoords.map((s) => {
-    const c = clientById.get(s.counterpartyId!);
-    const h = histById.get(s.counterpartyId!);
+    const c = s.counterpartyId ? clientById.get(s.counterpartyId) : undefined;
+    const h = s.counterpartyId ? histById.get(s.counterpartyId) : undefined;
     const overdue =
       (c?.debtOverdue30 ?? 0) + (c?.debtOverdue60 ?? 0) + (c?.debtOverdue90 ?? 0) + (c?.debtOverdue90Plus ?? 0);
     const input = {
@@ -222,12 +227,38 @@ export async function POST(req: NextRequest) {
     // Порядок повертаємо як список точок із причиною, а не голі id:
     // інтерфейс має пояснити водію, ЧОМУ боржник опинився другим.
     const byKey = new Map(scored.map((x) => [x.stop.key, x]));
-    const decorate = (order: string[]) =>
-      order.map((key, i) => {
-        const x = byKey.get(key)!;
-        return {
-          key,
-          sequence: i + 1,
+
+    /**
+     * Список точок варіанта — ПОВНИЙ, а не лише те, що поїхало в OSRM.
+     *
+     * Точки без координат в оптимізації участі не беруть, але з маршруту
+     * не зникають: вони йдуть хвостом і теж отримують номери. Інакше на
+     * карті нумерувалися лише геокодовані точки, у списку — усі, і той
+     * самий «четвертий» означав у них різних клієнтів.
+     *
+     * Номер рахуємо по РЯДКАХ маршруту (mergedKeys), а не по пінах: дві
+     * накладні на одну адресу — один пін, але два рядки в списку.
+     */
+    const decorate = (order: string[]) => {
+      const points = [
+        ...order.map((key) => ({ x: byKey.get(key)!, routed: true })),
+        ...noCoords.map((stop) => ({
+          x: {
+            stop,
+            score: 0,
+            reason: "немає координат — уточніть пін на карті клієнтів",
+            state: null as ClientState | null,
+          },
+          routed: false,
+        })),
+      ];
+      return sequenceByRows(
+        points.map(({ x, routed }) => ({
+          key: x.stop.key,
+          /** Рядки маршруту, які ця точка представляє — для збереження порядку */
+          mergedKeys: x.stop.mergedKeys,
+          /** false — точка без координат: у розрахунку км її немає */
+          routed,
           counterpartyId: x.stop.counterpartyId,
           name: x.stop.name,
           address: x.stop.address,
@@ -238,8 +269,20 @@ export async function POST(req: NextRequest) {
           score: Math.round(x.score * 100) / 100,
           reason: x.reason,
           state: x.state,
-        };
-      });
+        }))
+      );
+    };
+
+    /**
+     * Порядок на збереження — по рядках маршруту й ОДНИМ списком з усіма
+     * точками. Раніше сюди йшли лише геокодовані ключі, а решта лишалася
+     * зі старими номерами: після збереження такі точки випадали в середину
+     * списку, ніби маршрут переплутався сам собою.
+     */
+    const withStops = <V,>(variant: V, order: string[]) => {
+      const stops = decorate(order);
+      return { ...variant, stops, order: stops.flatMap((s) => s.mergedKeys) };
+    };
 
     return NextResponse.json({
       day,
@@ -249,10 +292,8 @@ export async function POST(req: NextRequest) {
       // точка виїзду, а не лише її назва.
       start,
       fuel,
-      cheapest: { ...result.cheapest, stops: decorate(result.cheapest.order) },
-      balanced: result.balanced
-        ? { ...result.balanced, stops: decorate(result.balanced.order) }
-        : null,
+      cheapest: withStops(result.cheapest, result.cheapest.order),
+      balanced: result.balanced ? withStops(result.balanced, result.balanced.order) : null,
       detourPercent: result.detourPercent,
       /** Різниця в грошах між варіантами — головна цифра для рішення */
       extraCost: result.balanced ? result.balanced.fuelCost - result.cheapest.fuelCost : 0,

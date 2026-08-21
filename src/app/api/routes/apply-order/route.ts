@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate } from "@/lib/date/kyiv";
+import { appendMissing } from "@/lib/routes/order";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,8 @@ export async function POST(req: NextRequest) {
   // Порядок зберігається лише для маршрутів сайту: точки листа з 1С —
   // дзеркало чужої системи, і переставляти їх у себе означало б
   // розійтися з джерелом.
-  const stopIds = order.filter((k) => k.startsWith("ds:")).map((k) => k.slice(3));
+  // Дублі в порядку — це збита нумерація, тому беремо перше входження.
+  const stopIds = [...new Set(order.filter((k) => k.startsWith("ds:")).map((k) => k.slice(3)))];
   if (stopIds.length === 0) {
     return NextResponse.json(
       { error: "Порядок можна зберегти лише для маршруту, складеного на сайті" },
@@ -84,8 +86,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Це маршрут іншого водія" }, { status: 403 });
   }
 
+  /**
+   * Перенумеровуємо ВЕСЬ маршрут, а не лише передані точки.
+   *
+   * Точки без координат в оптимізацію не потрапляють, і раніше вони
+   * лишалися зі старими номерами: збережений порядок 1…N перетинався з
+   * їхніми 5, 8, 11 — і в списку такі точки випадали кудись у середину,
+   * ніби маршрут переплутався сам собою. Тепер усе, чого немає в
+   * переданому порядку, стає в хвіст, зберігаючи попередню чергу.
+   */
+  const routeStops = await prisma.deliveryStop.findMany({
+    where: { deliveryRouteId: routeId },
+    select: { id: true },
+    orderBy: [{ sequence: "asc" }, { createdAt: "asc" }],
+  });
+  const finalOrder = appendMissing(stopIds, routeStops.map((s) => s.id));
+
   await prisma.$transaction([
-    ...stopIds.map((id, i) =>
+    ...finalOrder.map((id, i) =>
       prisma.deliveryStop.update({ where: { id }, data: { sequence: i + 1 } })
     ),
     prisma.deliveryRoute.update({
@@ -104,5 +122,5 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ ok: true, routeId, stops: stopIds.length, day });
+  return NextResponse.json({ ok: true, routeId, stops: finalOrder.length, day });
 }

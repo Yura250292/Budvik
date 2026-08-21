@@ -42,6 +42,15 @@ export type StopVisit = {
 export type DayStop = {
   /** Стабільний ключ рядка в UI */
   key: string;
+  /**
+   * Ключі всіх рядків, злитих у цю точку (включно з власним).
+   *
+   * На карті точка одна, а рядків у маршруті за тією самою адресою може
+   * бути кілька. Збереження порядку має перенумерувати їх УСІ: інакше
+   * прихований сусід лишається зі старим номером і в списку виглядає як
+   * точка, що «кудись поділася».
+   */
+  mergedKeys: string[];
   counterpartyId: string | null;
   name: string;
   address: string | null;
@@ -108,7 +117,7 @@ function mergeByAddress(stops: DayStop[]): DayStop[] {
     // адресою, куди їде доставка, — це окрема справа, і водій має бачити
     // її окремим рядком, інакше просто забуде.
     if (s.kind !== "DELIVERY") {
-      byKey.set(s.key, { ...s });
+      byKey.set(s.key, { ...s, mergedKeys: [...s.mergedKeys] });
       continue;
     }
 
@@ -119,12 +128,13 @@ function mergeByAddress(stops: DayStop[]): DayStop[] {
 
     const existing = byKey.get(dedupKey);
     if (!existing) {
-      byKey.set(dedupKey, { ...s });
+      byKey.set(dedupKey, { ...s, mergedKeys: [...s.mergedKeys] });
       continue;
     }
     existing.amount += s.amount;
     existing.debtAmount += s.debtAmount;
     existing.sequence = Math.min(existing.sequence, s.sequence);
+    existing.mergedKeys.push(...s.mergedKeys);
   }
 
   return [...byKey.values()].sort((a, b) => a.sequence - b.sequence);
@@ -159,6 +169,7 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
 
   const stops: DayStop[] = sheet.stops.map((s, i) => ({
     key: `rs:${s.id}`,
+    mergedKeys: [`rs:${s.id}`],
     counterpartyId: s.counterpartyId,
     name: s.counterparty?.name ?? s.address ?? "Без назви",
     address: s.address ?? s.counterparty?.deliveryAddress ?? s.counterparty?.address ?? null,
@@ -233,6 +244,7 @@ async function fromDeliveryRoute(
 
     return {
       key: `ds:${s.id}`,
+      mergedKeys: [`ds:${s.id}`],
       counterpartyId: s.counterpartyId,
       // Бонусна поїздка звучить своєю назвою («Забрати ремонт»), а не
       // іменем клієнта: клієнта в ній може не бути взагалі.

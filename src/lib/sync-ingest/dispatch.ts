@@ -19,6 +19,7 @@ import type {
   SyncEntityType,
   WarehouseRecord,
 } from "./types";
+import { SYNC_STATE_KEYS } from "./types";
 import { ApplyContext, getSyncState, setSyncState } from "./context";
 import { applyProducts } from "./apply-products";
 import { applyPrices } from "./apply-prices";
@@ -50,15 +51,6 @@ const SLOW_ENTITIES: Partial<Record<SyncEntityType, number>> = {
 };
 
 /**
- * Префікс ключа, під яким лежить дозвіл довідника на прогін.
- *
- * Експортується заради звірки боргів: тільки цей запис достовірно каже, що
- * канал справді застосувався, а не пройшов повз через вікно (SyncBatch
- * реєструється до диспетчера й тому є навіть у пропущеного батча).
- */
-export const SLOW_STATE_PREFIX = "sync:lastEntity:";
-
-/**
  * Чи обробляти цей довідник у цьому прогоні.
  *
  * Рішення приймається РАЗ НА ПРОГІН, а не на батч: контрагенти приходять
@@ -71,7 +63,7 @@ async function slowEntityDue(entityType: SyncEntityType, runId: string): Promise
   const window = SLOW_ENTITIES[entityType];
   if (!window) return true;
 
-  const key = `${SLOW_STATE_PREFIX}${entityType}`;
+  const key = SYNC_STATE_KEYS.slowEntityKey(entityType);
   const raw = await getSyncState(key);
 
   let at = 0;

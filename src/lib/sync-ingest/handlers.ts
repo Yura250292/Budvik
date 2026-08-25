@@ -22,6 +22,7 @@ import {
 } from "./context";
 import { dispatchBatch, detectMissing } from "./dispatch";
 import { reconcileDebts } from "./reconcile-debts";
+import { reconcilePrices } from "./reconcile-prices";
 import {
   alertMassPriceChange,
   alertMissingEntities,
@@ -203,12 +204,10 @@ export async function handleBatch(req: Request): Promise<Response> {
     ctx.errors.push(message);
     ctx.failed += body.records.length;
 
-    // Впалий батч боргів запам'ятовуємо окремо: відповідь усе одно 200, і
-    // прогін закриється як успішний, а звірка зниклих боргів у кінці мусить
-    // знати, що зріз неповний, — інакше обнулить живу дебіторку.
-    if (body.entityType === "debt") {
-      await setSyncState(SYNC_STATE_KEYS.debtBatchError, body.runId);
-    }
+    // Впалий батч запам'ятовуємо окремо: відповідь усе одно 200, і прогін
+    // закриється як успішний, а звірки «чого немає в 1С» наприкінці мусять
+    // знати, що зріз неповний, — інакше обнулять живі дані.
+    await setSyncState(SYNC_STATE_KEYS.batchErrorKey(body.entityType), body.runId);
   }
 
   const discrepancies = await flushDiscrepancies(ctx);
@@ -295,11 +294,11 @@ export async function handleCompleteRun(
     await setSyncState(SYNC_STATE_KEYS.lastFullRun, new Date().toISOString());
   }
 
-  // --- Звірка дебіторки ---
-  // Регістр 1С віддає лише ненульові сальдо, тож закритий борг не приходить
-  // нулем, а просто зникає з каналу. Побачити це можна лише тут, коли зріз
-  // приїхав цілком: усе, чого в ньому не було, обнуляється. Чому саме так —
-  // у reconcile-debts.ts.
+  // --- Звірки «чого більше немає в 1С» ---
+  // Регістри віддають лише ненульові значення: закритий борг і прибрана ціна
+  // не приходять нулем, а просто зникають із каналу. Побачити це можна лише
+  // тут, коли зріз приїхав цілком. Борг обнуляємо, ціну лише реєструємо —
+  // чому саме так, пояснено в reconcile-debts.ts і reconcile-prices.ts.
   //
   // Прогін із впалим запитом боргу пропускаємо: 1С його не віддала взагалі,
   // і «зниклими» виглядали б усі боржники одразу.
@@ -308,7 +307,7 @@ export async function handleCompleteRun(
     try {
       const kind: SyncRunKind = job.type.replace("agent-", "") as SyncRunKind;
       const ctx = new ApplyContext(job.id, runId, kind);
-      const zeroed = await reconcileDebts(ctx);
+      const zeroed = (await reconcileDebts(ctx)) + (await reconcilePrices(ctx));
       if (zeroed > 0) {
         reconcileDiscrepancies = await flushDiscrepancies(ctx);
         await accumulateJobCounters(job.id, ctx, 0);

@@ -7,6 +7,67 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { ApplyContext, getSyncState } from "./context";
+import { SYNC_STATE_KEYS } from "./types";
+
+/**
+ * Чи справді цей прогін приніс і застосував канал — перевірка, без якої
+ * будь-яка звірка «чого немає в 1С» стає небезпечною.
+ *
+ * Повертає розмір зрізу й час першого батча, або null, якщо звіряти нема з
+ * чим. Три причини сказати «ні», і кожна коштувала б чужих даних:
+ *
+ * 1. Зріз порожній — у живій базі так не буває, це обірваний запит.
+ * 2. Батч упав із винятком. Відповідь агентові все одно 200, і прогін
+ *    закривається успішним, тож ззовні збою не видно.
+ * 3. Диспетчер пропустив канал за тротлом. Батч при цьому зареєстрований
+ *    (SyncBatch пишеться ДО застосування), тому єдина достовірна ознака —
+ *    запис самого тротла з runId прогону, якому відкрили вікно.
+ */
+export async function channelDelivered(
+  ctx: ApplyContext,
+  entityType: string,
+  opts: { throttled?: boolean } = {}
+): Promise<{ seen: number; firstBatchAt: Date } | null> {
+  if (ctx.isPreview) return null;
+
+  const batchError = await getSyncState(SYNC_STATE_KEYS.batchErrorKey(entityType));
+  if (batchError === ctx.runId) return null;
+
+  const batches = await prisma.syncBatch.aggregate({
+    where: { runId: ctx.runId, entityType },
+    _sum: { records: true },
+    _min: { createdAt: true },
+  });
+
+  const seen = batches._sum.records ?? 0;
+  const firstBatchAt = batches._min.createdAt;
+  if (seen === 0 || !firstBatchAt) return null;
+
+  if (opts.throttled && ctx.kind !== "full") {
+    const granted = await getSyncState(SYNC_STATE_KEYS.slowEntityKey(entityType));
+    if (!granted) return null;
+    try {
+      const parsed = JSON.parse(granted) as { runId?: string };
+      if (parsed.runId !== ctx.runId) return null;
+    } catch {
+      // Старий формат (голий ISO-час) не каже, чий це прогін — не ризикуємо.
+      return null;
+    }
+  }
+
+  return { seen, firstBatchAt };
+}
+
+/**
+ * Запас, на який відсічка зсувається в минуле.
+ *
+ * Мітку свіжості ставить годинник Postgres, а відсічку беремо з
+ * SyncBatch.createdAt — тієї самої бази, але через прошарок Prisma. Помилка
+ * в один бік дешева (частина зниклого дочекається наступного прогону), у
+ * другий дорога: відсічка «з майбутнього» зробила б кандидатами всіх одразу.
+ */
+export const CLOCK_SKEW_GUARD_MS = 5 * 60_000;
 
 /**
  * Ref'и вже зареєстрованих і ще не розв'язаних розбіжностей одного виду.

@@ -21,11 +21,10 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { ApplyContext, getSyncState } from "./context";
+import { ApplyContext } from "./context";
 import { alertDebtReconcileSkipped } from "./alerts";
-import { SLOW_STATE_PREFIX } from "./dispatch";
+import { channelDelivered, CLOCK_SKEW_GUARD_MS } from "./stale";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { SYNC_STATE_KEYS } from "./types";
 
 /**
  * Скільки контрагентів обнулити за раз — і в абсолюті, і часткою зрізу.
@@ -42,17 +41,6 @@ const STALE_RATIO_LIMIT = 0.5;
 /** Копійчаний пил не вважаємо боргом — той самий поріг, що в агента. */
 const DUST = 0.01;
 
-/**
- * Запас, на який відсічка зсувається в минуле.
- *
- * Мітку ставить годинник Postgres, а відсічку беремо з `SyncBatch.createdAt`
- * — тієї самої бази, але через прошарок Prisma. Помилка в один бік дешева
- * (частина закритих боргів дочекається наступного прогону), у другий —
- * дорога: відсічка «з майбутнього» зробила б кандидатами всіх одразу.
- * Тому свідомо зсуваємо назад. На результат це не впливає: канал боргів
- * обробляється раз на годину, тож мітки «зниклих» усе одно значно старші.
- */
-const CLOCK_SKEW_GUARD_MS = 5 * 60_000;
 
 const CHUNK = 500;
 
@@ -63,44 +51,13 @@ const CHUNK = 500;
  * ловить викликач — звірка не має права завалити завершення обміну.
  */
 export async function reconcileDebts(ctx: ApplyContext): Promise<number> {
-  if (ctx.isPreview) return 0;
+  // Канал боргів іде через тротл (раз на годину), тому throttled: true —
+  // без цього звірка спрацювала б на прогоні, який борги навіть не чіпав.
+  const delivered = await channelDelivered(ctx, "debt", { throttled: true });
+  if (!delivered) return 0;
 
-  // Батч боргів упав із винятком. `handleBatch` ловить його, відповідає 200
-  // і агент спокійно йде закривати прогін — тобто ззовні прогін виглядає
-  // здоровим. Мітки при цьому не проставились, і без цього прапорця звірка
-  // прийняла б живих боржників за розрахованих.
-  const batchError = await getSyncState(SYNC_STATE_KEYS.debtBatchError);
-  if (batchError === ctx.runId) return 0;
-
-  // Скільки рядків боргу прогін приніс. Нуль означає, що каналу не було
-  // (запит у 1С упав або скоуп його не читав) — звіряти нема з чим.
-  const batches = await prisma.syncBatch.aggregate({
-    where: { runId: ctx.runId, entityType: "debt" },
-    _sum: { records: true },
-    _min: { createdAt: true },
-  });
-
-  const seen = batches._sum.records ?? 0;
-  const firstBatchAt = batches._min.createdAt;
-  if (seen === 0 || !firstBatchAt) return 0;
-
+  const { seen, firstBatchAt } = delivered;
   const cutoff = new Date(firstBatchAt.getTime() - CLOCK_SKEW_GUARD_MS);
-
-  // Батч реєструється в SyncBatch ДО застосування, тож рядки в ньому є
-  // навіть тоді, коли диспетчер пропустив канал за тротлом (раз на годину).
-  // Достовірна ознака застосування — власний запис тротла: у ньому лежить
-  // runId прогону, якому відкрили вікно. Повна звірка тротл не проходить.
-  if (ctx.kind !== "full") {
-    const granted = await getSyncState(`${SLOW_STATE_PREFIX}debt`);
-    if (!granted) return 0;
-    try {
-      const parsed = JSON.parse(granted) as { runId?: string };
-      if (parsed.runId !== ctx.runId) return 0;
-    } catch {
-      // Старий формат (голий ISO-час) не каже, чий це прогін — не ризикуємо.
-      return 0;
-    }
-  }
 
   // Від'ємні сальдо (аванси клієнтів, борг постачальникам) зникають із
   // регістру після взаємозаліку так само, як додатні, — і так само мусять

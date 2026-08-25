@@ -26,11 +26,24 @@ function isSuspicious(oldPrice: number, newPrice: number): boolean {
 export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Promise<void> {
   if (records.length === 0) return;
 
+  const externalIds = records.map((r) => r.externalId);
+
   const products = await prisma.product.findMany({
-    where: { externalId: { in: records.map((r) => r.externalId) } },
+    where: { externalId: { in: externalIds } },
     select: { id: true, externalId: true, sku: true, name: true, price: true, wholesalePrice: true },
   });
   const byExternalId = new Map(products.map((p) => [p.externalId!, p]));
+
+  // «Ціну підтвердив зріз 1С» — до циклу, одним запитом, годинником бази.
+  // Та сама механіка, що для сальдо дебіторки, і з тих самих причин:
+  // зріз віддає лише ціни > 0, тож прибрана ціна не приходить нулем, а
+  // позиція просто зникає з вивантаження. Див. reconcile-prices.ts.
+  if (!ctx.isPreview) {
+    await prisma.$executeRaw`
+      UPDATE "Product" SET "priceSyncedAt" = now()
+      WHERE "externalId" = ANY(${externalIds}::text[])
+    `;
+  }
 
   for (const rec of records) {
     const product = byExternalId.get(rec.externalId);

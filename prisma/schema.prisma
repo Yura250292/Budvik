@@ -420,9 +420,18 @@ model Product {
   brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
 
   // Sync fields
-  syncedAt    DateTime? // Коли останній раз синхронізовано з 1С
+  syncedAt    DateTime? // Коли останній раз ЗМІНЕНО даними з 1С
   syncSource  String?   // "1C" — позначка що дані прийшли з 1С
   externalId  String?   @unique // Ref_Key (GUID) номенклатури в 1С — стабільний ключ зіставлення
+
+  /// Коли ціну востаннє ПІДТВЕРДИВ повний зріз 1С — на відміну від syncedAt,
+  /// який рухається лише коли значення змінилось.
+  ///
+  /// Потрібне, бо зріз цін віддає тільки позиції з ціною > 0: коли ціну в 1С
+  /// прибирають, товар просто зникає з вивантаження, і без цієї мітки стара
+  /// ціна лишалася б на вітрині назавжди. Звірка (reconcile-prices.ts) шукає
+  /// саме за нею.
+  priceSyncedAt DateTime?
 
   // ERP relations
   supplierProducts   SupplierProduct[]

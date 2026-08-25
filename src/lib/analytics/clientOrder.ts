@@ -18,6 +18,7 @@
  * тож у цьому домені саме він і є робочою групою товарів.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
@@ -140,10 +141,34 @@ export type Recommendation = {
   brand: string | null;
   brandColor: string | null;
   price: number | null;
+  /** Вільний залишок на несервісних складах — скільки реально можна відвантажити */
+  stock: number;
   /** Готовий текст для торгового — чому саме це і саме зараз */
   why: string;
   score: number;
 };
+
+/**
+ * Вільний залишок товару: те, що торговий справді може продати.
+ *
+ * Рахуємо по LocationStock, а не по денормалізованому Product.stock. Останній
+ * перераховується лише для товарів, ЗАЧЕПЛЕНИХ черговим зрізом 1С, а регістр
+ * залишків віддає тільки ненульові рядки — тож позиція, продана в нуль,
+ * просто зникає з вивантаження й лишається в Product.stock зі старим числом.
+ * Заміряно 25.08.2026: 922 активні товари з ціною показували залишок (до 844
+ * шт), не маючи жодного рядка на складі. Пропонувати їх клієнту означало
+ * пообіцяти те, чого немає.
+ *
+ * Сервісні склади (брак, майстерня) виключені — там товар фізично є, але
+ * продати його не можна.
+ */
+const FREE_STOCK = (alias: string) => Prisma.raw(`
+      JOIN LATERAL (
+        SELECT COALESCE(SUM(ls.available), 0)::int AS free
+        FROM "LocationStock" ls
+        JOIN "StockLocation" sl ON sl.id = ls."stockLocationId"
+        WHERE ls."productId" = ${alias}.id AND sl."isService" = false
+      ) st ON TRUE`);
 
 type OrderRow = {
   id: string;
@@ -272,6 +297,8 @@ type ReplenishRow = {
   amount: number;
   daysSince: number;
   cycleDays: number | null;
+  /** Вільний залишок — скільки можна відвантажити просто зараз */
+  freeStock: number;
 };
 
 /**
@@ -315,6 +342,7 @@ async function replenishment(counterpartyId: string): Promise<Recommendation[]> 
       b.name  AS brand,
       b.color AS "brandColor",
       p.price::float AS price,
+      st.free AS "freeStock",
       pp.times,
       pp.amount,
       (EXTRACT(EPOCH FROM (NOW() - pp."lastAt")) / 86400)::float AS "daysSince",
@@ -325,10 +353,11 @@ async function replenishment(counterpartyId: string): Promise<Recommendation[]> 
     FROM per_product pp
     JOIN "Product" p ON p.id = pp."productId"
     LEFT JOIN "Brand" b ON b.id = p."brandId"
+    ${FREE_STOCK("p")}
     -- Пропонувати те, чого немає на складі або знято з продажу, — гірше,
     -- ніж не пропонувати нічого: торговий пообіцяє, а привезти не зможе.
     -- price > 0 з тієї ж причини: у 486 активних позицій ціни просто немає.
-    WHERE p."isActive" AND p.stock > 0 AND p.price > 0
+    WHERE p."isActive" AND p.price > 0 AND st.free > 0
   `;
 
   const out: Recommendation[] = [];
@@ -349,6 +378,7 @@ async function replenishment(counterpartyId: string): Promise<Recommendation[]> 
       brand: r.brand,
       brandColor: r.brandColor,
       price: r.price,
+      stock: r.freeStock,
       why: dropped
         ? `брав ${times(r.times)}, ~раз на ${days(cycle)}, але не бере вже ${days(since)}`
         : `брав ${times(r.times)}, ~раз на ${days(cycle)}, останній раз ${days(since)} тому`,
@@ -370,7 +400,14 @@ type PeerRow = {
   brandColor: string | null;
   peerClients: number;
   affinity: number;
-  topProduct: { id: string; name: string; sku: string | null; price: number } | null;
+  topProduct: {
+    id: string;
+    name: string;
+    sku: string | null;
+    price: number;
+    /** Вільний залишок — інакше «беруть схожі клієнти» вело б у порожній склад */
+    free: number;
+  } | null;
 };
 
 /**
@@ -429,14 +466,17 @@ async function similarClients(counterpartyId: string): Promise<Recommendation[]>
       c."peerClients",
       c.affinity,
       (
-        SELECT json_build_object('id', p2.id, 'name', p2.name, 'sku', p2.sku, 'price', p2.price::float)
+        SELECT json_build_object(
+          'id', p2.id, 'name', p2.name, 'sku', p2.sku, 'price', p2.price::float, 'free', st.free
+        )
         FROM "Product" p2
+        ${FREE_STOCK("p2")}
         -- price > 0 обов'язково: 486 із 6833 активних товарів у наявності
         -- мають нульову ціну (не всі позиції 1С мають тип цін «МАГАЗИНИ»).
         -- Без цієї умови саме вони й вигравали слот бренду, бо priority у них
         -- теж 0 — торговому показувало товар, який він не може продати.
-        WHERE p2."brandId" = c."brandId" AND p2."isActive" AND p2.stock > 0 AND p2.price > 0
-        ORDER BY p2.priority DESC, p2.stock DESC
+        WHERE p2."brandId" = c."brandId" AND p2."isActive" AND p2.price > 0 AND st.free > 0
+        ORDER BY p2.priority DESC, st.free DESC
         LIMIT 1
       ) AS "topProduct"
     FROM candidate c
@@ -471,6 +511,7 @@ async function similarClients(counterpartyId: string): Promise<Recommendation[]>
     brand: r.brand,
     brandColor: r.brandColor,
     price: r.topProduct!.price,
+    stock: r.topProduct!.free,
     why: `${r.peerClients} ${plural(r.peerClients, "схожий клієнт бере", "схожі клієнти беруть", "схожих клієнтів беруть")} ${r.brand}, цей — ще ні`,
     score: r.affinity,
   }));

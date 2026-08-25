@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Badge, ColorDot } from "@/components/ui/Badge";
 import { money } from "@/components/ui/Stat";
-import { CLIENT_STATE } from "@/lib/analytics/colors";
+import { CLIENT_STATE, STATUS } from "@/lib/analytics/colors";
 import type {
   LastOrder,
   OrderMonths,
@@ -275,13 +275,15 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
           <p className="text-sm text-gr">Рахую поради…</p>
         ) : recommendations.length === 0 ? (
           <p className="text-sm text-gr">
-            Замало історії: щоб порадити повтор, клієнт має взяти той самий товар хоча б двічі.
+            Порад немає: щоб порадити повтор, клієнт має взяти той самий товар хоча б двічі, а
+            сам товар — бути у вільному залишку.
           </p>
         ) : (
           <>
             <p className="mb-2 text-xs text-gr">
               Рахується за всією історією закупівель (перемикач періоду сюди не впливає) — під
-              кожним рядком написано чому.
+              кожним рядком написано чому. У списку лише те, що є у вільному залишку на
+              несервісних складах.
             </p>
             <div className="space-y-3">
             {REASON_SEQUENCE.map((reason) => {
@@ -303,11 +305,26 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
                           <span className="block text-sm text-bk">{r.name}</span>
                           <span className="mt-0.5 block text-xs text-gr">{r.why}</span>
                         </span>
-                        {r.price != null && r.price > 0 && (
-                          <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-bk">
-                            {money(r.price)} ₴
+                        <span className="shrink-0 text-right">
+                          {r.price != null && r.price > 0 && (
+                            <span className="block whitespace-nowrap text-sm tabular-nums text-bk">
+                              {money(r.price)} ₴
+                            </span>
+                          )}
+                          {/* Залишок поруч із ціною: у пораді головне не «що
+                              взяти», а «що можна пообіцяти сьогодні». Мало —
+                              підсвічуємо, щоб торговий не обіцяв ящик, коли
+                              на складі три штуки. */}
+                          {/* Колір беремо зі статусної палітри інлайном:
+                              у темі проєкту немає токена під «увага», а
+                              жовтий бренду в даних заборонений (контраст). */}
+                          <span
+                            className="block whitespace-nowrap text-xs tabular-nums"
+                            style={{ color: r.stock <= 5 ? STATUS.warn.fg : "#6B7280" }}
+                          >
+                            є {r.stock} шт
                           </span>
-                        )}
+                        </span>
                       </li>
                     ))}
                   </ul>

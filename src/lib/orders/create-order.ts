@@ -120,6 +120,18 @@ export async function createOrder(
     if (!isWholesale && product.isPromo && product.promoPrice) {
       itemPrice = product.promoPrice;
     }
+    // Нульова ціна — це не «безкоштовно», а «1С її не дала». Так живуть
+    // 1182 позиції на складі: для бренду не заповнений тип цін «6.МАГАЗИНИ»,
+    // з якого обмін бере роздріб (у Polax його покинули у 2022-му). Без цієї
+    // перевірки такий товар оформлюється як подарунок — ціну на сервері ми
+    // беремо з бази, тож підробити її не можна, а от нуль проходив як є.
+    if (itemPrice <= 0) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Ціна на "${product.name}" не підтверджена — зв'яжіться з менеджером`,
+      };
+    }
     orderItems.push({ productId: product.id, quantity, price: itemPrice });
     totalAmount += itemPrice * quantity;
   }

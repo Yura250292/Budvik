@@ -48,6 +48,14 @@ export default function ProductCard({ id, name, slug, description, price, wholes
   const basePrice = isWholesale && effectiveWholesale ? effectiveWholesale : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
   const hasDiscount = displayPrice < price;
+  // Нуль означає «1С не дала ціни», а не «безкоштовно»: обмін бере роздріб
+  // лише з типу цін «6.МАГАЗИНИ», і там, де його не ведуть (Polax із 2022-го,
+  // TOTAL узагалі), товар приїжджає з нулем. Раніше такий лежав на вітрині як
+  // «0 ₴» з живою кнопкою «У кошик» — 1182 позиції на складі можна було
+  // замовити задарма. Серверна перевірка в createOrder тепер їх ловить, але
+  // показувати покупцеві ціну, якої немає, все одно не можна.
+  const priceKnown = displayPrice > 0;
+  const canBuy = stock > 0 && priceKnown;
 
   const [inWishlist, setInWishlist] = useState(false);
   const [inCompare, setInCompare] = useState(false);
@@ -142,7 +150,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             </div>
             <div className="flex items-center justify-between mt-1">
               <div className="flex items-baseline gap-1 flex-wrap">
-                {stock > 0 || displayPrice > 0 ? (
+                {priceKnown ? (
                   <>
                     <span className={`text-sm sm:text-base font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
                       {formatPrice(displayPrice)}
@@ -163,9 +171,11 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                       </svg>
                     </button>
-                    <button onClick={handleAddToCart} className="btn-primary px-2.5 py-1 text-[10px] sm:text-xs">
-                      {cartBtnContent}
-                    </button>
+                    {priceKnown && (
+                      <button onClick={handleAddToCart} className="btn-primary px-2.5 py-1 text-[10px] sm:text-xs">
+                        {cartBtnContent}
+                      </button>
+                    )}
                   </>
                 )}
                 {stock === 0 && <span className="text-[10px] text-[#9E9E9E]">Немає</span>}
@@ -225,7 +235,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
             <p className="text-xs sm:text-sm text-[#555] mb-3 line-clamp-2">{plainDesc}</p>
             <div className="flex items-center justify-between">
               <div>
-                {stock > 0 || displayPrice > 0 ? (
+                {priceKnown ? (
                   <>
                     <span className={`text-base sm:text-xl font-bold ${stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"}`}>
                       {formatPrice(displayPrice)}
@@ -241,10 +251,12 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                   <span className="text-sm text-[#BDBDBD]">Ціна не вказана</span>
                 )}
               </div>
-              {stock > 0 ? (
+              {canBuy ? (
                 <button onClick={handleAddToCart} className="btn-primary px-3 py-1.5 text-xs flex-shrink-0">
                   {cartBtnContent}
                 </button>
+              ) : stock > 0 ? (
+                <span className="text-sm text-[#9E9E9E] font-medium">Ціну уточнюйте</span>
               ) : (
                 <span className="text-sm text-[#9E9E9E] font-medium">Немає в наявності</span>
               )}
@@ -343,7 +355,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           {/* Price + button */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
             <div className="min-w-0">
-              {stock > 0 || displayPrice > 0 ? (
+              {priceKnown ? (
                 <>
                   <span className={`text-sm sm:text-lg font-bold ${
                     stock === 0 ? "text-[#9E9E9E]" : "text-[#0A0A0A]"
@@ -361,13 +373,15 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                 <span className="text-[10px] sm:text-sm text-[#BDBDBD]">Ціна не вказана</span>
               )}
             </div>
-            {stock > 0 ? (
+            {canBuy ? (
               <button
                 onClick={handleAddToCart}
                 className="btn-primary px-2 sm:px-3 py-1.5 text-[10px] sm:text-xs flex-shrink-0 w-full sm:w-auto"
               >
                 {cartBtnContent}
               </button>
+            ) : stock > 0 ? (
+              <span className="text-[10px] sm:text-sm text-[#9E9E9E] font-medium">Ціну уточнюйте</span>
             ) : (
               <span className="text-[10px] sm:text-sm text-[#9E9E9E] font-medium">Немає в наявності</span>
             )}

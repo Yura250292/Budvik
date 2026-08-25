@@ -46,13 +46,21 @@ export default function ProductPriceBlock({
   const basePrice =
     isWholesale && discounts ? getWholesalePrice(price, name, discounts) : price;
   const displayPrice = isPromo && promoPrice ? promoPrice : basePrice;
+  // Нуль — це не ціна, а її відсутність: обмін бере роздріб лише з типу цін
+  // «6.МАГАЗИНИ», і бренди, яким його не ведуть, приїжджають із нулем.
+  // Показати «0 ₴» на картці товару — запросити покупця оформити подарунок.
+  const priceKnown = displayPrice > 0;
 
   return (
     <div className="bg-g50 rounded-xl p-4 sm:p-5 mb-5 border border-g100">
       <div className="flex items-baseline gap-2 sm:gap-3 mb-3 flex-wrap">
-        <span className="text-2xl sm:text-4xl font-bold text-[#0A0A0A]">
-          {formatPrice(displayPrice)}
-        </span>
+        {priceKnown ? (
+          <span className="text-2xl sm:text-4xl font-bold text-[#0A0A0A]">
+            {formatPrice(displayPrice)}
+          </span>
+        ) : (
+          <span className="text-xl sm:text-2xl font-semibold text-g500">Ціну уточнюйте</span>
+        )}
         {isPromo && promoPrice && promoPrice < price && (
           <>
             <span className="text-lg text-g400 line-through">{formatPrice(price)}</span>
@@ -82,7 +90,7 @@ export default function ProductPriceBlock({
         )}
       </div>
 
-      {stock > 0 && (
+      {stock > 0 && priceKnown && (
         <AddToCartButton
           productId={id}
           name={name}
@@ -91,6 +99,12 @@ export default function ProductPriceBlock({
           image={image}
           packQty={packQty}
         />
+      )}
+
+      {stock > 0 && !priceKnown && (
+        <p className="text-sm text-g500">
+          Ціна на цю позицію ще не підтверджена в обліку — зателефонуйте, і менеджер назве її.
+        </p>
       )}
 
       {/* Рядок кешбеку в Болтах прихований разом із програмою лояльності. */}

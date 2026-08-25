@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 const r2 = new S3Client({
   region: 'auto',
@@ -63,4 +63,37 @@ export async function deleteFile(key: string): Promise<void> {
       Key: key,
     })
   );
+}
+
+/**
+ * Тимчасове посилання на приватний обʼєкт.
+ *
+ * Потрібне там, де файл завеликий, щоб гнати його через серверну функцію:
+ * збірка застосунку важить понад сто мегабайтів, і проксіювання таких
+ * обсягів через Vercel — це і час виконання, і трафік, за який платимо
+ * двічі. Перевірка доступу лишається в роуті, а байти йдуть з CDN
+ * Cloudflare напряму.
+ *
+ * Строк короткий навмисно: посилання, яким поділилися, має протухнути
+ * швидше, ніж встигне розійтися.
+ */
+export async function signedUrl(key: string, expiresInSeconds = 300): Promise<string> {
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  return getSignedUrl(
+    r2,
+    new GetObjectCommand({ Bucket: process.env.R2_BUCKET_NAME!, Key: key }),
+    { expiresIn: expiresInSeconds }
+  );
+}
+
+/** Розмір обʼєкта без завантаження — щоб показати вагу збірки перед скачуванням. */
+export async function fileSize(key: string): Promise<number | null> {
+  try {
+    const res = await r2.send(
+      new HeadObjectCommand({ Bucket: process.env.R2_BUCKET_NAME!, Key: key })
+    );
+    return res.ContentLength ?? null;
+  } catch {
+    return null;
+  }
 }

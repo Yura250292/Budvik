@@ -1,23 +1,26 @@
 /**
- * Віддає тестову збірку застосунку покупця — лише тим, хто увійшов.
+ * Віддає збірку застосунку покупця — лише тим, хто увійшов.
  *
- * Файл лежить у assets/app/, а не в public/: усе з public/ Next віддає
- * статикою без жодної перевірки, тобто збірку міг би завантажити будь-хто,
- * кому дали адресу. Застосунок ходить у бойову базу й створює справжні
- * замовлення.
+ * Файл лежить у R2, а не в репозиторії: збірка Expo важить понад сто
+ * мегабайтів, а GitHub відмовляє в файлах понад сто. Та й тримати в історії
+ * git по бінарнику на кожен реліз означало б репозиторій, який із часом
+ * неможливо клонувати.
+ *
+ * Байти йдуть з CDN Cloudflare напряму, не через цю функцію: проксіювати
+ * такі обсяги через Vercel — це і час виконання, і трафік, за який платимо
+ * двічі. Перевірка ролі лишається тут, а посилання підписане й живе кілька
+ * хвилин — поділитися ним не встигнеш.
  */
 
-import { readFile } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { signedUrl } from "@/lib/r2";
+import { SHOP_APK_KEY } from "@/lib/app-builds";
 
 export const dynamic = "force-dynamic";
 
 const ALLOWED_ROLES = ["ADMIN", "MANAGER", "SALES"];
-
-const APK_PATH = path.join(process.cwd(), "assets", "app", "Budvik27.apk");
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -27,21 +30,20 @@ export async function GET() {
     return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
   }
 
-  let apk: Buffer;
+  let url: string;
   try {
-    apk = await readFile(APK_PATH);
-  } catch {
-    // Не віддаємо 0 байт: порожній APK Android встановить як «пошкоджений пакет».
-    return NextResponse.json({ error: "Збірка ще не готова" }, { status: 503 });
+    url = await signedUrl(SHOP_APK_KEY);
+  } catch (e) {
+    console.error("[app/shop/download] не вдалося підписати посилання:", e);
+    return NextResponse.json({ error: "Збірка тимчасово недоступна" }, { status: 503 });
   }
 
-  return new NextResponse(new Uint8Array(apk), {
-    headers: {
-      "Content-Type": "application/vnd.android.package-archive",
-      "Content-Disposition": 'attachment; filename="Budvik27.apk"',
-      "Content-Length": String(apk.length),
-      // Кожна нова збірка їде під тим самим URL — кешувати не можна.
-      "Cache-Control": "no-store",
-    },
+  /**
+   * 302, а не проксі. Android завантажує за посиланням сам; ім'я файла
+   * бере з ключа в R2, тому ключ і названий Budvik27-<версія>.apk.
+   */
+  return NextResponse.redirect(url, {
+    status: 302,
+    headers: { "Cache-Control": "no-store" },
   });
 }

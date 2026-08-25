@@ -1,5 +1,5 @@
 /**
- * Яка тестова збірка застосунку покупця лежить на сервері.
+ * Яка збірка застосунку покупця лежить на сервері.
  *
  * Окремі роути від /api/app/version, а не спільні з параметром: трекер
  * торгових питає ту адресу при кожному запуску й порівнює числа зі своїми.
@@ -7,31 +7,22 @@
  * оновлень на планшетах, які возять у машині.
  */
 
-import { stat } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { fileSize } from "@/lib/r2";
+import { SHOP_APK_KEY, SHOP_APK_VERSION_CODE, SHOP_APK_VERSION_NAME } from "@/lib/app-builds";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Тільки керівники й торгові.
  *
- * Це тестова збірка, яка ходить у бойову базу і створює справжні замовлення:
- * списує залишок і піднімає менеджерів сповіщенням у Telegram. Роздавати її
- * покупцям до магазинів не можна.
+ * Збірка ходить у бойову базу і створює справжні замовлення: списує залишок
+ * і піднімає менеджерів сповіщенням у Telegram. Роздавати її покупцям до
+ * магазинів не можна.
  */
 const ALLOWED_ROLES = ["ADMIN", "MANAGER", "SALES"];
-
-const APK_PATH = path.join(process.cwd(), "assets", "app", "Budvik27.apk");
-
-/**
- * Версія збірки. Мусить збігатися з version у mobile/app.json і
- * оновлюватись тим самим комітом, що й сам файл.
- */
-const CURRENT_VERSION_CODE = 1;
-const CURRENT_VERSION_NAME = "1.0.0";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -41,19 +32,19 @@ export async function GET() {
     return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
   }
 
-  let sizeBytes: number;
-  try {
-    sizeBytes = (await stat(APK_PATH)).size;
-  } catch {
-    /*
-     * Файлу немає — кажемо прямо і окремим кодом. Сторінка на 503 показує
-     * «збірки ще немає», а не мовчазну кнопку, яка нічого не завантажить.
-     */
+  const sizeBytes = await fileSize(SHOP_APK_KEY);
+  if (sizeBytes === null) {
+    // Файлу немає — окремим кодом. Сторінка на 503 показує «збірки ще немає»,
+    // а не мовчазну кнопку, яка нічого не завантажить.
     return NextResponse.json({ error: "Збірка ще не готова" }, { status: 503 });
   }
 
   return NextResponse.json(
-    { versionCode: CURRENT_VERSION_CODE, versionName: CURRENT_VERSION_NAME, sizeBytes },
+    {
+      versionCode: SHOP_APK_VERSION_CODE,
+      versionName: SHOP_APK_VERSION_NAME,
+      sizeBytes,
+    },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * «Моя карта» — клієнти торгового на мапі з маршрутом на сьогодні.
+ * Карта клієнтів торгового з маршрутом на сьогодні.
  *
  * У списку клієнтів не видно найважливішого для роботи в полі: що троє
  * сплячих стоять уздовж дороги, якою торговий і так їде. Тут це видно
@@ -35,7 +35,18 @@ type Resp = {
   counts: Record<string, number>;
   route: SalesRoute;
   approximateCount: number;
+  mineCount: number;
 };
+
+/**
+ * Обсяг карти.
+ *
+ * Раніше вибірка була жорстко «мої» — і торговий на новій території бачив
+ * три точки, поки в керівника на тій самій території їх сотні: закріплення
+ * заповнюється руками, а документи з 1С прив'язуються зіставленням імені.
+ * Тепер за замовчуванням видно всю базу, свої — окремим фільтром.
+ */
+type Scope = "mine" | "all";
 
 /** Що показує пошук: точка на карті або клієнт, якого туди ще треба поставити. */
 type Suggestion = {
@@ -46,6 +57,8 @@ type Suggestion = {
   lat: number | null;
   lng: number | null;
   rank: number;
+  /** Свій клієнт: потрібне, щоб вибір чужого сам перемкнув карту на «Всі». */
+  mine: boolean;
 };
 
 /** Порядок у легенді: спершу те, з чим треба працювати. */
@@ -55,6 +68,7 @@ export default function SalesMapPage() {
   const [data, setData] = useState<Resp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [scope, setScope] = useState<Scope>("all");
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -90,7 +104,9 @@ export default function SalesMapPage() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/sales/my-map")
+    // Тягнемо одразу всю базу, а перемикач «Мої/Всі» працює вже в пам'яті:
+    // повторний запит по мобільному в полі коштує дорожче за зайві рядки.
+    fetch("/api/sales/my-map?scope=all")
       .then(async (r) => {
         const j = await r.json().catch(() => null);
         if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
@@ -152,11 +168,14 @@ export default function SalesMapPage() {
       out.push({
         id: c.id,
         name: c.name,
-        hint: c.approximate ? "точка приблизна" : CLIENT_STATE[c.state].label,
+        // Пошук іде по ВСІЙ базі незалежно від перемикача: людина шукає
+        // конкретного клієнта, а не «клієнта в поточному фільтрі».
+        hint: c.mine === false ? "не ваш" : c.approximate ? "точка приблизна" : CLIENT_STATE[c.state].label,
         state: c.state,
         lat: c.lat,
         lng: c.lng,
         rank: r,
+        mine: c.mine !== false,
       });
     }
 
@@ -167,11 +186,12 @@ export default function SalesMapPage() {
       out.push({
         id: u.id,
         name: u.name,
-        hint: "немає на карті",
+        hint: u.mine === false ? "не ваш, немає на карті" : "немає на карті",
         state: u.state,
         lat: null,
         lng: null,
         rank: r + 3,
+        mine: u.mine !== false,
       });
     }
 
@@ -190,6 +210,9 @@ export default function SalesMapPage() {
     setSearchOpen(false);
     setQuery("");
     setPinError(null);
+    // Знайшли чужого, а на карті зараз лише свої — перемикаємо самі.
+    // Інакше карта підлетіла б до порожнього місця: точки в цьому зрізі немає.
+    if (!s.mine) setScope("all");
     if (s.lat != null && s.lng != null) {
       setPinFor(null);
       setFocus({ lat: s.lat, lng: s.lng, id: s.id, nonce: Date.now() });
@@ -271,7 +294,23 @@ export default function SalesMapPage() {
       return next;
     });
 
-  const visible = (data?.clients ?? []).filter((c) => !hidden.has(c.state));
+  const inScope = (data?.clients ?? [])
+    .filter((c) => scope === "all" || c.mine !== false)
+    // Чужому клієнту точку можна поставити, лише поки вона здогад геокодера:
+    // пересувати те, що вже уточнила людина, сервер не дасть (403), тож і
+    // кнопки бути не повинно.
+    .map((c) => ({ ...c, canPin: c.mine !== false || c.approximate }));
+  const visible = inScope.filter((c) => !hidden.has(c.state));
+
+  /**
+   * Лічильники легенди — за поточним зрізом, а не за всією відповіддю.
+   * Інакше в режимі «Мої» бейдж каже «Активні 210», а на карті їх 40.
+   */
+  const counts = inScope.reduce<Record<string, number>>((acc, c) => {
+    acc[c.state] = (acc[c.state] ?? 0) + 1;
+    return acc;
+  }, {});
+  const approximateCount = inScope.filter((c) => c.approximate).length;
 
   return (
     // Фіксований шар на всю висоту мінус нижнє меню: карті потрібен весь екран.
@@ -311,13 +350,14 @@ export default function SalesMapPage() {
 
       {/* Шапка поверх карти: назад і маршрут дня */}
       <div
-        className="absolute inset-x-0 top-0 z-[500] flex items-center gap-2 px-3"
+        className="absolute inset-x-0 top-0 z-[500] px-3"
         style={{
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
           paddingBottom: "10px",
           background: "linear-gradient(#F7F7F7EE, #F7F7F700)",
         }}
       >
+        <div className="flex items-center gap-2">
         <Link
           href="/sales"
           aria-label="Назад"
@@ -428,7 +468,7 @@ export default function SalesMapPage() {
               style={{ background: "#fff", boxShadow: "0 6px 20px rgba(0,0,0,0.18)" }}
             >
               <p style={{ fontSize: "12px", color: "#9CA3AF", margin: 0 }}>
-                Нічого не знайдено серед ваших клієнтів.
+                Нічого не знайдено серед клієнтів компанії.
               </p>
             </div>
           )}
@@ -485,12 +525,54 @@ export default function SalesMapPage() {
               : `${track.distanceKm} км`
             : "Записати"}
         </button>
+        </div>
+
+        {/* Обсяг карти. Окремим рядом під керуванням: у портреті телефона
+            два сегменти поруч із пошуком не влазять. Той самий елемент, що
+            в карті водія, — щоб перехід між кабінетами нічого не переучував. */}
+        {data && (
+          <div
+            className="mt-2 flex gap-1 rounded-full p-1"
+            style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+          >
+            {(
+              [
+                { key: "mine", label: "Мої", n: data.mineCount },
+                { key: "all", label: "Всі", n: data.clients.length },
+              ] as Array<{ key: Scope; label: string; n: number }>
+            ).map((sc) => {
+              const on = scope === sc.key;
+              return (
+                <button
+                  key={sc.key}
+                  type="button"
+                  onClick={() => setScope(sc.key)}
+                  aria-pressed={on}
+                  className="flex-1 cursor-pointer rounded-full transition-colors duration-200"
+                  style={{
+                    minHeight: "40px",
+                    border: "none",
+                    background: on ? "#0A0A0A" : "transparent",
+                    color: on ? "#fff" : "#374151",
+                    fontSize: "13px",
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {sc.label}{" "}
+                  <span style={{ color: on ? "rgba(255,255,255,0.65)" : "#9CA3AF", fontWeight: 400 }}>
+                    {sc.n}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {error && (
         <div
           className="absolute inset-x-3 z-[500] rounded-xl p-3"
-          style={{ top: "70px", background: "#FEF2F2", border: "1px solid #FECACA" }}
+          style={{ top: "118px", background: "#FEF2F2", border: "1px solid #FECACA" }}
         >
           <p style={{ fontSize: "13px", color: "#B91C1C" }}>{error}</p>
         </div>
@@ -501,7 +583,7 @@ export default function SalesMapPage() {
       {pinFor && (
         <div
           className="absolute inset-x-3 z-[600] rounded-2xl p-3"
-          style={{ top: "62px", background: "#0A0A0A", boxShadow: "0 6px 20px rgba(0,0,0,0.3)" }}
+          style={{ top: "110px", background: "#0A0A0A", boxShadow: "0 6px 20px rgba(0,0,0,0.3)" }}
         >
           <p style={{ fontSize: "13px", color: "#fff", fontWeight: 600, margin: 0 }}>
             {pinFor.name}
@@ -577,9 +659,9 @@ export default function SalesMapPage() {
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
                 {visible.length} клієнтів на карті
               </span>
-              {data.approximateCount > 0 && (
+              {approximateCount > 0 && (
                 <span style={{ fontSize: "12px", color: "#D97706" }}>
-                  ⌖ {data.approximateCount} приблизних
+                  ⌖ {approximateCount} приблизних
                 </span>
               )}
               {data.unmapped.length > 0 && (
@@ -617,7 +699,7 @@ export default function SalesMapPage() {
                 <div className="flex flex-wrap gap-1.5">
                   {LEGEND.map((k) => {
                     const off = hidden.has(k);
-                    const n = data.counts[k] ?? 0;
+                    const n = counts[k] ?? 0;
                     return (
                       <button
                         key={k}
@@ -647,6 +729,7 @@ export default function SalesMapPage() {
                 </div>
                 <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
                   Тапніть точку, щоб побачити, що клієнт брав і що йому запропонувати.
+                  Дрібні бліді точки — клієнти компанії, не закріплені за вами.
                   Щоб виправити чи поставити пін — знайдіть клієнта пошуком угорі:
                   станьте біля магазину й натисніть «Я зараз тут».
                 </p>

@@ -52,7 +52,10 @@ function NewOrderContent() {
   // Load clients
   useEffect(() => {
     if (!session) return;
-    fetch("/api/erp/counterparties")
+    // mine=1 навмисно: у формі замовлення потрібен робочий список свого
+    // портфеля, а не вся база — вибір із 3.6 тис. рядків у мобільному
+    // селекті лише заважає. Знайти чужого клієнта можна на «Клієнтах».
+    fetch("/api/erp/counterparties?mine=1")
       .then((r) => r.json())
       .then((data) => {
         const arr = Array.isArray(data) ? data : [];

@@ -32,6 +32,24 @@ export type SalesClientPoint = {
   overdue: number;
   daysSinceLast: number | null;
   approximate: boolean;
+  /**
+   * Свій клієнт (закріплений або купував через цю людину).
+   *
+   * Не фільтр, а вигляд: у режимі «всі» на карті сотні точок, і серед них
+   * свої мусять читатися з першого погляду. Поле необовʼязкове — там, де
+   * поділу немає, всі точки лишаються звичайними.
+   */
+  mine?: boolean;
+  /**
+   * Чи можна цій людині уточнити точку саме цього клієнта.
+   *
+   * Не завжди збігається з `mine`: чужому клієнту точку можна ПОСТАВИТИ,
+   * якщо її ще немає або вона з геокодера, і не можна ПЕРЕСУНУТИ ту, яку
+   * вже поставила людина (див. PATCH /api/admin/client-map/[id]). Кнопку,
+   * яка гарантовано поверне 403, не показуємо. Поле необовʼязкове —
+   * без нього кнопка керується лише `extras.pin`, як і раніше.
+   */
+  canPin?: boolean;
 };
 
 export type SalesRoute = {
@@ -112,6 +130,12 @@ function popupButton(action: string, id: string, label: string, primary: boolean
 
 function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
   const meta = CLIENT_STATE[c.state];
+  // Чужий клієнт — не заборона, а попередження: перш ніж їхати, варто
+  // знати, що його вже хтось веде.
+  const foreign =
+    c.mine === false
+      ? `<div style="color:#6B7280;font-size:12px;margin-top:3px">Не закріплений за вами</div>`
+      : "";
   const debt =
     c.overdue > 0
       ? `<div style="color:#DC2626;font-weight:600">Прострочено ${escapeHtml(money.format(c.overdue))} грн</div>`
@@ -128,9 +152,10 @@ function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
     ${c.daysSinceLast != null ? `<div style="color:#6B7280">Останній документ ${c.daysSinceLast} дн. тому</div>` : ""}
     ${debt}
     ${c.approximate ? `<div style="color:#D97706;font-size:12px;margin-top:3px">Точка приблизна</div>` : ""}
+    ${foreign}
     ${popupButton("orderCard", c.id, "Що брав і що везти", true)}
     ${extras.comments ? popupButton("comments", c.id, "Коментарі", false) : ""}
-    ${extras.pin ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
+    ${extras.pin && c.canPin !== false ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
     ${
       extras.clientCardHref
         ? `<a href="${escapeHtml(extras.clientCardHref)}${escapeHtml(c.id)}"
@@ -187,7 +212,7 @@ export default function SalesClientsMap({
 
   const key = useMemo(
     () =>
-      clients.map((c) => `${c.id}:${c.state}`).join("|") +
+      clients.map((c) => `${c.id}:${c.state}:${c.mine ? 1 : 0}`).join("|") +
       "#" +
       (route?.name ?? "") +
       (route?.stops.length ?? 0),
@@ -262,13 +287,22 @@ export default function SalesClientsMap({
     });
 
     markersRef.current.clear();
-    spread(clients).forEach((c) => {
+    // Свої малюються ОСТАННІМИ — у Leaflet це означає «поверх». Інакше в
+    // режимі «всі» власний магазин ховається під сусідньою чужою точкою
+    // саме там, де точок густо: у місті.
+    const ordered = spread(clients).sort(
+      (a, b) => Number(a.mine === true) - Number(b.mine === true)
+    );
+    ordered.forEach((c) => {
+      const foreign = c.mine === false;
       const marker = L.circleMarker([c.lat, c.lng], {
-        radius: 9, // більше за адмінські 7: ціль для пальця
+        // Чужа точка дрібніша й блідіша: видно, що вона є, але вона не
+        // перетягує на себе увагу з власного портфеля.
+        radius: foreign ? 6 : 9, // свої більші за адмінські 7: ціль для пальця
         color: "#fff",
-        weight: 2,
+        weight: foreign ? 1 : 2,
         fillColor: CLIENT_STATE[c.state].color,
-        fillOpacity: 0.92,
+        fillOpacity: foreign ? 0.45 : 0.92,
       })
         .bindPopup(popupHtml(c, extrasRef.current), { minWidth: 190 })
         .addTo(group);

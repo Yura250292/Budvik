@@ -78,6 +78,21 @@ export async function PATCH(
   const { counterpartyId } = await params;
   const isFullAccess = FULL_ACCESS_ROLES.includes(session.user.role);
 
+  /**
+   * Поточний стан точки. Потрібен ДО перевірки прав: правило для торгового
+   * залежить не лише від того, чий це клієнт, а й від того, чи стоїть на
+   * ньому вже поставлений людиною пін.
+   */
+  const current = await prisma.counterparty.findUnique({
+    where: { id: counterpartyId },
+    select: { id: true, geoSource: true },
+  });
+  if (!current) {
+    return NextResponse.json({ error: "Клієнта не знайдено" }, { status: 404 });
+  }
+  /** Піна або немає, або він з геокодера — тобто здогад, а не чиєсь знання. */
+  const isGuess = current.geoSource !== "MANUAL";
+
   if (!isFullAccess) {
     // Водій уточнює пін нарівні з торговим — і навіть частіше: він
     // під'їжджає фурою і першим бачить, що заїзд з іншого боку. Прив'язки
@@ -88,8 +103,19 @@ export async function PATCH(
         return NextResponse.json({ error: "Ви туди не їздили" }, { status: 403 });
       }
     } else if (session.user.role === "SALES") {
-      if (!(await ownsClient(counterpartyId, session.user.id))) {
-        return NextResponse.json({ error: "Це не ваш клієнт" }, { status: 403 });
+      /**
+       * Карта торгового показує всю базу компанії, тож «свій клієнт» більше
+       * не єдиний критерій. Правило точніше: чужому клієнту можна ПОСТАВИТИ
+       * точку, якщо її ще немає або вона з геокодера (здогад до міста), і не
+       * можна ПЕРЕСУНУТИ ту, яку вже поставила людина. Створення відсутніх
+       * даних безпечне — саме заради цього торговий і стоїть біля дверей;
+       * затирання чужого знання — ні.
+       */
+      if (!isGuess && !(await ownsClient(counterpartyId, session.user.id))) {
+        return NextResponse.json(
+          { error: "Точку цього клієнта вже уточнили вручну, а він не ваш" },
+          { status: 403 }
+        );
       }
     } else {
       return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
@@ -105,14 +131,6 @@ export async function PATCH(
   }
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     return NextResponse.json({ error: "Координати поза межами" }, { status: 400 });
-  }
-
-  const exists = await prisma.counterparty.findUnique({
-    where: { id: counterpartyId },
-    select: { id: true },
-  });
-  if (!exists) {
-    return NextResponse.json({ error: "Клієнта не знайдено" }, { status: 404 });
   }
 
   // Сирий SQL навмисно: оновлюємо рівно чотири колонки карти й не залежимо

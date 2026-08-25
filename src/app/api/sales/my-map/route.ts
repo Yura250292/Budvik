@@ -1,11 +1,21 @@
 /**
- * Карта торгового: його клієнти точками + маршрут на сьогодні.
+ * Карта торгового: клієнти точками + маршрут на сьогодні.
  *
  * Окремо від адмінської /api/admin/sales-analytics/client-map, бо тут інша
  * задача. Там керівник оглядає всю команду за період; тут торговий у машині
- * питає «хто поруч і до кого сьогодні». Тому вибірка вужча (тільки свої),
- * період не потрібен — стан рахується на сьогодні, — а у відповіді є те,
- * чого немає в адмінській: борг клієнта й чи уточнено пін.
+ * питає «хто поруч і до кого сьогодні». Період не потрібен — стан рахується
+ * на сьогодні, — а у відповіді є те, чого немає в адмінській: борг клієнта
+ * й чи уточнено пін.
+ *
+ * `scope=all` — уся клієнтська база, а не лише «мої». Портфель торгового
+ * визначається двома джерелами (закріплення `SalesRepClient` + документи з
+ * його ім'ям із 1С), і обидва дірчасті: закріплення заповнюється руками й
+ * покриває 504 контрагенти з 3.6 тис., а торговий на новій території не має
+ * ще жодного документа. Тому вибірка «тільки свої» давала карту на три
+ * точки, поки в керівника на тій самій території їх сотні. Своїх лишаємо
+ * прапорцем `mine` — фільтр на клієнті, а не порожня карта.
+ *
+ * Той самий підхід уже застосовано на карті водія (/api/driver/my-map).
  *
  * Стани навмисно ті самі, що в аналітиці керівника: торговий і керівник
  * мусять бачити однаковий колір на одному клієнті, інакше розмова про
@@ -37,6 +47,8 @@ const MIN_DOCS_FOR_LOST = 2;
 type Row = {
   id: string;
   name: string;
+  /** Закріплений за цим торговим або купував через нього. */
+  mine: boolean;
   address: string | null;
   lat: number | null;
   lng: number | null;
@@ -92,27 +104,42 @@ export async function GET(req: NextRequest) {
     session.user.role === "SALES" ? session.user.id : url.searchParams.get("rep") || session.user.id;
 
   const day = url.searchParams.get("day") || kyivDate(new Date());
+  const scopeAll = url.searchParams.get("scope") === "all";
 
   const [rows, route] = await Promise.all([
     prisma.$queryRaw<Row[]>`
-      WITH mine AS (
+      WITH portfolio AS (
         SELECT c.id, c.name, c.address, c."deliveryLat" AS lat, c."deliveryLng" AS lng,
                c."geoSource"::text AS "geoSource",
                COALESCE(c."receivableBalance", 0)::float AS receivable,
                (
                  COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
                  COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
-               )::float AS overdue
+               )::float AS overdue,
+               -- Предикат, який раніше різав вибірку, тепер лише позначає
+               -- «мої»: у режимі «всі» він стає фільтром на клієнті.
+               (
+                 EXISTS (SELECT 1 FROM "SalesRepClient" s
+                          WHERE s."counterpartyId" = c.id AND s."salesRepId" = ${repId})
+                 OR EXISTS (SELECT 1 FROM "SalesDocument" d
+                             WHERE d."counterpartyId" = c.id AND d."salesRepId" = ${repId})
+               ) AS mine
         FROM "Counterparty" c
         WHERE c."isActive"
+          -- Постачальник — не клієнт: на карті торгового йому нічого робити.
+          AND c.type <> 'SUPPLIER'
           AND (
-            EXISTS (SELECT 1 FROM "SalesRepClient" s
-                     WHERE s."counterpartyId" = c.id AND s."salesRepId" = ${repId})
+            ${scopeAll}
+            OR EXISTS (SELECT 1 FROM "SalesRepClient" s
+                        WHERE s."counterpartyId" = c.id AND s."salesRepId" = ${repId})
             OR EXISTS (SELECT 1 FROM "SalesDocument" d
                         WHERE d."counterpartyId" = c.id AND d."salesRepId" = ${repId})
           )
       ),
       hist AS (
+        -- Історія рахується по ВСІХ документах клієнта, не лише своїх: колір
+        -- точки має означати стан клієнта в компанії, інакше «сплячий» у
+        -- торгового й «активний» у керівника — це той самий магазин.
         SELECT s."counterpartyId",
                MIN(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "firstDocAt",
                MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastDocAt",
@@ -121,16 +148,16 @@ export async function GET(req: NextRequest) {
                  FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDays"
         FROM "SalesDocument" s
         WHERE ${SOURCE_FILTER}
-          AND s."counterpartyId" IN (SELECT id FROM mine)
+          AND s."counterpartyId" IS NOT NULL
         GROUP BY 1
       )
-      SELECT m.*,
+      SELECT p.*,
              h."firstDocAt", h."lastDocAt",
              COALESCE(h."historyDocs", 0)::int AS "historyDocs",
              COALESCE(h."historyDays", 0)::int AS "historyDays"
-      FROM mine m
-      LEFT JOIN hist h ON h."counterpartyId" = m.id
-      ORDER BY m.name
+      FROM portfolio p
+      LEFT JOIN hist h ON h."counterpartyId" = p.id
+      ORDER BY p.name
     `,
     resolveRouteForDay(repId, day),
   ]);
@@ -154,6 +181,8 @@ export async function GET(req: NextRequest) {
     receivable: number;
     overdue: number;
     daysSinceLast: number | null;
+    /** Свій клієнт: закріплений або купував через цього торгового. */
+    mine: boolean;
   };
 
   const counts: Record<string, number> = {};
@@ -170,6 +199,7 @@ export async function GET(req: NextRequest) {
       geoSource: r.geoSource,
       receivable: r.receivable,
       overdue: r.overdue,
+      mine: r.mine,
       daysSinceLast: r.lastDocAt
         ? Math.max(0, Math.floor((Date.now() - r.lastDocAt.getTime()) / DAY_MS))
         : null,
@@ -192,9 +222,12 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     day,
+    scope: scopeAll ? "all" : "mine",
     clients,
     unmapped,
     counts,
+    /** Скільки з намальованих точок — свої: підпис сегмента «Мої». */
+    mineCount: clients.filter((c) => c.mine).length,
     route: route
       ? {
           name: route.name,

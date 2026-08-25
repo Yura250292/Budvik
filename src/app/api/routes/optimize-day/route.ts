@@ -27,6 +27,7 @@ import {
   type ClientState,
 } from "@/lib/analytics/clients";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { agingByCounterparty } from "@/lib/analytics/money-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
   // Оборот і ритм покупок — з реалізацій за півроку. Один запит на всі
   // точки: по одному на клієнта означало б N+1 на кожну оптимізацію.
   const since = new Date(Date.now() - TURNOVER_MONTHS * 30 * DAY_MS);
-  const [hist, clients] = await Promise.all([
+  const [hist, clients, aging] = await Promise.all([
     prisma.$queryRaw<HistRow[]>`
       SELECT s."counterpartyId",
              COALESCE(SUM(s."totalAmount"), 0)::float AS turnover,
@@ -142,15 +143,12 @@ export async function POST(req: NextRequest) {
     `,
     prisma.counterparty.findMany({
       where: { id: { in: clientIds } },
-      select: {
-        id: true,
-        receivableBalance: true,
-        debtOverdue30: true,
-        debtOverdue60: true,
-        debtOverdue90: true,
-        debtOverdue90Plus: true,
-      },
+      select: { id: true, receivableBalance: true },
     }),
+    // Прострочку рахуємо з відвантажень, а не з полів debtOverdue*: 1С
+    // розбивку за строками не надсилає, тож ті поля порожні у всіх
+    // контрагентів — і борг у пріоритеті точки завжди виглядав свіжим.
+    agingByCounterparty(clientIds),
   ]);
 
   const histById = new Map(hist.map((h) => [h.counterpartyId, h]));
@@ -159,8 +157,7 @@ export async function POST(req: NextRequest) {
   const scored = withCoords.map((s) => {
     const c = s.counterpartyId ? clientById.get(s.counterpartyId) : undefined;
     const h = s.counterpartyId ? histById.get(s.counterpartyId) : undefined;
-    const overdue =
-      (c?.debtOverdue30 ?? 0) + (c?.debtOverdue60 ?? 0) + (c?.debtOverdue90 ?? 0) + (c?.debtOverdue90Plus ?? 0);
+    const overdue = s.counterpartyId ? (aging.get(s.counterpartyId)?.overdue ?? 0) : 0;
     const input = {
       receivable: Math.max(0, c?.receivableBalance ?? 0),
       overdue: Math.max(0, overdue),

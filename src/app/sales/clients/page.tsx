@@ -37,19 +37,16 @@ type Client = {
   address: string | null;
   receivableBalance: number | null;
   geoSource: string | null;
-  debtOverdue30: number | null;
-  debtOverdue60: number | null;
-  debtOverdue90: number | null;
-  debtOverdue90Plus: number | null;
+  /**
+   * Прострочена частина боргу, порахована на сервері.
+   *
+   * Раніше тут складались поля debtOverdue30/60/90/90Plus, але 1С розбивку
+   * за строками не надсилає — вони порожні у всіх контрагентів, і список
+   * завжди показував нуль, поки аналітика показувала реальну прострочку.
+   */
+  overdue?: number | null;
   _count?: { salesDocuments?: number };
 };
-
-/** Сума всіх прострочених кошиків. Поля можуть бути null — борг ще не синхронізовано. */
-function overdueOf(c: Client): number {
-  return (
-    (c.debtOverdue30 ?? 0) + (c.debtOverdue60 ?? 0) + (c.debtOverdue90 ?? 0) + (c.debtOverdue90Plus ?? 0)
-  );
-}
 
 function ClientsSkeleton() {
   return (
@@ -257,7 +254,7 @@ export default function ClientsPage() {
             {clients.map((c, i) => {
               const color = getColor(c.name);
               const debt = c.receivableBalance ?? 0;
-              const overdue = overdueOf(c);
+              const overdue = c.overdue ?? 0;
               // Межа між своїм портфелем і рештою бази. Підпис, а не колір:
               // у списку з двох сотень рядків відтінок нічого не пояснює.
               const boundary = scope === "all" && !c.mine && i > 0 && clients[i - 1].mine === true;

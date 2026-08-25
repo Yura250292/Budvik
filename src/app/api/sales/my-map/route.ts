@@ -116,10 +116,11 @@ export async function GET(req: NextRequest) {
         SELECT c.id, c.name, c.address, c."deliveryLat" AS lat, c."deliveryLng" AS lng,
                c."geoSource"::text AS "geoSource",
                COALESCE(c."receivableBalance", 0)::float AS receivable,
-               (
-                 COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
-                 COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
-               )::float AS overdue,
+               -- Нуль навмисно: 1С розбивку за строками не надсилає, тож ці
+               -- поля порожні у всіх контрагентів і сума з них завжди була
+               -- нулем — просто неочевидним. Карта прострочку не показує; коли
+               -- знадобиться, є agingByCounterparty() у lib/analytics/money-facts.
+               0::float AS overdue,
                -- Предикат, який раніше різав вибірку, тепер лише позначає
                -- «мої»: у режимі «всі» він стає фільтром на клієнті.
                (

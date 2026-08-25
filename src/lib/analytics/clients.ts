@@ -16,6 +16,7 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { agingByCounterparty } from "./money-facts";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
@@ -185,10 +186,10 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
       COALESCE(a."skuCount", 0)::int   AS "skuCount",
       COALESCE(a."brandCount", 0)::int AS "brandCount",
       COALESCE(c."receivableBalance", 0)::float AS receivable,
-      (
-        COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
-        COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
-      )::float AS "debtOverdue"
+      -- Прострочка домішується вже в JS: 1С не надсилає розбивку за
+      -- строками (поля debtOverdue* порожні у ВСІХ контрагентів), тож
+      -- рахуємо її з дат наших відвантажень — так само, як аналітика.
+      0::float AS "debtOverdue"
     FROM history h
     JOIN "Counterparty" c ON c.id = h."counterpartyId"
     LEFT JOIN period_docs pd ON pd."counterpartyId" = h."counterpartyId"
@@ -254,6 +255,11 @@ export async function clientPortfolio(repId: string, period: Period): Promise<Re
   let newRevenue = 0;
   let lostRevenue = 0;
 
+  // Прострочка — окремим запитом по клієнтах цього торгового. Порахувати її
+  // в тому ж SQL не вийде: вік боргу відновлюється розкладанням сальдо по
+  // датах відвантажень, а не читанням поля.
+  const aging = await agingByCounterparty(rows.map((r) => r.counterpartyId));
+
   const clients: PortfolioClient[] = rows.map((row) => {
     const state = classify(row, period);
     counts[state] += 1;
@@ -272,7 +278,7 @@ export async function clientPortfolio(repId: string, period: Period): Promise<Re
       skuCount: row.skuCount,
       brandCount: row.brandCount,
       receivable: row.receivable,
-      overdue: row.debtOverdue,
+      overdue: aging.get(row.counterpartyId)?.overdue ?? 0,
       state,
     };
   });
@@ -365,10 +371,10 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
       0::int   AS "skuCount",
       0::int   AS "brandCount",
       COALESCE(c."receivableBalance", 0)::float AS receivable,
-      (
-        COALESCE(c."debtOverdue30", 0) + COALESCE(c."debtOverdue60", 0) +
-        COALESCE(c."debtOverdue90", 0) + COALESCE(c."debtOverdue90Plus", 0)
-      )::float AS "debtOverdue",
+      -- Прострочка домішується вже в JS: 1С не надсилає розбивку за
+      -- строками (поля debtOverdue* порожні у ВСІХ контрагентів), тож
+      -- рахуємо її з дат наших відвантажень — так само, як аналітика.
+      0::float AS "debtOverdue",
       c."deliveryLat" AS lat,
       c."deliveryLng" AS lng,
       c.address       AS address,
@@ -395,6 +401,9 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
     LOST: 0,
   };
 
+  // Один запит на всіх боржників замість LATERAL на кожного з ~3000 рядків.
+  const aging = await agingByCounterparty(null);
+
   const clients = rows.map((row) => {
     const state = classify(row, period);
     counts[state] += 1;
@@ -411,7 +420,7 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
       skuCount: row.skuCount,
       brandCount: row.brandCount,
       receivable: row.receivable,
-      overdue: row.debtOverdue,
+      overdue: aging.get(row.counterpartyId)?.overdue ?? 0,
       state,
       lat: row.lat,
       lng: row.lng,

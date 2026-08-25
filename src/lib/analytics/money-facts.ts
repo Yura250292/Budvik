@@ -254,6 +254,110 @@ export async function receivableRowsByRep(
   return repId ? withAge.filter((r) => r.repId === repId) : withAge;
 }
 
+/** Прострочка одного клієнта — для екранів, що працюють зі списком клієнтів. */
+export type CounterpartyAging = {
+  /** Загальний борг за даними 1С */
+  debt: number;
+  /** Сума, що вийшла за відстрочку */
+  overdue: number;
+  /** Сума в межах відстрочки (товар ще їде або гроші заберуть наступного разу) */
+  current: number;
+  /** Вік найстарішої непогашеної частини, днів */
+  oldestDays: number;
+};
+
+/**
+ * Старіння боргу для конкретного набору клієнтів.
+ *
+ * Навіщо окремо від `receivableRowsByRep`: та функція відповідає на питання
+ * «чия це дебіторка» і задля цього тягне прив'язку до торгового по ВСІХ
+ * боржниках одразу. Карті водія, планувальнику маршруту й картці клієнта
+ * потрібне інше — прострочка кількох конкретних клієнтів, без жодного
+ * стосунку до того, хто їх веде.
+ *
+ * Головне ж: до появи цієї функції такі екрани брали розбивку з полів
+ * `debtOverdue30/60/90/90Plus`, які 1С не надсилає ЖОДНОГО разу — вони
+ * порожні у всіх контрагентів. Тому прострочка там завжди показувалась
+ * нулем, тоді як аналітика рахувала її з відвантажень і давала інше число.
+ * Два екрани про той самий борг суперечили один одному.
+ */
+export async function agingByCounterparty(
+  counterpartyIds: string[] | null,
+  now: Date = new Date()
+): Promise<Map<string, CounterpartyAging>> {
+  const result = new Map<string, CounterpartyAging>();
+  if (counterpartyIds !== null && counterpartyIds.length === 0) return result;
+
+  const hasDocType = await hasDocTypeColumn();
+
+  // Той самий вибір типу документа, що в receivableRowsByRep: замовлення й
+  // реалізація на ту саму партію подвоїли б список відвантажень, і борг
+  // виглядав би молодшим, ніж є.
+  const shipmentTypeFilter = hasDocType
+    ? Prisma.sql`AND s."docType" = (
+        SELECT CASE WHEN bool_or(s2."docType" = 'REALIZATION')
+                    THEN 'REALIZATION' ELSE 'ORDER' END::"SalesDocType"
+        FROM "SalesDocument" s2
+        WHERE s2."counterpartyId" = c.id
+          AND s2."externalId" IS NOT NULL
+          AND s2.status = 'CONFIRMED'
+      )`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      counterpartyId: string;
+      debt: number;
+      shipments: Array<{ date: string; amount: number }>;
+    }>
+  >`
+    SELECT
+      c.id                          AS "counterpartyId",
+      c."receivableBalance"::float  AS debt,
+      COALESCE(sh.shipments, '[]'::json) AS shipments
+    FROM "Counterparty" c
+    LEFT JOIN LATERAL (
+      SELECT json_agg(json_build_object('date', s."createdAt", 'amount', s."totalAmount")
+                      ORDER BY s."createdAt" DESC) AS shipments
+      FROM "SalesDocument" s
+      WHERE s."counterpartyId" = c.id
+        AND s."externalId" IS NOT NULL
+        AND s.status = 'CONFIRMED'
+        ${shipmentTypeFilter}
+    ) sh ON TRUE
+    WHERE c."receivableBalance" > 0.01
+      -- null означає «всі боржники»: списку в 3000 клієнтів дешевше взяти
+      -- одним запитом і зіставити в пам'яті, ніж робити LATERAL на кожного.
+      AND (${counterpartyIds}::text[] IS NULL OR c.id = ANY(${counterpartyIds}::text[]))
+  `;
+
+  for (const row of rows) {
+    const { aged, unknownDebt } = spreadDebtOverShipments(row.debt, row.shipments, now);
+
+    let overdue = unknownDebt; // борг без відвантажень старший за нашу історію
+    let current = 0;
+    let oldestDays = unknownDebt > 0.01 ? OLDER_THAN_HISTORY_DAYS : 0;
+
+    for (const slice of aged) {
+      if (slice.bucket === "CURRENT") current += slice.amount;
+      else overdue += slice.amount;
+      if (slice.ageDays > oldestDays) oldestDays = slice.ageDays;
+    }
+
+    result.set(row.counterpartyId, { debt: row.debt, overdue, current, oldestDays });
+  }
+
+  return result;
+}
+
+/**
+ * Вік, який приписуємо боргу без жодного відвантаження в базі.
+ *
+ * Документи є з травня, тож такий борг старший за нашу історію — і саме він
+ * найпроблемніший. Показувати його «свіжим» було б найгіршим варіантом.
+ */
+const OLDER_THAN_HISTORY_DAYS = 999;
+
 /**
  * Розкладає борг клієнта по його відвантаженнях, щоб дізнатися вік.
  *

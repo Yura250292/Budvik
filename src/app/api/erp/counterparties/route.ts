@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { agingByCounterparty } from "@/lib/analytics/money-facts";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -92,7 +93,15 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  return NextResponse.json(counterparties);
+  // Прострочка рахується тут, а не в браузері з полів debtOverdue*: 1С
+  // розбивку за строками не надсилає, і ті поля порожні у ВСІХ контрагентів,
+  // тож список клієнтів показував прострочку нулем — тоді як аналітика
+  // рахувала її з дат відвантажень і давала зовсім інше число.
+  const aging = await agingByCounterparty(counterparties.map((c) => c.id));
+
+  return NextResponse.json(
+    counterparties.map((c) => ({ ...c, overdue: aging.get(c.id)?.overdue ?? 0 }))
+  );
 }
 
 export async function POST(req: NextRequest) {

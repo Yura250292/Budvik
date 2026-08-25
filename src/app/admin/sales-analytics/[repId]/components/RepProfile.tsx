@@ -53,12 +53,19 @@ type RepResponse = {
     attainment: number;
   }>;
   trips: {
+    /** Зміни застосунку: одна зміна = один робочий день за кермом */
     count: number;
-    totalKm: number;
-    personalKm: number;
     workKm: number;
+    /** Між змінами: дорога додому й особисте, коштом торгового */
+    personalKm: number;
+    /** Скільки робочих км підтвердив трек планшета */
+    gpsKm: number;
+    /** Км зі змін без одометра — у вартість пального не входять */
+    gpsOnlyKm: number;
     checkpoints: number;
     daysWorked: number;
+    suspicious: number;
+    openShifts: number;
     kmPerCheckpoint: number;
   };
   fuel: {
@@ -197,7 +204,7 @@ export function RepProfile({
                 label="Робочі км"
                 value={num(data.trips.workKm)}
                 unit="км"
-                hint={`${data.trips.count} поїзд. / ${data.trips.daysWorked} дн.`}
+                hint={`${data.trips.count} зм. / ${data.trips.daysWorked} дн.`}
                 accent={CATEGORICAL[1]}
               />
               <StatCard
@@ -535,15 +542,25 @@ export function RepProfile({
             {/* --- Логістика --- */}
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
-                <CardHeader title="Поїздки та логістика" hint="Дані з Telegram-бота" />
+                <CardHeader
+                  title="Зміни та логістика"
+                  hint="Км — з одометра на фото при відкритті й закритті зміни"
+                />
                 <dl className="divide-y divide-g100 text-sm">
                   {[
-                    ["Поїздок", num(data.trips.count)],
+                    ["Змін", num(data.trips.count)],
                     ["Робочих днів", num(data.trips.daysWorked)],
                     ["Робочі км", `${num(data.trips.workKm)} км`],
+                    // Трек нижчий за одометр завжди: ламана між точками
+                    // коротша за дорогу. Тут він як перевірка, не як факт.
+                    ["З них за GPS", data.trips.gpsKm > 0 ? `${num(data.trips.gpsKm)} км` : "—"],
                     ["Особисті км", data.trips.personalKm > 0 ? `${num(data.trips.personalKm)} км` : "—"],
                     ["Візитів", num(data.trips.checkpoints)],
                     ["Км на точку", data.trips.kmPerCheckpoint > 0 ? num(data.trips.kmPerCheckpoint, 1) : "—"],
+                    ["Змін під питанням", data.trips.suspicious > 0 ? num(data.trips.suspicious) : "—"],
+                    // Закрито без фото: кілометри були, а порахувати їх нема з
+                    // чого. Мовчазний нуль тут гірший за видиму дірку.
+                    ["Км без одометра", data.trips.gpsOnlyKm > 0 ? `${num(data.trips.gpsOnlyKm)} км` : "—"],
                   ].map(([label, value]) => (
                     <div key={label} className="flex items-baseline justify-between gap-3 py-2">
                       <dt className="text-g600">{label}</dt>

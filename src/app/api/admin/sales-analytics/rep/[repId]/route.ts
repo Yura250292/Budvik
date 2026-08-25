@@ -13,7 +13,7 @@ import type { SalesDocType } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
-import { fuelCost, revenueByRepBrand, tripFactsByRep, SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
+import { fuelCost, revenueByRepBrand, shiftFactsByUser, NO_SHIFTS, SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
 import {
   collectedByRepBrand,
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     createdAt: { gte: period.from, lte: period.to },
   };
 
-  const [totals, byBrand, trips, vehicle, plans, documents, timeline, brands, collected, receivableRows] = await Promise.all([
+  const [totals, byBrand, shiftFacts, visits, vehicle, plans, documents, timeline, brands, collected, receivableRows] = await Promise.all([
     // Сирий SQL, а не aggregate: Prisma не вміє FILTER, а повернення не має
     // рахуватися ще одним проданим документом і псувати середній чек.
     prisma.$queryRaw<Array<{ docs: number; amount: number; average: number; returns: number }>>`
@@ -86,7 +86,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
         AND s."createdAt" >= ${period.from} AND s."createdAt" <= ${period.to}
     `,
     revenueByRepBrand(period.from, period.to, repId),
-    tripFactsByRep(period.from, period.to, repId),
+    shiftFactsByUser(period.from, period.to, repId),
+    // Візити рахуємо з відміток у планшеті: у зміні чекпоінтів немає, вона
+    // знає лише одометр. Це та сама цифра, яку торговий бачить у себе в дні.
+    prisma.visit.count({
+      where: { userId: repId, day: { gte: period.from, lte: period.to }, status: "DONE" },
+    }),
     prisma.salesVehicle.findUnique({
       where: { repId },
       select: { label: true, fuelConsumption: true, fuelPricePerL: true },
@@ -136,8 +141,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
   const collectedMoney = collectedTotals(collected).get(repId) ?? { amount: 0, profit: 0 };
   const aging = sumAging(receivableRows);
 
-  const tripFacts = trips[0] ?? { trips: 0, totalKm: 0, personalKm: 0, checkpoints: 0, daysWorked: 0 };
-  const fuel = fuelCost(tripFacts.totalKm, tripFacts.personalKm, vehicle, tripFacts.daysWorked);
+  const shifts = shiftFacts[0] ?? NO_SHIFTS;
+  const fuel = fuelCost(shifts.workKm, vehicle, shifts.daysWorked);
 
   const planByBrand = new Map(plans.map((p) => [p.brandId ?? "", p.targetValue]));
   const brandMeta = new Map(brands.map((b) => [b.id, b]));
@@ -191,13 +196,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
       .map((b) => ({ ...b, attainment: attainmentPercent("REVENUE", b.amount, b.target) }))
       .sort((a, b) => b.amount - a.amount),
     trips: {
-      count: tripFacts.trips,
-      totalKm: tripFacts.totalKm,
-      personalKm: tripFacts.personalKm,
+      /** Зміни, а не поїздки бота: одна зміна = один робочий день за кермом. */
+      count: shifts.shifts,
       workKm: fuel.workKm,
-      checkpoints: tripFacts.checkpoints,
-      daysWorked: tripFacts.daysWorked,
-      kmPerCheckpoint: tripFacts.checkpoints > 0 ? fuel.workKm / tripFacts.checkpoints : 0,
+      /** Між змінами — дорога додому й особисте, коштом працівника. */
+      personalKm: shifts.personalKm,
+      /** Скільки з робочих км підтверджено треком планшета. */
+      gpsKm: shifts.gpsKm,
+      /** Км зі змін без одометра: у вартість пального не входять. */
+      gpsOnlyKm: shifts.gpsOnlyKm,
+      checkpoints: visits,
+      daysWorked: shifts.daysWorked,
+      suspicious: shifts.suspicious,
+      openShifts: shifts.openShifts,
+      kmPerCheckpoint: visits > 0 ? fuel.workKm / visits : 0,
     },
     fuel: {
       label: vehicle?.label ?? null,

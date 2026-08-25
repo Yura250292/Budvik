@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { StatCard, money, num } from "@/components/ui/Stat";
@@ -8,15 +8,24 @@ import { TableSkeleton } from "@/components/ui/Skeleton";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Badge } from "@/components/ui/Badge";
-import { CATEGORICAL } from "@/lib/analytics/colors";
+import { CATEGORICAL, STATUS } from "@/lib/analytics/colors";
 import { TableScroll } from "@/components/ui/TableScroll";
 
 /**
- * Логістика: кілометраж із бота × норма авто × ціна пального.
+ * Логістика: кілометраж зі змін × норма авто × ціна пального.
  *
- * Особисті км (різниця між одометром на старті і кінцем попередньої поїздки)
- * у розрахунок не входять — їх торговий заправляє сам.
+ * Кілометри — з одометра на фото (Shift.distanceKm), а не з GPS: трек іде по
+ * прямій між точками й систематично занижує пробіг. GPS стоїть поруч дрібним
+ * рядком — як перевірка, а не як база розрахунку.
+ *
+ * Торгові й водії в одній таблиці: пальне палиться однаково, а два окремі
+ * екрани дали б два різні підсумки «скільки компанія витратила на дорогу».
+ *
+ * Особисті км (між кінцем однієї зміни й початком наступної) у вартість не
+ * входять: це дорога додому, і в пробіг зміни вона не потрапляє за побудовою.
  */
+
+type Role = "SALES" | "DRIVER";
 
 type FuelResponse = {
   period: { from: string; to: string; days: number };
@@ -26,6 +35,7 @@ type FuelResponse = {
   rows: Array<{
     repId: string;
     repName: string;
+    role: Role;
     label: string | null;
     hasVehicle: boolean;
     baseAddress: string | null;
@@ -43,17 +53,30 @@ type FuelResponse = {
     } | null;
     fuelConsumption: number;
     fuelPricePerL: number;
-    totalKm: number;
-    personalKm: number;
     workKm: number;
-    trips: number;
+    /** Між змінами: дорога додому й особисте. У вартість не входить. */
+    personalKm: number;
+    /** Скільки робочих км підтвердив трек — нижня межа, не рівність. */
+    gpsKm: number;
+    /** Км зі змін без одометра: у вартість не входять, але видимі. */
+    gpsOnlyKm: number;
+    shifts: number;
     daysWorked: number;
+    /** Зміни з міткою «подивись»: авто-закриті, нульові, неправдоподібні. */
+    suspicious: number;
+    /** Ще відкриті: км дорахуються після закриття з фото одометра. */
+    openShifts: number;
     liters: number;
     cost: number;
     costPerDay: number;
   }>;
+  roleTotals: Array<{ role: Role; people: number; workKm: number; liters: number; cost: number }>;
   totals: { workKm: number; liters: number; cost: number };
 };
+
+type Row = FuelResponse["rows"][number];
+
+const ROLE_TITLE: Record<Role, string> = { SALES: "Торгові", DRIVER: "Водії" };
 
 export function FuelTab({ period }: { period: Period }) {
   const { data, loading, error, reload } = useApi<FuelResponse>(
@@ -167,10 +190,225 @@ export function FuelTab({ period }: { period: Period }) {
   if (loading && !data) return <TableSkeleton rows={5} cols={6} />;
   if (!data) return null;
 
+  /** Один рядок таблиці. Винесено, бо рядки тепер згруповані по ролі. */
+  const renderRow = (r: Row) => {
+    const isEditing = editing === r.repId;
+    return (
+      <tr key={r.repId} className="hover:bg-g50">
+        <td className="px-4 py-3 font-medium text-bk">
+          {r.repName}
+          {r.shifts > 0 && (
+            <span className="ml-2 text-xs text-g400">
+              {r.shifts} зм. / {r.daysWorked} дн.
+            </span>
+          )}
+          {/* Зміна, закрита наступною, або з дивним одометром усе одно дала
+              кілометри. Приховати її означало б занизити паливо мовчки — тому
+              рахуємо, але позначаємо. */}
+          {(r.suspicious > 0 || r.openShifts > 0) && (
+            <span className="ml-1.5 inline-flex gap-1 align-middle">
+              {r.suspicious > 0 && <Badge status="warn">{r.suspicious} під питанням</Badge>}
+              {r.openShifts > 0 && <Badge status="neutral">{r.openShifts} відкрито</Badge>}
+            </span>
+          )}
+        </td>
+
+        {isEditing ? (
+          <>
+            <td className="px-4 py-2">
+              <input
+                value={form.label}
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+                placeholder="Renault Kangoo"
+                aria-label="Марка авто"
+                className="w-40 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+              />
+            </td>
+            <td className="px-4 py-2">
+              <input
+                value={form.baseAddress}
+                onChange={(e) => setForm((f) => ({ ...f, baseAddress: e.target.value }))}
+                placeholder="Стрий, вул. Шевченка 1"
+                aria-label="Адреса бази: звідки торговий виїжджає"
+                className="w-52 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+              />
+            </td>
+            <td className="px-4 py-2 text-right">
+              <input
+                type="number"
+                step={0.1}
+                min={0}
+                value={form.fuelConsumption}
+                onChange={(e) => setForm((f) => ({ ...f, fuelConsumption: e.target.value }))}
+                aria-label="Норма витрати, л/100км"
+                className="w-20 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-right text-xs tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+              />
+            </td>
+            <td className="px-4 py-2 text-right">
+              <input
+                type="number"
+                step={0.5}
+                min={0}
+                value={form.fuelPricePerL}
+                onChange={(e) => setForm((f) => ({ ...f, fuelPricePerL: e.target.value }))}
+                aria-label="Ціна пального, грн/л"
+                className="w-20 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-right text-xs tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
+              />
+            </td>
+          </>
+        ) : (
+          <>
+            <td className="px-4 py-3 text-g600">
+              {r.label ?? <span className="text-g400">не вказано</span>}
+            </td>
+            <td className="px-4 py-3 text-g600">
+              {r.baseAddress ? (
+                <>
+                  <span className="text-xs">{r.baseAddress}</span>
+                  {/* Адреса є, а координат немає: геокодер промахнувся,
+                      і подача мовчки не рахується — треба показати. */}
+                  {!r.hasBase && (
+                    <span className="ml-1.5 inline-flex items-center gap-1.5 align-middle">
+                      <Badge status="warn">не знайдено</Badge>
+                      {data.canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMessage(null);
+                            setCandidates([]);
+                            setPicker({ repId: r.repId, query: r.baseAddress ?? "" });
+                            setForm((f) => ({
+                              ...f,
+                              label: r.label ?? "",
+                              fuelConsumption: String(r.fuelConsumption),
+                              fuelPricePerL: String(r.fuelPricePerL),
+                              baseAddress: r.baseAddress ?? "",
+                            }));
+                          }}
+                          className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"
+                        >
+                          Знайти на карті
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-g400">не вказано</span>
+              )}
+
+              {/* Що показав GPS. Пропонуємо, коли бази немає або
+                  вона не знайшлася; попереджаємо, коли збережена
+                  база розійшлася з тим, звідки людина виїжджає. */}
+              {r.learnedBase && data.canEdit && (() => {
+                const lb = r.learnedBase;
+                const needsBase = !r.hasBase;
+                const moved = lb.movedM != null && lb.movedM > data.baseRadiusM;
+                if (!needsBase && !moved) return null;
+
+                return (
+                  <div className="mt-1.5 text-xs">
+                    <span className="text-g500">
+                      GPS: старт з одного місця {lb.mornings} з {lb.daysSeen} ранків
+                      {lb.spreadM > 0 && ` (розкид ${lb.spreadM} м)`}
+                      {moved && `, за ${num(lb.movedM ?? 0)} м від указаної`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => acceptLearnedBase(r.repId)}
+                      className="ml-1.5 cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk disabled:opacity-60"
+                    >
+                      {moved ? "Оновити з GPS" : "Взяти з GPS"}
+                    </button>
+                  </div>
+                );
+              })()}
+            </td>
+            <td className="px-4 py-3 text-right tabular-nums text-g600">
+              {num(r.fuelConsumption, 1)}
+              <span className="ml-1 text-xs text-g400">л</span>
+              {!r.hasVehicle && (
+                <span className="ml-1.5 inline-block align-middle">
+                  <Badge status="warn">за замовч.</Badge>
+                </span>
+              )}
+            </td>
+            <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.fuelPricePerL, 2)}</td>
+          </>
+        )}
+
+        <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">
+          {num(r.workKm)}
+          {/* Трек завжди нижчий за одометр (ламана між точками коротша за
+              дорогу). Показуємо поруч, щоб було видно кілометри, під які
+              треку немає взагалі. */}
+          {r.gpsKm > 0 && <span className="block text-xs font-normal text-g400">GPS {num(r.gpsKm)}</span>}
+          {/* Зміна закрита без фото одометра: кілометри були, а порахувати їх
+              нема з чого. Мовчазний нуль тут гірший за видиму дірку. */}
+          {r.gpsOnlyKm > 0 && (
+            <span className="block text-xs font-normal" style={{ color: STATUS.warn.fg }}>
+              {num(r.gpsOnlyKm)} км без одометра
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-right tabular-nums text-g500">
+          {r.personalKm > 0 ? num(r.personalKm) : "—"}
+        </td>
+        <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.liters, 1)}</td>
+        <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{money(r.cost)}</td>
+        <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.costPerDay)}</td>
+
+        {data.canEdit && (
+          <td className="px-4 py-3 text-right whitespace-nowrap">
+            {isEditing ? (
+              <div className="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => saveVehicle(r.repId)}
+                  disabled={busy}
+                  className="cursor-pointer rounded-[var(--radius-badge)] bg-primary px-2.5 py-1 text-xs font-semibold text-bk transition-colors hover:bg-primary-hover disabled:opacity-60"
+                >
+                  OK
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(null)}
+                  className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs text-g600 transition-colors hover:border-g300"
+                >
+                  Скасувати
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(r.repId);
+                  setForm({
+                    label: r.label ?? "",
+                    fuelConsumption: String(r.fuelConsumption),
+                    fuelPricePerL: String(r.fuelPricePerL),
+                    baseAddress: r.baseAddress ?? "",
+                  });
+                }}
+                className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"
+              >
+                Змінити
+              </button>
+            )}
+          </td>
+        )}
+      </tr>
+    );
+  };
+
   if (data.rows.length === 0) {
     return (
       <Card>
-        <EmptyState title="Немає торгових" hint="Авто заводяться користувачам із роллю SALES." />
+        <EmptyState
+          title="Немає кого рахувати"
+          hint="Авто й пальне заводяться користувачам із роллю SALES або DRIVER."
+        />
       </Card>
     );
   }
@@ -187,6 +425,21 @@ export function FuelTab({ period }: { period: Period }) {
           unit="грн/км"
         />
       </div>
+
+      {/* Роз'їзди й розвіз коштують по-різному: підсумок по ролі одразу
+          показує, чия саме дорога з'їдає бюджет. */}
+      {data.roleTotals.filter((g) => g.people > 0).length > 1 && (
+        <div className="flex flex-wrap gap-2 text-xs text-g600">
+          {data.roleTotals
+            .filter((g) => g.people > 0)
+            .map((g) => (
+              <span key={g.role} className="rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 tabular-nums">
+                <span className="font-semibold text-bk">{ROLE_TITLE[g.role]}</span> · {g.people} ·{" "}
+                {num(g.workKm)} км · {money(g.cost)} грн
+              </span>
+            ))}
+        </div>
+      )}
 
       {message && <ErrorBox message={message} />}
 
@@ -254,7 +507,7 @@ export function FuelTab({ period }: { period: Period }) {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Авто та витрати на пальне"
-            hint={`Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л. База — звідки торговий виїжджає вранці: без неї «План» у Логістиці не враховує дорогу до маршруту й назад. Адресу можна не вводити руками: планшет сам показує місце старту з точністю до ${data.baseRadiusM} м, коли кілька ранків збігаються.`}
+            hint={`Кілометри — з одометра на фото при відкритті й закритті зміни в застосунку; трек планшета показується поруч як перевірка. Формула: робочі км ÷ 100 × норма × ціна. Без авто застосовується ${data.defaults.fuelConsumption} л/100км і ${data.defaults.fuelPricePerL} грн/л. База — звідки людина виїжджає вранці: без неї «План» у Логістиці не враховує дорогу до маршруту й назад. Адресу можна не вводити руками: планшет сам показує місце старту з точністю до ${data.baseRadiusM} м, коли кілька ранків збігаються.`}
           />
         </div>
 
@@ -262,7 +515,7 @@ export function FuelTab({ period }: { period: Period }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-y border-g200 bg-g50 text-left text-xs font-medium text-g500">
-                <th className="px-4 py-2.5">Торговий</th>
+                <th className="px-4 py-2.5">Працівник</th>
                 <th className="px-4 py-2.5">Авто</th>
                 <th className="px-4 py-2.5">База (звідки виїжджає)</th>
                 <th className="px-4 py-2.5 text-right">Норма</th>
@@ -276,192 +529,34 @@ export function FuelTab({ period }: { period: Period }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-g100">
-              {data.rows.map((r) => {
-                const isEditing = editing === r.repId;
+              {data.roleTotals.map((g) => {
+                const group = data.rows.filter((r) => r.role === g.role);
+                if (group.length === 0) return null;
+
                 return (
-                  <tr key={r.repId} className="hover:bg-g50">
-                    <td className="px-4 py-3 font-medium text-bk">
-                      {r.repName}
-                      {r.trips > 0 && (
-                        <span className="ml-2 text-xs text-g400">
-                          {r.trips} поїзд. / {r.daysWorked} дн.
-                        </span>
-                      )}
-                    </td>
-
-                    {isEditing ? (
-                      <>
-                        <td className="px-4 py-2">
-                          <input
-                            value={form.label}
-                            onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-                            placeholder="Renault Kangoo"
-                            aria-label="Марка авто"
-                            className="w-40 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            value={form.baseAddress}
-                            onChange={(e) => setForm((f) => ({ ...f, baseAddress: e.target.value }))}
-                            placeholder="Стрий, вул. Шевченка 1"
-                            aria-label="Адреса бази: звідки торговий виїжджає"
-                            className="w-52 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <input
-                            type="number"
-                            step={0.1}
-                            min={0}
-                            value={form.fuelConsumption}
-                            onChange={(e) => setForm((f) => ({ ...f, fuelConsumption: e.target.value }))}
-                            aria-label="Норма витрати, л/100км"
-                            className="w-20 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-right text-xs tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <input
-                            type="number"
-                            step={0.5}
-                            min={0}
-                            value={form.fuelPricePerL}
-                            onChange={(e) => setForm((f) => ({ ...f, fuelPricePerL: e.target.value }))}
-                            aria-label="Ціна пального, грн/л"
-                            className="w-20 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-right text-xs tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
-                          />
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-4 py-3 text-g600">
-                          {r.label ?? <span className="text-g400">не вказано</span>}
-                        </td>
-                        <td className="px-4 py-3 text-g600">
-                          {r.baseAddress ? (
-                            <>
-                              <span className="text-xs">{r.baseAddress}</span>
-                              {/* Адреса є, а координат немає: геокодер промахнувся,
-                                  і подача мовчки не рахується — треба показати. */}
-                              {!r.hasBase && (
-                                <span className="ml-1.5 inline-flex items-center gap-1.5 align-middle">
-                                  <Badge status="warn">не знайдено</Badge>
-                                  {data.canEdit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setMessage(null);
-                                        setCandidates([]);
-                                        setPicker({ repId: r.repId, query: r.baseAddress ?? "" });
-                                        setForm((f) => ({
-                                          ...f,
-                                          label: r.label ?? "",
-                                          fuelConsumption: String(r.fuelConsumption),
-                                          fuelPricePerL: String(r.fuelPricePerL),
-                                          baseAddress: r.baseAddress ?? "",
-                                        }));
-                                      }}
-                                      className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"
-                                    >
-                                      Знайти на карті
-                                    </button>
-                                  )}
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-g400">не вказано</span>
-                          )}
-
-                          {/* Що показав GPS. Пропонуємо, коли бази немає або
-                              вона не знайшлася; попереджаємо, коли збережена
-                              база розійшлася з тим, звідки людина виїжджає. */}
-                          {r.learnedBase && data.canEdit && (() => {
-                            const lb = r.learnedBase;
-                            const needsBase = !r.hasBase;
-                            const moved = lb.movedM != null && lb.movedM > data.baseRadiusM;
-                            if (!needsBase && !moved) return null;
-
-                            return (
-                              <div className="mt-1.5 text-xs">
-                                <span className="text-g500">
-                                  GPS: старт з одного місця {lb.mornings} з {lb.daysSeen} ранків
-                                  {lb.spreadM > 0 && ` (розкид ${lb.spreadM} м)`}
-                                  {moved && `, за ${num(lb.movedM ?? 0)} м від указаної`}
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => acceptLearnedBase(r.repId)}
-                                  className="ml-1.5 cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-0.5 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk disabled:opacity-60"
-                                >
-                                  {moved ? "Оновити з GPS" : "Взяти з GPS"}
-                                </button>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-g600">
-                          {num(r.fuelConsumption, 1)}
-                          <span className="ml-1 text-xs text-g400">л</span>
-                          {!r.hasVehicle && (
-                            <span className="ml-1.5 inline-block align-middle">
-                              <Badge status="warn">за замовч.</Badge>
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.fuelPricePerL, 2)}</td>
-                      </>
-                    )}
-
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{num(r.workKm)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-g500">
-                      {r.personalKm > 0 ? num(r.personalKm) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-g600">{num(r.liters, 1)}</td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-bk">{money(r.cost)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.costPerDay)}</td>
-
-                    {data.canEdit && (
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {isEditing ? (
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => saveVehicle(r.repId)}
-                              disabled={busy}
-                              className="cursor-pointer rounded-[var(--radius-badge)] bg-primary px-2.5 py-1 text-xs font-semibold text-bk transition-colors hover:bg-primary-hover disabled:opacity-60"
-                            >
-                              OK
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditing(null)}
-                              className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs text-g600 transition-colors hover:border-g300"
-                            >
-                              Скасувати
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(r.repId);
-                              setForm({
-                                label: r.label ?? "",
-                                fuelConsumption: String(r.fuelConsumption),
-                                fuelPricePerL: String(r.fuelPricePerL),
-                                baseAddress: r.baseAddress ?? "",
-                              });
-                            }}
-                            className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs text-g600 transition-colors hover:border-g300 hover:text-bk"
-                          >
-                            Змінити
-                          </button>
-                        )}
+                  <Fragment key={g.role}>
+                    {/* Роль окремим рядком, а не колонкою: підсумок групи має
+                        стояти під своїми ж рядками, інакше «скільки коштує
+                        розвіз» доводиться складати очима. */}
+                    <tr className="bg-g50">
+                      <td colSpan={5} className="px-4 py-2 text-xs font-semibold text-g600">
+                        {ROLE_TITLE[g.role]}
+                        <span className="ml-1.5 font-normal text-g400">{g.people}</span>
                       </td>
-                    )}
-                  </tr>
+                      <td className="px-4 py-2 text-right text-xs font-semibold tabular-nums text-g600">
+                        {num(g.workKm)}
+                      </td>
+                      <td />
+                      <td className="px-4 py-2 text-right text-xs tabular-nums text-g600">{num(g.liters, 1)}</td>
+                      <td className="px-4 py-2 text-right text-xs font-semibold tabular-nums text-g600">
+                        {money(g.cost)}
+                      </td>
+                      <td />
+                      {data.canEdit && <td />}
+                    </tr>
+
+                    {group.map((r) => renderRow(r))}
+                  </Fragment>
                 );
               })}
             </tbody>

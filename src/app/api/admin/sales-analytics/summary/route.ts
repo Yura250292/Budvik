@@ -18,7 +18,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
-import { fuelCost, revenueByRep, tripFactsByRep } from "@/lib/analytics/facts";
+import { fuelCost, revenueByRep, shiftFactsByUser, NO_SHIFTS } from "@/lib/analytics/facts";
 import { collectedByRepBrand, collectedTotals, receivableRowsByRep, agingByRep } from "@/lib/analytics/money-facts";
 import { EMPTY_AGING } from "@/lib/erp/receivables";
 import { earningsByRep } from "@/lib/motivation/period-facts";
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
 
-  const [reps, revenue, trips, vehicles, collected, receivableRows, plans, monthRevenue] = await Promise.all([
+  const [reps, revenue, shiftFacts, vehicles, collected, receivableRows, plans, monthRevenue] = await Promise.all([
     // База рядків — усі торгові, а не лише ті, хто продавав: торговий без
     // продажів, але з дебіторкою і витратами на паливо — теж рядок, і саме
     // такий рядок найцікавіший.
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
     }),
     revenueByRep(period.from, period.to, repFilter),
-    tripFactsByRep(period.from, period.to, repFilter),
+    shiftFactsByUser(period.from, period.to, repFilter),
     prisma.salesVehicle.findMany({
       select: { repId: true, label: true, fuelConsumption: true, fuelPricePerL: true },
     }),
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
 
   const revenueByRepId = new Map(revenue.map((r) => [r.repId, r]));
   const monthRevenueByRepId = new Map(monthRevenue.map((r) => [r.repId, r.amount]));
-  const tripsByRepId = new Map(trips.map((t) => [t.repId, t]));
+  const shiftsByRepId = new Map(shiftFacts.map((f) => [f.userId, f]));
   const vehicleByRepId = new Map(vehicles.map((v) => [v.repId, v]));
   const collectedByRepId = collectedTotals(collected);
   const aging = agingByRep(receivableRows);
@@ -103,8 +103,8 @@ export async function GET(req: NextRequest) {
 
   const rows = reps.map((rep) => {
     const rev = revenueByRepId.get(rep.id);
-    const trip = tripsByRepId.get(rep.id) ?? { totalKm: 0, personalKm: 0, daysWorked: 0 };
-    const fuel = fuelCost(trip.totalKm, trip.personalKm, vehicleByRepId.get(rep.id) ?? null, trip.daysWorked);
+    const shifts = shiftsByRepId.get(rep.id) ?? NO_SHIFTS;
+    const fuel = fuelCost(shifts.workKm, vehicleByRepId.get(rep.id) ?? null, shifts.daysWorked);
     const debt = aging.get(rep.id) ?? EMPTY_AGING;
     const money = collectedByRepId.get(rep.id) ?? { amount: 0, profit: 0 };
     const target = planByRepId.get(rep.id) ?? 0;

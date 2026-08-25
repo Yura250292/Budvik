@@ -1,5 +1,5 @@
 /**
- * Факти для аналітики торгових: продажі з 1С, поїздки з бота, паливо.
+ * Факти для аналітики: продажі з 1С, зміни із застосунку, паливо.
  *
  * Живуть окремо від роутів, бо ті самі числа потрібні в трьох місцях —
  * виконання планів, профіль торгового і вкладка палива. Дублювати SQL
@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDayStart } from "@/lib/date/kyiv";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 
-/** Дефолти авто, якщо для торгового ще не заведено SalesVehicle. */
+/** Дефолти авто, якщо для працівника ще не заведено SalesVehicle. */
 export const VEHICLE_DEFAULTS = { fuelConsumption: 10, fuelPricePerL: 56 };
 
 export type RepRevenue = {
@@ -415,40 +415,88 @@ export async function skuCountByRep(from: Date, to: Date, repId?: string | null)
   `;
 }
 
-export type TripFacts = {
-  repId: string;
-  trips: number;
-  totalKm: number;
+export type ShiftFacts = {
+  userId: string;
+  /** Закриті зміни з відомим пробігом — рядки, з яких і рахується паливо. */
+  shifts: number;
+  /**
+   * Робочі кілометри: сума `Shift.distanceKm` (кінцевий одометр мінус
+   * початковий). Це вже ЧИСТО робочий пробіг — усе, що між змінами, в нього
+   * не входить за побудовою.
+   */
+  workKm: number;
+  /**
+   * Кілометри між змінами: дорога додому й особисті справи. Показуємо для
+   * ока, але з палива НЕ віднімаємо — їх там ніколи й не було.
+   */
   personalKm: number;
-  checkpoints: number;
+  /** Скільки з цього пробігу підтверджено треком планшета. */
+  gpsKm: number;
+  /**
+   * Км за GPS у змінах, де одометра немає взагалі (закрили без фото, і
+   * наступна зміна ще не підставила показання). У паливо вони НЕ входять —
+   * але й мовчки зникнути не мають, інакше день за кермом виглядає як нуль.
+   */
+  gpsOnlyKm: number;
   daysWorked: number;
+  /** Зміни з міткою «подивись»: авто-закриті, нульові, неправдоподібні. */
+  suspicious: number;
+  /** Ще відкриті: їхні км з'являться лише після закриття з фото одометра. */
+  openShifts: number;
 };
 
 /**
- * Поїздки з бота за період. Лише CLOSED: у відкритої поїздки ще немає
- * кінцевого одометра, тож distanceKm порожній і кілометраж рахувати нема з чого.
+ * Пробіг зі змін застосунку за період.
+ *
+ * Джерело — одометр на фото, а не GPS: трек іде по прямій між точками і
+ * систематично занижує пробіг (див. gpsDistanceForShift). GPS лишається
+ * поруч окремим числом — як перевірка, а не як база розрахунку.
+ *
+ * Беремо і CLOSED, і ABANDONED: забуту зміну закриває наступна, і її
+ * distanceKm — справжні кілометри, просто з міткою `odometerSuspicious`.
+ * Викидати їх означало б занижувати паливо саме тим, хто найчастіше забуває
+ * закритися.
+ *
+ * Період міряється по `startedAt`: зміна належить дню, коли її відкрили,
+ * навіть якщо закрилася вона вже за північ.
  */
-export async function tripFactsByRep(from: Date, to: Date, repId?: string | null): Promise<TripFacts[]> {
-  const repCondition = repId ? Prisma.sql`AND t."userId" = ${repId}` : Prisma.empty;
+export async function shiftFactsByUser(from: Date, to: Date, userId?: string | null): Promise<ShiftFacts[]> {
+  const userCondition = userId ? Prisma.sql`AND s."userId" = ${userId}` : Prisma.empty;
 
-  return prisma.$queryRaw<TripFacts[]>`
+  return prisma.$queryRaw<ShiftFacts[]>`
     SELECT
-      t."userId" AS "repId",
-      COUNT(*)::int AS trips,
-      COALESCE(SUM(t."distanceKm"), 0)::float AS "totalKm",
-      COALESCE(SUM(t."personalKm"), 0)::float AS "personalKm",
-      COALESCE(SUM(t."checkpointsCount"), 0)::int AS checkpoints,
-      COUNT(DISTINCT date_trunc('day', t."startedAt" AT TIME ZONE 'Europe/Kyiv'))::int AS "daysWorked"
-    FROM "SalesTrip" t
-    WHERE t.status = 'CLOSED'
-      AND t."startedAt" >= ${from} AND t."startedAt" <= ${to}
-      ${repCondition}
-    GROUP BY t."userId"
+      s."userId",
+      COUNT(*) FILTER (WHERE s."distanceKm" IS NOT NULL)::int AS shifts,
+      COALESCE(SUM(s."distanceKm"), 0)::float                 AS "workKm",
+      COALESCE(SUM(s."personalKm"), 0)::float                 AS "personalKm",
+      COALESCE(SUM(s."gpsDistanceKm"), 0)::float              AS "gpsKm",
+      COALESCE(SUM(s."gpsDistanceKm") FILTER (WHERE s."distanceKm" IS NULL), 0)::float
+                                                              AS "gpsOnlyKm",
+      COUNT(DISTINCT date_trunc('day', s."startedAt" AT TIME ZONE 'Europe/Kyiv'))
+        FILTER (WHERE s."distanceKm" IS NOT NULL)::int        AS "daysWorked",
+      COUNT(*) FILTER (WHERE s."odometerSuspicious")::int     AS suspicious,
+      COUNT(*) FILTER (WHERE s.status = 'OPEN')::int          AS "openShifts"
+    FROM "Shift" s
+    WHERE s."startedAt" >= ${from} AND s."startedAt" <= ${to}
+      ${userCondition}
+    GROUP BY s."userId"
   `;
 }
 
+/** Порожній рядок для людини, у якої за період змін не було взагалі. */
+export const NO_SHIFTS: Omit<ShiftFacts, "userId"> = {
+  shifts: 0,
+  workKm: 0,
+  personalKm: 0,
+  gpsKm: 0,
+  gpsOnlyKm: 0,
+  daysWorked: 0,
+  suspicious: 0,
+  openShifts: 0,
+};
+
 export type FuelCost = {
-  /** Робочі км (без особистих — ті коштом торгового) */
+  /** Робочі км: пробіг усередині змін */
   workKm: number;
   liters: number;
   cost: number;
@@ -462,23 +510,25 @@ export type FuelCost = {
  *
  * Без буфера на затори (на відміну від route-planner) — там план поїздки,
  * тут уже проїханий одометром кілометраж, накидати на нього нічого.
- * personalKm віднімаються: особисті км торговий заправляє сам.
+ *
+ * Особисті км тут не віднімаються, і це не забудькуватість: `workKm`
+ * приходить зі `Shift.distanceKm`, тобто з різниці одометра ВСЕРЕДИНІ зміни.
+ * Дорога додому лежить між змінами й у це число не входить.
  */
 export function fuelCost(
-  totalKm: number,
-  personalKm: number,
+  workKm: number,
   vehicle: { fuelConsumption: number; fuelPricePerL: number } | null,
   daysWorked = 0
 ): FuelCost {
   const consumption = vehicle?.fuelConsumption ?? VEHICLE_DEFAULTS.fuelConsumption;
   const price = vehicle?.fuelPricePerL ?? VEHICLE_DEFAULTS.fuelPricePerL;
 
-  const workKm = Math.max(0, totalKm - personalKm);
-  const liters = (workKm * consumption) / 100;
+  const km = Math.max(0, workKm);
+  const liters = (km * consumption) / 100;
   const cost = liters * price;
 
   return {
-    workKm,
+    workKm: km,
     liters,
     cost,
     fuelConsumption: consumption,

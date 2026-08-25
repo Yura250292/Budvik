@@ -1,9 +1,13 @@
 /**
- * Авто торгових і витрати на пальне за період.
+ * Авто працівників за кермом і витрати на пальне за період.
  *
- * Кілометраж береться з поїздок бота (SalesTrip), норма й ціна — з
- * SalesVehicle. Для торгового без заведеного авто застосовуються дефолти,
- * щоб таблиця не була порожньою до заповнення довідника.
+ * Кілометраж береться зі ЗМІН застосунку (Shift.distanceKm — одометр з фото),
+ * норма й ціна — з SalesVehicle. Для людини без заведеного авто застосовуються
+ * дефолти, щоб таблиця не була порожньою до заповнення довідника.
+ *
+ * У таблиці і торгові, і водії: пальне палиться однаково, а два різні екрани
+ * дали б два різні підсумки «скільки компанія витратила на дорогу» — і вічне
+ * питання, який із них правда. Роль лишається колонкою й підсумком по групі.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -19,11 +23,15 @@ import {
   BASE_RADIUS_M,
 } from "@/lib/track/home-base";
 import { parsePeriod } from "@/lib/analytics/period";
-import { fuelCost, tripFactsByRep, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
+import { fuelCost, shiftFactsByUser, NO_SHIFTS, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 
 export const dynamic = "force-dynamic";
 
 const EDIT_ROLES = ["ADMIN", "MANAGER"];
+
+/** Хто намотує службовий пробіг — тільки цим ролям заводять авто. */
+const DRIVING_ROLES = ["SALES", "DRIVER"] as const;
+type DrivingRole = (typeof DRIVING_ROLES)[number];
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -33,7 +41,9 @@ export async function GET(req: NextRequest) {
 
   const role = session.user.role;
   const canEdit = EDIT_ROLES.includes(role);
-  if (!canEdit && role !== "SALES") {
+  // Торговий і водій бачать лише свій рядок: власна цифра пального їм
+  // потрібна, чужа — ні.
+  if (!canEdit && !DRIVING_ROLES.includes(role as DrivingRole)) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
@@ -41,10 +51,12 @@ export async function GET(req: NextRequest) {
   const period = parsePeriod(searchParams);
   const repScope = canEdit ? null : session.user.id;
 
-  const [reps, vehicles, trips] = await Promise.all([
+  const [reps, vehicles, shifts] = await Promise.all([
     prisma.user.findMany({
-      where: { role: "SALES", ...(repScope ? { id: repScope } : {}) },
-      select: { id: true, name: true },
+      where: { role: { in: [...DRIVING_ROLES] }, ...(repScope ? { id: repScope } : {}) },
+      select: { id: true, name: true, role: true },
+      // Порядок ролей задає таблиця (див. roleTotals); тут лише імена за
+      // абеткою, щоб рядки не стрибали між запитами.
       orderBy: { name: "asc" },
     }),
     prisma.salesVehicle.findMany({
@@ -59,26 +71,27 @@ export async function GET(req: NextRequest) {
         baseLng: true,
       },
     }),
-    tripFactsByRep(period.from, period.to, repScope),
+    shiftFactsByUser(period.from, period.to, repScope),
   ]);
 
   const vehicleByRep = new Map(vehicles.map((v) => [v.repId, v]));
-  const tripsByRep = new Map(trips.map((t) => [t.repId, t]));
+  const shiftsByUser = new Map(shifts.map((f) => [f.userId, f]));
 
   // Звідки людина СПРАВДІ виїжджає — з треку планшета. Незалежно від того,
   // що введено руками: адресу могли не знайти, а могли й не оновити після
-  // переїзду. Один запит на всіх, не по одному на торгового.
+  // переїзду. Один запит на всіх, не по одному на людину.
   const learnedBases = await learnHomeBases(reps.map((r) => r.id));
 
   const rows = reps.map((rep) => {
     const vehicle = vehicleByRep.get(rep.id) ?? null;
-    const t = tripsByRep.get(rep.id);
-    const fuel = fuelCost(t?.totalKm ?? 0, t?.personalKm ?? 0, vehicle, t?.daysWorked ?? 0);
+    const f = shiftsByUser.get(rep.id) ?? NO_SHIFTS;
+    const fuel = fuelCost(f.workKm, vehicle, f.daysWorked);
     const learned = learnedBases.get(rep.id) ?? null;
 
     return {
       repId: rep.id,
       repName: rep.name,
+      role: rep.role,
       label: vehicle?.label ?? null,
       hasVehicle: !!vehicle,
       baseAddress: vehicle?.baseAddress ?? null,
@@ -102,14 +115,35 @@ export async function GET(req: NextRequest) {
         : null,
       fuelConsumption: fuel.fuelConsumption,
       fuelPricePerL: fuel.fuelPricePerL,
-      totalKm: t?.totalKm ?? 0,
-      personalKm: t?.personalKm ?? 0,
       workKm: fuel.workKm,
-      trips: t?.trips ?? 0,
-      daysWorked: t?.daysWorked ?? 0,
+      /** Між змінами: дорога додому й особисте. У вартість не входить. */
+      personalKm: f.personalKm,
+      /** Скільки робочих км підтвердив трек — нижня межа, не рівність. */
+      gpsKm: f.gpsKm,
+      /** Км зі змін без одометра: у вартість не входять, але видимі. */
+      gpsOnlyKm: f.gpsOnlyKm,
+      shifts: f.shifts,
+      daysWorked: f.daysWorked,
+      /** Зміни з міткою «подивись»: авто-закриті, нульові, неправдоподібні. */
+      suspicious: f.suspicious,
+      /** Ще відкриті: їхні км дорахуються після закриття з фото одометра. */
+      openShifts: f.openShifts,
       liters: fuel.liters,
       cost: fuel.cost,
       costPerDay: fuel.costPerDay,
+    };
+  });
+
+  // Підсумок по ролі: скільки з'їдають роз'їзди торгових, а скільки — розвіз.
+  // Одне число на всіх ховало б різницю, заради якої цю таблицю й дивляться.
+  const roleTotals = DRIVING_ROLES.map((r) => {
+    const group = rows.filter((row) => row.role === r);
+    return {
+      role: r,
+      people: group.length,
+      workKm: group.reduce((s, row) => s + row.workKm, 0),
+      liters: group.reduce((s, row) => s + row.liters, 0),
+      cost: group.reduce((s, row) => s + row.cost, 0),
     };
   });
 
@@ -119,6 +153,7 @@ export async function GET(req: NextRequest) {
     defaults: VEHICLE_DEFAULTS,
     baseRadiusM: BASE_RADIUS_M,
     rows,
+    roleTotals,
     totals: {
       workKm: rows.reduce((s, r) => s + r.workKm, 0),
       liters: rows.reduce((s, r) => s + r.liters, 0),
@@ -150,8 +185,8 @@ export async function POST(req: NextRequest) {
     where: { id: body.repId },
     select: { role: true },
   });
-  if (!rep || rep.role !== "SALES") {
-    return NextResponse.json({ error: "Користувач не є торговим" }, { status: 400 });
+  if (!rep || !DRIVING_ROLES.includes(rep.role as DrivingRole)) {
+    return NextResponse.json({ error: "Авто заводиться торговому або водію" }, { status: 400 });
   }
 
   const learned = await learnHomeBase(body.repId);
@@ -227,8 +262,8 @@ export async function PUT(req: NextRequest) {
   }
 
   const rep = await prisma.user.findUnique({ where: { id: body.repId }, select: { role: true } });
-  if (!rep || rep.role !== "SALES") {
-    return NextResponse.json({ error: "Користувач не є торговим" }, { status: 400 });
+  if (!rep || !DRIVING_ROLES.includes(rep.role as DrivingRole)) {
+    return NextResponse.json({ error: "Авто заводиться торговому або водію" }, { status: 400 });
   }
 
   const label = body.label?.trim() || null;

@@ -27,9 +27,10 @@ type FuelResponse = {
   rows: Array<{
     repId: string;
     repName: string;
-    totalKm: number;
+    /** Роут віддає ще й водіїв — у цій вкладці вони зайві (див. нижче). */
+    role: "SALES" | "DRIVER";
     workKm: number;
-    trips: number;
+    shifts: number;
     daysWorked: number;
     cost: number;
   }>;
@@ -73,14 +74,17 @@ export function RepsTab({ period }: { period: Period }) {
     }
 
     // Торговий міг їздити, але не мати зіставлених продажів — його теж показуємо.
+    // Водіїв відсіюємо: пальне їм рахується тим самим роутом, але ця вкладка
+    // про продажі, і рядок без обороту тут лише плутав би підсумки.
     for (const f of fuel.data?.rows ?? []) {
+      if (f.role !== "SALES") continue;
       const existing = byId.get(f.repId);
       if (existing) {
         existing.km = f.workKm;
-        existing.trips = f.trips;
+        existing.trips = f.shifts;
         existing.days = f.daysWorked;
         existing.fuelCost = f.cost;
-      } else if (f.trips > 0) {
+      } else if (f.shifts > 0) {
         byId.set(f.repId, {
           id: f.repId,
           name: f.repName,
@@ -91,7 +95,7 @@ export function RepsTab({ period }: { period: Period }) {
           profit: 0,
           costedAmount: 0,
           km: f.workKm,
-          trips: f.trips,
+          trips: f.shifts,
           days: f.daysWorked,
           fuelCost: f.cost,
           attainment: 0,
@@ -136,7 +140,7 @@ export function RepsTab({ period }: { period: Period }) {
       <Card>
         <EmptyState
           title="Немає даних по торгових за період"
-          hint="Продажі надходять із 1С, поїздки — з Telegram-бота. Якщо порожньо в обох, перевірте період."
+          hint="Продажі надходять із 1С, кілометри — зі змін у застосунку. Якщо порожньо в обох, перевірте період."
         />
       </Card>
     );
@@ -189,7 +193,7 @@ export function RepsTab({ period }: { period: Period }) {
                   <span className="font-medium text-bk">{r.name}</span>
                   {r.trips > 0 && (
                     <span className="ml-2 text-xs text-g400">
-                      {r.trips} поїзд. / {r.days} дн.
+                      {r.trips} зм. / {r.days} дн.
                     </span>
                   )}
                 </td>

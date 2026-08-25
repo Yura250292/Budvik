@@ -60,6 +60,23 @@ export type LookupResult =
   | { match: "qr" | "sku" | "barcode"; product: CardDto }
   | { match: "none"; code: string; fallback: CardDto[] };
 
+/**
+ * Куди веде вхід.
+ *
+ * "shop" — покупець, далі нативні екрани магазину.
+ * "track" — працівник; його кабінет живе на сайті, і застосунок відкриває
+ * його у WebView за адресою target.
+ */
+export type LoginScope = "shop" | "track";
+
+export type LoginResult = {
+  token: string;
+  scope: LoginScope;
+  /** Домівка працівника на сайті ("/sales", "/driver", "/admin"). У покупця null. */
+  target: string | null;
+  user: AppUser;
+};
+
 export type AppUser = {
   id: string;
   name: string;

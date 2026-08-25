@@ -14,6 +14,12 @@ import * as LocalAuthentication from "expo-local-authentication";
 
 const TOKEN_KEY = "budvik_token";
 const BIOMETRIC_KEY = "budvik_biometric";
+/**
+ * Область токена лежить поруч із ним, а не виводиться з ролі на клієнті:
+ * рішення про область ухвалює сервер у місці видачі, і застосунок не має
+ * права його переоцінювати.
+ */
+const SCOPE_KEY = "budvik_scope";
 
 /**
  * Копія в памʼяті — обовʼязкова, а не оптимізація.
@@ -36,6 +42,15 @@ export async function isBiometricAvailable(): Promise<boolean> {
     LocalAuthentication.isEnrolledAsync(),
   ]);
   return hardware && enrolled;
+}
+
+export async function getScope(): Promise<"shop" | "track" | null> {
+  const v = await SecureStore.getItemAsync(SCOPE_KEY).catch(() => null);
+  return v === "shop" || v === "track" ? v : null;
+}
+
+export async function setScope(scope: "shop" | "track"): Promise<void> {
+  await SecureStore.setItemAsync(SCOPE_KEY, scope);
 }
 
 export async function setToken(token: string, biometric = false): Promise<void> {
@@ -70,6 +85,7 @@ export async function clearToken(): Promise<void> {
   cached = null;
   loaded = true;
   await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+  await SecureStore.deleteItemAsync(SCOPE_KEY).catch(() => {});
 }
 
 /**

@@ -7,7 +7,9 @@
  */
 
 import { getToken, clearToken } from "@/lib/auth-store";
-import type { CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig } from "./types";
+import type {
+  CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig, LoginResult,
+} from "./types";
 
 /**
  * Куди ходити.
@@ -85,7 +87,7 @@ export const api = {
   lookup: (code: string) => request<LookupResult>(`/lookup?code=${encodeURIComponent(code)}`),
 
   login: (email: string, password: string, deviceName?: string) =>
-    request<{ token: string; user: AppUser }>("/auth/login", {
+    request<LoginResult>("/auth/login", {
       method: "POST",
       body: { email, password, deviceName },
       anonymous: true,

@@ -154,6 +154,7 @@ export default function RootLayout() {
             <Stack.Screen name="brand/[slug]" options={{ title: "Бренд" }} />
             <Stack.Screen name="wishlist" options={{ title: "Обране" }} />
             <Stack.Screen name="orders/index" options={{ title: "Мої замовлення" }} />
+            <Stack.Screen name="cabinet" options={{ title: "Кабінет" }} />
             <Stack.Screen name="checkout" options={{ title: "Оформлення" }} />
             <Stack.Screen name="scan" options={{ title: "Сканер", presentation: "modal" }} />
           </Stack>

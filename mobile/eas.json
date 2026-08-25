@@ -7,7 +7,9 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://www.budvik27.com"
       }
@@ -25,6 +27,27 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://www.budvik27.com"
+      }
+    },
+    "staff": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.budvik27.com",
+        "APP_FLAVOR": "staff"
+      }
+    },
+    "staff-development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.budvik27.com",
+        "APP_FLAVOR": "staff"
       }
     }
   },

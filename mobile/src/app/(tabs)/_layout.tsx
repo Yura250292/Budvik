@@ -5,11 +5,33 @@
  * Кабінет): людина, яка ходила на вітрину з телефона, має знайти все там само.
  */
 
-import { Tabs } from "expo-router";
+import { useEffect, useState } from "react";
+import { Tabs, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { getScope } from "@/lib/auth-store";
+import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { colors } from "@/theme";
 
 export default function TabsLayout() {
+  /**
+   * Працівник не має бачити вітрину на холодному старті.
+   *
+   * Область токена вирішена ще при вході й лежить поруч із ним. Перевіряємо її
+   * тут, до відмальовки вкладок: інакше торговий на секунду бачив би магазин,
+   * а потім екран стрибав би в кабінет.
+   *
+   * Куди саме вести — вирішує сервер за роллю (lib/app/role-target.ts), тож
+   * адресу тут не передаємо: одне правило на всі входи.
+   */
+  const [scope, setScope] = useState<"shop" | "track" | null | undefined>(undefined);
+
+  useEffect(() => {
+    getScope().then(setScope);
+  }, []);
+
+  if (scope === undefined) return null;
+  if (scope === "track" && IS_STAFF_BUILD) return <Redirect href="/cabinet" />;
+
   return (
     <Tabs
       screenOptions={{

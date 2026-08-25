@@ -14,7 +14,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, ApiError } from "@/api/client";
 import {
-  getToken, setToken, clearToken, isBiometricEnabled, isBiometricAvailable, setBiometric,
+  getToken, setToken, clearToken, setScope, isBiometricEnabled, isBiometricAvailable, setBiometric,
 } from "@/lib/auth-store";
 import { registerForPush, unregisterPush } from "@/lib/push";
 import { colors, space, radius, formatUAH } from "@/theme";
@@ -60,11 +60,38 @@ export default function AccountScreen() {
   async function submit() {
     setBusy(true);
     try {
-      const res =
-        mode === "login"
-          ? await api.login(email.trim(), password)
-          : await api.register({ email: email.trim(), password, name: name.trim(), phone });
+      if (mode === "login") {
+        const res = await api.login(email.trim(), password);
+        await setToken(res.token);
+        await setScope(res.scope);
+        setPassword("");
+
+        /**
+         * Працівник — не в магазин.
+         *
+         * Область ухвалює сервер у місці видачі токена, і застосунок її не
+         * переоцінює. Track-токен усі роути /api/v1/* відхиляють, тож без
+         * цього розведення торговий побачив би порожній магазин і вирішив,
+         * що застосунок зламався.
+         */
+        if (res.scope === "track") {
+          router.replace({ pathname: "/cabinet", params: { target: res.target ?? "/sales" } });
+          return;
+        }
+
+        await load();
+        registerForPush().catch(() => {});
+        return;
+      }
+
+      const res = await api.register({
+        email: email.trim(),
+        password,
+        name: name.trim(),
+        phone,
+      });
       await setToken(res.token);
+      await setScope("shop");
       setPassword("");
       await load();
 

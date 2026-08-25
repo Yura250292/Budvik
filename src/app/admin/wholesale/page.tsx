@@ -32,9 +32,27 @@ interface BrandDiscount {
   discount: number;
 }
 
+/** Бренд у вкладці «Роздріб з опту» (див. /api/admin/wholesale/markup). */
+interface BrandMarkup {
+  id: string;
+  name: string;
+  retailMarkup: number | null;
+  /** Товарів, чия ціна вже розрахована з опту. */
+  derivedCount: number;
+  /** У наявності, без ціни, але з оптом — підхопить наступний прогін 1С. */
+  pendingCount: number;
+}
+
+interface MarkupPayload {
+  defaultMarkup: number;
+  min: number;
+  max: number;
+  brands: BrandMarkup[];
+}
+
 export default function AdminWholesalePage() {
   const { data: session } = useSession();
-  const [tab, setTab] = useState<"applications" | "discounts">("applications");
+  const [tab, setTab] = useState<"applications" | "discounts" | "markup">("applications");
   const [applications, setApplications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
@@ -49,7 +67,60 @@ export default function AdminWholesalePage() {
   const [discountSaving, setDiscountSaving] = useState(false);
   const [discountError, setDiscountError] = useState("");
 
+  // Retail-from-wholesale markup state
+  const [markup, setMarkup] = useState<MarkupPayload | null>(null);
+  const [markupDraft, setMarkupDraft] = useState<Record<string, string>>({});
+  const [markupSaving, setMarkupSaving] = useState<string | null>(null);
+  const [markupError, setMarkupError] = useState("");
+  const [markupNotice, setMarkupNotice] = useState("");
+
   const role = (session?.user as any)?.role;
+
+  useEffect(() => {
+    if (role !== "ADMIN" && role !== "MANAGER") return;
+    fetch("/api/admin/wholesale/markup")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && Array.isArray(data.brands)) setMarkup(data);
+      })
+      .catch(() => {});
+  }, [role]);
+
+  const saveMarkup = async (brand: BrandMarkup) => {
+    if (!markup) return;
+    const raw = (markupDraft[brand.id] ?? "").trim().replace(",", ".");
+    const value = raw === "" ? null : Number(raw);
+    if (value !== null && (!Number.isFinite(value) || value < markup.min || value > markup.max)) {
+      setMarkupError(`Коефіцієнт має бути числом від ${markup.min} до ${markup.max}, або порожнім — тоді діє загальний ${markup.defaultMarkup}`);
+      return;
+    }
+    setMarkupSaving(brand.id);
+    setMarkupError("");
+    setMarkupNotice("");
+    const res = await fetch("/api/admin/wholesale/markup", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId: brand.id, retailMarkup: value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setMarkupSaving(null);
+    if (!res.ok) {
+      setMarkupError(data.error || "Не вдалося зберегти");
+      return;
+    }
+    setMarkup({
+      ...markup,
+      brands: markup.brands.map((b) => (b.id === brand.id ? { ...b, retailMarkup: value } : b)),
+    });
+    setMarkupDraft((d) => {
+      const next = { ...d };
+      delete next[brand.id];
+      return next;
+    });
+    setMarkupNotice(
+      `${brand.name}: коефіцієнт ${value ?? `загальний ${markup.defaultMarkup}`}, перераховано ${data.recomputed ?? 0} цін`
+    );
+  };
 
   useEffect(() => {
     if (role !== "ADMIN" && role !== "MANAGER" && role !== "SALES") return;
@@ -185,6 +256,23 @@ export default function AdminWholesalePage() {
             {discounts.length}
           </span>
         </button>
+        {(role === "ADMIN" || role === "MANAGER") && (
+          <button
+            onClick={() => setTab("markup")}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition ${
+              tab === "markup"
+                ? "border-primary text-primary"
+                : "border-transparent text-g400 hover:text-g600 hover:border-g300"
+            }`}
+          >
+            Роздріб з опту
+            {markup && (
+              <span className="ml-2 bg-g100 text-g500 text-xs px-2 py-0.5 rounded-full">
+                {markup.brands.reduce((n, b) => n + b.derivedCount + b.pendingCount, 0)}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* ========== APPLICATIONS TAB ========== */}
@@ -409,6 +497,99 @@ export default function AdminWholesalePage() {
                       )}
                     </tr>
                   ))}
+                </tbody>
+              </table>
+              </TableScroll>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ========== MARKUP TAB ========== */}
+      {tab === "markup" && (
+        <div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-sm text-blue-800">
+            У частини брендів (TOTAL, POLAX) в 1С немає роздрібної ціни «6.МАГАЗИНИ» — лише опт.
+            Для таких товарів сайт рахує роздріб сам: <span className="font-medium">опт × коефіцієнт</span>, округлено до гривні.
+            Порожнє поле — діє загальний коефіцієнт <span className="font-medium">{markup?.defaultMarkup ?? "1.3"}</span>.
+            Щойно в 1С зʼявиться справжній роздріб, він автоматично замінить розрахунковий.
+            Зміна коефіцієнта перераховує ціни одразу.
+          </div>
+
+          {markupError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-2 mb-3 text-sm">{markupError}</div>
+          )}
+          {markupNotice && (
+            <div className="bg-green-50 border border-green-200 text-green-800 rounded-lg p-2 mb-3 text-sm">{markupNotice}</div>
+          )}
+
+          {!markup ? (
+            <div className="animate-pulse space-y-3">
+              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-g200 rounded"></div>)}
+            </div>
+          ) : (
+            <div className="bg-white border rounded-xl overflow-hidden">
+              <TableScroll stickyHeader minWidth={640}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-g50 border-b">
+                    <th className="text-left px-5 py-3 font-medium text-g600">Бренд</th>
+                    <th className="text-center px-5 py-3 font-medium text-g600">Коефіцієнт</th>
+                    <th className="text-center px-5 py-3 font-medium text-g600">Приклад</th>
+                    <th className="text-center px-5 py-3 font-medium text-g600">Розрахункових цін</th>
+                    <th className="text-center px-5 py-3 font-medium text-g600">Чекають ціни</th>
+                    {role === "ADMIN" && <th className="text-right px-5 py-3 font-medium text-g600">Дії</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...markup.brands]
+                    .sort((a, b) => (b.derivedCount + b.pendingCount) - (a.derivedCount + a.pendingCount) || a.name.localeCompare(b.name))
+                    .map((b) => {
+                      const draft = markupDraft[b.id];
+                      const shown = draft !== undefined ? draft : b.retailMarkup !== null ? String(b.retailMarkup) : "";
+                      const parsed = Number(shown.replace(",", "."));
+                      const k = shown.trim() !== "" && Number.isFinite(parsed) && parsed > 0 ? parsed : markup.defaultMarkup;
+                      const dirty = draft !== undefined && draft !== (b.retailMarkup !== null ? String(b.retailMarkup) : "");
+                      const affected = b.derivedCount + b.pendingCount;
+                      return (
+                        <tr key={b.id} className={`border-b last:border-0 hover:bg-g50 ${affected === 0 ? "text-g400" : ""}`}>
+                          <td className="px-5 py-3 font-semibold text-bk">{b.name}</td>
+                          <td className="px-5 py-3 text-center">
+                            {role === "ADMIN" ? (
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={shown}
+                                placeholder={String(markup.defaultMarkup)}
+                                onChange={(e) => setMarkupDraft((d) => ({ ...d, [b.id]: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveMarkup(b); }}
+                                className="w-24 border border-g300 rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary"
+                              />
+                            ) : (
+                              <span className="bg-primary/10 text-primary-dark px-3 py-1 rounded-full font-medium">
+                                ×{b.retailMarkup ?? markup.defaultMarkup}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-center text-g400">
+                            опт 100 грн &rarr;{" "}
+                            <span className="text-primary-dark font-medium">{Math.round(100 * k)} грн</span>
+                          </td>
+                          <td className="px-5 py-3 text-center">{b.derivedCount || "—"}</td>
+                          <td className="px-5 py-3 text-center">{b.pendingCount || "—"}</td>
+                          {role === "ADMIN" && (
+                            <td className="px-5 py-3 text-right">
+                              <button
+                                onClick={() => saveMarkup(b)}
+                                disabled={!dirty || markupSaving === b.id}
+                                className="btn-primary px-4 py-1.5 text-sm font-medium disabled:opacity-40 transition"
+                              >
+                                {markupSaving === b.id ? "..." : "Зберегти"}
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
               </TableScroll>

@@ -29,6 +29,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { deriveRetailPrice } from "@/lib/pricing/retail-markup";
 import type { PriceRecord } from "./types";
 import { ApplyContext } from "./context";
 
@@ -78,7 +79,10 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
 
   const products = await prisma.product.findMany({
     where: { externalId: { in: externalIds } },
-    select: { id: true, externalId: true, sku: true, name: true, price: true, wholesalePrice: true },
+    select: {
+      id: true, externalId: true, sku: true, name: true, price: true, wholesalePrice: true,
+      priceDerived: true, brand: { select: { retailMarkup: true } },
+    },
   });
   const byExternalId = new Map(products.map((p) => [p.externalId!, p]));
 
@@ -103,15 +107,18 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
       continue;
     }
 
-    const updates: Record<string, number> = {};
+    const updates: { price?: number; wholesalePrice?: number; priceDerived?: boolean } = {};
 
     if (rec.retail !== undefined && Number.isFinite(rec.retail)) {
+      // Розрахункова ціна — не облікова: справжній роздріб із 1С приймаємо без
+      // запобіжника, бо порівнювати його з нашою ж оцінкою нема сенсу.
+      const oldPrice = product.priceDerived ? 0 : product.price || 0;
       if (Math.abs((product.price || 0) - rec.retail) > PRICE_EPSILON) {
         const entityRef = product.sku || rec.externalId;
         // Підвищення не тримаємо ніколи: поки ми його тримаємо, сайт продає
         // дешевше за облік.
-        const isIncrease = rec.retail > (product.price || 0);
-        const suspicious = !isIncrease && isSuspicious(product.price || 0, rec.retail);
+        const isIncrease = rec.retail > oldPrice;
+        const suspicious = !isIncrease && isSuspicious(oldPrice, rec.retail);
         // Підозріле здешевлення приймаємо з другого разу: 1С повторила ту саму
         // ціну наступної доби — отже, це не промах оператора.
         const confirmed = suspicious && (await confirmedEarlier(entityRef, String(rec.retail)));
@@ -153,21 +160,43 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
       }
     }
 
-    if (rec.wholesale !== undefined && Number.isFinite(rec.wholesale)) {
+    const hasRetail = rec.retail !== undefined && Number.isFinite(rec.retail);
+    const hasWholesale = rec.wholesale !== undefined && Number.isFinite(rec.wholesale);
+
+    if (hasRetail && product.priceDerived) {
+      // В 1С нарешті зʼявився справжній роздріб — він витісняє розрахунковий.
+      updates.priceDerived = false;
+    }
+
+    /**
+     * Роздріб з опту. Агент шле товар з усіма його цінами разом, тож «є опт,
+     * немає роздрібу» означає саме «в 1С немає 6.МАГАЗИНИ», а не «роздріб
+     * не змінювався». Рахуємо лише там, де ціни немає або вона вже
+     * розрахункова: ціну, яку хтось поставив руками, опт не перебиває.
+     */
+    if (!hasRetail && hasWholesale && (product.priceDerived || !(product.price > 0))) {
+      const derived = deriveRetailPrice(rec.wholesale!, product.brand?.retailMarkup);
+      if (derived > 0 && Math.abs((product.price || 0) - derived) > PRICE_EPSILON) {
+        ctx.discrepancy({
+          entityType: "product",
+          entityRef: product.sku || rec.externalId,
+          entityName: product.name,
+          field: "price_derived",
+          value1C: `опт ${rec.wholesale} → ${derived}`,
+          valueBudvik: String(product.price),
+        });
+        updates.price = derived;
+        updates.priceDerived = true;
+      }
+    }
+
+    // Опт з 1С приймаємо як є: значення, що були в цьому полі досі, — залишки
+    // старого імпорту невідомого походження, тож «стрибок у 5 разів» проти
+    // них нічого не означає. На вітрину опт не йде (див. wholesale-price-calc.ts).
+    if (hasWholesale) {
       const current = product.wholesalePrice ?? 0;
-      if (Math.abs(current - rec.wholesale) > PRICE_EPSILON) {
-        if (isSuspicious(current, rec.wholesale)) {
-          ctx.discrepancy({
-            entityType: "product",
-            entityRef: product.sku || rec.externalId,
-            entityName: product.name,
-            field: "wholesalePrice_rejected",
-            value1C: String(rec.wholesale),
-            valueBudvik: String(product.wholesalePrice ?? "—"),
-          });
-        } else {
-          updates.wholesalePrice = rec.wholesale;
-        }
+      if (Math.abs(current - rec.wholesale!) > PRICE_EPSILON) {
+        updates.wholesalePrice = rec.wholesale!;
       }
     }
 

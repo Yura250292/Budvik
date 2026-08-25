@@ -382,6 +382,9 @@ model Product {
   description    String
   price          Float
   wholesalePrice Float?
+  /// Роздріб не з 1С, а розрахований з опту (× Brand.retailMarkup): у 1С для
+  /// цього товару немає ціни «6.МАГАЗИНИ». Скидається, щойно вона зʼявиться.
+  priceDerived   Boolean @default(false)
   image          String?
   stock          Int      @default(0)
   isActive       Boolean  @default(true)
@@ -1654,6 +1657,11 @@ model Brand {
   matchPatterns String[] @default([])
 
   externalId String? @unique // Ref_Key з 1С, якщо бренд там ведеться
+
+  /// Коефіцієнт «роздріб = опт × k» для товарів, у яких в 1С немає
+  /// роздрібної ціни (TOTAL, POLAX заведені лише як «4.ОПТ»). null —
+  /// загальний DEFAULT_RETAIL_MARKUP (src/lib/pricing/retail-markup.ts).
+  retailMarkup Float?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

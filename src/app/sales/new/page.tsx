@@ -95,7 +95,7 @@ function NewOrderContent() {
         stock: product.stock || 0,
         image: product.image || null,
         basePrice: product.price,
-        purchasePrice: product.purchasePrice || product.wholesalePrice || 0,
+        purchasePrice: product.purchasePrice || 0,
         sellingPrice: product.price,
         quantity: pack,
         packQty: product.packQty ?? null,
@@ -242,8 +242,8 @@ function NewOrderContent() {
                   </div>
                   <div className="text-right flex-shrink-0" style={{ marginLeft: "8px" }}>
                     <p style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{formatPrice(p.price)}</p>
-                    {(p.purchasePrice > 0 || p.wholesalePrice > 0) && (
-                      <p style={{ fontSize: "11px", color: "#6B7280", whiteSpace: "nowrap" }}>вхід: {formatPrice(p.purchasePrice || p.wholesalePrice)}</p>
+                    {p.purchasePrice > 0 && (
+                      <p style={{ fontSize: "11px", color: "#6B7280", whiteSpace: "nowrap" }}>вхід: {formatPrice(p.purchasePrice)}</p>
                     )}
                   </div>
                 </button>

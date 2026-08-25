@@ -801,32 +801,30 @@ try {
         # Best-effort like debt and payments below: losing addresses is far
         # better than losing the catalogue they belong to.
         $contacts = @{}
-        if ($config.scope.counterparties) {
-            Log "reading contact info..."
-            try {
-                $r = RunQuery $queries.contactInfo
-                $ciRows = 0
-                while ($r.Next()) {
-                    $obj = RefId $ib $r.Get(0)
-                    if (-not $obj) { continue }
-                    $vid = Str $r.Get(1)
-                    $val = Str $r.Get(2)
-                    if (-not $vid -or -not $val) { continue }
-                    if (-not $contacts.ContainsKey($obj)) { $contacts[$obj] = @{} }
-                    # First value of a kind wins: the register may hold several
-                    # rows of the same kind and we want a stable pick, not the
-                    # last one the query happened to return.
-                    if (-not $contacts[$obj].ContainsKey($vid)) { $contacts[$obj][$vid] = $val }
-                    $ciRows++
-                }
-                $stats.contactRows = $ciRows
-                Log ("contact info: {0} rows for {1} counterparties" -f $ciRows, $contacts.Count)
+        Log "reading contact info..."
+        try {
+            $r = RunQuery $queries.contactInfo
+            $ciRows = 0
+            while ($r.Next()) {
+                $obj = RefId $ib $r.Get(0)
+                if (-not $obj) { continue }
+                $vid = Str $r.Get(1)
+                $val = Str $r.Get(2)
+                if (-not $vid -or -not $val) { continue }
+                if (-not $contacts.ContainsKey($obj)) { $contacts[$obj] = @{} }
+                # First value of a kind wins: the register may hold several rows
+                # of the same kind and we want a stable pick, not the last one
+                # the query happened to return.
+                if (-not $contacts[$obj].ContainsKey($vid)) { $contacts[$obj][$vid] = $val }
+                $ciRows++
             }
-            catch {
-                if (IsConnectionLost $_) { throw }
-                $stats.contactsFailed = $_.Exception.Message
-                Log ("contact info: SKIPPED -- " + $_.Exception.Message)
-            }
+            $stats.contactRows = $ciRows
+            Log ("contact info: {0} rows for {1} counterparties" -f $ciRows, $contacts.Count)
+        }
+        catch {
+            if (IsConnectionLost $_) { throw }
+            $stats.contactsFailed = $_.Exception.Message
+            Log ("contact info: SKIPPED -- " + $_.Exception.Message)
         }
 
         # --- counterparties ---

@@ -36,12 +36,39 @@ $ErrorActionPreference = "Stop"
 
 function C([int[]] $codes) { -join ($codes | ForEach-Object { [char]$_ }) }
 
+# The agent has moved between layouts (C:\budvik-agent and the user profile,
+# with and without a ps\ subfolder), so the config is searched rather than
+# assumed. A wrong guess costs a whole round trip through the RDP session.
 if (-not (Test-Path $ConfigPath)) {
+    $candidates = @(
+        "C:\Users\fedyshyn\budvik-agent\ps\config.json",
+        "C:\Users\fedyshyn\budvik-agent\config.json",
+        "C:\budvik-agent\ps\config.json",
+        "C:\budvik-agent\config.json"
+    )
     $here = $PSScriptRoot
     if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
-    $alt = Join-Path $here "config.json"
-    if (Test-Path $alt) { $ConfigPath = $alt }
-    else { throw "config.json not found. Pass -ConfigPath <path to budvik-agent\ps\config.json>" }
+    if ($here) { $candidates += (Join-Path $here "config.json") }
+
+    $ConfigPath = $null
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) { $ConfigPath = $cand; break }
+    }
+
+    # Last resort: sweep the agent folder wherever it lives.
+    if (-not $ConfigPath) {
+        foreach ($root in @("C:\Users\fedyshyn\budvik-agent", "C:\budvik-agent", "C:\Users\fedyshyn")) {
+            if (-not (Test-Path $root)) { continue }
+            $hit = Get-ChildItem -Path $root -Filter "config.json" -Recurse -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if ($hit) { $ConfigPath = $hit.FullName; break }
+        }
+    }
+
+    if (-not $ConfigPath) {
+        throw "config.json not found anywhere under budvik-agent. Pass -ConfigPath <full path>"
+    }
+    Write-Host "using config: $ConfigPath"
 }
 
 $config = [IO.File]::ReadAllText($ConfigPath, [Text.Encoding]::UTF8) | ConvertFrom-Json

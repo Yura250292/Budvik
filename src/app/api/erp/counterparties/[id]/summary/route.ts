@@ -3,6 +3,19 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Картка клієнта показує ВСЮ його історію, а не лише документи того, хто
+ * дивиться.
+ *
+ * Торгові в компанії універсальні — їздять по різних напрямках і підміняють
+ * одне одного. Поки картка різала документи по `salesRepId`, торговий,
+ * відкривши клієнта не зі свого шлейфу, бачив порожню історію й вирішував,
+ * що той нічого не брав. До того ж у 1С торговий проставлений не в усіх
+ * документах, тож фільтр приховував частину історії навіть у «своїх».
+ *
+ * Автор документа лишається в кожному рядку (`salesRep.name`) — видно, хто
+ * вів продаж, і чиє це відвантаження.
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -49,9 +62,6 @@ export async function GET(
   // docType ORDER: реалізації з 1С лежать у тій самій таблиці, і без фільтра
   // клієнт бачив би кожну свою покупку двічі.
   const whereDoc: Record<string, unknown> = { counterpartyId: id, docType: "ORDER" };
-  if (session.user.role === "SALES") {
-    whereDoc.salesRepId = session.user.id;
-  }
 
   const recentSales = await prisma.salesDocument.findMany({
     where: whereDoc,
@@ -80,7 +90,6 @@ export async function GET(
         counterpartyId: id,
         docType: "ORDER",
         status: "CONFIRMED",
-        ...(session.user.role === "SALES" ? { salesRepId: session.user.id } : {}),
       },
     },
     _sum: { quantity: true },
@@ -114,7 +123,6 @@ export async function GET(
       counterpartyId: id,
       docType: "RETURN",
       status: "CONFIRMED",
-      ...(session.user.role === "SALES" ? { salesRepId: session.user.id } : {}),
     },
     select: {
       id: true, number: true, totalAmount: true, createdAt: true,

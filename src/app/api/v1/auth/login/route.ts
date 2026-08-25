@@ -1,17 +1,23 @@
 /**
- * Вхід у застосунок покупця.
+ * Вхід у застосунок — один на покупця й на працівника.
  *
- * Дзеркалить /api/device/login, але видає токен іншої області: той контур
- * обслуговує планшети торгових і пускає лише TRACK_ROLES, цей — покупців.
- * Розділення саме на рівні токена, а не ролі: ADMIN присутній в обох списках
- * ролей, і без області його токен із застосунку відкривав би доступ до
- * чужого треку й змін.
+ * Застосунок один, але контури за ним різні, і людина потрапляє в той,
+ * якого заслуговує її роль: покупець — у нативний магазин, торговий,
+ * водій чи адмін — у свій робочий кабінет.
+ *
+ * Область токена при цьому НЕ спільна. Покупець отримує shop-токен,
+ * працівник — track-токен, і кожна сторона перевіряє свою область явно.
+ * Один токен «на все» був би дірою: ADMIN присутній в обох списках
+ * ролей, і його покупецький токен відкривав би доступ до чужого треку
+ * й змін. Тому саме тут, у місці видачі, контури й розходяться.
  */
 
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { issueShopToken, SHOP_ROLES } from "@/lib/shop/app-token";
+import { issueDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { defaultTargetFor } from "@/lib/app/role-target";
 import { rateLimit, clientIp, tooManyRequests } from "@/lib/shop/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -57,14 +63,37 @@ export async function POST(req: Request) {
   const invalid = NextResponse.json({ error: "Невірний email або пароль" }, { status: 401 });
 
   if (!user?.password) return invalid;
-  if (!SHOP_ROLES.includes(user.role)) return invalid;
+
+  /**
+   * Покупця пізнаємо першим: списки не перетинаються, але якщо колись
+   * почнуть, магазин має лишитися магазином. Роль поза обома списками
+   * (наприклад, комірник) у застосунок не заходить взагалі.
+   */
+  const isShopper = SHOP_ROLES.includes(user.role);
+  const isStaff = !isShopper && TRACK_ROLES.includes(user.role);
+  if (!isShopper && !isStaff) return invalid;
+
   if (!(await bcrypt.compare(password, user.password))) return invalid;
 
-  const token = await issueShopToken(user.id, typeof deviceName === "string" ? deviceName : null);
+  const device = typeof deviceName === "string" ? deviceName : null;
+  const token = isShopper
+    ? await issueShopToken(user.id, device)
+    : await issueDeviceToken(user.id, device);
 
   return NextResponse.json(
     {
       token,
+      /**
+       * Область токена — щоб застосунок не вгадував її з ролі. Від неї
+       * залежить, куди він має слати запити: у /api/v1/* чи в робочі
+       * роути кабінету.
+       */
+      scope: isShopper ? "shop" : "track",
+      /**
+       * Домівка працівника на сайті. Порожня для покупця: його екрани
+       * нативні, і вести його нікуди не треба.
+       */
+      target: isStaff ? defaultTargetFor(user.role) : null,
       user: {
         id: user.id,
         name: user.name,

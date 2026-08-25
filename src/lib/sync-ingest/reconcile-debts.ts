@@ -23,6 +23,7 @@
 import { prisma } from "@/lib/prisma";
 import { ApplyContext, getSyncState } from "./context";
 import { alertDebtReconcileSkipped } from "./alerts";
+import { SLOW_STATE_PREFIX } from "./dispatch";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "./types";
 
@@ -76,7 +77,7 @@ export async function reconcileDebts(ctx: ApplyContext): Promise<number> {
   // Достовірна ознака застосування — власний запис тротла: у ньому лежить
   // runId прогону, якому відкрили вікно. Повна звірка тротл не проходить.
   if (ctx.kind !== "full") {
-    const granted = await getSyncState(`sync:lastEntity:debt`);
+    const granted = await getSyncState(`${SLOW_STATE_PREFIX}debt`);
     if (!granted) return 0;
     try {
       const parsed = JSON.parse(granted) as { runId?: string };

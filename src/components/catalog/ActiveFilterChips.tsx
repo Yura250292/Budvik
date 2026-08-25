@@ -15,14 +15,24 @@ export default function ActiveFilterChips({
   brands,
   unbranded,
   basePath = "/catalog",
+  defaultShowAll = false,
 }: {
   filters: CatalogFilters;
   brands: BrandNode[];
   unbranded: number;
   /** Куди ведуть чипи: вітрина чи кабінет торгового. */
   basePath?: string;
+  /**
+   * Яким «показувати відсутні» є для секції за замовчуванням.
+   *
+   * У кабінеті торгового це увімкнено завжди, тож чип «З відсутніми» висів
+   * там постійно і не знімався: посилання вело на ту саму адресу. Показуємо
+   * чип лише тоді, коли значення відрізняється від дефолту секції.
+   */
+  defaultShowAll?: boolean;
 }) {
   const nameBySlug = new Map(brands.map((b) => [b.slug, b.name]));
+  const query = (f: Partial<CatalogFilters>) => filtersToQuery(f, undefined, { defaultShowAll });
 
   const chips: { label: string; href: string }[] = [];
 
@@ -30,14 +40,14 @@ export default function ActiveFilterChips({
     const label = slug === "none" ? `Без бренда (${unbranded})` : nameBySlug.get(slug) || slug;
     chips.push({
       label,
-      href: `${basePath}${filtersToQuery({ ...filters, brands: filters.brands.filter((b) => b !== slug) })}`,
+      href: `${basePath}${query({ ...filters, brands: filters.brands.filter((b) => b !== slug) })}`,
     });
   }
 
   for (const t of filters.types) {
     chips.push({
       label: t.charAt(0).toUpperCase() + t.slice(1),
-      href: `${basePath}${filtersToQuery({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
+      href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
     });
   }
 
@@ -46,28 +56,28 @@ export default function ActiveFilterChips({
     const to = filters.priceMax !== undefined ? `${filters.priceMax}` : "∞";
     chips.push({
       label: `Ціна ${from}–${to} грн`,
-      href: `${basePath}${filtersToQuery({ ...filters, priceMin: undefined, priceMax: undefined })}`,
+      href: `${basePath}${query({ ...filters, priceMin: undefined, priceMax: undefined })}`,
     });
   }
 
-  if (filters.showAll) {
+  if (filters.showAll !== defaultShowAll) {
     chips.push({
-      label: "З відсутніми",
-      href: `${basePath}${filtersToQuery({ ...filters, showAll: false })}`,
+      label: filters.showAll ? "З відсутніми" : "Лише в наявності",
+      href: `${basePath}${query({ ...filters, showAll: defaultShowAll })}`,
     });
   }
 
   if (filters.withImage) {
     chips.push({
       label: "З фото",
-      href: `${basePath}${filtersToQuery({ ...filters, withImage: false })}`,
+      href: `${basePath}${query({ ...filters, withImage: false })}`,
     });
   }
 
   if (filters.search) {
     chips.push({
       label: `«${filters.search}»`,
-      href: `${basePath}${filtersToQuery({ ...filters, search: undefined })}`,
+      href: `${basePath}${query({ ...filters, search: undefined })}`,
     });
   }
 

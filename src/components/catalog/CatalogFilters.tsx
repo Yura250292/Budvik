@@ -20,6 +20,14 @@ interface Props {
   priceBounds: { min: number; max: number };
   /** Куди застосовувати фільтри: вітрина чи кабінет торгового. */
   basePath?: string;
+  /**
+   * Яким «Показати відсутні» є, поки в URL немає ?all.
+   *
+   * У вітрині — вимкненим, у кабінеті торгового — увімкненим: там відсутню
+   * позицію беруть під замовлення. Без цього галочка стояла порожньою на
+   * екрані, де відсутні товари й так показані, а зняти її було нічим.
+   */
+  defaultShowAll?: boolean;
 }
 
 export default function CatalogFilters({
@@ -29,6 +37,7 @@ export default function CatalogFilters({
   types,
   priceBounds,
   basePath = "/catalog",
+  defaultShowAll = false,
 }: Props) {
   const sp = useSearchParams();
 
@@ -44,11 +53,20 @@ export default function CatalogFilters({
       types={types}
       priceBounds={priceBounds}
       basePath={basePath}
+      defaultShowAll={defaultShowAll}
     />
   );
 }
 
-function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, basePath }: Required<Props>) {
+function FiltersInner({
+  brands,
+  tailBrands,
+  unbranded,
+  types,
+  priceBounds,
+  basePath,
+  defaultShowAll,
+}: Required<Props>) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -58,12 +76,12 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
       types: (sp.get("type") || "").split(",").filter(Boolean),
       priceMin: sp.get("priceMin") || "",
       priceMax: sp.get("priceMax") || "",
-      showAll: sp.get("all") === "1",
+      showAll: sp.has("all") ? sp.get("all") === "1" : defaultShowAll,
       withImage: sp.get("withImage") === "1",
       search: sp.get("search") || "",
       sort: sp.get("sort") || "",
     }),
-    [sp]
+    [sp, defaultShowAll]
   );
 
   const [draft, setDraft] = useState(current);
@@ -78,7 +96,7 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
     current.types.length +
     (current.priceMin ? 1 : 0) +
     (current.priceMax ? 1 : 0) +
-    (current.showAll ? 1 : 0) +
+    (current.showAll !== defaultShowAll ? 1 : 0) +
     (current.withImage ? 1 : 0);
 
   const apply = useCallback(
@@ -89,14 +107,16 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
       if (next.search) q.set("search", next.search);
       if (next.priceMin) q.set("priceMin", next.priceMin);
       if (next.priceMax) q.set("priceMax", next.priceMax);
-      if (next.showAll) q.set("all", "1");
+      // all=0 теж пишемо: у кабінеті торгового дефолт — «з відсутніми», і
+      // без явного нуля вибір «лише наявне» губився на другій сторінці.
+      if (next.showAll !== defaultShowAll) q.set("all", next.showAll ? "1" : "0");
       if (next.withImage) q.set("withImage", "1");
       if (next.sort) q.set("sort", next.sort);
       const qs = q.toString();
       router.push(`${basePath}${qs ? `?${qs}` : ""}`);
       setOpen(false);
     },
-    [router, basePath]
+    [router, basePath, defaultShowAll]
   );
 
   const toggle = (key: "brands" | "types", value: string) => {
@@ -107,7 +127,15 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
   };
 
   const reset = () => {
-    const cleared = { ...draft, brands: [], types: [], priceMin: "", priceMax: "", showAll: false, withImage: false };
+    const cleared = {
+      ...draft,
+      brands: [],
+      types: [],
+      priceMin: "",
+      priceMax: "",
+      showAll: defaultShowAll,
+      withImage: false,
+    };
     setDraft(cleared);
     apply(cleared);
   };
@@ -166,16 +194,14 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
 
       {/* Наявність */}
       <FilterBlock title="Показувати">
-        <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]">
-          {/* Навпаки до колишнього «лише в наявності»: наявність тепер
-              за замовчуванням, а галочка відкриває решту асортименту. */}
-          <Check checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))} />
+        {/* Навпаки до колишнього «лише в наявності»: наявність тепер
+            за замовчуванням, а галочка відкриває решту асортименту. */}
+        <CheckRow checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))}>
           <span className="text-sm text-[#1A1A1A]">Показати відсутні</span>
-        </label>
-        <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]">
-          <Check checked={draft.withImage} onChange={() => setDraft((d) => ({ ...d, withImage: !d.withImage }))} />
+        </CheckRow>
+        <CheckRow checked={draft.withImage} onChange={() => setDraft((d) => ({ ...d, withImage: !d.withImage }))}>
           <span className="text-sm text-[#1A1A1A]">Лише з фото</span>
-        </label>
+        </CheckRow>
       </FilterBlock>
 
       {/* Групи товарів */}
@@ -213,20 +239,15 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
         />
         <div className="max-h-72 overflow-y-auto pr-1">
           {visibleBrands.map((b) => (
-            <label
-              key={b.id}
-              className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]"
-            >
-              <Check checked={draft.brands.includes(b.slug)} onChange={() => toggle("brands", b.slug)} />
+            <CheckRow key={b.id} checked={draft.brands.includes(b.slug)} onChange={() => toggle("brands", b.slug)}>
               <span className="flex-1 truncate text-sm text-[#1A1A1A]">{b.name}</span>
               <span className="text-xs text-[#9E9E9E]">{b.count}</span>
-            </label>
+            </CheckRow>
           ))}
-          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 active:bg-[#F7F7F7]">
-            <Check checked={draft.brands.includes("none")} onChange={() => toggle("brands", "none")} />
+          <CheckRow checked={draft.brands.includes("none")} onChange={() => toggle("brands", "none")}>
             <span className="flex-1 truncate text-sm text-[#555]">Без бренда</span>
             <span className="text-xs text-[#9E9E9E]">{unbranded}</span>
-          </label>
+          </CheckRow>
         </div>
         {!brandSearch && tailBrands.length > 0 && (
           <button
@@ -266,9 +287,16 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
         </button>
       </div>
 
-      {/* Мобільна панель */}
+      {/*
+        Мобільна панель.
+
+        z-[60], а не z-50: нижнє меню — і вітрини, і кабінету торгового —
+        теж z-50 і йде пізніше в розмітці, тож малювалось поверх нижнього
+        рядка панелі. Кнопки «Скинути» і «Показати» були під ним, фільтр не
+        застосовувався взагалі, і єдиним виходом лишався хрестик.
+      */}
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-[60] md:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
           <div className="absolute inset-x-0 bottom-0 top-12 flex flex-col rounded-t-2xl bg-white">
             <div className="flex items-center justify-between border-b border-[#EFEFEF] px-4 py-3">
@@ -283,7 +311,10 @@ function FiltersInner({ brands, tailBrands, unbranded, types, priceBounds, baseP
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">{body}</div>
-            <div className="flex gap-2 border-t border-[#EFEFEF] p-3">
+            <div
+              className="flex gap-2 border-t border-[#EFEFEF] p-3"
+              style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+            >
               <button
                 onClick={reset}
                 className="min-h-12 flex-1 rounded-[10px] border border-[#DADADA] text-sm font-semibold text-[#1A1A1A]"
@@ -336,13 +367,36 @@ function FilterBlock({ title, children }: { title: string; children: React.React
   );
 }
 
-function Check({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+/**
+ * Рядок-галочка з живою ціллю дотику на всю ширину.
+ *
+ * Раніше обробник кліку висів на самому квадратику 24px усередині <label>
+ * без жодного input — тобто тап по назві бренда не робив нічого, і фільтр
+ * здавався зламаним. Тепер клік ловить справжній checkbox, схований у
+ * рядку: працює і по тексту, і з клавіатури.
+ */
+function CheckRow({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 outline-none active:bg-[#F7F7F7] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#FFD600]">
+      <input type="checkbox" checked={checked} onChange={onChange} className="sr-only" />
+      <Check checked={checked} />
+      {children}
+    </label>
+  );
+}
+
+function Check({ checked }: { checked: boolean }) {
   return (
     <span
-      onClick={(e) => {
-        e.preventDefault();
-        onChange();
-      }}
+      aria-hidden
       className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border-2 transition ${
         checked ? "border-[#FFD600] bg-[#FFD600]" : "border-[#DADADA] bg-white"
       }`}

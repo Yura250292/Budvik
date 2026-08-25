@@ -161,11 +161,20 @@ export default function SalesProductList({ products }: { products: Product[] }) 
         Відступ під панель кошика: вона fixed, і без цього накриває останні
         рядки списку — саме ті, до яких торговий догортав.
       */}
-      {count > 0 && <div className="h-20" aria-hidden />}
+      {count > 0 && <div className="h-28" aria-hidden />}
 
-      {/* Панель кошика — липне до низу, поверх нижнього меню торгового */}
+      {/*
+        Панель кошика — липне до низу, над нижнім меню торгового.
+
+        Відступ рахуємо разом із вирізом: меню має h-16 ПЛЮС safe-area, тож
+        від голого bottom-16 на айфоні нижні 34px панелі (а з ними й частина
+        кнопки «Кошик») ховались під меню.
+      */}
       {count > 0 && (
-        <div className="fixed inset-x-0 bottom-16 z-40 border-t border-g200 bg-white px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.12)]">
+        <div
+          className="fixed inset-x-0 z-40 border-t border-g200 bg-white px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
+          style={{ bottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}
+        >
           <div className="mx-auto flex max-w-5xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-xs text-g500">

@@ -10,6 +10,9 @@ import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } fro
 
 type SP = Record<string, string | undefined>;
 
+/** Дефолт секції для посилань: у кабінеті «показати відсутні» увімкнено. */
+const SALES_QUERY = { defaultShowAll: true } as const;
+
 /**
  * Список товарів для показу клієнту.
  *
@@ -19,10 +22,17 @@ type SP = Record<string, string | undefined>;
  */
 export default async function SalesCatalogListPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
-  // Торговий бачить увесь асортимент, а не лише наявне: відсутню позицію
-  // він бере під замовлення, і сховати її означало б сховати продаж.
-  // Покупцю в магазині навпаки — там showAll лишається вимкненим.
-  const filters = { ...parseFilters(params), showAll: true };
+  /*
+    Торговий бачить увесь асортимент, а не лише наявне: відсутню позицію він
+    бере під замовлення, і сховати її означало б сховати продаж. Покупцю в
+    магазині навпаки — там showAll лишається вимкненим.
+
+    Це саме дефолт, а не жорстке true, як було раніше: із жорстким галочка
+    «Показати відсутні» стояла порожньою на екрані, де відсутні вже показані,
+    зняти її було нічим, а чип «З відсутніми» не знімався взагалі — посилання
+    вело на ту саму адресу. Тепер ?all=0 у кабінеті означає «лише наявне».
+  */
+  const filters = { ...parseFilters(params), showAll: params.all !== "0" };
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
   const [{ products, total }, tree, priceBounds] = await Promise.all([
@@ -63,6 +73,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
               types={types}
               priceBounds={priceBounds}
               basePath="/sales/catalog/list"
+              defaultShowAll
             />
           </aside>
 
@@ -72,6 +83,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
           brands={allBrands}
           unbranded={tree.unbranded}
           basePath="/sales/catalog/list"
+          defaultShowAll
         />
 
         {products.length === 0 ? (
@@ -89,7 +101,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
               <nav className="mt-6 flex items-center justify-center gap-2 pb-4">
                 {page > 1 && (
                   <Link
-                    href={`/sales/catalog/list${filtersToQuery(filters, page - 1)}`}
+                    href={`/sales/catalog/list${filtersToQuery(filters, page - 1, SALES_QUERY)}`}
                     className="flex min-h-11 items-center rounded-[10px] border border-g300 bg-white px-4 text-sm font-medium text-[#1A1A1A] active:bg-g50"
                   >
                     ← Назад
@@ -100,7 +112,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
                 </span>
                 {page < totalPages && (
                   <Link
-                    href={`/sales/catalog/list${filtersToQuery(filters, page + 1)}`}
+                    href={`/sales/catalog/list${filtersToQuery(filters, page + 1, SALES_QUERY)}`}
                     className="flex min-h-11 items-center rounded-[10px] border border-g300 bg-white px-4 text-sm font-medium text-[#1A1A1A] active:bg-g50"
                   >
                     Далі →

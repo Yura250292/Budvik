@@ -175,15 +175,28 @@ export function buildOrderBy(sort?: string): Prisma.ProductOrderByWithRelationIn
   return map[sort || ""] || [{ stock: "desc" }, { priority: "desc" }, { name: "asc" }];
 }
 
-/** Рядок запиту з фільтрів — щоб посилання зі змісту й пагінація не розходились. */
-export function filtersToQuery(f: Partial<CatalogFilters>, page?: number): string {
+/**
+ * Рядок запиту з фільтрів — щоб посилання зі змісту й пагінація не розходились.
+ *
+ * defaultShowAll — яким «показувати відсутні» є для секції без ?all у адресі:
+ * у вітрині вимкненим, у кабінеті торгового увімкненим. Пишемо параметр лише
+ * тоді, коли значення розходиться з дефолтом, і пишемо його явним 0 чи 1 —
+ * інакше в кабінеті вибір «лише наявне» зникав на другій сторінці, бо в
+ * посиланні його нічим було відрізнити від «нічого не вибрано».
+ */
+export function filtersToQuery(
+  f: Partial<CatalogFilters>,
+  page?: number,
+  opts?: { defaultShowAll?: boolean }
+): string {
   const sp = new URLSearchParams();
   if (f.brands?.length) sp.set("brand", f.brands.join(","));
   if (f.types?.length) sp.set("type", f.types.join(","));
   if (f.search) sp.set("search", f.search);
   if (f.priceMin !== undefined) sp.set("priceMin", String(f.priceMin));
   if (f.priceMax !== undefined) sp.set("priceMax", String(f.priceMax));
-  if (f.showAll) sp.set("all", "1");
+  const defaultShowAll = opts?.defaultShowAll ?? false;
+  if ((f.showAll ?? defaultShowAll) !== defaultShowAll) sp.set("all", f.showAll ? "1" : "0");
   if (f.withImage) sp.set("withImage", "1");
   if (f.categorySlug) sp.set("category", f.categorySlug);
   if (f.sort) sp.set("sort", f.sort);

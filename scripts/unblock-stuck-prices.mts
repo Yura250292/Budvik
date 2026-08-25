@@ -14,14 +14,21 @@
  * останнє значення по товару і лише якщо воно повторювалось (одноразове
  * відхилення могло бути тією самою одруківкою).
  *
- *   npx tsx --env-file=.env scripts/unblock-stuck-prices.mts           # звіт
- *   npx tsx --env-file=.env scripts/unblock-stuck-prices.mts --apply   # застосувати
+ * Правило власника: на сайті не може бути дешевше, ніж в 1С. Тому підвищення
+ * (тобто випадки, де сайт продавав дешевше за облік) можна застосувати окремо
+ * і не чекаючи рішення про решту — `--only-underpriced`.
+ *
+ *   npx tsx --env-file=.env scripts/unblock-stuck-prices.mts                     # звіт
+ *   npx tsx --env-file=.env scripts/unblock-stuck-prices.mts --apply             # застосувати все
+ *   npx tsx --env-file=.env scripts/unblock-stuck-prices.mts --only-underpriced --apply
  */
 import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes("--apply");
+/** Лише ті, де сайт дешевший за облік — тобто де ми втрачаємо гроші просто зараз. */
+const ONLY_UNDERPRICED = process.argv.includes("--only-underpriced");
 const MIN_REPEATS = 2;
 
 const rows = await prisma.syncDiscrepancy.findMany({
@@ -56,10 +63,11 @@ for (const s of byRef.values()) {
   plan.push({ id: p.id, ref: s.ref, name: p.name, from: p.price, to: s.want, stock: p.stock, seen: s.seen, days });
 }
 
-plan.sort((a, b) => b.stock - a.stock || Math.abs(b.to - b.from) - Math.abs(a.to - a.from));
-console.log(`Товарів із застряглою ціною: ${plan.length}${skipped.length ? `, пропущено ${skipped.length}` : ""}\n`);
+const selected = ONLY_UNDERPRICED ? plan.filter((p) => p.to > p.from) : plan;
+selected.sort((a, b) => b.stock - a.stock || Math.abs(b.to - b.from) - Math.abs(a.to - a.from));
+console.log(`Товарів із застряглою ціною: ${plan.length}${ONLY_UNDERPRICED ? `, з них дешевших за облік: ${selected.length}` : ""}${skipped.length ? `, пропущено ${skipped.length}` : ""}\n`);
 console.log("код".padEnd(12) + "назва".padEnd(46) + "на сайті".padStart(11) + "→ з 1С".padStart(12) + "залишок".padStart(9) + "днів".padStart(6));
-for (const p of plan) {
+for (const p of selected) {
   console.log(
     p.ref.padEnd(12) + p.name.slice(0, 44).padEnd(46) +
     p.from.toFixed(2).padStart(11) + p.to.toFixed(2).padStart(12) +
@@ -74,14 +82,14 @@ console.log(`\nПродавали дешевше за облік: ${cheaper.leng
 console.log(`Ціна на сайті була завищена: ${dearer.length}`);
 
 fs.mkdirSync("output", { recursive: true });
-const path = `output/stuck-prices-${new Date().toISOString().slice(0, 10)}${APPLY ? "-applied" : "-dry"}.json`;
-fs.writeFileSync(path, JSON.stringify(plan, null, 1));
+const path = `output/stuck-prices-${new Date().toISOString().slice(0, 10)}${ONLY_UNDERPRICED ? "-underpriced" : ""}${APPLY ? "-applied" : "-dry"}.json`;
+fs.writeFileSync(path, JSON.stringify(selected, null, 1));
 console.log(`\nЗвіт (і бекап старих цін): ${path}`);
 
 if (APPLY) {
-  for (const p of plan) await prisma.product.update({ where: { id: p.id }, data: { price: p.to } });
-  console.log(`Оновлено цін: ${plan.length}`);
-} else if (plan.length) {
+  for (const p of selected) await prisma.product.update({ where: { id: p.id }, data: { price: p.to } });
+  console.log(`Оновлено цін: ${selected.length}`);
+} else if (selected.length) {
   console.log("Сухий прогін. Щоб застосувати: --apply");
 }
 await prisma.$disconnect();

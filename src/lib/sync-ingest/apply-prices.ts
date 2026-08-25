@@ -15,6 +15,17 @@
  * імпорту, поки 1С щоночі просила їх виправити. Мастило продавалось по 35 ₴
  * замість 209 ₴, а розетка висіла з 20 199 ₴ замість 48 ₴ — тобто сторож,
  * поставлений берегти від помилкової ціни, сам тримав помилкову ціну.
+ *
+ * ЗАПОБІЖНИК АСИМЕТРИЧНИЙ, і це головне тут. Дві помилки коштують по-різному:
+ *
+ *   - ціна на сайті НИЖЧА за облікову — продаємо собі в збиток, і дізнаємось
+ *     про це з бухгалтерії за місяць;
+ *   - ціна на сайті ВИЩА за облікову — втрачаємо покупця, але не гроші, і
+ *     помилка сама лізе в очі.
+ *
+ * Тому підвищення ціни застосовуємо ЗАВЖДИ й одразу, хай яке різке: правило
+ * власника — на сайті не може бути дешевше, ніж в 1С. Витримку залишаємо лише
+ * для здешевлення: там доба очікування нічим не загрожує.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -97,9 +108,12 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
     if (rec.retail !== undefined && Number.isFinite(rec.retail)) {
       if (Math.abs((product.price || 0) - rec.retail) > PRICE_EPSILON) {
         const entityRef = product.sku || rec.externalId;
-        const suspicious = isSuspicious(product.price || 0, rec.retail);
-        // Підозрілу ціну приймаємо з другого разу: 1С повторила її наступної
-        // доби — отже, це не промах оператора.
+        // Підвищення не тримаємо ніколи: поки ми його тримаємо, сайт продає
+        // дешевше за облік.
+        const isIncrease = rec.retail > (product.price || 0);
+        const suspicious = !isIncrease && isSuspicious(product.price || 0, rec.retail);
+        // Підозріле здешевлення приймаємо з другого разу: 1С повторила ту саму
+        // ціну наступної доби — отже, це не промах оператора.
         const confirmed = suspicious && (await confirmedEarlier(entityRef, String(rec.retail)));
 
         if (suspicious && !confirmed) {

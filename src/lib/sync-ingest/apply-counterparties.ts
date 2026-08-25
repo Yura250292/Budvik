@@ -36,6 +36,7 @@ export async function applyCounterparties(
       externalId: true,
       code: true,
       name: true,
+      type: true,
       phone: true,
       email: true,
       address: true,
@@ -110,7 +111,16 @@ export async function applyCounterparties(
             email: rec.email || null,
             address: rec.address || null,
           },
-          select: { id: true, externalId: true, code: true, name: true, phone: true, email: true, address: true },
+          select: {
+            id: true,
+            externalId: true,
+            code: true,
+            name: true,
+            type: true,
+            phone: true,
+            email: true,
+            address: true,
+          },
         });
         byExternalId.set(rec.externalId, created);
         ctx.created++;
@@ -129,6 +139,13 @@ export async function applyCounterparties(
       takenCodes.add(rec.code);
     }
     if (rec.name !== existing.name) updates.name = rec.name;
+    // Тип оновлюємо, а не лише ставимо при створенні. «Покупець» і
+    // «постачальник» — окремі прапорці в 1С, і контрагент буває обома; поки
+    // тип фіксувався назавжди, кожен приходив покупцем, і канал надходжень
+    // відкидав своїх постачальників як невідомих.
+    if (rec.type && rec.type !== existing.type) {
+      updates.type = rec.type as CounterpartyType;
+    }
     // Контакти лише доповнюємо: порожнє значення з 1С не має стирати те,
     // що менеджер вніс вручну.
     if (rec.phone?.trim() && !existing.phone) updates.phone = rec.phone.trim();

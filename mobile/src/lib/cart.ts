@@ -15,6 +15,28 @@ import type { CardDto } from "@/api/types";
 
 const CART_KEY = "budvik_cart";
 
+/**
+ * Підписка на зміни кошика.
+ *
+ * Дзеркалить CustomEvent("cart-updated") із сайту, тільки без DOM. Потрібна
+ * бейджу на вкладці: товар кладуть із каталогу, картки чи обраного, а
+ * лічильник живе в таб-барі — без сповіщення він оновлювався б лише при
+ * переході на сам кошик, тобто рівно тоді, коли він уже не потрібен.
+ */
+type Listener = () => void;
+const listeners = new Set<Listener>();
+
+export function onCartChange(fn: Listener): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+function notify() {
+  listeners.forEach((fn) => fn());
+}
+
 export type CartItem = {
   productId: string;
   name: string;
@@ -49,6 +71,7 @@ export async function getCart(): Promise<CartItem[]> {
 
 async function save(cart: CartItem[]): Promise<CartItem[]> {
   await AsyncStorage.setItem(CART_KEY, JSON.stringify(cart));
+  notify();
   return cart;
 }
 
@@ -91,6 +114,7 @@ export async function updateQty(productId: string, quantity: number): Promise<Ca
 
 export async function clearCart(): Promise<void> {
   await AsyncStorage.removeItem(CART_KEY);
+  notify();
 }
 
 export function cartTotal(cart: CartItem[]): number {

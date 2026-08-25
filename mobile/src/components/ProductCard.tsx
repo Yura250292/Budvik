@@ -29,6 +29,9 @@ export function ProductCard({
           <Image
             source={product.image}
             style={styles.image}
+            // Зчитувач екрана інакше промовляє «зображення» без жодного змісту.
+            alt={product.name}
+            accessibilityLabel={product.name}
             contentFit="contain"
             // Дисковий кеш expo-image і є офлайн-режимом для фото: URL у базі
             // ведуть на різні хости, і покладатися на їхні заголовки не можна.

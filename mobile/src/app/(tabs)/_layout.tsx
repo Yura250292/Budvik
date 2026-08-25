@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Tabs, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getScope } from "@/lib/auth-store";
+import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { colors } from "@/theme";
 
@@ -23,6 +24,7 @@ export default function TabsLayout() {
    * Куди саме вести — вирішує сервер за роллю (lib/app/role-target.ts), тож
    * адресу тут не передаємо: одне правило на всі входи.
    */
+  const cartCount = useCartCount();
   const [scope, setScope] = useState<"shop" | "track" | null | undefined>(undefined);
 
   useEffect(() => {
@@ -68,6 +70,11 @@ export default function TabsLayout() {
         name="cart"
         options={{
           title: "Кошик",
+          // Бейдж — єдине підтвердження, що «У кошик» спрацювало: окремого
+          // повідомлення після дотику немає навмисно, воно перекривало б
+          // наступну картку в списку.
+          tabBarBadge: cartCount > 0 ? cartCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.sale, fontSize: 11 },
           tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" color={color} size={size} />,
         }}
       />
@@ -78,6 +85,19 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" color={color} size={size} />,
         }}
       />
+
+      {/*
+        Екрани без власної кнопки в таб-барі.
+        Вони лежать усередині навігатора вкладок саме для того, щоб нижня
+        навігація нікуди не зникала: людина, яка провалилась у картку товару,
+        має змогти перейти в кошик одним дотиком, а не через «назад». href:null
+        прибирає кнопку, але не сам екран.
+      */}
+      <Tabs.Screen name="product/[slug]" options={{ href: null, title: "Товар" }} />
+      <Tabs.Screen name="brand/[slug]" options={{ href: null, title: "Бренд" }} />
+      <Tabs.Screen name="wishlist" options={{ href: null, title: "Обране" }} />
+      <Tabs.Screen name="orders/index" options={{ href: null, title: "Мої замовлення" }} />
+      <Tabs.Screen name="checkout" options={{ href: null, title: "Оформлення" }} />
     </Tabs>
   );
 }

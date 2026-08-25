@@ -6,13 +6,14 @@
  * враження великого й непрацюючого водночас.
  */
 
-import { ScrollView, View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { ScrollView, View, Text, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { ProductCard } from "@/components/ProductCard";
 import { addToCart } from "@/lib/cart";
+import { ProductGridSkeleton } from "@/components/Skeleton";
 import { colors, space, radius } from "@/theme";
 
 export default function HomeScreen() {
@@ -51,7 +52,7 @@ export default function HomeScreen() {
 
       <Text style={styles.sectionTitle}>Нові надходження</Text>
       {isLoading ? (
-        <ActivityIndicator style={{ margin: space.xl }} color={colors.ink} />
+        <ProductGridSkeleton count={4} />
       ) : (
         <View style={styles.grid}>
           {(data?.items ?? []).slice(0, 8).map((p) => (

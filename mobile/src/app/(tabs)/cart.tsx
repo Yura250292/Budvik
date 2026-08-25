@@ -12,6 +12,7 @@ import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getCart, updateQty, cartTotal, type CartItem } from "@/lib/cart";
+import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius, formatUAH } from "@/theme";
 
 export default function CartScreen() {
@@ -35,13 +36,13 @@ export default function CartScreen() {
 
   if (cart.length === 0) {
     return (
-      <View style={styles.empty}>
-        <Ionicons name="cart-outline" size={48} color={colors.border} />
-        <Text style={styles.emptyText}>Кошик порожній</Text>
-        <Pressable style={styles.button} onPress={() => router.push("/catalog")}>
-          <Text style={styles.buttonText}>До каталогу</Text>
-        </Pressable>
-      </View>
+      <EmptyState
+        icon="cart-outline"
+        title="Кошик порожній"
+        hint="Знайдіть інструмент у каталозі або відскануйте код із цінника — і він з'явиться тут."
+        actionLabel="До каталогу"
+        onAction={() => router.push("/catalog")}
+      />
     );
   }
 
@@ -54,7 +55,14 @@ export default function CartScreen() {
         renderItem={({ item }) => (
           <View style={styles.row}>
             {item.image ? (
-              <Image source={item.image} style={styles.thumb} contentFit="contain" cachePolicy="memory-disk" />
+              <Image
+                source={item.image}
+                style={styles.thumb}
+                alt={item.name}
+                accessibilityLabel={item.name}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
             ) : (
               <View style={[styles.thumb, styles.noPhoto]}>
                 <Ionicons name="image-outline" size={20} color={colors.textMuted} />
@@ -68,12 +76,20 @@ export default function CartScreen() {
               <Text style={styles.unit}>{formatUAH(item.price)} / шт</Text>
 
               <View style={styles.qtyRow}>
-                <Pressable style={styles.qtyButton} onPress={() => change(item, -1)} hitSlop={6}>
-                  <Ionicons name="remove" size={16} color={colors.ink} />
+                <Pressable
+                  style={styles.qtyButton}
+                  onPress={() => change(item, -1)}
+                  accessibilityLabel="Зменшити кількість"
+                >
+                  <Ionicons name="remove" size={20} color={colors.ink} />
                 </Pressable>
                 <Text style={styles.qty}>{item.quantity}</Text>
-                <Pressable style={styles.qtyButton} onPress={() => change(item, 1)} hitSlop={6}>
-                  <Ionicons name="add" size={16} color={colors.ink} />
+                <Pressable
+                  style={styles.qtyButton}
+                  onPress={() => change(item, 1)}
+                  accessibilityLabel="Збільшити кількість"
+                >
+                  <Ionicons name="add" size={20} color={colors.ink} />
                 </Pressable>
                 <Text style={styles.lineTotal}>{formatUAH(item.price * item.quantity)}</Text>
               </View>
@@ -114,9 +130,14 @@ const styles = StyleSheet.create({
   name: { fontSize: 13, lineHeight: 17, color: colors.text },
   unit: { marginTop: 2, fontSize: 12, color: colors.textMuted },
   qtyRow: { marginTop: space.sm, flexDirection: "row", alignItems: "center", gap: space.md },
+  /**
+   * 44×44 — мінімальна ціль дотику. Тридцять два пікселі виглядають
+   * акуратніше, але в них не влучає великий палець у робочій рукавиці, а
+   * саме так наш покупець і тримає телефон на об'єкті.
+   */
   qtyButton: {
-    width: 28,
-    height: 28,
+    width: 44,
+    height: 44,
     borderRadius: radius.sm,
     backgroundColor: colors.surface,
     alignItems: "center",

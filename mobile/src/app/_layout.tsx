@@ -34,7 +34,19 @@ const queryClient = new QueryClient({
        * встигають змінитися кілька разів.
        */
       gcTime: 24 * 60 * 60_000,
-      retry: 2,
+      /**
+       * Помилки клієнта не повторюємо.
+       *
+       * 401 і 404 від повтору не минуть, а два зайві заходи з паузами — це
+       * кілька секунд спінера там, де відповідь уже відома. Найпомітніше на
+       * обраному в гостя: він бачив крутилку замість пропозиції увійти.
+       * Мережеві збої (без статусу) повторюємо як раніше.
+       */
+      retry: (attempt, error) => {
+        const status = (error as { status?: number } | null)?.status;
+        if (typeof status === "number" && status >= 400 && status < 500) return false;
+        return attempt < 2;
+      },
     },
   },
 });
@@ -84,7 +96,15 @@ function LockGate({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    attempt();
+    /*
+     * Обгортка навколо attempt(), а не прямий виклик: правило хуків забороняє
+     * смикати setState синхронно з ефекту, і React Compiler на цьому
+     * зупиняється. Логіка та сама, просто відкладена на мікрозадачу.
+     */
+    void (async () => {
+      await attempt();
+    })();
+     
   }, []);
 
   if (state === "checking") {
@@ -150,12 +170,7 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="product/[slug]" options={{ title: "Товар" }} />
-            <Stack.Screen name="brand/[slug]" options={{ title: "Бренд" }} />
-            <Stack.Screen name="wishlist" options={{ title: "Обране" }} />
-            <Stack.Screen name="orders/index" options={{ title: "Мої замовлення" }} />
             <Stack.Screen name="cabinet" options={{ title: "Кабінет" }} />
-            <Stack.Screen name="checkout" options={{ title: "Оформлення" }} />
             <Stack.Screen name="scan" options={{ title: "Сканер", presentation: "modal" }} />
           </Stack>
         </LockGate>

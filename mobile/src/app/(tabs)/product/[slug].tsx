@@ -6,9 +6,10 @@
  * однаково в браузері й у застосунку.
  */
 
+import { useEffect } from "react";
 import { ScrollView, View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
-import { useLocalSearchParams, Stack, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/api/client";
@@ -21,6 +22,7 @@ export default function ProductScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
 
+  const navigation = useNavigation();
   const qc = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
@@ -40,6 +42,7 @@ export default function ProductScreen() {
 
   const saved = !!data && !!wishlist?.items.some((i) => i.id === data.id);
 
+
   const toggle = useMutation({
     mutationFn: async () => {
       if (!data) return;
@@ -54,6 +57,28 @@ export default function ProductScreen() {
     },
   });
 
+  /**
+   * Заголовок і серце ставимо через navigation, а не <Stack.Screen>: екран
+   * живе всередині навігатора вкладок, щоб нижня навігація лишалась на місці,
+   * а Stack.Screen там не діє — і не скаржиться, що не діє.
+   */
+  useEffect(() => {
+    navigation.setOptions({
+      title: data?.brand ?? "Товар",
+      headerRight: () =>
+        data ? (
+          <Pressable
+            onPress={() => toggle.mutate()}
+            hitSlop={12}
+            style={styles.headerButton}
+            accessibilityLabel={saved ? "Прибрати з обраного" : "Додати в обране"}
+          >
+            <Ionicons name={saved ? "heart" : "heart-outline"} size={24} color={colors.brand} />
+          </Pressable>
+        ) : null,
+    });
+  }, [navigation, data, saved, toggle]);
+
   if (isLoading) return <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />;
   if (error || !data) return <Text style={styles.hint}>Товар не знайдено</Text>;
 
@@ -61,25 +86,27 @@ export default function ProductScreen() {
   const inStock = data.stock > 0;
 
   return (
-    <>
-      <Stack.Screen
-        options={{
-          title: data.brand ?? "Товар",
-          headerRight: () => (
-            <Pressable onPress={() => toggle.mutate()} hitSlop={10}>
-              <Ionicons
-                name={saved ? "heart" : "heart-outline"}
-                size={24}
-                color={colors.brand}
-              />
-            </Pressable>
-          ),
-        }}
-      />
-      <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl * 2 }}>
+    <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl * 2 }}>
         {data.image ? (
-          <Image source={data.image} style={styles.image} contentFit="contain" cachePolicy="memory-disk" />
-        ) : null}
+          <Image
+            source={data.image}
+            style={styles.image}
+            alt={data.name}
+            accessibilityLabel={data.name}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+          />
+        ) : (
+          /*
+           * Місце під фото тримаємо навіть коли фото немає: інакше картка
+           * товару без знімка починається одразу з назви й виглядає як
+           * недовантажена сторінка, а не як товар без фото.
+           */
+          <View style={[styles.image, styles.noPhoto]}>
+            <Ionicons name="image-outline" size={40} color={colors.textMuted} />
+            <Text style={styles.noPhotoText}>Фото готуємо</Text>
+          </View>
+        )}
 
         <View style={styles.body}>
           {data.label ? <Text style={styles.label}>{data.label}</Text> : null}
@@ -155,14 +182,15 @@ export default function ProductScreen() {
             </>
           ) : null}
         </View>
-      </ScrollView>
-    </>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   image: { width: "100%", height: 260, backgroundColor: colors.surface },
+  noPhoto: { alignItems: "center", justifyContent: "center", gap: space.sm },
+  noPhotoText: { fontSize: 13, color: colors.textMuted },
   body: { padding: space.lg },
   label: { fontSize: 12, color: colors.textMuted, textTransform: "uppercase" },
   name: { marginTop: space.xs, fontSize: 18, fontWeight: "700", color: colors.text, lineHeight: 24 },
@@ -201,4 +229,6 @@ const styles = StyleSheet.create({
   relatedTitle: { marginTop: space.xl, fontSize: 15, fontWeight: "700", color: colors.text },
   relatedRow: { marginTop: space.sm, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   hint: { padding: space.lg, color: colors.textMuted, textAlign: "center" },
+  /** 44 — мінімальна ціль дотику; сама іконка менша, тож даємо площу навколо. */
+  headerButton: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
 });

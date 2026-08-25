@@ -12,7 +12,7 @@ import { useCallback, useState } from "react";
 import {
   ScrollView, View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator,
 } from "react-native";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "@/api/client";
 import { getToken } from "@/lib/auth-store";
@@ -86,7 +86,6 @@ export default function CheckoutScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Оформлення" }} />
       <ScrollView style={styles.screen} contentContainerStyle={{ padding: space.lg }}>
         <Text style={styles.label}>Спосіб отримання</Text>
         <View style={styles.toggle}>

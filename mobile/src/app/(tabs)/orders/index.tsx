@@ -6,10 +6,12 @@
  * переклад застосунку.
  */
 
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Pressable } from "react-native";
+import { View, Text, FlatList, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type OrderSummary } from "@/api/client";
+import { EmptyState } from "@/components/EmptyState";
+import { RowSkeleton } from "@/components/Skeleton";
 import { colors, space, radius, formatUAH } from "@/theme";
 
 /** Дзеркало ORDER_STATUS_LABELS із src/lib/utils.ts на сайті. */
@@ -39,21 +41,38 @@ export default function OrdersScreen() {
     queryFn: api.orders,
   });
 
-  if (isLoading) return <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />;
-
-  if (error) {
+  if (isLoading) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.hint}>Щоб бачити історію замовлень, увійдіть в акаунт</Text>
-        <Pressable style={styles.button} onPress={() => router.push("/account")}>
-          <Text style={styles.buttonText}>Увійти</Text>
-        </Pressable>
+      <View style={{ padding: space.md }}>
+        {[0, 1, 2].map((i) => (
+          <RowSkeleton key={i} />
+        ))}
       </View>
     );
   }
 
+  if (error) {
+    return (
+      <EmptyState
+        icon="receipt-outline"
+        title="Історія замовлень в акаунті"
+        hint="Увійдіть, щоб бачити статус доставки й повторювати замовлення одним дотиком."
+        actionLabel="Увійти"
+        onAction={() => router.push("/account")}
+      />
+    );
+  }
+
   if (!data || data.orders.length === 0) {
-    return <Text style={styles.hint}>Замовлень ще немає</Text>;
+    return (
+      <EmptyState
+        icon="receipt-outline"
+        title="Замовлень ще немає"
+        hint="Після першого замовлення тут буде його статус — від «Нове» до «Доставлено»."
+        actionLabel="До каталогу"
+        onAction={() => router.push("/catalog")}
+      />
+    );
   }
 
   return (

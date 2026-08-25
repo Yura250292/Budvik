@@ -7,13 +7,15 @@
  */
 
 import { useState, useEffect } from "react";
-import { View, Text, TextInput, FlatList, StyleSheet, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, FlatList, StyleSheet, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { ProductCard } from "@/components/ProductCard";
 import { addToCart } from "@/lib/cart";
+import { ProductGridSkeleton } from "@/components/Skeleton";
+import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius } from "@/theme";
 
 /** Та сама затримка, що в підказках на сайті (useSuggest). */
@@ -60,17 +62,31 @@ export default function SearchScreen() {
         </View>
 
         {/* Сканер поруч із пошуком: людина зі стенда в руках шукає не назвою. */}
-        <Pressable style={styles.scanButton} onPress={() => router.push("/scan")}>
+        <Pressable
+          style={styles.scanButton}
+          onPress={() => router.push("/scan")}
+          accessibilityLabel="Сканувати штрихкод"
+        >
           <Ionicons name="barcode-outline" size={22} color={colors.ink} />
         </Pressable>
       </View>
 
       {!enabled ? (
-        <Text style={styles.hint}>Введіть щонайменше {MIN_LENGTH} символи</Text>
+        <EmptyState
+          icon="search-outline"
+          title="Що шукаємо?"
+          hint="Введіть назву або артикул. Якщо товар у руках — наведіть камеру на код із цінника."
+          actionLabel="Сканувати код"
+          onAction={() => router.push("/scan")}
+        />
       ) : isFetching && !data ? (
-        <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />
+        <ProductGridSkeleton />
       ) : !data || data.items.length === 0 ? (
-        <Text style={styles.hint}>Нічого не знайшли за запитом «{query}»</Text>
+        <EmptyState
+          icon="search-outline"
+          title={`Нічого не знайшли за «${query}»`}
+          hint="Спробуйте коротший запит або одне слово — наприклад «дриль» замість «дриль ударний Bosch»."
+        />
       ) : (
         <>
           {data.isFuzzy ? (
@@ -83,6 +99,13 @@ export default function SearchScreen() {
             keyExtractor={(i) => i.id}
             numColumns={2}
             contentContainerStyle={{ padding: space.xs }}
+            /**
+             * Без цього перший дотик по результату лише ховає клавіатуру, а
+             * картка не відкривається — людина тисне двічі й вважає, що
+             * застосунок гальмує.
+             */
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             renderItem={({ item }) => (
               <ProductCard product={item} onAdd={(p) => addToCart(p)} />
             )}

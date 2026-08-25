@@ -31,26 +31,48 @@ const SCOPE_KEY = "budvik_scope";
 let cached: string | null = null;
 let loaded = false;
 
+/**
+ * Читання зі сховища ніде не має валити застосунок.
+ *
+ * SecureStore відмовляє не лише в теорії: у вебі його немає взагалі, а на
+ * пристрої Keychain повертає помилку, коли змінили набір біометрії. Виняток
+ * звідси піднімається аж у кореневий layout — тобто людина отримує червоний
+ * екран замість екрана входу. Тиха відмова тут чесніша: не змогли прочитати
+ * означає «немає», а далі спрацює звичайний вхід паролем.
+ */
+async function readSecure(key: string): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(key);
+  } catch {
+    return null;
+  }
+}
+
 export async function isBiometricEnabled(): Promise<boolean> {
-  return (await SecureStore.getItemAsync(BIOMETRIC_KEY)) === "1";
+  return (await readSecure(BIOMETRIC_KEY)) === "1";
 }
 
 /** Чи є на пристрої налаштована біометрія — пропонувати її інакше нема сенсу. */
 export async function isBiometricAvailable(): Promise<boolean> {
-  const [hardware, enrolled] = await Promise.all([
-    LocalAuthentication.hasHardwareAsync(),
-    LocalAuthentication.isEnrolledAsync(),
-  ]);
-  return hardware && enrolled;
+  try {
+    const [hardware, enrolled] = await Promise.all([
+      LocalAuthentication.hasHardwareAsync(),
+      LocalAuthentication.isEnrolledAsync(),
+    ]);
+    return hardware && enrolled;
+  } catch {
+    // Модуля немає (веб) або система відмовила — просто не пропонуємо біометрію.
+    return false;
+  }
 }
 
 export async function getScope(): Promise<"shop" | "track" | null> {
-  const v = await SecureStore.getItemAsync(SCOPE_KEY).catch(() => null);
+  const v = await readSecure(SCOPE_KEY);
   return v === "shop" || v === "track" ? v : null;
 }
 
 export async function setScope(scope: "shop" | "track"): Promise<void> {
-  await SecureStore.setItemAsync(SCOPE_KEY, scope);
+  await SecureStore.setItemAsync(SCOPE_KEY, scope).catch(() => {});
 }
 
 export async function setToken(token: string, biometric = false): Promise<void> {
@@ -119,11 +141,16 @@ export async function setBiometric(enabled: boolean): Promise<boolean> {
 export async function unlock(): Promise<boolean> {
   if (!(await isBiometricEnabled())) return true;
 
-  const ok = await LocalAuthentication.authenticateAsync({
-    promptMessage: "Вхід у Будвік27",
-    cancelLabel: "Увійти паролем",
-  });
-  if (!ok.success) return false;
+  try {
+    const ok = await LocalAuthentication.authenticateAsync({
+      promptMessage: "Вхід у Будвік27",
+      cancelLabel: "Увійти паролем",
+    });
+    if (!ok.success) return false;
+  } catch {
+    // Система відмовила в перевірці — не замикаємо людину назовсім.
+    return false;
+  }
 
   return (await getToken()) !== null;
 }

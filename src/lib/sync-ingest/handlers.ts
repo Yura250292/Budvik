@@ -129,7 +129,12 @@ export async function handleBatch(req: Request): Promise<Response> {
 
   let body: BatchRequest;
   try {
-    body = JSON.parse(auth.rawBody);
+    // Текст з 1С приходить із «ö» у двох Unicode-формах (складеній U+00F6 і
+    // розкладеній o+U+0308). Для Postgres і @unique це різні рядки: так у
+    // довіднику з'явився другий «Grösser», а contains по назві губив третину
+    // товарів бренду. Приводимо весь пакет до NFC на вході — ASCII (GUID,
+    // числа, структура JSON) від цього не змінюється.
+    body = JSON.parse(auth.rawBody.normalize("NFC"));
   } catch {
     return json({ error: "Некоректний JSON" }, 400);
   }

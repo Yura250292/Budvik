@@ -97,5 +97,65 @@ export async function reconcileStock(ctx: ApplyContext): Promise<number> {
     }
   }
 
-  return stale.length;
+  return stale.length + (await zeroOrphans(delivered.seen));
+}
+
+/**
+ * Другий прохід: товари, у яких рядків складу немає ВЗАГАЛІ.
+ *
+ * Перший прохід ловить те, що має рядок у LocationStock і випало зі зрізу.
+ * Але позиція, залишок якої приїхав ще першим імпортом каталогу і жодного
+ * разу не потрапила в регістр 1С, рядка не має — для звірки її наче й немає,
+ * а `Product.stock` тримає березневе число й ніколи не перераховується
+ * (перерахунок іде по ЗАЧЕПЛЕНИХ зрізом товарах).
+ *
+ * Заміряно 25.08.2026: 923 активні товари з ключем 1С показували 19 226 штук
+ * на 3,6 млн ₴ за прайсом. Пробою в 1С (agent/ps/gen-probe-stock-orphans.py)
+ * перевірено, що це саме розпродані позиції, а не транзитні: у регістрі за
+ * рік видно і прихід, і розхід на справжніх складах, а кінцевий залишок нуль.
+ * Тобто вітрина обіцяла покупцям те, чого немає, а поради торговому — везли.
+ *
+ * Обнуляємо лише позиції з `externalId`: залишок товарів, яких 1С не веде,
+ * веде сам сайт, і зріз про них нічого не каже.
+ */
+async function zeroOrphans(seen: number): Promise<number> {
+  const orphans = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT p.id
+    FROM "Product" p
+    WHERE p."isActive"
+      AND p.stock > 0
+      AND p."externalId" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "LocationStock" ls
+        JOIN "StockLocation" sl ON sl.id = ls."stockLocationId"
+        WHERE ls."productId" = p.id AND sl."isService" = false
+      )
+  `;
+
+  if (orphans.length === 0) return 0;
+
+  // Ті самі запобіжники, що й у першому проході: якщо «зниклих» раптом
+  // більше, ніж прийшло у зрізі, це не розпродаж, а обірваний обмін.
+  if (
+    orphans.length > STALE_ABSOLUTE_LIMIT ||
+    orphans.length > STALE_RATIO_LIMIT * (orphans.length + seen)
+  ) {
+    console.error(
+      `sync-ingest: обнулення товарів без рядків складу пропущено — ` +
+        `забагато кандидатів (${orphans.length} проти ${seen} у зрізі)`
+    );
+    return 0;
+  }
+
+  const CHUNK = 500;
+  const ids = orphans.map((o) => o.id);
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    await prisma.product.updateMany({
+      where: { id: { in: ids.slice(i, i + CHUNK) } },
+      data: { stock: 0, syncedAt: new Date(), syncSource: "1C" },
+    });
+  }
+
+  return ids.length;
 }

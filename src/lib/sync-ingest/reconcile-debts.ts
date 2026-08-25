@@ -42,6 +42,18 @@ const STALE_RATIO_LIMIT = 0.5;
 /** Копійчаний пил не вважаємо боргом — той самий поріг, що в агента. */
 const DUST = 0.01;
 
+/**
+ * Запас, на який відсічка зсувається в минуле.
+ *
+ * Мітку ставить годинник Postgres, а відсічку беремо з `SyncBatch.createdAt`
+ * — тієї самої бази, але через прошарок Prisma. Помилка в один бік дешева
+ * (частина закритих боргів дочекається наступного прогону), у другий —
+ * дорога: відсічка «з майбутнього» зробила б кандидатами всіх одразу.
+ * Тому свідомо зсуваємо назад. На результат це не впливає: канал боргів
+ * обробляється раз на годину, тож мітки «зниклих» усе одно значно старші.
+ */
+const CLOCK_SKEW_GUARD_MS = 5 * 60_000;
+
 const CHUNK = 500;
 
 /**
@@ -69,8 +81,10 @@ export async function reconcileDebts(ctx: ApplyContext): Promise<number> {
   });
 
   const seen = batches._sum.records ?? 0;
-  const cutoff = batches._min.createdAt;
-  if (seen === 0 || !cutoff) return 0;
+  const firstBatchAt = batches._min.createdAt;
+  if (seen === 0 || !firstBatchAt) return 0;
+
+  const cutoff = new Date(firstBatchAt.getTime() - CLOCK_SKEW_GUARD_MS);
 
   // Батч реєструється в SyncBatch ДО застосування, тож рядки в ньому є
   // навіть тоді, коли диспетчер пропустив канал за тротлом (раз на годину).

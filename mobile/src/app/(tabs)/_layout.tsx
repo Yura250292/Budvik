@@ -94,7 +94,7 @@ export default function TabsLayout() {
         прибирає кнопку, але не сам екран.
       */}
       <Tabs.Screen name="product/[slug]" options={{ href: null, title: "Товар" }} />
-      <Tabs.Screen name="brand/[slug]" options={{ href: null, title: "Бренд" }} />
+      <Tabs.Screen name="list" options={{ href: null, title: "Каталог" }} />
       <Tabs.Screen name="wishlist" options={{ href: null, title: "Обране" }} />
       <Tabs.Screen name="orders/index" options={{ href: null, title: "Мої замовлення" }} />
       <Tabs.Screen name="checkout" options={{ href: null, title: "Оформлення" }} />

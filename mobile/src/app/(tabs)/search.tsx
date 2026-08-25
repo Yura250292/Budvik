@@ -53,6 +53,17 @@ export default function SearchScreen() {
             placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             returnKeyType="search"
+            onSubmitEditing={() => {
+              /*
+               * Enter відкриває повну видачу з фільтрами й сортуванням.
+               * Підказки під полем лишаються для швидкого влучання в товар,
+               * але коли запит широкий, людині потрібен саме список із
+               * фільтрами, а не двадцять чотири картки без керування.
+               */
+              if (text.trim().length >= MIN_LENGTH) {
+                router.push({ pathname: "/list", params: { search: text.trim() } });
+              }
+            }}
           />
           {text ? (
             <Pressable onPress={() => setText("")} hitSlop={8}>
@@ -75,9 +86,9 @@ export default function SearchScreen() {
         <EmptyState
           icon="search-outline"
           title="Що шукаємо?"
-          hint="Введіть назву або артикул. Якщо товар у руках — наведіть камеру на код із цінника."
-          actionLabel="Сканувати код"
-          onAction={() => router.push("/scan")}
+          hint="Введіть назву або артикул — наприклад «дриль» чи «830408». Або відкрийте каталог за розділами."
+          actionLabel="До каталогу"
+          onAction={() => router.push("/catalog")}
         />
       ) : isFetching && !data ? (
         <ProductGridSkeleton />

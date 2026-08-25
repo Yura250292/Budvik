@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
 import { parsePackQty } from "@/lib/pack-qty";
+import { isHiddenCategory } from "@/lib/catalog/category-display";
 import { isRealSku } from "@/lib/catalog/sku-search";
 import crypto from "crypto";
 import type { ProductRecord } from "./types";
@@ -127,10 +128,11 @@ export async function applyProducts(
     categoryExternalIds.length > 0
       ? await prisma.category.findMany({
           where: { externalId: { in: categoryExternalIds } },
-          select: { id: true, externalId: true },
+          select: { id: true, externalId: true, name: true },
         })
       : [];
   const categoryByExternalId = new Map(categories.map((c) => [c.externalId!, c.id]));
+  const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
   let fallbackCategoryId: string | null = null;
 
@@ -176,10 +178,17 @@ export async function applyProducts(
     const recSku = rec.sku?.trim();
     const skuIsUsable = !!recSku && !ambiguousSkus.has(recSku);
     const sku = recSku || generateSKU(rec.name);
+    // Артикул і назва — лише для ще не привʼязаних товарів (або того самого
+    // GUID). Товар, привʼязаний до ІНШОГО запису 1С, за ними не чіпаємо:
+    // два товари 1С з одним артикулом (пилки TOTAL 400/500 мм, THT55208)
+    // інакше щогодини по черзі перезаписували одну картку. Раніше це
+    // ловив лише запит linkedElsewhere, а він не бачить пари з одного батча.
+    const sameOrUnlinked = (p: (typeof candidates)[number] | undefined) =>
+      p && (!p.externalId || p.externalId === rec.externalId) ? p : undefined;
     const existing =
       byExternalId.get(rec.externalId) ||
-      (skuIsUsable ? bySku.get(recSku!) : undefined) ||
-      byName.get(rec.name.toLowerCase());
+      sameOrUnlinked(skuIsUsable ? bySku.get(recSku!) : undefined) ||
+      sameOrUnlinked(byName.get(rec.name.toLowerCase()));
 
     // --- Товар помічений на видалення в 1С ---
     // Не деактивуємо автоматично: це рішення адміністратора. Але й лишати
@@ -256,7 +265,8 @@ export async function applyProducts(
         categoryId,
         brandId: detectBrandId(rec.name),
         packQty: parsePackQty(rec.name),
-        isActive: true,
+        // Стенди, реклама, сувенірка, обмінний фонд — не для вітрини.
+        isActive: !isHiddenCategory(categoryNameById.get(categoryId)),
         syncedAt: new Date(),
         syncSource: "1C",
       };
@@ -317,13 +327,33 @@ export async function applyProducts(
     // товару туди одразу лягає згенерована заглушка. Через це справжній
     // артикул із 1С мовчки відкидався, і 11 тис. товарів лишались без нього.
     // Торгові шукають саме за артикулом, тож це ламало їм пошук.
-    if (rec.sku?.trim() && !isRealSku(existing.sku)) {
-      const incoming = rec.sku.trim();
+    //
+    // І виправляємо, якщо в 1С артикул змінили: 1С — джерело правди, торгові
+    // шукають за ним. Так пилка «400 мм», якій у 1С виправили артикул на
+    // THT55400, нарешті отримує його, а «500 мм», створена з суфіксом
+    // «THT55208-xxxxxx», забирає звільнений THT55208 наступним циклом.
+    if (skuIsUsable && recSku !== existing.sku) {
       // Артикул унікальний у схемі — не вішаємо його, якщо ним уже володіє
       // інший товар (у цьому ж батчі або деінде в базі), інакше впаде батч.
-      if (!takenSkus.has(incoming) && !ambiguousSkus.has(incoming)) {
-        updates.sku = incoming;
-        takenSkus.add(incoming);
+      const takenInDb =
+        !takenSkus.has(recSku!) &&
+        (await prisma.product.findFirst({
+          where: { sku: recSku!, id: { not: existing.id } },
+          select: { id: true },
+        })) !== null;
+      if (!takenSkus.has(recSku!) && !takenInDb) {
+        if (isRealSku(existing.sku)) {
+          ctx.discrepancy({
+            entityType: "product",
+            entityRef: recSku!,
+            entityName: rec.name,
+            field: "sku",
+            value1C: recSku!,
+            valueBudvik: existing.sku ?? "—",
+          });
+        }
+        updates.sku = recSku!;
+        takenSkus.add(recSku!);
       }
     }
 

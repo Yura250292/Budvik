@@ -1101,10 +1101,19 @@ model LocationStock {
   reserved  Int @default(0)
   available Int @default(0)
 
+  /// Коли пару «товар+склад» востаннє підтвердив зріз залишків 1С.
+  ///
+  /// Регістр віддає лише ненульові рядки, тож продана в нуль позиція просто
+  /// зникає з вивантаження. На інкрементальних прогонах агент домальовує їй
+  /// нуль сам (знає, що вона рухалась), але на повному прогоні такого списку
+  /// немає — і без цієї мітки залишок лишався б ненульовим назавжди.
+  syncedAt DateTime?
+
   stockLocation StockLocation @relation(fields: [stockLocationId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([stockLocationId, productId])
+  @@index([syncedAt])
 }
 
 // ========== Saved Routes (Route Planner) ==========

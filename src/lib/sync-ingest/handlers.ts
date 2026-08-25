@@ -24,6 +24,7 @@ import { dispatchBatch, detectMissing } from "./dispatch";
 import { reconcileDebts } from "./reconcile-debts";
 import { reconcilePrices } from "./reconcile-prices";
 import { reconcilePayments } from "./reconcile-payments";
+import { reconcileStock } from "./reconcile-stock";
 import {
   alertMassPriceChange,
   alertMissingEntities,
@@ -311,7 +312,8 @@ export async function handleCompleteRun(
       const zeroed =
         (await reconcileDebts(ctx)) +
         (await reconcilePrices(ctx)) +
-        (await reconcilePayments(ctx));
+        (await reconcilePayments(ctx)) +
+        (await reconcileStock(ctx));
       if (zeroed > 0) {
         reconcileDiscrepancies = await flushDiscrepancies(ctx);
         await accumulateJobCounters(job.id, ctx, 0);

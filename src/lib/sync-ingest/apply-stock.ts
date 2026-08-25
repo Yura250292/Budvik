@@ -176,12 +176,23 @@ export async function applyStock(records: StockRecord[], ctx: ApplyContext): Pro
     }
 
     try {
+      // syncedAt пишемо завжди, навіть коли числа не змінились: на цій мітці
+      // тримається звірка наявності (reconcile-stock.ts). Регістр віддає лише
+      // ненульові рядки, тож продана в нуль пара просто зникає з вивантаження,
+      // і відрізнити її від незміненої можна тільки за свіжістю мітки.
       await prisma.locationStock.upsert({
         where: {
           stockLocationId_productId: { stockLocationId: warehouseId, productId: product.id },
         },
-        create: { stockLocationId: warehouseId, productId: product.id, quantity, reserved, available },
-        update: { quantity, reserved, available },
+        create: {
+          stockLocationId: warehouseId,
+          productId: product.id,
+          quantity,
+          reserved,
+          available,
+          syncedAt: new Date(),
+        },
+        update: { quantity, reserved, available, syncedAt: new Date() },
       });
       touchedProductIds.add(product.id);
       ctx.updated++;

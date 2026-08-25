@@ -57,3 +57,12 @@ scripts/backup-stock-not-in-1c-*.json
 # їх в історії назавжди — видалення потім ваги не повертає. Обмін макетами
 # через Google Drive; вихідник Budvik27.pen легкий і лежить у git.
 design/
+
+# Застосунок покупця (Expo).
+# Теки ios/ і android/ генерує `expo prebuild` з app.json — тримати їх у git
+# означало б розвʼязувати конфлікти в згенерованих файлах на кожен реліз.
+/mobile/node_modules
+/mobile/.expo
+/mobile/ios
+/mobile/android
+/mobile/dist

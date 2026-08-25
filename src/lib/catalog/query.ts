@@ -213,8 +213,14 @@ const fetchCatalogPageCached = unstable_cache(fetchCatalogPageUncached, ["catalo
   tags: [CATALOG_CACHE_TAG],
 });
 
-/** Поля, які читають картки каталогу. Один список на всі шляхи вибірки. */
-const CARD_SELECT = {
+/**
+ * Поля, які читають картки каталогу. Один список на всі шляхи вибірки.
+ *
+ * Експортується, бо мобільний API мусить віддавати рівно ту саму картку, що
+ * й сайт: інакше та сама позиція виглядала б у застосунку інакше, ніж у
+ * браузері, і розбіжність вилізла б не в коді, а в розмові з покупцем.
+ */
+export const CARD_SELECT = {
   id: true,
   name: true,
   slug: true,
@@ -226,6 +232,10 @@ const CARD_SELECT = {
   promoLabel: true,
   stock: true,
   image: true,
+  // Кратність пакування: без неї кошик застосунку не знає, що товар
+  // продається лише по 10, і показав би кнопку «+1», яку сервер усе одно
+  // округлить угору — тобто збрехав би про кількість ще до оформлення.
+  packQty: true,
   category: { select: { name: true, slug: true } },
   brand: { select: { name: true, slug: true } },
 } as const;

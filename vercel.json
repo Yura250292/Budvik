@@ -7,5 +7,5 @@
       "schedule": "30 1 * * *"
     }
   ],
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ':(exclude)scripts' ':(exclude)output' ':(exclude)design' ':(exclude)worker' ':(exclude)agent' ':(exclude)railway.json' ':(exclude).railwayignore' ':(exclude).nvmrc' ':(exclude)*.md'"
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ':(exclude)scripts' ':(exclude)output' ':(exclude)design' ':(exclude)worker' ':(exclude)agent' ':(exclude)mobile' ':(exclude)railway.json' ':(exclude).railwayignore' ':(exclude).nvmrc' ':(exclude)*.md'"
 }

@@ -66,6 +66,9 @@ async function coreEntries(): Promise<SitemapEntry[]> {
     { url: absoluteUrl("/") },
     { url: absoluteUrl("/about") },
     { url: absoluteUrl("/povernennya") },
+    // Магазини застосунків звіряють доступність політики перед публікацією —
+    // сторінка має бути і в мапі сайту, і віддаватися без редіректу.
+    { url: absoluteUrl("/pryvatnist") },
     { url: absoluteUrl("/catalog") },
     { url: absoluteUrl("/catalog/zmist") },
     ...tree.main.map((b) => ({ url: absoluteUrl(`/brand/${b.slug}`) })),

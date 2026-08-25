@@ -1,0 +1,76 @@
+{
+  "expo": {
+    "name": "Будвік27",
+    "slug": "budvik27",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "budvik27",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFFFF",
+    "primaryColor": "#FFD600",
+    "ios": {
+      "bundleIdentifier": "ua.budvik.shop",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Камера потрібна, щоб знайти інструмент за штрихкодом або QR-кодом із цінника.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "ua.budvik.shop",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A0A",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.budvik27.com",
+              "pathPrefix": "/catalog"
+            },
+            {
+              "scheme": "https",
+              "host": "budvik27.com",
+              "pathPrefix": "/catalog"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A0A0A",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 180
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера потрібна, щоб знайти інструмент за штрихкодом або QR-кодом із цінника."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

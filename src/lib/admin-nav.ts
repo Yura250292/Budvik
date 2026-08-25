@@ -123,6 +123,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/erp/price-check", title: "Моніторинг цін", desc: "AI аналіз цін конкурентів", iconKey: "price", roles: AM },
       { href: "/admin/erp/seasonal", title: "Сезонні товари", desc: "Рекомендації по порі року", iconKey: "seasonal", roles: AM },
       { href: "/admin/integration", title: "Інтеграції", desc: "Зовнішні сервіси", iconKey: "plug", roles: AM },
+      // Тестова збірка застосунку покупця. Поруч з «Інтеграціями», а не в
+      // «Продажах»: це інструмент для своїх, а не щоденна робота з клієнтом.
+      { href: "/admin/mobile-app", title: "Мобільний застосунок", desc: "Тестова збірка для Android", iconKey: "plug", roles: AM },
     ],
   },
 ];

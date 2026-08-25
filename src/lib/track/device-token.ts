@@ -27,6 +27,17 @@ const PREFIX = "bdvk_";
 const TOKEN_BYTES = 32;
 
 /**
+ * Область дії токенів цього контуру.
+ *
+ * Та сама таблиця обслуговує ще й застосунок покупця (src/lib/shop/app-token.ts):
+ * процедура відкликання, lastUsedAt і зберігання лише хеша написані один раз,
+ * і адмін гасить загублений пристрій в одному місці. Але перевіряти область
+ * мусить кожна сторона явно — інакше токен покупця ходив би в /api/track/points
+ * і /api/shift/*, тобто заливав би чужі координати й закривав чужі зміни.
+ */
+export const TRACK_SCOPE = "track";
+
+/**
  * SHA-256, а не bcrypt: токен — це 256 біт випадковості, а не пароль
  * людини. Перебирати нічого, зате перевірка йде на кожній пачці точок,
  * і bcrypt тут коштував би сотні мілісекунд на порожньому місці.
@@ -45,7 +56,12 @@ export async function issueDeviceToken(
 ): Promise<string> {
   const token = PREFIX + randomBytes(TOKEN_BYTES).toString("base64url");
   await prisma.deviceToken.create({
-    data: { userId, tokenHash: hashToken(token), deviceName: deviceName ?? null },
+    data: {
+      userId,
+      tokenHash: hashToken(token),
+      deviceName: deviceName ?? null,
+      scope: TRACK_SCOPE,
+    },
   });
   return token;
 }
@@ -72,11 +88,20 @@ export async function verifyDeviceToken(
     select: {
       id: true,
       revokedAt: true,
+      scope: true,
       user: { select: { id: true, role: true } },
     },
   });
 
   if (!row || row.revokedAt) return null;
+  /**
+   * Область — перша перевірка, і саме до ролі.
+   *
+   * Роль сама по собі не рятує: ADMIN і MANAGER є в обох списках, тож
+   * адмін, який увійшов у застосунок покупця, отримав би токеном право
+   * писати трек. Область цю двозначність знімає.
+   */
+  if (row.scope !== TRACK_SCOPE) return null;
   if (!TRACK_ROLES.includes(row.user.role)) return null;
 
   /**

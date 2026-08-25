@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ORDER_STATUS_LABELS } from "@/lib/utils";
+import { sendPushToUser } from "@/lib/push/send";
 import type { OrderStatus } from "@prisma/client";
 
 /**
@@ -105,17 +106,33 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // Покупець інакше дізнається про зміну, лише якщо сам зайде і оновить
   // сторінку. Гість бачить статус на своїй /order/[token].
   if (order.userId && existing.status !== status) {
+    const title = `Замовлення № ${order.orderNumber}: ${ORDER_STATUS_LABELS[status]}`;
+    const body =
+      status === "CANCELLED"
+        ? "Замовлення скасовано."
+        : `Статус змінено на «${ORDER_STATUS_LABELS[status]}».`;
+
     await prisma.notification.create({
       data: {
         userId: order.userId,
         type: "ORDER_STATUS",
-        title: `Замовлення № ${order.orderNumber}: ${ORDER_STATUS_LABELS[status]}`,
-        body:
-          status === "CANCELLED"
-            ? "Замовлення скасовано."
-            : `Статус змінено на «${ORDER_STATUS_LABELS[status]}».`,
+        title,
+        body,
         relatedId: order.id,
       },
+    });
+
+    /**
+     * Той самий текст — у застосунок.
+     *
+     * Рядок Notification бачить лише той, хто зайде й оновить сторінку; пуш
+     * доганяє людину там, де вона є. Помилку ковтаємо так само, як ковтається
+     * телеграмна: недоступний Expo не має ламати зміну статусу в адмінці.
+     */
+    void sendPushToUser(order.userId, {
+      title,
+      body,
+      url: `budvik27://orders/${order.id}`,
     });
   }
 

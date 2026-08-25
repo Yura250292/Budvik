@@ -317,6 +317,10 @@ model User {
   shifts        Shift[]        @relation("shiftUser")
   visits        Visit[]        @relation("visitUser")
 
+  // Застосунок покупця
+  pushTokens PushToken[]    @relation("pushTokenUser")
+  wishlist   WishlistItem[] @relation("wishlistUser")
+
   // Інкасація: свої здачі та підтвердження чужих
   cashHandovers     CashHandover[] @relation("cashHandoverDriver")
   cashConfirmations CashHandover[] @relation("cashHandoverConfirmedBy")
@@ -389,6 +393,12 @@ model Product {
   // Джерело — назва з 1С («кратно 10шт», «Уп. 5 шт»), розбирає src/lib/pack-qty.ts.
   // Квадратні дужки [N] у назві НЕ кратність, а кількість у ящику (там буває [1] і [500]).
   packQty        Int? // 1/null — поштучно
+  // Штрихкоди з 1С — для пошуку камерою в застосунку.
+  //
+  // Масив, а не одне поле: в 1С у номенклатури буває кілька штрихкодів
+  // (упаковка, ящик, старий код постачальника), і будь-який із них може
+  // виявитись саме тим, що надрукований на коробці в руках у покупця.
+  barcodes       String[] @default([])
   // Tool specification fields (optional)
   powerWatts     Int? // Потужність (Вт)
   rpm            Int? // Обороти (об/хв)
@@ -421,6 +431,8 @@ model Product {
   reservations       StockReservation[]
 
   @@index([brandId])
+  // GIN — бо шукаємо `barcodes has "482..."`, а B-tree по масиву в цьому не помічний.
+  @@index([barcodes], type: Gin)
   locationStocks     LocationStock[]
 
   // Warehouse reports (лише довідковий матчинг, склад не змінюється)
@@ -2537,6 +2549,15 @@ model DeviceToken {
   id     String @id @default(cuid())
   userId String
 
+  /// Для чого виданий токен: "track" — планшет торгового чи водія,
+  /// "shop" — застосунок покупця.
+  ///
+  /// Один контур перевірки на два різні застосунки був би дірою: токен,
+  /// виданий покупцеві, ходив би в /api/track/points і /api/shift/*. Тому
+  /// кожна сторона перевіряє свою область явно, а не покладається на роль:
+  /// ADMIN і MANAGER присутні в обох списках ролей.
+  scope String @default("track")
+
   /// SHA-256 від токена у hex. Сам токен існує лише на пристрої.
   tokenHash String @unique
 
@@ -2555,6 +2576,79 @@ model DeviceToken {
   user User @relation("deviceTokenUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, scope])
+}
+
+/// Пристрій, якому можна слати пуш про замовлення.
+///
+/// Рядок Notification у базі вже створюється при зміні статусу, але покупець
+/// його ніде не бачить: дзвіночок є лише в адмінці й кабінетах персоналу.
+/// Ця таблиця — адреса доставки для тих самих подій.
+model PushToken {
+  id String @id @default(cuid())
+
+  userId String
+
+  /// ExponentPushToken[...] — адреса в Expo Push Service, який сам ходить в
+  /// APNs і FCM. Unique, бо перевстановлення застосунку видає новий токен, а
+  /// старий може ще раз приїхати від того ж пристрою.
+  token String @unique
+
+  platform String /// ios | android
+
+  /// Версія збірки — щоб знати, кому пуш із новим полем ще не зрозумілий.
+  appVersion String?
+
+  /// Expo відповідає DeviceNotRegistered, коли застосунок знесли. Рядок не
+  /// видаляємо, щоб не слати в ту саму мертву адресу знову й знову.
+  revokedAt DateTime?
+
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @updatedAt
+
+  user User @relation("pushTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Обране покупця — на сервері, а не в localStorage.
+///
+/// На сайті обране живе в браузері (budvik_wishlist) і зникає разом із кукі.
+/// Застосунок обіцяє показувати обране офлайн, тож воно мусить переживати
+/// перевстановлення — а заразом підтягується й на сайті, коли людина заходить
+/// із того самого акаунта.
+model WishlistItem {
+  id String @id @default(cuid())
+
+  userId    String
+  productId String
+
+  createdAt DateTime @default(now())
+
+  user User @relation("wishlistUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+/// Лічильник частоти запитів.
+///
+/// Потрібен, бо префікс /api/v1/ винесено з-під челенджу Vercel: без нього
+/// підбір пароля на /api/v1/auth/login не має жодної стелі. Стеля на межі
+/// мережі (правило Rate Limit у фаєрволі) дешевша — вона гасить зловживання
+/// до платного виклику функції, — але вона в дашборді, а не в репозиторії, і
+/// цей рядок захисту не має залежати від того, чи її не забули налаштувати.
+///
+/// Один рядок на ключ, а не рядок на запит: інакше таблиця росла б зі
+/// швидкістю трафіку й потребувала б постійного прибирання.
+model RateLimit {
+  /// Наприклад "login:ip:1.2.3.4" або "login:email:hto@example.com".
+  key String @id
+
+  count Int @default(0)
+
+  /// Початок поточного вікна. Старіше за вікно — лічильник починається заново.
+  windowAt DateTime @default(now())
 }
 
 /// Стан зміни торгового.

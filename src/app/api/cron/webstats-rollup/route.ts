@@ -93,7 +93,27 @@ async function handle(req: NextRequest) {
     where: { createdAt: { lt: cutoff } },
   });
 
-  return NextResponse.json({ ok: true, day: yesterday, ...stats, pruned: pruned.count });
+  /**
+   * Заразом прибираємо вистиглі лічильники частоти.
+   *
+   * Один рядок на адресу або email; за рік їх набирається стільки, скільки
+   * різних людей заходило. Найдовше вікно — година (реєстрація), тож усе
+   * старше за добу вже нікого не обмежує й лише займає місце.
+   *
+   * Тут, а не окремим cron-ом: зайва задача на Vercel — це зайвий платний
+   * виклик функції щодня заради одного DELETE.
+   */
+  const staleLimits = await prisma.rateLimit.deleteMany({
+    where: { windowAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    day: yesterday,
+    ...stats,
+    pruned: pruned.count,
+    rateLimitsPruned: staleLimits.count,
+  });
 }
 
 /** Vercel Cron ходить GET-ом, ручний виклик зручніше робити POST-ом. */

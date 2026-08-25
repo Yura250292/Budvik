@@ -37,6 +37,10 @@
     "node_modules",
     // Агент 1С — окремий Node-проєкт із власним tsconfig (CommonJS, alias @contract).
     // Перевіряється командою `npm run typecheck` у папці agent.
-    "agent"
+    "agent",
+    // Застосунок покупця — React Native з власним tsconfig (expo/tsconfig.base,
+    // свій набір типів і той самий alias @/* на іншу теку). Без цього рядка
+    // перевірка сайту намагається зібрати екрани RN зі своїми шляхами.
+    "mobile"
   ]
 }

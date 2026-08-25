@@ -87,7 +87,10 @@ function PickByVid($byVid, $priority) {
 # JSON by hand: ConvertTo-Json on PS5 escapes Cyrillic into \uXXXX and wraps
 # single objects oddly. A tiny writer keeps the file readable and stable.
 function JsonEscape([string] $s) {
-    $s = $s -replace '\\', '\\\\'
+    # In .NET, the PATTERN is a regex (so '\\' means one backslash) but the
+    # REPLACEMENT is literal apart from $-groups. Writing '\\\\' here would put
+    # four backslashes in the file, which JSON then reads back as two.
+    $s = $s -replace '\\', '\\'
     $s = $s -replace '"', '\"'
     $s = $s -replace "`r", ' '
     $s = $s -replace "`n", ' '

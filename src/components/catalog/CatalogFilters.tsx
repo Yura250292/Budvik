@@ -385,7 +385,15 @@ function CheckRow({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 outline-none active:bg-[#F7F7F7] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#FFD600]">
+    /*
+      relative тут не для позиціонування, а щоб мітка стала контейнером для
+      свого sr-only інпута: той — position:absolute, і без позиціонованого
+      предка його контейнером ставало <body>. Список брендів обрізаний
+      (max-h-72 overflow-y-auto), але обрізання не діє на абсолют із чужим
+      контейнером — і схований інпут останнього бренда опинявся за пів
+      тисячі пікселів нижче підвала, розтягуючи прокрутку всієї сторінки.
+    */
+    <label className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 outline-none active:bg-[#F7F7F7] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#FFD600]">
       <input type="checkbox" checked={checked} onChange={onChange} className="sr-only" />
       <Check checked={checked} />
       {children}

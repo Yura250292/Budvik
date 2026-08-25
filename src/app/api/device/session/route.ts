@@ -25,19 +25,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { verifyDeviceToken } from "@/lib/track/device-token";
+import { defaultTargetFor } from "@/lib/app/role-target";
 
 export const dynamic = "force-dynamic";
 
 /** Стільки ж, скільки дефолтна сесія NextAuth — 30 діб. */
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
-
-/**
- * Куди вести після обміну, якщо застосунок не попросив конкретно.
- * Водій возить накладні, торговий — аналітику; це різні кабінети.
- */
-function defaultTargetFor(role: string): string {
-  return role === "DRIVER" ? "/driver" : "/sales";
-}
 
 /**
  * Пускаємо тільки відносний шлях свого сайту.

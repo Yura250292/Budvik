@@ -145,28 +145,6 @@ function StockRecord($productId, $warehouseId, $qty, $res) {
     }
 }
 
-<#
-  Picks the first contact value whose kind appears in the priority list.
-
-  The kind arrives as text (PREDSTAVLENIE of the enum) and the priority lists
-  live in queries.json rather than here: this file is read in the OEM codepage,
-  so a Cyrillic literal is mangled before the parser sees it, while the JSON is
-  read as UTF-8.
-
-  Priority is not cosmetic. "Delivery address" is where the goods actually go;
-  the legal address of a company is often a different town entirely, and
-  geocoding the wrong one puts the client's pin on the wrong side of the
-  region -- which then drives route building and the driver's pay zone.
-#>
-function PickByVid($byVid, $priority) {
-    if ($null -eq $byVid -or $null -eq $priority) { return "" }
-    foreach ($vid in $priority) {
-        $key = [string]$vid
-        if ($byVid.ContainsKey($key)) { return $byVid[$key] }
-    }
-    return ""
-}
-
 # ----------------------------------------------------------------- config ---
 
 $config  = ReadJsonUtf8 $ConfigPath
@@ -467,138 +445,106 @@ try {
         }
         Log ("rates: " + $rates.Count)
 
-        # Two price types. "retail" is what the site shows. "wholesale" is what
-        # the site falls back to (times a per-brand markup set in the admin)
-        # when a product has no retail row at all: TOTAL and POLAX are priced
-        # in 1C only as "4.OPT", so without this they sat on the site at 0.
-        #
-        # Each type is resolved by name OR code: the names mix Ukrainian and
-        # Russian glyphs that look identical, so the code is the safe key.
-        $priceTypes = @()
-        $priceTypes += @{ key = "retail"; name = [string]$config.priceTypes.retail; ref = $null }
-        if ($config.priceTypes.wholesale) {
-            $priceTypes += @{ key = "wholesale"; name = [string]$config.priceTypes.wholesale; ref = $null }
-        }
-
         # Inlined (not via RunQueryP) with a log per step: this exact spot
         # failed four times with a bare null error, and every value that
         # crosses into COM is cast to [string] -- JSON-sourced strings arrive
         # PSObject-wrapped and can marshal wrong through IDispatch.
-        foreach ($pt in $priceTypes) {
-            Log ("resolving price type '" + $pt.name + "'...")
-            $q = $ib.NewObject("Query")
-            Log ("  query object: " + ($null -ne $q))
-            $q.Text = [string]$queries.priceTypeByNameOrCode
-            Log "  text set"
-            $q.SetParameter([string]$queries.paramName, [string]$pt.name)
-            Log "  parameter set"
-            $rs = $q.Execute()
-            Log ("  executed: " + ($null -ne $rs))
-            if ($null -eq $rs) { throw "Execute() returned null on price type lookup" }
-            $sel = $rs.Choose()
-            Log ("  selection: " + ($null -ne $sel))
-            if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
-            if (-not $sel.Next()) {
-                # An exact-match miss needs the real list printed rather than
-                # a bare "not found" (see the glyph note above).
-                $names = New-Object Collections.Generic.List[string]
-                $list = RunQuery $queries.priceTypeList
-                while ($list.Next()) { $names.Add((Str $list.Get(0))) }
-                Log ("price types in base: " + ($names -join " | "))
-                throw ("price type not found: '" + $pt.name + "'")
-            }
-            $pt.ref = $sel.Get(0)
-            if ($null -eq $pt.ref) { throw ("price type ref is null: " + $pt.name) }
+        Log "resolving price type..."
+        $q = $ib.NewObject("Query")
+        Log ("  query object: " + ($null -ne $q))
+        $q.Text = [string]$queries.priceTypeByName
+        Log "  text set"
+        $q.SetParameter([string]$queries.paramName, [string]$config.priceTypes.retail)
+        Log "  parameter set"
+        $rs = $q.Execute()
+        Log ("  executed: " + ($null -ne $rs))
+        if ($null -eq $rs) { throw "Execute() returned null on price type lookup" }
+        $sel = $rs.Choose()
+        Log ("  selection: " + ($null -ne $sel))
+        if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
+        if (-not $sel.Next()) {
+            # Naming in 1C mixes Ukrainian and Russian glyphs that look
+            # identical (Cyrillic I vs Ukrainian I), so an exact-match miss
+            # needs the real list
+            # printed rather than a bare "not found".
+            $names = New-Object Collections.Generic.List[string]
+            $list = RunQuery $queries.priceTypeList
+            while ($list.Next()) { $names.Add((Str $list.Get(0))) }
+            Log ("price types in base: " + ($names -join " | "))
+            throw ("price type not found: '" + $config.priceTypes.retail + "'")
         }
+        $priceTypeRef = $sel.Get(0)
+        if ($null -eq $priceTypeRef) { throw "price type ref is null" }
 
-        # On an incremental run, find which products had ANY of the price
-        # types written since the watermark. A changed product is then sent
-        # with all its prices, not just the one that moved: the site derives
-        # retail from wholesale only when retail is absent, so a partial
-        # record would read as "no retail in 1C" and overwrite a real price.
+        # On an incremental run, find which products had a price written since
+        # the watermark. Everything else keeps the value the site already has.
         $changedProducts = $null
         if ($since) {
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.pricesChangedSince
+            $q.SetParameter([string]$queries.paramFrom, $since)
+            $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on changed-prices query" }
+            $r = $rs.Choose()
             $changedProducts = @{}
-            foreach ($pt in $priceTypes) {
-                $q = $ib.NewObject("Query")
-                $q.Text = [string]$queries.pricesChangedSince
-                $q.SetParameter([string]$queries.paramFrom, $since)
-                $q.SetParameter([string]$queries.paramPriceType, $pt.ref)
-                $rs = $q.Execute()
-                if ($null -eq $rs) { throw "Execute() returned null on changed-prices query" }
-                $r = $rs.Choose()
-                while ($r.Next()) {
-                    $cid = RefId $ib $r.Get(0)
-                    if ($cid) { $changedProducts[$cid] = $true }
-                }
+            while ($r.Next()) {
+                $cid = RefId $ib $r.Get(0)
+                if ($cid) { $changedProducts[$cid] = $true }
             }
             Log ("prices changed since {0:yyyy-MM-dd HH:mm}: {1}" -f $since, $changedProducts.Count)
         }
 
         Log "reading prices..."
 
-        $byProduct = @{}
-        $countByType = @{}
-        $noRate = 0
-        $skipUnchanged = 0
-        foreach ($pt in $priceTypes) {
-            $q = $ib.NewObject("Query")
-            $q.Text = [string]$queries.pricesRetail
-            $q.SetParameter([string]$queries.paramPriceType, $pt.ref)
-            $rs = $q.Execute()
-            if ($null -eq $rs) { throw ("Execute() returned null on prices query: " + $pt.key) }
-            $r = $rs.Choose()
-            if ($null -eq $r) { throw ("Choose() returned null on prices query: " + $pt.key) }
-            $cnt = 0
-            while ($r.Next()) {
-                $id = RefId $ib $r.Get(0)
-                if (-not $id) { continue }
-                if ($null -ne $changedProducts -and -not $changedProducts.ContainsKey($id)) {
-                    $skipUnchanged++
-                    continue
-                }
-                $value = Num $r.Get(1)
-                if ($value -le 0) { continue }
-
-                # An unknown or EMPTY currency code means we cannot trust the
-                # figure: this base has 335 price rows in a currency whose code
-                # is blank (EUR entered without a code), and shipping those
-                # unconverted would put them on the site ~52x too cheap.
-                $code = Str $r.Get(2)
-                if ($code -eq [string]$config.baseCurrencyCode) {
-                    $rate = 1
-                } elseif ($code -and $rates.ContainsKey($code)) {
-                    $rate = $rates[$code]
-                } else {
-                    $noRate++
-                    continue
-                }
-
-                if (-not $byProduct.ContainsKey($id)) { $byProduct[$id] = @{} }
-                $byProduct[$id][$pt.key] = [math]::Round($value * $rate, 2)
-                $cnt++
-            }
-            $countByType[$pt.key] = $cnt
-            Log ("  " + $pt.key + ": " + $cnt)
-        }
-
         $w = NewWriter (Join-Path $OutDir "price.ndjson")
         $n = 0
-        foreach ($id in $byProduct.Keys) {
-            $prices = $byProduct[$id]
-            $rec = [ordered]@{ externalId = $id }
-            if ($prices.ContainsKey("retail")) { $rec.retail = $prices["retail"] }
-            if ($prices.ContainsKey("wholesale")) { $rec.wholesale = $prices["wholesale"] }
-            WriteRecord $w $rec
+        $noRate = 0
+        $skipUnchanged = 0
+        # Inline, not a helper: a parameterised query built inside a function
+        # comes back null on this build; the identical inline sequence works.
+        $q = $ib.NewObject("Query")
+        $q.Text = [string]$queries.pricesRetail
+        $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
+        $rs = $q.Execute()
+        if ($null -eq $rs) { throw "Execute() returned null on prices query" }
+        $r = $rs.Choose()
+        if ($null -eq $r) { throw "Choose() returned null on prices query" }
+        while ($r.Next()) {
+            $id = RefId $ib $r.Get(0)
+            if (-not $id) { continue }
+            if ($null -ne $changedProducts -and -not $changedProducts.ContainsKey($id)) {
+                $skipUnchanged++
+                continue
+            }
+            $value = Num $r.Get(1)
+            if ($value -le 0) { continue }
+
+            # An unknown or EMPTY currency code means we cannot trust the
+            # figure: this base has 335 price rows in a currency whose code
+            # is blank (EUR entered without a code), and shipping those
+            # unconverted would put them on the site ~52x too cheap.
+            $code = Str $r.Get(2)
+            if ($code -eq [string]$config.baseCurrencyCode) {
+                $rate = 1
+            } elseif ($code -and $rates.ContainsKey($code)) {
+                $rate = $rates[$code]
+            } else {
+                $noRate++
+                continue
+            }
+
+            WriteRecord $w ([ordered]@{
+                externalId = $id
+                retail     = [math]::Round($value * $rate, 2)
+            })
             $n++
         }
         $w.Close()
         $stats.prices = $n
-        $stats.pricesRetail = $countByType["retail"]
-        if ($countByType.ContainsKey("wholesale")) { $stats.pricesWholesale = $countByType["wholesale"] }
         if ($noRate -gt 0) { $stats.pricesSkippedNoRate = $noRate }
         if ($skipUnchanged -gt 0) { $stats.pricesUnchanged = $skipUnchanged }
-        Log ("prices: {0} products  (unchanged {1}, no-rate {2})" -f $n, $skipUnchanged, $noRate)
+        Log ("prices: {0}  (unchanged {1}, no-rate {2})" -f $n, $skipUnchanged, $noRate)
     }
 
     # --- warehouses ---
@@ -786,47 +732,6 @@ try {
             }
         }
 
-        # --- contact information: addresses and phones ---
-        #
-        # The counterparty catalogue has NO address or phone attribute on this
-        # configuration -- probe-coverage.ps1 tried seven candidate names and
-        # every one of them failed. Everything lives in the contact-information
-        # register instead: 7995 address rows over 3263 counterparties.
-        #
-        # This matters more than it looks. The site geocodes clients from the
-        # address, and without it only 375 of 3689 cards had coordinates --
-        # which is what crippled the client map, route building and delivery
-        # zones.
-        #
-        # Best-effort like debt and payments below: losing addresses is far
-        # better than losing the catalogue they belong to.
-        $contacts = @{}
-        Log "reading contact info..."
-        try {
-            $r = RunQuery $queries.contactInfo
-            $ciRows = 0
-            while ($r.Next()) {
-                $obj = RefId $ib $r.Get(0)
-                if (-not $obj) { continue }
-                $vid = Str $r.Get(1)
-                $val = Str $r.Get(2)
-                if (-not $vid -or -not $val) { continue }
-                if (-not $contacts.ContainsKey($obj)) { $contacts[$obj] = @{} }
-                # First value of a kind wins: the register may hold several rows
-                # of the same kind and we want a stable pick, not the last one
-                # the query happened to return.
-                if (-not $contacts[$obj].ContainsKey($vid)) { $contacts[$obj][$vid] = $val }
-                $ciRows++
-            }
-            $stats.contactRows = $ciRows
-            Log ("contact info: {0} rows for {1} counterparties" -f $ciRows, $contacts.Count)
-        }
-        catch {
-            if (IsConnectionLost $_) { throw }
-            $stats.contactsFailed = $_.Exception.Message
-            Log ("contact info: SKIPPED -- " + $_.Exception.Message)
-        }
-
         # --- counterparties ---
         # Read in full: the catalogue is small and has no change date, and a
         # document referencing an unknown customer would be dropped by the
@@ -834,7 +739,6 @@ try {
         Log "reading counterparties..."
         $w = NewWriter (Join-Path $OutDir "counterparty.ndjson")
         $n = 0
-        $withAddress = 0
         $r = RunQuery $queries.counterparties
         while ($r.Next()) {
             $id = RefId $ib $r.Get(0)
@@ -842,35 +746,14 @@ try {
             $rec = [ordered]@{ externalId = $id; name = Str $r.Get(1) }
             $code = Str $r.Get(2)
             if ($code) { $rec.code = $code }
-
-            # Buyer and supplier are separate flags in 1C and a counterparty can
-            # be both. Sending everyone as CUSTOMER is what made the purchase
-            # channel unusable: incoming documents were rejected because their
-            # supplier was not one.
-            $isBuyer = [bool]$r.Get(3)
-            $isSupplier = [bool]$r.Get(4)
-            if ($isBuyer -and $isSupplier) { $rec.type = "BOTH" }
-            elseif ($isSupplier) { $rec.type = "SUPPLIER" }
-            elseif ($isBuyer) { $rec.type = "CUSTOMER" }
-
-            if ($contacts.ContainsKey($id)) {
-                $byVid = $contacts[$id]
-                $addr = PickByVid $byVid $queries.contactAddressVids
-                $phone = PickByVid $byVid $queries.contactPhoneVids
-                $mail = PickByVid $byVid $queries.contactEmailVids
-                if ($addr) { $rec.address = $addr; $withAddress++ }
-                if ($phone) { $rec.phone = $phone }
-                if ($mail) { $rec.email = $mail }
-            }
-
-            if ($r.Get(5)) { $rec.deleted = $true }
+            if ($r.Get(3)) { $rec.type = "CUSTOMER" }
+            if ($r.Get(4)) { $rec.deleted = $true }
             WriteRecord $w $rec
             $n++
         }
         $w.Close()
         $stats.counterparties = $n
-        $stats.counterpartiesWithAddress = $withAddress
-        Log ("counterparties: {0}  (with address {1})" -f $n, $withAddress)
+        Log "counterparties: $n"
 
         # --- orders, with their line items ---
         #

@@ -16,7 +16,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { bustStorefrontCache } from "@/lib/storefront-cache";
-import { DEFAULT_RETAIL_MARKUP, effectiveMarkup, isValidMarkup, RETAIL_MARKUP_MAX, RETAIL_MARKUP_MIN } from "@/lib/pricing/retail-markup";
+import { DEFAULT_RETAIL_MARKUP, effectiveMarkup, isValidMarkup, RETAIL_MARKUP_MAX, RETAIL_MARKUP_MIN, WHOLE_HRYVNIA_FROM } from "@/lib/pricing/retail-markup";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -84,14 +84,19 @@ export async function PATCH(req: Request) {
   const k = effectiveMarkup(markup);
 
   // Один UPDATE замість циклу: розрахункових товарів у бренду сотні, а
-  // формула та сама, що в deriveRetailPrice — round(опт × k).
+  // формула та сама, що в deriveRetailPrice: ціла гривня, дрібниця — з копійками.
   const [, recomputed] = await prisma.$transaction([
     prisma.brand.update({ where: { id: brandId }, data: { retailMarkup: markup } }),
     prisma.$executeRaw`
       UPDATE "Product"
-      SET price = ROUND("wholesalePrice" * ${k}), "updatedAt" = now()
+      SET price = CASE WHEN "wholesalePrice" * ${k} < ${WHOLE_HRYVNIA_FROM}
+                       THEN ROUND(("wholesalePrice" * ${k})::numeric, 2)
+                       ELSE ROUND("wholesalePrice" * ${k}) END,
+          "updatedAt" = now()
       WHERE "brandId" = ${brandId} AND "priceDerived" = true AND "wholesalePrice" > 0
-        AND price <> ROUND("wholesalePrice" * ${k})
+        AND price <> CASE WHEN "wholesalePrice" * ${k} < ${WHOLE_HRYVNIA_FROM}
+                          THEN ROUND(("wholesalePrice" * ${k})::numeric, 2)
+                          ELSE ROUND("wholesalePrice" * ${k}) END
     `,
   ]);
 

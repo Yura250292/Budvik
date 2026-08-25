@@ -8,7 +8,9 @@
  * «6.МАГАЗИНИ» ≈ ОПТ × 1,33.
  *
  * Округлюємо до цілої гривні: розрахункова ціна з копійками виглядала б як
- * облікова, а вона — оцінка. Щойно в 1С зʼявиться справжній роздріб, він
+ * облікова, а вона — оцінка. Виняток — дрібниця дешевша за 10 ₴ (кліпси для
+ * плитки по 0,32 ₴, дюбелі, шайби): там ціла гривня — це або нуль, або +30 %
+ * зверху, тож лишаємо копійки. Щойно в 1С зʼявиться справжній роздріб, він
  * витісняє розрахунковий (Product.priceDerived → false).
  */
 
@@ -22,8 +24,12 @@ export function effectiveMarkup(brandMarkup: number | null | undefined): number 
   return brandMarkup && brandMarkup > 0 ? brandMarkup : DEFAULT_RETAIL_MARKUP;
 }
 
+/** Нижче цього порогу розрахункову ціну тримаємо з копійками. */
+export const WHOLE_HRYVNIA_FROM = 10;
+
 export function deriveRetailPrice(wholesale: number, brandMarkup: number | null | undefined): number {
-  return Math.round(wholesale * effectiveMarkup(brandMarkup));
+  const raw = wholesale * effectiveMarkup(brandMarkup);
+  return raw < WHOLE_HRYVNIA_FROM ? Math.round(raw * 100) / 100 : Math.round(raw);
 }
 
 export function isValidMarkup(value: unknown): value is number {

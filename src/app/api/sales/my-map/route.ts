@@ -59,6 +59,10 @@ type Row = {
   lastDocAt: Date | null;
   historyDocs: number;
   historyDays: number;
+  /** Останнє фото локації зі стрічки коментарів. */
+  photoUrl: string | null;
+  /** Скільки взагалі нотаток про цього клієнта. */
+  notes: number;
 };
 
 /**
@@ -123,7 +127,15 @@ export async function GET(req: NextRequest) {
                           WHERE s."counterpartyId" = c.id AND s."salesRepId" = ${repId})
                  OR EXISTS (SELECT 1 FROM "SalesDocument" d
                              WHERE d."counterpartyId" = c.id AND d."salesRepId" = ${repId})
-               ) AS mine
+               ) AS mine,
+               -- Останнє фото локації й кількість нотаток: на точці мусить
+               -- бути видно, що про неї вже щось знають, ще до відкриття
+               -- стрічки. Індекс [counterpartyId, createdAt] це покриває.
+               (SELECT cc."photoUrl" FROM "ClientComment" cc
+                 WHERE cc."counterpartyId" = c.id AND cc."photoUrl" IS NOT NULL
+                 ORDER BY cc."createdAt" DESC LIMIT 1) AS "photoUrl",
+               (SELECT COUNT(*)::int FROM "ClientComment" cc
+                 WHERE cc."counterpartyId" = c.id) AS notes
         FROM "Counterparty" c
         WHERE c."isActive"
           -- Постачальник — не клієнт: на карті торгового йому нічого робити.
@@ -183,6 +195,8 @@ export async function GET(req: NextRequest) {
     daysSinceLast: number | null;
     /** Свій клієнт: закріплений або купував через цього торгового. */
     mine: boolean;
+    photoUrl: string | null;
+    notes: number;
   };
 
   const counts: Record<string, number> = {};
@@ -200,6 +214,8 @@ export async function GET(req: NextRequest) {
       receivable: r.receivable,
       overdue: r.overdue,
       mine: r.mine,
+      photoUrl: r.photoUrl,
+      notes: r.notes,
       daysSinceLast: r.lastDocAt
         ? Math.max(0, Math.floor((Date.now() - r.lastDocAt.getTime()) / DAY_MS))
         : null,

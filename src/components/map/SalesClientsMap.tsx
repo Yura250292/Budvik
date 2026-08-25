@@ -50,6 +50,15 @@ export type SalesClientPoint = {
    * без нього кнопка керується лише `extras.pin`, як і раніше.
    */
   canPin?: boolean;
+  /**
+   * Останнє фото локації: як виглядає вхід, з якого боку заїзд.
+   *
+   * Показуємо просто в попапі, а не за кнопкою: водій під'їхав і мусить
+   * упізнати місце за секунду, а не гортати стрічку нотаток.
+   */
+  photoUrl?: string | null;
+  /** Скільки нотаток про цю точку — щоб було видно, що є що читати. */
+  notes?: number;
 };
 
 export type SalesRoute = {
@@ -143,6 +152,15 @@ function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
         ? `<div style="color:#6B7280">Борг ${escapeHtml(money.format(c.receivable))} грн</div>`
         : "";
 
+  // Фото — одразу під назвою: це найшвидша відповідь на «я туди приїхав?».
+  const photo = c.photoUrl
+    ? `<a href="${escapeHtml(c.photoUrl)}" target="_blank" rel="noreferrer"
+         style="display:block;margin:6px 0 2px">
+         <img src="${escapeHtml(c.photoUrl)}" alt="Фото локації" loading="lazy"
+           style="width:100%;height:110px;object-fit:cover;border-radius:8px"/>
+       </a>`
+    : "";
+
   return `<div style="font-family:system-ui;font-size:14px;min-width:190px;max-width:250px">
     <strong style="font-size:15px">${escapeHtml(c.name)}</strong><br/>
     <span style="display:inline-block;margin:5px 0;padding:2px 8px;border-radius:10px;
@@ -153,8 +171,18 @@ function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
     ${debt}
     ${c.approximate ? `<div style="color:#D97706;font-size:12px;margin-top:3px">Точка приблизна</div>` : ""}
     ${foreign}
+    ${photo}
     ${popupButton("orderCard", c.id, "Що брав і що везти", true)}
-    ${extras.comments ? popupButton("comments", c.id, "Коментарі", false) : ""}
+    ${
+      extras.comments
+        ? popupButton(
+            "comments",
+            c.id,
+            c.notes ? `Нотатки і фото (${c.notes})` : "Нотатка або фото",
+            false
+          )
+        : ""
+    }
     ${extras.pin && c.canPin !== false ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
     ${
       extras.clientCardHref
@@ -212,7 +240,9 @@ export default function SalesClientsMap({
 
   const key = useMemo(
     () =>
-      clients.map((c) => `${c.id}:${c.state}:${c.mine ? 1 : 0}`).join("|") +
+      // notes у ключі: щойно доданий коментар чи фото мусять з'явитися в
+      // попапі, а він перемальовується лише разом із маркерами.
+      clients.map((c) => `${c.id}:${c.state}:${c.mine ? 1 : 0}:${c.notes ?? 0}`).join("|") +
       "#" +
       (route?.name ?? "") +
       (route?.stops.length ?? 0),

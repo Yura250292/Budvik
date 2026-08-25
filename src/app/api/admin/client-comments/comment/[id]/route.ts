@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { deleteFile } from "@/lib/r2";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 async function loadEditable(id: string, userId: string, role: string) {
   const comment = await prisma.clientComment.findUnique({
     where: { id },
-    select: { id: true, authorId: true },
+    select: { id: true, authorId: true, photoKey: true },
   });
   if (!comment) return { error: "Коментар не знайдено", status: 404 as const };
   if (comment.authorId !== userId && !FULL_ACCESS_ROLES.includes(role)) {
@@ -53,6 +54,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     select: {
       id: true,
       text: true,
+      photoUrl: true,
+      lat: true,
+      lng: true,
       createdAt: true,
       author: { select: { id: true, name: true } },
     },
@@ -78,5 +82,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   await prisma.clientComment.delete({ where: { id } });
+
+  // Файл прибираємо ПІСЛЯ запису: якщо видалення в R2 не вдасться, у сховищі
+  // лишиться сирота (дешево), а от навпаки — запис із посиланням у нікуди.
+  if (guard.comment.photoKey) {
+    await deleteFile(guard.comment.photoKey).catch(() => {});
+  }
+
   return NextResponse.json({ ok: true });
 }

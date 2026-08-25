@@ -47,6 +47,9 @@ type Row = {
   visits: number;
   lastVisitAt: Date | null;
   mine: boolean;
+  /** Останнє фото локації зі стрічки коментарів — водієві найпотрібніше. */
+  photoUrl: string | null;
+  notes: number;
 };
 
 /** Стан клієнта на сьогодні — та сама логіка, що в analytics/clients.ts. */
@@ -121,7 +124,14 @@ export async function GET(req: NextRequest) {
                    SELECT 1 FROM "Visit" v
                    WHERE v."counterpartyId" = c.id AND v."userId" = ${driverId}
                  )
-               ) AS mine
+               ) AS mine,
+               -- Фото воріт і кількість нотаток просто на точці: водій має
+               -- побачити, куди заїжджати, не відкриваючи стрічку.
+               (SELECT cc."photoUrl" FROM "ClientComment" cc
+                 WHERE cc."counterpartyId" = c.id AND cc."photoUrl" IS NOT NULL
+                 ORDER BY cc."createdAt" DESC LIMIT 1) AS "photoUrl",
+               (SELECT COUNT(*)::int FROM "ClientComment" cc
+                 WHERE cc."counterpartyId" = c.id) AS notes
         FROM "Counterparty" c
         WHERE c."isActive"
           AND c."deliveryLat" IS NOT NULL
@@ -212,6 +222,9 @@ export async function GET(req: NextRequest) {
       today: todayIds.has(r.id),
       /** Чи возив цей водій сюди хоч раз — фільтр «мої клієнти» */
       mine: r.mine,
+      /** Останнє фото локації й скільки всього нотаток про точку */
+      photoUrl: r.photoUrl,
+      notes: r.notes,
     };
   });
 

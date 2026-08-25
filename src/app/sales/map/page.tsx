@@ -18,6 +18,7 @@ import dynamic from "next/dynamic";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
+import { ClientCommentsModal } from "@/app/admin/sales-analytics/components/ClientCommentsModal";
 import type { SalesClientPoint, SalesRoute } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -77,6 +78,11 @@ export default function SalesMapPage() {
     name: string;
     state: ClientStateKey;
   } | null>(null);
+  /** Кому пишемо нотатку або робимо фото локації. */
+  const [notesFor, setNotesFor] = useState<{ id: string; name: string } | null>(null);
+  /** Відкритий список тих, кого ще немає на карті. */
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState("");
 
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -102,22 +108,28 @@ export default function SalesMapPage() {
   const [tracking, setTracking] = useState(false);
   const track = useTrackRecorder({ enabled: tracking });
 
-  useEffect(() => {
-    let alive = true;
+  /**
+   * Перечитати карту. Окремою функцією, бо після нотатки з фото точка мусить
+   * одразу показати знімок — а перезавантажувати сторінку в машині не варіант.
+   */
+  const load = useCallback(async () => {
     // Тягнемо одразу всю базу, а перемикач «Мої/Всі» працює вже в пам'яті:
     // повторний запит по мобільному в полі коштує дорожче за зайві рядки.
-    fetch("/api/sales/my-map?scope=all")
-      .then(async (r) => {
-        const j = await r.json().catch(() => null);
-        if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
-        return j as Resp;
-      })
+    const r = await fetch("/api/sales/my-map?scope=all");
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
+    return j as Resp;
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    load()
       .then((j) => alive && setData(j))
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Не вдалося завантажити"));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [load]);
 
   const locate = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -306,6 +318,24 @@ export default function SalesMapPage() {
    * Лічильники легенди — за поточним зрізом, а не за всією відповіддю.
    * Інакше в режимі «Мої» бейдж каже «Активні 210», а на карті їх 40.
    */
+  /**
+   * Кого можна поставити на карту: свої вгорі, далі решта за абеткою.
+   * Ріжемо до 60 — далі гортання втрачає сенс, для цього є пошук.
+   */
+  const toPlace = (data?.unmapped ?? [])
+    .filter((u) => {
+      const q = addQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        u.name.toLowerCase().includes(q) || (u.address ?? "").toLowerCase().includes(q)
+      );
+    })
+    .sort(
+      (a, b) =>
+        Number(b.mine !== false) - Number(a.mine !== false) || a.name.localeCompare(b.name, "uk")
+    )
+    .slice(0, 60);
+
   const counts = inScope.reduce<Record<string, number>>((acc, c) => {
     acc[c.state] = (acc[c.state] ?? 0) + 1;
     return acc;
@@ -334,13 +364,17 @@ export default function SalesMapPage() {
           focus={focus}
           // «Уточнити точку» прямо з попапа: приблизний пін видно саме тоді,
           // коли торговий стоїть біля магазину й дивиться на карту.
-          extras={{ clientCardHref: "/sales/clients/", pin: true }}
+          extras={{ clientCardHref: "/sales/clients/", pin: true, comments: true }}
           onAction={(a) => {
             const c = data?.clients.find((x) => x.id === a.id);
             if (!c) return;
             if (a.kind === "pin") {
               setPinError(null);
               setPinFor({ id: c.id, name: c.name });
+              return;
+            }
+            if (a.kind === "comments") {
+              setNotesFor({ id: c.id, name: c.name });
               return;
             }
             setOrderFor({ id: c.id, name: c.name, state: c.state });
@@ -495,6 +529,33 @@ export default function SalesMapPage() {
 
         {/* Запис треку: поки йде — показуємо пробіг, щоб було видно, що
             воно працює, і щоб не забули вимкнути після роботи. */}
+        {/* Поставити точку клієнту, якого ще немає на карті. Окрема кнопка,
+            бо доти цей шлях був схований у пошуку: щоб поставити пін, треба
+            було здогадатися шукати клієнта, якого на карті не видно. */}
+        <button
+          type="button"
+          onClick={() => {
+            setAddQuery("");
+            setAddOpen(true);
+          }}
+          aria-label="Поставити точку клієнту"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.15)", border: "none" }}
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="#0A0A0A" strokeWidth={1.9}>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+            />
+          </svg>
+        </button>
+
         <button
           type="button"
           onClick={() => setTracking((v) => !v)}
@@ -575,6 +636,103 @@ export default function SalesMapPage() {
           style={{ top: "118px", background: "#FEF2F2", border: "1px solid #FECACA" }}
         >
           <p style={{ fontSize: "13px", color: "#B91C1C" }}>{error}</p>
+        </div>
+      )}
+
+      {/* Хто ще не стоїть на карті. Список, а не пошук наосліп: торговий
+          частіше згадує «когось із цих ще не позначив», ніж прізвище. Свої
+          вгорі — з них і починають. */}
+      {addOpen && (
+        <div
+          className="absolute inset-x-3 z-[650] flex flex-col rounded-2xl"
+          style={{
+            top: "110px",
+            maxHeight: "62vh",
+            background: "#fff",
+            boxShadow: "0 8px 26px rgba(0,0,0,0.22)",
+            overflow: "hidden",
+          }}
+        >
+          <div className="flex items-center gap-2 px-3 pt-3">
+            <input
+              value={addQuery}
+              onChange={(e) => setAddQuery(e.target.value)}
+              placeholder="Кому ставимо точку?"
+              aria-label="Пошук клієнта без точки"
+              autoFocus
+              className="min-w-0 flex-1 rounded-full px-3.5 py-2"
+              style={{
+                background: "#F3F4F6",
+                border: "none",
+                fontSize: "14px",
+                color: "#0A0A0A",
+                outline: "none",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setAddOpen(false)}
+              className="shrink-0 rounded-full px-3 py-2"
+              style={{ background: "none", border: "none", color: "#6B7280", fontSize: "13px" }}
+            >
+              Закрити
+            </button>
+          </div>
+
+          <p style={{ fontSize: "11px", color: "#9CA3AF", margin: "6px 12px 4px", lineHeight: 1.4 }}>
+            Оберіть клієнта — далі станьте біля входу й натисніть «Я зараз тут» або тапніть
+            місце на карті.
+          </p>
+
+          <ul
+            className="min-h-0 flex-1 overflow-y-auto"
+            style={{ listStyle: "none", margin: 0, padding: "0 0 8px" }}
+          >
+            {toPlace.length === 0 ? (
+              <li style={{ padding: "10px 12px", fontSize: "13px", color: "#9CA3AF" }}>
+                {addQuery.trim()
+                  ? "Нікого не знайдено серед клієнтів без точки."
+                  : "Усі клієнти вже на карті."}
+              </li>
+            ) : (
+              toPlace.map((u) => (
+                <li key={u.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddOpen(false);
+                      setPinError(null);
+                      setPinFor({ id: u.id, name: u.name });
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+                    style={{ background: "none", border: "none" }}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="block truncate"
+                        style={{ fontSize: "14px", color: "#0A0A0A" }}
+                      >
+                        {u.name}
+                      </span>
+                      {u.address && (
+                        <span
+                          className="block truncate"
+                          style={{ fontSize: "11px", color: "#9CA3AF" }}
+                        >
+                          {u.address}
+                        </span>
+                      )}
+                    </span>
+                    {u.mine !== false && (
+                      <span className="shrink-0" style={{ fontSize: "11px", color: "#2563EB" }}>
+                        ваш
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
         </div>
       )}
 
@@ -666,7 +824,7 @@ export default function SalesMapPage() {
               )}
               {data.unmapped.length > 0 && (
                 <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                  {data.unmapped.length} без піна
+                  {data.unmapped.length} без точки
                 </span>
               )}
               <svg
@@ -743,6 +901,21 @@ export default function SalesMapPage() {
           замовлення попереднього, поки вантажаться нові. */}
       {orderFor && (
         <ClientOrderModal key={orderFor.id} client={orderFor} onClose={() => setOrderFor(null)} />
+      )}
+
+      {/* Нотатки й фото локації. Після збереження перечитуємо карту: точка
+          мусить одразу показати щойно зняті ворота. */}
+      {notesFor && (
+        <ClientCommentsModal
+          key={notesFor.id}
+          client={notesFor}
+          onClose={() => setNotesFor(null)}
+          onSaved={() => {
+            load()
+              .then(setData)
+              .catch(() => {});
+          }}
+        />
       )}
     </div>
   );

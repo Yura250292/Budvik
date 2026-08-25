@@ -18,6 +18,7 @@ import { isRealSku } from "@/lib/catalog/sku-search";
 import crypto from "crypto";
 import type { ProductRecord } from "./types";
 import { ApplyContext } from "./context";
+import { zeroStock } from "./stale";
 
 /** Той самий алгоритм, що й у ручному імпорті — SKU лишаються стабільними. */
 function generateSKU(name: string): string {
@@ -164,6 +165,8 @@ export async function applyProducts(
   const takenSlugs = new Set(candidates.map((p) => p.slug));
   const takenSkus = new Set(candidates.filter((p) => p.sku).map((p) => p.sku!));
 
+  const deletedProductIds: string[] = [];
+
   for (const rec of records) {
     if (!rec.name?.trim()) {
       ctx.skipped++;
@@ -179,9 +182,15 @@ export async function applyProducts(
       byName.get(rec.name.toLowerCase());
 
     // --- Товар помічений на видалення в 1С ---
-    // Не деактивуємо автоматично: це рішення адміністратора.
+    // Не деактивуємо автоматично: це рішення адміністратора. Але й лишати
+    // позицію в продажу не можна — обліку вона вже не належить, а покупець
+    // бачив би «в наявності» й міг замовити. Тому те саме, що робить повна
+    // звірка зі зниклими: залишок у нуль, картка лишається сірою у вітрині.
     if (rec.deleted) {
       if (existing) {
+        // Повтор тієї самої позначки відсіється при записі журналу
+        // (flushDiscrepancies) — позначка живе місяцями, а прогін ходить
+        // щоп'ять хвилин.
         ctx.discrepancy({
           entityType: "product",
           entityRef: skuIsUsable ? recSku! : rec.externalId,
@@ -190,6 +199,7 @@ export async function applyProducts(
           value1C: "помічено на видалення",
           valueBudvik: "активний на сайті",
         });
+        if (!ctx.isPreview) deletedProductIds.push(existing.id);
       }
       ctx.skipped++;
       continue;
@@ -375,4 +385,8 @@ export async function applyProducts(
       ctx.fail(rec.name, e);
     }
   }
+
+  // Прибираємо з продажу позначені на видалення — після циклу й однією
+  // пачкою: у більшості батчів список порожній, а коли ні, це кілька рядків.
+  await zeroStock(deletedProductIds);
 }

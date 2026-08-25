@@ -46,7 +46,7 @@ export async function applyCategories(
     }
 
     // Групу, помічену на видалення в 1С, не чіпаємо: у ній можуть лишатися
-    // товари сайту. Лише фіксуємо розбіжність.
+    // товари сайту. Лише фіксуємо розбіжність — повтор відсіється при записі.
     if (rec.deleted) {
       if (byExternalId.has(rec.externalId)) {
         ctx.discrepancy({

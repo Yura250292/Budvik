@@ -29,6 +29,7 @@ import { applySalesDocuments, applyPurchaseDocuments } from "./apply-documents";
 import { applyPayments } from "./apply-payments";
 import { applyRouteSheets } from "./apply-route-sheets";
 import { applyRouteSheetStops } from "./apply-route-sheet-stops";
+import { unresolvedRefs, zeroStock } from "./stale";
 
 /**
  * Довідники, які агент шле повним зрізом щоп'ять хвилин, хоч міняються раз
@@ -243,38 +244,5 @@ export async function detectMissing(
   return 0;
 }
 
-/** Ref'и вже зареєстрованих і ще не розв'язаних розбіжностей одного виду. */
-async function unresolvedRefs(entityType: string, field: string): Promise<Set<string>> {
-  const rows = await prisma.syncDiscrepancy.findMany({
-    where: { entityType, field, resolved: false },
-    select: { entityRef: true },
-  });
-  return new Set(rows.map((r) => r.entityRef));
-}
-
-/**
- * Обнуляє залишок товарів, яких більше немає в 1С — і в Product.stock, і в
- * поскладових рядках, інакше наступний перерахунок підняв би старе число назад.
- */
-async function zeroStock(productIds: string[]): Promise<void> {
-  if (productIds.length === 0) return;
-
-  const CHUNK = 500;
-  for (let i = 0; i < productIds.length; i += CHUNK) {
-    const ids = productIds.slice(i, i + CHUNK);
-    try {
-      await prisma.locationStock.updateMany({
-        where: { productId: { in: ids } },
-        data: { quantity: 0, reserved: 0, available: 0 },
-      });
-      await prisma.product.updateMany({
-        where: { id: { in: ids } },
-        data: { stock: 0, syncedAt: new Date(), syncSource: "1C" },
-      });
-    } catch (e) {
-      // Обнулення — гігієна вітрини, а не суть прогону: збій тут не має
-      // валити батч, у якому щойно успішно застосувались ціни й залишки.
-      console.error("sync-ingest: не вдалося обнулити залишок зниклих товарів", e);
-    }
-  }
-}
+// unresolvedRefs і zeroStock переїхали в ./stale — ними користується не лише
+// повна звірка, а й канал товарів (позначка на видалення в 1С).

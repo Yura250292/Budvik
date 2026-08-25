@@ -61,6 +61,9 @@ export async function applyCounterparties(
       (rec.code ? byCode.get(rec.code) : undefined) ||
       byName.get(rec.name.toLowerCase());
 
+    // Контрагента, поміченого на видалення, не чіпаємо: за ним можуть висіти
+    // борг і документи, і рішення тут за адміністратором. Повтор тієї самої
+    // позначки відсіється при записі журналу.
     if (rec.deleted) {
       if (existing) {
         ctx.discrepancy({

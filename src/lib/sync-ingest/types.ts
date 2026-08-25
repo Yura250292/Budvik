@@ -428,4 +428,13 @@ export const SYNC_STATE_KEYS = {
   lastCacheBust: "sync:lastCacheBust",
   /** ISO-час останнього сповіщення «агент мовчить» — щоб не слати його щогодини. */
   lastSilentAlert: "agent:lastSilentAlert",
+  /**
+   * runId прогону, в якому батч боргів упав із винятком.
+   *
+   * Такий батч отримує відповідь 200 із лічильником failed, і прогін
+   * закривається як успішний — ззовні збою не видно. Звірка зниклих боргів
+   * (reconcile-debts.ts) без цієї позначки прийняла б непроставлені мітки
+   * за «клієнт розрахувався» й обнулила живу дебіторку.
+   */
+  debtBatchError: "sync:debtBatchError",
 } as const;

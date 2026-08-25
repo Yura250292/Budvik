@@ -74,6 +74,27 @@ export async function alertQueryFailed(
   );
 }
 
+/**
+ * Звірка боргів відмовилась обнуляти: зниклих підозріло багато.
+ *
+ * Штатно за прогін закривається кілька боргів. Сотні «зниклих» означають
+ * не масовий розрахунок, а обірваний зріз із 1С — і обнулення в такому разі
+ * стерло б живу дебіторку. Тому звірка нічого не робить і кличе людину.
+ */
+export async function alertDebtReconcileSkipped(
+  runId: string,
+  stale: number,
+  seen: number
+): Promise<void> {
+  await alert(
+    `⚠️ <b>Звірку дебіторки пропущено</b>\n` +
+      `Прогін: <code>${runId}</code>\n` +
+      `Зникло з 1С: ${stale}, лишилось у зрізі: ${seen}\n\n` +
+      `Це схоже на обірване вивантаження, тому сальдо НЕ обнулялись. ` +
+      `Якщо наступні прогони покажуть те саме — перевірте запит боргу в агента.`
+  );
+}
+
 export async function alertAgentSilent(lastSeen: Date, hours: number): Promise<void> {
   await alert(
     `🔕 <b>Агент 1С мовчить</b>\n` +

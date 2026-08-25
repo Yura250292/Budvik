@@ -155,11 +155,33 @@ export async function applyCounterparties(
 export async function applyDebts(records: DebtRecord[], ctx: ApplyContext): Promise<void> {
   if (records.length === 0) return;
 
+  const externalIds = records.map((r) => r.externalId);
+
   const counterparties = await prisma.counterparty.findMany({
-    where: { externalId: { in: records.map((r) => r.externalId) } },
+    where: { externalId: { in: externalIds } },
     select: { id: true, externalId: true, code: true, name: true, receivableBalance: true },
   });
   const byExternalId = new Map(counterparties.map((c) => [c.externalId!, c]));
+
+  // Позначка «сальдо підтверджене 1С у цьому прогоні» — ДО циклу й одним
+  // запитом на всіх, кого приніс батч. На ній тримається звірка зниклих
+  // боргів (reconcile-debts.ts): регістр 1С віддає лише ненульові сальдо,
+  // тож розрахований клієнт просто зникає з каналу, і відрізнити його від
+  // живого боржника можна лише за свіжістю цієї мітки.
+  //
+  // Чому до циклу: виняток на середині лишив би частину підтверджених без
+  // мітки, і звірка обнулила б їм живий борг.
+  //
+  // Чому now() бази, а не new Date(): відсічка звірки береться з
+  // SyncBatch.createdAt, тобто теж із годинника Postgres. Обробник живе у
+  // двох середовищах (воркер Railway і функції Vercel), і відставання
+  // їхнього годинника зробило б щойно проставлену мітку «застарілою».
+  if (!ctx.isPreview) {
+    await prisma.$executeRaw`
+      UPDATE "Counterparty" SET "balanceSyncedAt" = now()
+      WHERE "externalId" = ANY(${externalIds}::text[])
+    `;
+  }
 
   for (const rec of records) {
     const cp = byExternalId.get(rec.externalId);
@@ -197,7 +219,8 @@ export async function applyDebts(records: DebtRecord[], ctx: ApplyContext): Prom
         where: { id: cp.id },
         data: {
           receivableBalance: balance,
-          balanceSyncedAt: new Date(),
+          // balanceSyncedAt тут не чіпаємо: мітку вже поставив запит на
+          // початку батча, і саме годинником бази — див. коментар вище.
           ...(aging
             ? {
                 debtCurrent: aging.current,

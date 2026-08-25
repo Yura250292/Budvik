@@ -21,6 +21,7 @@ import {
   setSyncState,
 } from "./context";
 import { dispatchBatch, detectMissing } from "./dispatch";
+import { reconcileDebts } from "./reconcile-debts";
 import {
   alertMassPriceChange,
   alertMissingEntities,
@@ -196,6 +197,13 @@ export async function handleBatch(req: Request): Promise<Response> {
     console.error(`sync-ingest: батч ${body.batchId} впав`, e);
     ctx.errors.push(message);
     ctx.failed += body.records.length;
+
+    // Впалий батч боргів запам'ятовуємо окремо: відповідь усе одно 200, і
+    // прогін закриється як успішний, а звірка зниклих боргів у кінці мусить
+    // знати, що зріз неповний, — інакше обнулить живу дебіторку.
+    if (body.entityType === "debt") {
+      await setSyncState(SYNC_STATE_KEYS.debtBatchError, body.runId);
+    }
   }
 
   const discrepancies = await flushDiscrepancies(ctx);
@@ -282,6 +290,31 @@ export async function handleCompleteRun(
     await setSyncState(SYNC_STATE_KEYS.lastFullRun, new Date().toISOString());
   }
 
+  // --- Звірка дебіторки ---
+  // Регістр 1С віддає лише ненульові сальдо, тож закритий борг не приходить
+  // нулем, а просто зникає з каналу. Побачити це можна лише тут, коли зріз
+  // приїхав цілком: усе, чого в ньому не було, обнуляється. Чому саме так —
+  // у reconcile-debts.ts.
+  //
+  // Прогін із впалим запитом боргу пропускаємо: 1С його не віддала взагалі,
+  // і «зниклими» виглядали б усі боржники одразу.
+  let reconcileDiscrepancies = 0;
+  if (status !== "failed" && !body.counts?.debtFailed) {
+    try {
+      const kind: SyncRunKind = job.type.replace("agent-", "") as SyncRunKind;
+      const ctx = new ApplyContext(job.id, runId, kind);
+      const zeroed = await reconcileDebts(ctx);
+      if (zeroed > 0) {
+        reconcileDiscrepancies = await flushDiscrepancies(ctx);
+        await accumulateJobCounters(job.id, ctx, 0);
+      }
+    } catch (e) {
+      // Звірка — гігієна даних, а не суть прогону: збій тут не має завалити
+      // закриття обміну, який щойно успішно приніс ціни, залишки й документи.
+      console.error("sync-ingest: звірка дебіторки не вдалася", e);
+    }
+  }
+
   // --- Сповіщення ---
   // Пропущені best-effort запити перевіряємо незалежно від статусу: прогін,
   // у якому впав лише запит боргу чи оплат, вважається успішним, і саме тому
@@ -349,7 +382,7 @@ export async function handleCompleteRun(
     recordsUpdated: updated.recordsUpdated,
     recordsSkipped: updated.recordsSkipped,
     recordsFailed: updated.recordsFailed,
-    discrepancies: totalDiscrepancies,
+    discrepancies: totalDiscrepancies + reconcileDiscrepancies,
     missing,
   };
   return json(payload);

@@ -20,8 +20,42 @@
 
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
+import { kyivDayStart } from "@/lib/date/kyiv";
 
 const DAY_MS = 86_400_000;
+
+/**
+ * За який період показувати замовлення. 0 — уся доступна історія.
+ *
+ * «Останні п'ять документів» виявилося замало: у середнього клієнта їх 11, а
+ * в найактивнішого — 500, і торговий перед візитом бачив хвостик замість
+ * картини закупівель.
+ */
+export const ORDER_MONTHS = [3, 6, 0] as const;
+export type OrderMonths = (typeof ORDER_MONTHS)[number];
+
+/**
+ * Стеля на список документів.
+ *
+ * 100 покриває найактивнішого клієнта за півроку і важить 34 КБ у стисненому
+ * вигляді — на телефоні прийнятно. Більше все одно ніхто не гортає.
+ */
+export const ORDERS_LIMIT = 100;
+
+/**
+ * Початок періоду, але не глибше межі аналітики.
+ *
+ * До 2026-01 у базі лежать самі повернення без реалізацій (див.
+ * ANALYTICS_SINCE_DAY): у списку «що брав» вони виглядали б як покупки
+ * навпаки — мінус без плюса, якого ніколи не було.
+ */
+export function ordersSince(months: OrderMonths | number): Date {
+  const floor = kyivDayStart(ANALYTICS_SINCE_DAY);
+  if (!months) return floor;
+  const from = new Date(Date.now() - months * 30 * DAY_MS);
+  return from < floor ? floor : from;
+}
 
 /**
  * Скільки циклів має пройти, щоб товар вважався «пора повторити».
@@ -121,22 +155,25 @@ type OrderRow = {
 };
 
 /**
- * Останні документи клієнта разом із позиціями.
+ * Документи клієнта за період разом із позиціями.
  *
- * П'ять, а не один: «останнє замовлення» саме по собі не показує, чи це
- * типова покупка, чи разовий виняток — а коштує стільки ж, бо все одно один
- * запит.
+ * Не «останній», а список: одне замовлення не показує, чи це типова покупка,
+ * чи разовий виняток — а коштує стільки ж, бо все одно один запит.
  *
  * LIMIT стоїть у CTE, ДО збирання позицій. Інакше планувальник агрегував би
  * позиції всієї таблиці й лише потім відкидав зайве.
  */
-export async function lastOrders(counterpartyId: string, limit = 5): Promise<LastOrder[]> {
+export async function lastOrders(
+  counterpartyId: string,
+  { since, limit = ORDERS_LIMIT }: { since: Date; limit?: number }
+): Promise<LastOrder[]> {
   const rows = await prisma.$queryRaw<OrderRow[]>`
     WITH docs AS (
       SELECT s.id, s.number, s."docType"::text AS "docType", s."createdAt", s."totalAmount"
       FROM "SalesDocument" s
       WHERE ${SOURCE_FILTER}
         AND s."counterpartyId" = ${counterpartyId}
+        AND s."createdAt" >= ${since}
       ORDER BY s."createdAt" DESC
       LIMIT ${limit}
     )
@@ -180,6 +217,48 @@ export async function lastOrders(counterpartyId: string, limit = 5): Promise<Las
       items,
     };
   });
+}
+
+export type OrderSummary = {
+  /** Скільки документів за період — включно з тими, що не влізли в список. */
+  docs: number;
+  /** Сума продажів без повернень. */
+  amount: number;
+  /** Сума повернень, додатна — щоб показати окремим рядком. */
+  returns: number;
+  /** Днів з останньої покупки; null — за період покупок не було. */
+  daysSinceLast: number | null;
+};
+
+/**
+ * Підсумок за період рахуємо окремим запитом, а не додаванням у списку:
+ * список обрізаний стелею, і сума по ньому мовчки була б меншою за правду.
+ */
+export async function orderSummary(counterpartyId: string, since: Date): Promise<OrderSummary> {
+  const [row] = await prisma.$queryRaw<
+    Array<{ docs: number; amount: number; returns: number; lastAt: Date | null }>
+  >`
+    SELECT
+      COUNT(*)::int AS docs,
+      COALESCE(SUM(s."totalAmount") FILTER (WHERE s."docType" <> 'RETURN'), 0)::float AS amount,
+      -- Повернення в 1С мають від'ємну суму, тож міняємо знак: у підсумку це
+      -- окремий рядок «повернуто», а не від'ємні продажі.
+      COALESCE(-SUM(s."totalAmount") FILTER (WHERE s."docType" = 'RETURN'), 0)::float AS returns,
+      MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastAt"
+    FROM "SalesDocument" s
+    WHERE ${SOURCE_FILTER}
+      AND s."counterpartyId" = ${counterpartyId}
+      AND s."createdAt" >= ${since}
+  `;
+
+  return {
+    docs: row?.docs ?? 0,
+    amount: row?.amount ?? 0,
+    returns: row?.returns ?? 0,
+    daysSinceLast: row?.lastAt
+      ? Math.max(0, Math.floor((Date.now() - row.lastAt.getTime()) / DAY_MS))
+      : null,
+  };
 }
 
 type ReplenishRow = {

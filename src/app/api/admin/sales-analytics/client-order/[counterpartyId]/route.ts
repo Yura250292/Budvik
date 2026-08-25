@@ -17,7 +17,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { lastOrders, recommendations } from "@/lib/analytics/clientOrder";
+import {
+  lastOrders,
+  orderSummary,
+  ordersSince,
+  recommendations,
+  ORDERS_LIMIT,
+  ORDER_MONTHS,
+  type OrderMonths,
+} from "@/lib/analytics/clientOrder";
+import { kyivDate } from "@/lib/date/kyiv";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +36,16 @@ export const dynamic = "force-dynamic";
  */
 const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES", "DRIVER"];
 
+/**
+ * Поради рахуються до 1.3 с у клієнта з великою історією (заміряно на
+ * «КУВАЛДА ЛИПИНСЬКОГО»), а список замовлень — 0.2 с. Тому перемикання
+ * періоду тягне ЛИШЕ замовлення: `only=orders`. Інакше кожен тап по «6
+ * місяців» перераховував би поради, які від періоду не залежать взагалі.
+ */
+type Only = "orders" | "reco" | null;
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ counterpartyId: string }> }
 ) {
   const session = await getServerSession(authOptions);
@@ -40,14 +57,27 @@ export async function GET(
   }
 
   const { counterpartyId } = await params;
+  const url = new URL(req.url);
 
-  const [client, orders, recos] = await Promise.all([
+  const onlyParam = url.searchParams.get("only");
+  const only: Only = onlyParam === "orders" || onlyParam === "reco" ? onlyParam : null;
+
+  // Невідоме значення зводимо до 0 («уся історія»), а не до помилки: період
+  // приходить із перемикача, і зламаний URL не привід показати екран помилки.
+  const raw = Number(url.searchParams.get("months"));
+  const months: OrderMonths = (ORDER_MONTHS as readonly number[]).includes(raw)
+    ? (raw as OrderMonths)
+    : 0;
+  const since = ordersSince(months);
+
+  const [client, orders, summary, recos] = await Promise.all([
     prisma.counterparty.findUnique({
       where: { id: counterpartyId },
       select: { id: true, name: true },
     }),
-    lastOrders(counterpartyId),
-    recommendations(counterpartyId),
+    only === "reco" ? Promise.resolve(null) : lastOrders(counterpartyId, { since }),
+    only === "reco" ? Promise.resolve(null) : orderSummary(counterpartyId, since),
+    only === "orders" ? Promise.resolve(null) : recommendations(counterpartyId),
   ]);
 
   if (!client) {
@@ -58,8 +88,20 @@ export async function GET(
   // з 1С. Модалка покаже це текстом, а не екраном помилки.
   return NextResponse.json({
     client,
-    orders,
-    recommendations: recos,
+    ...(orders
+      ? {
+          orders,
+          summary,
+          period: {
+            months,
+            sinceDay: kyivDate(since),
+            /** Список обрізано стелею — підсумок вище все одно за весь період. */
+            truncated: orders.length >= ORDERS_LIMIT,
+            limit: ORDERS_LIMIT,
+          },
+        }
+      : {}),
+    ...(recos ? { recommendations: recos } : {}),
     source: "Проведені реалізації та повернення з 1С",
   });
 }

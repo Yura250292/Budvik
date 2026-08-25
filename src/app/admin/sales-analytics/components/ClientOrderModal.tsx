@@ -5,7 +5,13 @@ import { createPortal } from "react-dom";
 import { Badge, ColorDot } from "@/components/ui/Badge";
 import { money } from "@/components/ui/Stat";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
-import type { LastOrder, RecoReason, Recommendation } from "@/lib/analytics/clientOrder";
+import type {
+  LastOrder,
+  OrderMonths,
+  OrderSummary,
+  RecoReason,
+  Recommendation,
+} from "@/lib/analytics/clientOrder";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 
@@ -21,12 +27,33 @@ import { ErrorBox } from "@/components/ui/ErrorBox";
  * стати в картку клієнта на мобільній карті торгового без змін.
  */
 
-type Payload = {
+type OrdersPayload = {
   client: { id: string; name: string };
   orders: LastOrder[];
-  recommendations: Recommendation[];
+  summary: OrderSummary;
+  period: { months: OrderMonths; sinceDay: string; truncated: boolean; limit: number };
   source: string;
 };
+
+type RecoPayload = {
+  client: { id: string; name: string };
+  recommendations: Recommendation[];
+};
+
+/**
+ * Глибина списку замовлень.
+ *
+ * «Уся історія» упирається в межу аналітики (реалізації в базі є з січня
+ * 2026 — див. ANALYTICS_SINCE_DAY), і підпис це чесно каже: інакше «усе»
+ * читалося б як «за всі роки роботи з клієнтом».
+ */
+const PERIODS: Array<{ months: OrderMonths; label: string }> = [
+  { months: 3, label: "3 міс" },
+  { months: 6, label: "півроку" },
+  { months: 0, label: "усе" },
+];
+
+const dayFmt = new Intl.DateTimeFormat("uk-UA", { month: "2-digit", year: "numeric" });
 
 const dt = new Intl.DateTimeFormat("uk-UA", {
   day: "2-digit",
@@ -119,16 +146,39 @@ function OrderCard({ order, open }: { order: LastOrder; open: boolean }) {
  * можна було лише прокрутивши весь список. А заходять сюди саме по них.
  */
 export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string }) {
-  const { data, loading, error, reload } = useApi<Payload>(
-    `/api/admin/sales-analytics/client-order/${counterpartyId}`
+  /**
+   * Період тягне лише замовлення — окремим запитом від порад.
+   *
+   * Поради від періоду не залежать і рахуються до 1.3 с у клієнта з великою
+   * історією; якби перемикач смикав спільний запит, кожен тап по «3 міс»
+   * коштував би цієї секунди вдруге.
+   */
+  const [months, setMonths] = useState<OrderMonths>(0);
+
+  const ordersApi = useApi<OrdersPayload>(
+    `/api/admin/sales-analytics/client-order/${counterpartyId}?only=orders&months=${months}`
   );
+  const recoApi = useApi<RecoPayload>(
+    `/api/admin/sales-analytics/client-order/${counterpartyId}?only=reco`
+  );
+
   const [tab, setTab] = useState<"orders" | "reco" | null>(null);
 
+  const data = ordersApi.data;
+  const loading = ordersApi.loading;
+  const error = ordersApi.error ?? recoApi.error;
+  const reload = () => {
+    ordersApi.reload();
+    recoApi.reload();
+  };
+
   if (loading && !data) return <p className="p-4 text-sm text-gr">Завантаження…</p>;
-  if (error) return <div className="p-4"><ErrorBox message={error} onRetry={reload} /></div>;
+  if (error && !data) return <div className="p-4"><ErrorBox message={error} onRetry={reload} /></div>;
   if (!data) return null;
 
-  const { orders, recommendations } = data;
+  const orders = data.orders;
+  const recommendations = recoApi.data?.recommendations ?? [];
+  const summary = data.summary;
   // Поки людина не перемкнула сама — відкриваємо ту вкладку, де є що
   // показати: у клієнта без історії «Замовлення» порожні, і модалка
   // зустрічала б порожнім екраном саме там, де поради вже є.
@@ -140,7 +190,7 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
       <div className="flex shrink-0 gap-1 border-b border-line px-3 pt-1">
         {(
           [
-            ["orders", `Замовлення${orders.length ? ` (${orders.length})` : ""}`],
+            ["orders", `Замовлення${summary.docs ? ` (${summary.docs})` : ""}`],
             ["reco", `Що запропонувати${recommendations.length ? ` (${recommendations.length})` : ""}`],
           ] as const
         ).map(([key, label]) => (
@@ -161,19 +211,68 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {active === "orders" ? (
-          orders.length === 0 ? (
-            <p className="text-sm text-gr">
-              Проведених документів з 1С немає — клієнт ще нічого не брав або працює лише за
-              замовленнями.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {orders.map((o, idx) => (
-                // Перший розгорнутий: саме по нього сюди й заходять
-                <OrderCard key={o.id} order={o} open={idx === 0} />
-              ))}
+          <>
+            {/* Глибина списку. Перемикач угорі, бо перше питання перед
+                візитом — «за який період я взагалі дивлюся». */}
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="text-xs text-gr">Період:</span>
+              {PERIODS.map((p) => {
+                const on = months === p.months;
+                return (
+                  <button
+                    key={p.months}
+                    type="button"
+                    onClick={() => setMonths(p.months)}
+                    aria-pressed={on}
+                    className={`rounded-[var(--radius-badge)] border px-2.5 py-1 text-xs transition-colors ${
+                      on ? "border-bk bg-bk text-white" : "border-line text-gr hover:text-bk"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+              {ordersApi.loading && <span className="text-xs text-gr">оновлюю…</span>}
             </div>
-          )
+
+            {summary.docs > 0 && (
+              <p className="mb-2 text-xs text-gr">
+                {/* Підсумок рахується за ВЕСЬ період, навіть якщо список
+                    обрізано стелею — інакше сума мовчки була б меншою. */}
+                <span className="font-medium text-bk">{money(summary.amount)} ₴</span> за{" "}
+                {summary.docs} док.
+                {summary.returns > 0 && ` · повернуто ${money(summary.returns)} ₴`}
+                {summary.daysSinceLast != null &&
+                  ` · остання покупка ${
+                    summary.daysSinceLast === 0 ? "сьогодні" : `${summary.daysSinceLast} дн. тому`
+                  }`}
+                {months === 0 && ` · з ${dayFmt.format(new Date(data.period.sinceDay))}`}
+              </p>
+            )}
+
+            {orders.length === 0 ? (
+              <p className="text-sm text-gr">
+                {months === 0
+                  ? "Проведених документів з 1С немає — клієнт ще нічого не брав або працює лише за замовленнями."
+                  : "За цей період документів немає. Спробуйте більший період."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {orders.map((o, idx) => (
+                  // Перший розгорнутий: саме по нього сюди й заходять
+                  <OrderCard key={o.id} order={o} open={idx === 0} />
+                ))}
+                {data.period.truncated && (
+                  <p className="pt-1 text-xs text-gr">
+                    Показано останні {data.period.limit} документів — підсумок угорі за весь
+                    період.
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        ) : recoApi.loading && recommendations.length === 0 ? (
+          <p className="text-sm text-gr">Рахую поради…</p>
         ) : recommendations.length === 0 ? (
           <p className="text-sm text-gr">
             Замало історії: щоб порадити повтор, клієнт має взяти той самий товар хоча б двічі.
@@ -181,7 +280,8 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
         ) : (
           <>
             <p className="mb-2 text-xs text-gr">
-              Рахується за історією закупівель — під кожним рядком написано чому.
+              Рахується за всією історією закупівель (перемикач періоду сюди не впливає) — під
+              кожним рядком написано чому.
             </p>
             <div className="space-y-3">
             {REASON_SEQUENCE.map((reason) => {

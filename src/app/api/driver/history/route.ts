@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || DEFAULT_DAYS));
   const from = kyivDayStart(kyivDate(new Date(Date.now() - days * 86_400_000)));
 
-  const [sessions, visits, routes, sheets] = await Promise.all([
+  const [sessions, visits, routes, sheets, handovers] = await Promise.all([
     prisma.trackSession.findMany({
       where: { userId: driverId, day: { gte: from } },
       orderBy: { day: "desc" },
@@ -69,6 +69,10 @@ export async function GET(req: NextRequest) {
       where: { driverId, date: { gte: from } },
       select: { date: true, number: true, distanceKm: true, ordersTotal: true, debtsTotal: true },
     }),
+    prisma.cashHandover.findMany({
+      where: { driverId, day: { gte: from } },
+      select: { day: true, amount: true, confirmedAt: true, confirmedAmount: true },
+    }),
   ]);
 
   // Ключ — київська доба у вигляді YYYY-MM-DD: дати з різних таблиць
@@ -87,6 +91,10 @@ export async function GET(req: NextRequest) {
       plannedKm: number | null;
       fuelCost: number | null;
       sheet1CKm: number | null;
+      /** Скільки водій заявив як здане за цей день, ₴ */
+      handed: number;
+      /** Скільки з цього офіс уже прийняв, ₴ */
+      confirmed: number;
     }
   >();
 
@@ -103,6 +111,8 @@ export async function GET(req: NextRequest) {
         plannedKm: null,
         fuelCost: null,
         sheet1CKm: null,
+        handed: 0,
+        confirmed: 0,
       });
     }
     return byDay.get(day)!;
@@ -134,7 +144,21 @@ export async function GET(req: NextRequest) {
     if (!row.routeNumber) row.routeNumber = s.number;
   });
 
-  const items = [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+  handovers.forEach((h) => {
+    const row = touch(kyivDate(h.day));
+    row.handed += h.amount;
+    // Підтверджене рахуємо фактично прийнятою сумою: якщо касир виправив
+    // цифру, у водія в історії має стояти те, що реально дійшло.
+    if (h.confirmedAt) row.confirmed += h.confirmedAmount ?? h.amount;
+  });
+
+  const items = [...byDay.values()]
+    .map((row) => ({
+      ...row,
+      handed: Math.round(row.handed * 100) / 100,
+      confirmed: Math.round(row.confirmed * 100) / 100,
+    }))
+    .sort((a, b) => (a.day < b.day ? 1 : -1));
 
   return NextResponse.json({
     days,
@@ -143,6 +167,7 @@ export async function GET(req: NextRequest) {
       trackKm: Math.round(items.reduce((s, i) => s + i.trackKm, 0) * 10) / 10,
       visits: items.reduce((s, i) => s + i.visits, 0),
       collected: items.reduce((s, i) => s + i.collected, 0),
+      handed: Math.round(items.reduce((s, i) => s + i.handed, 0) * 100) / 100,
       workDays: items.filter((i) => i.trackKm > 0 || i.visits > 0).length,
     },
   });

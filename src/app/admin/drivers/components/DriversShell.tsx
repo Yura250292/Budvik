@@ -21,11 +21,13 @@ import { PayrollTab } from "./PayrollTab";
 import { SheetsTab } from "./SheetsTab";
 import { SettingsTab } from "./SettingsTab";
 import { LiveTrackTab } from "./LiveTrackTab";
+import { CashTab } from "./CashTab";
 
 /** Вкладки-панелі цієї сторінки. `period: false` — вкладка не залежить від дат. */
 const TABS = [
   { key: "payroll", label: "Зарплата", period: true },
   { key: "live", label: "На маршруті", period: false },
+  { key: "cash", label: "Інкасація", period: true },
   { key: "sheets", label: "Маршрутні листи", period: true },
   { key: "settings", label: "Налаштування", period: false },
 ] as const;
@@ -121,6 +123,7 @@ export function DriversShell() {
         <PayrollTab period={period} onOpenSettings={() => setTab("settings")} />
       )}
       {tab === "live" && <LiveTrackTab />}
+      {tab === "cash" && <CashTab period={period} />}
       {tab === "sheets" && <SheetsTab period={period} />}
       {tab === "settings" && <SettingsTab />}
     </div>

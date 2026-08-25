@@ -317,6 +317,10 @@ model User {
   shifts        Shift[]        @relation("shiftUser")
   visits        Visit[]        @relation("visitUser")
 
+  // Інкасація: свої здачі та підтвердження чужих
+  cashHandovers     CashHandover[] @relation("cashHandoverDriver")
+  cashConfirmations CashHandover[] @relation("cashHandoverConfirmedBy")
+
   @@index([referredBySalesRepId])
 }
 
@@ -2467,6 +2471,55 @@ model Visit {
   @@unique([userId, day, counterpartyId])
   @@index([day])
   @@index([counterpartyId, day])
+}
+
+/// Здача виручки водієм: водій каже «касу здав», офіс підтверджує прийом.
+///
+/// Visit каже, скільки водій ЗАБРАВ у клієнта, але не каже, чи ці гроші
+/// доїхали до каси. Без окремого запису «на руках» рахувалося б вічно:
+/// зібрав 4 320 — і назавжди винен, скільки б разів не здавав.
+///
+/// Дві сторони записані окремо навмисно: amount — те, що заявив водій,
+/// confirmedAmount — те, що прийняв офіс. Розбіжність має бути видимою,
+/// а не затертою одним полем.
+model CashHandover {
+  id       String @id @default(cuid())
+  driverId String
+
+  /// Київська доба, за яку здається виручка. Формат той самий, що у
+  /// Visit.day, інакше звірка сум по дню розсиплеться.
+  day DateTime
+
+  /// Скільки водій заявив, ₴
+  amount Float
+
+  /// Скільки було «на руках» за відмітками в мить здачі — числом, а не
+  /// перерахунком: завтра відмітки можуть зміститися, а розбіжність тієї
+  /// здачі має лишитися такою, якою її бачили обидві сторони.
+  expectedAmount Float?
+
+  comment  String?
+  handedAt DateTime @default(now())
+
+  /// Підтвердження прийому офісом. Поки null — гроші рахуються в дорозі.
+  confirmedAt   DateTime?
+  confirmedById String?
+
+  /// Фактично прийнята сума, якщо розійшлася із заявленою.
+  confirmedAmount Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  driver User @relation("cashHandoverDriver", fields: [driverId], references: [id], onDelete: Cascade)
+
+  /// SetNull: звільнений касир не має забирати з собою історію здач.
+  confirmedBy User? @relation("cashHandoverConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  /// Без @@unique по дню навмисно: здають і в обід, і ввечері.
+  @@index([driverId, day])
+  @@index([day])
+  @@index([confirmedAt])
 }
 
 /// Токен пристрою для нативного застосунку торгового.

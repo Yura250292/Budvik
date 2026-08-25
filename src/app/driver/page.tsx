@@ -88,8 +88,8 @@ export default function DriverPage() {
 
       <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "24px" }}>
         {/* Головна дія дня — велика й перша. Список маршрутів нижче
-            довідковий, а «Карта дня» це те, з чим водій працює весь день:
-            вона показує точки, приймає відмітки й пише трек. */}
+            довідковий, а «Мій день» це те, з чим водій працює весь день:
+            він показує точки, приймає відмітки і рахує касу. */}
         <Link
           href="/driver/tablet"
           className="flex cursor-pointer items-center gap-3 rounded-2xl transition-colors duration-200"
@@ -115,10 +115,10 @@ export default function DriverPage() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block" style={{ fontSize: "17px", fontWeight: 700 }}>
-              Карта дня
+              Мій день
             </span>
             <span className="block" style={{ fontSize: "12.5px", color: "rgba(255,255,255,0.6)", lineHeight: 1.4 }}>
-              Маршрут, відмітки візитів і запис пробігу
+              Точки маршруту, відмітки візитів і каса
             </span>
           </span>
           <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.5)" strokeWidth={2}>

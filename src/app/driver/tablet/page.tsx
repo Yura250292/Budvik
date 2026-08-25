@@ -1,27 +1,31 @@
 "use client";
 
 /**
- * Планшет у машині: карта дня + чек-ліст клієнтів + запис треку.
+ * Мій день: список точок маршруту, відмітки візитів і каса.
  *
- * Головний екран водія на весь день. Планшет стоїть у тримачі, вкладка
- * не згортається — саме тому тут (а не в боті) збирається трек.
+ * Головний екран водія. Карти тут навмисно немає: возити маршрут по
+ * власній карті означало тримати планшет у вебі заради треку — а трек
+ * тепер пише нативний застосунок у фоні. Тому дорогу водій відкриває у
+ * звичному Google Maps, а сюди повертається, щоб відмітити точку.
  *
- * Верстка розходиться за орієнтацією: на альбомній карта і список поруч
- * (у машині планшет майже завжди лежить горизонтально), на портретній
- * список стає нижньою панеллю. Кнопки великі: у них цілять пальцем, іноді
- * на ходу.
+ * Кнопки великі: у них цілять пальцем, іноді на ходу.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
-import type { MapMode, RouteLine, TabletStop } from "@/components/map/TabletDayMap";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { googleMapsLinks, pointUrl } from "@/lib/maps/google-links";
+import type { DayStop } from "@/lib/track/day-stop-type";
 
-const TabletDayMap = dynamic(() => import("@/components/map/TabletDayMap"), {
-  ssr: false,
-  loading: () => <div style={{ height: "100%", width: "100%", background: "#E5E7EB" }} />,
-});
+type Handover = {
+  id: string;
+  amount: number;
+  handedAt: string;
+  confirmedAt: string | null;
+  confirmedAmount: number | null;
+  comment: string | null;
+};
 
 type DayResp = {
   day: string;
@@ -31,8 +35,7 @@ type DayResp = {
     number: string | null;
     vehicle: string | null;
     plannedKm: number | null;
-    geometry: RouteLine;
-    stops: TabletStop[];
+    stops: DayStop[];
   };
   progress: {
     total: number;
@@ -46,40 +49,25 @@ type DayResp = {
     distanceKm: number;
     pointsCount: number;
     lastPointAt: string | null;
-    path: Array<[number, number]>;
+  };
+  cash: {
+    collected: number;
+    handed: number;
+    onHands: number;
+    handovers: Handover[];
   };
 };
 
-type RouteVariant = {
-  order: string[];
-  distanceKm: number;
-  durationMin: number;
-  fuelCost: number;
-  geometry: RouteLine;
-  stops: Array<{ key: string; name: string; reason: string; score: number }>;
-};
-
-/** Активна навігація до однієї точки. */
-type NavState = {
-  stopKey: string;
-  name: string;
-  lat: number;
-  lng: number;
-  distanceKm: number;
-  durationMin: number;
-  geometry: RouteLine;
-};
-
-type OptimizeResp = {
-  cheapest: RouteVariant;
-  balanced: RouteVariant | null;
-  detourPercent: number;
-  extraCost: number;
-  startName: string | null;
-  startedFromFirstStop: boolean;
-};
-
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
+
+/** «1 точка / 3 точки / 10 точок» — на кнопці неправильна форма ріже око. */
+function pointsLabel(n: number): string {
+  const last = n % 10;
+  const teen = n % 100 >= 11 && n % 100 <= 14;
+  if (!teen && last === 1) return `${n} точка`;
+  if (!teen && last >= 2 && last <= 4) return `${n} точки`;
+  return `${n} точок`;
+}
 
 /** Що показує індикатор треку в шапці. */
 const TRACK_BADGE: Record<string, { dot: string; label: string }> = {
@@ -90,50 +78,20 @@ const TRACK_BADGE: Record<string, { dot: string; label: string }> = {
   idle: { dot: "#9CA3AF", label: "Трек вимкнено" },
 };
 
-export default function DriverTabletPage() {
+export default function DriverDayPage() {
   const [data, setData] = useState<DayResp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openStop, setOpenStop] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
-  // Побудова маршруту: null — ще не рахували, далі два варіанти на вибір
-  const [plan, setPlan] = useState<OptimizeResp | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [applying, setApplying] = useState<"cheapest" | "balanced" | null>(null);
-  /** Попередній перегляд лінії варіанта, поки водій вибирає */
-  const [previewGeom, setPreviewGeom] = useState<RouteLine>(null);
-  /** Навігація до однієї точки: лінія на нашій карті, не Google Maps */
-  const [nav, setNav] = useState<NavState | null>(null);
-  const [navigating, setNavigating] = useState<string | null>(null);
-
+  const isApp = useIsNativeApp();
   /**
-   * Режим карти. Стартуємо в огляді: поки водій не поїхав, йому треба
-   * бачити весь маршрут, а не свій двір зумом 17.
+   * У застосунку трек пише нативна служба: вона переживає і згорнуту
+   * вкладку, і вихід у Google Maps. Веб-рекордер там був би другим
+   * джерелом тих самих координат — зайвий шум у пробігу.
    */
-  const [mapMode, setMapMode] = useState<MapMode>("overview");
-  const [traffic, setTraffic] = useState(false);
-  /** Чи налаштований ключ TomTom — без нього перемикач пробок ховаємо */
-  const [trafficAvailable, setTrafficAvailable] = useState(false);
-
-  const track = useTrackRecorder({ enabled: true });
+  const track = useTrackRecorder({ enabled: !isApp });
   const build = useBuildVersion();
-
-  useEffect(() => {
-    let alive = true;
-    void fetch("/api/traffic/status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!alive || !j) return;
-        setTrafficAvailable(Boolean(j.enabled));
-        // Пробки самі вмикаються, коли вони є: водієві не треба щоранку
-        // згадувати про перемикач.
-        setTraffic(Boolean(j.enabled));
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -151,19 +109,9 @@ export default function DriverTabletPage() {
     void load();
   }, [load]);
 
-  /**
-   * Трек на карті — це збережене з сервера плюс те, що набралося вже в
-   * цій сесії. Інакше лінія «наздоганяла» б водія лише після
-   * перезавантаження сторінки.
-   */
-  const fullTrail = useMemo(
-    () => [...(data?.track.path ?? []), ...track.trail],
-    [data?.track.path, track.trail]
-  );
-
   const mark = useCallback(
     async (
-      stop: TabletStop,
+      stop: DayStop,
       status: "DONE" | "MISSED",
       money_: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE",
       extra?: { collectedAmount?: number; comment?: string }
@@ -186,22 +134,22 @@ export default function DriverTabletPage() {
               }),
             })
           : await fetch("/api/visits", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            counterpartyId: stop.counterpartyId,
-            status,
-            money: money_,
-            debtAmount: stop.debtAmount,
-            collectedAmount: extra?.collectedAmount,
-            comment: extra?.comment,
-            routeSheetStopId: stop.key.startsWith("rs:") ? stop.key.slice(3) : null,
-            deliveryStopId: stop.key.startsWith("ds:") ? stop.key.slice(3) : null,
-            // Де стоїть планшет у мить відмітки — доказ присутності
-            lat: track.position?.lat ?? null,
-            lng: track.position?.lng ?? null,
-          }),
-        });
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                counterpartyId: stop.counterpartyId,
+                status,
+                money: money_,
+                debtAmount: stop.debtAmount,
+                collectedAmount: extra?.collectedAmount,
+                comment: extra?.comment,
+                routeSheetStopId: stop.key.startsWith("rs:") ? stop.key.slice(3) : null,
+                deliveryStopId: stop.key.startsWith("ds:") ? stop.key.slice(3) : null,
+                // Де стоїть планшет у мить відмітки — доказ присутності
+                lat: track.position?.lat ?? null,
+                lng: track.position?.lng ?? null,
+              }),
+            });
         if (!res.ok) {
           const j = await res.json().catch(() => null);
           throw new Error(j?.error ?? "Не вдалося зберегти");
@@ -217,161 +165,32 @@ export default function DriverTabletPage() {
     [load, track.position]
   );
 
-  /**
-   * Прокласти маршрут від того місця, де водій стоїть зараз.
-   *
-   * Саме від поточної позиції, а не від складу: водій тисне цю кнопку
-   * посеред дня, коли половина точок уже позаду, і маршрут «зі складу»
-   * був би йому марний.
-   */
-  const buildPlan = useCallback(async () => {
-    setPlanning(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/routes/optimize-day", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          start: track.position ? [track.position.lng, track.position.lat] : undefined,
-        }),
-      });
-      // Сесія протухла за ніч у тримачі — сервер віддає HTML логіна, і
-      // json() падає. Кажемо прямо, замість мовчазного «нічого не сталось».
-      if (res.status === 401) throw new Error("Сесія завершилась — увійдіть знову");
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
-      if (!json?.cheapest) throw new Error("Сервер не повернув маршрут");
-      const built = json as OptimizeResp;
-      setPlan(built);
-      // Одразу показуємо лінію найдешевшого: «прокласти маршрут» без
-      // лінії на карті виглядає як кнопка, що не спрацювала.
-      setPreviewGeom(built.cheapest.geometry ?? null);
-    } catch (e) {
-      // TypeError від fetch — це або немає мережі, або сторінка стара і
-      // не може довантажити свої чанки після деплою.
-      const offline = typeof navigator !== "undefined" && !navigator.onLine;
-      setError(
-        e instanceof TypeError
-          ? offline
-            ? "Немає звʼязку — маршрут порахується, коли зʼявиться інтернет"
-            : "Звʼязок обірвався. Якщо повторюється — перезавантажте сторінку"
-          : e instanceof Error
-            ? e.message
-            : "Не вдалося прокласти маршрут"
-      );
-    } finally {
-      setPlanning(false);
-    }
-  }, [track.position]);
-
-  /** Застосувати обраний варіант — переставити точки в маршруті дня. */
-  const applyPlan = useCallback(
-    async (which: "cheapest" | "balanced") => {
-      const variant = which === "cheapest" ? plan?.cheapest : plan?.balanced;
-      if (!variant) return;
-      setApplying(which);
-      try {
-        const res = await fetch("/api/routes/apply-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            order: variant.order,
-            distanceKm: variant.distanceKm,
-            fuelCost: variant.fuelCost,
-            geometry: variant.geometry,
-          }),
-        });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти порядок");
-        setPlan(null);
-        setPreviewGeom(null);
-        await load();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Не вдалося зберегти порядок");
-      } finally {
-        setApplying(null);
-      }
-    },
-    [plan, load]
-  );
-
-  /**
-   * Навігація до точки — лінія на нашій карті замість Google Maps.
-   *
-   * Вихід у зовнішній застосунок відправляє вкладку у фон і рве трек;
-   * дорога, намальована тут, тримає планшет у вебі. Google Maps лишився
-   * запасним лінком у банері — для голосових підказок.
-   */
-  const navigateTo = useCallback(
-    async (stop: TabletStop) => {
-      if (stop.lat == null || stop.lng == null) return;
-      setNavigating(stop.key);
-      setError(null);
-      try {
-        // Позиція: свіжа з трекера, інакше разовий запит до GPS.
-        let from = track.position;
-        if (!from) {
-          from = await new Promise((resolve) =>
-            navigator.geolocation?.getCurrentPosition(
-              (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-              () => resolve(null),
-              { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
-            ) ?? resolve(null)
-          );
-        }
-        if (!from) {
-          throw new Error("Немає вашої позиції — дозвольте геолокацію і спробуйте ще раз");
-        }
-
-        const res = await fetch("/api/routes/navigate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ from: [from.lng, from.lat], to: [stop.lng, stop.lat] }),
-        });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(json?.error ?? "Не вдалося прокласти дорогу");
-
-        setNav({
-          stopKey: stop.key,
-          name: stop.name,
-          lat: stop.lat,
-          lng: stop.lng,
-          distanceKm: json.distanceKm,
-          durationMin: json.durationMin,
-          geometry: json.geometry,
-        });
-        // Дорога прокладена — вмикаємо слідування: далі водій їде, а не
-        // роздивляється карту. Показ усієї лінії робимо до цього моменту.
-        setMapMode("follow");
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Не вдалося прокласти дорогу");
-      } finally {
-        setNavigating(null);
-      }
-    },
-    [track.position]
-  );
-
   const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
-  const stops = data?.route.stops ?? [];
-  /** Лінія плану: попередній перегляд варіанта має пріоритет над збереженою */
-  const plannedLine = previewGeom ?? data?.route.geometry ?? null;
+  // useMemo, а не ?? []: новий порожній масив на кожен рендер перезапускав
+  // би розрахунок посилань нижче.
+  const stops = useMemo(() => data?.route.stops ?? [], [data?.route.stops]);
+
+  /**
+   * Дорога в Google Maps: від того місця, де водій зараз, через ще не
+   * відмічені точки. Відмічені навмисно пропускаємо — везти водія туди,
+   * де він уже був, немає сенсу.
+   */
+  const mapLinks = useMemo(() => {
+    const pending = stops
+      .filter((s) => !s.visit && s.lat != null && s.lng != null)
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+    if (pending.length === 0) return [];
+
+    const from = track.position ? [{ lat: track.position.lat, lng: track.position.lng }] : [];
+    return googleMapsLinks([...from, ...pending]);
+  }, [stops, track.position]);
 
   return (
-    <div
-      className="fixed inset-x-0 top-0 flex flex-col"
-      style={{
-        // Низ — над нижнім меню водія. Раніше карта займала весь екран, і
-        // меню на ній не було взагалі: водій не мав куди піти з карти дня.
-        bottom: "calc(4rem + env(safe-area-inset-bottom, 0px))",
-        background: "#F3F4F6",
-        overscrollBehavior: "none",
-      }}
-    >
+    <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
       {/* Шапка: маршрут, прогрес, стан треку.
           Цифри великі — на них дивляться скоса, тримаючи кермо. */}
       <header
-        className="shrink-0"
+        className="sticky top-0 z-20"
         style={{
           background: "#0A0A0A",
           color: "#fff",
@@ -419,17 +238,18 @@ export default function DriverTabletPage() {
                     width: "7px",
                     height: "7px",
                     borderRadius: "50%",
-                    background: badge.dot,
+                    background: isApp ? "#16A34A" : badge.dot,
                     display: "inline-block",
                   }}
                 />
-                {badge.label}
-                {track.pending > 0 && <span style={{ color: "#FB923C" }}>+{track.pending}</span>}
+                {/* У застосунку трек веде служба, а не ця вкладка —
+                    показувати її стан було б брехнею. */}
+                {isApp ? "Трек іде" : badge.label}
+                {!isApp && track.pending > 0 && (
+                  <span style={{ color: "#FB923C" }}>+{track.pending}</span>
+                )}
               </p>
             </div>
-
-            {/* Кнопки виходу тут немає: перехід між розділами водій робить
-                нижнім меню, однаковим на всіх екранах. */}
           </div>
         </div>
 
@@ -469,7 +289,7 @@ export default function DriverTabletPage() {
         <button
           type="button"
           onClick={build.reload}
-          className="shrink-0 cursor-pointer transition-colors duration-200"
+          className="cursor-pointer transition-colors duration-200"
           style={{
             width: "100%",
             minHeight: "44px",
@@ -485,10 +305,7 @@ export default function DriverTabletPage() {
       )}
 
       {error && (
-        <div
-          className="flex shrink-0 items-center gap-2 px-4 py-2.5"
-          style={{ background: "#DC2626" }}
-        >
+        <div className="flex items-center gap-2 px-4 py-2.5" style={{ background: "#DC2626" }}>
           <p className="flex-1" style={{ fontSize: "13.5px", fontWeight: 600, color: "#fff" }}>
             {error}
           </p>
@@ -512,486 +329,356 @@ export default function DriverTabletPage() {
         </div>
       )}
 
-      {/* Карта + чек-ліст. На альбомній — поруч на всю висоту, на
-          портретній — одне під одним. Планшет у машині майже завжди
-          горизонтально, але тримач буває й вертикальний.
-
-          min-h-0 на обох дітях обов'язковий: без нього flex-елемент не
-          дає внутрішньому списку скролитися і той розтягує сторінку. */}
-      <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
-        <div className="relative min-h-0 flex-1 landscape:h-full">
-          <TabletDayMap
-            stops={stops}
-            trail={fullTrail}
-            me={track.position}
-            motion={track.motion}
-            planned={plannedLine}
-            nav={nav?.geometry ?? null}
-            mode={mapMode}
-            onModeChange={setMapMode}
-            traffic={traffic}
-            onNavigate={(key) => {
-              const s = stops.find((x) => x.key === key);
-              if (s) void navigateTo(s);
-            }}
-          />
-
-          {/* Керування картою: великі кнопки в кутку, щоб цілити пальцем
-              не дивлячись. Ліворуч їх немає — там вилазять попапи точок. */}
-          <div
-            className="absolute z-[500] flex flex-col gap-2"
-            style={{ top: "12px", right: "12px" }}
-          >
-            {/* Слідування. Коли водій відтягнув карту пальцем, режим сам
-                падає в «огляд» — кнопка стає жовтою, кличучи назад. */}
-            <button
-              type="button"
-              onClick={() => setMapMode(mapMode === "follow" ? "overview" : "follow")}
-              disabled={!track.position}
-              aria-pressed={mapMode === "follow"}
-              aria-label={mapMode === "follow" ? "Вимкнути слідування" : "Показувати мене"}
-              className="cursor-pointer rounded-xl transition-colors duration-200 disabled:opacity-40"
-              style={{
-                width: "48px",
-                height: "48px",
-                border: "none",
-                background: mapMode === "follow" ? "#2563EB" : "#FFD600",
-                color: mapMode === "follow" ? "#fff" : "#0A0A0A",
-                fontSize: "20px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-              }}
-            >
-              ➤
-            </button>
-
-            {trafficAvailable && (
-              <button
-                type="button"
-                onClick={() => setTraffic((v) => !v)}
-                aria-pressed={traffic}
-                aria-label={traffic ? "Сховати пробки" : "Показати пробки"}
-                className="cursor-pointer rounded-xl transition-colors duration-200"
-                style={{
-                  width: "48px",
-                  height: "48px",
-                  border: "none",
-                  background: traffic ? "#DC2626" : "rgba(10,10,10,0.75)",
-                  color: "#fff",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  lineHeight: 1.1,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-                }}
-              >
-                Проб<br />ки
-              </button>
-            )}
-          </div>
-
-          {/* Спідометр — лише під час руху. Стоїш у клієнта: цифра 0
-              нічого не додає, тільки займає карту. */}
-          {mapMode === "follow" &&
-            track.motion?.speedKmh != null &&
-            track.motion.speedKmh >= 3 && (
-              <div
-                className="absolute z-[500] rounded-2xl px-3 py-1.5 text-center"
-                style={{
-                  top: "12px",
-                  left: "12px",
-                  background: "rgba(10,10,10,0.78)",
-                  color: "#fff",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-                }}
-              >
-                <span style={{ fontSize: "22px", fontWeight: 700, lineHeight: 1 }}>
-                  {Math.round(track.motion.speedKmh)}
-                </span>
-                <span style={{ fontSize: "11px", color: "#9CA3AF", display: "block" }}>
-                  км/год
-                </span>
-              </div>
-            )}
-
-          {/* Банер активної навігації поверх карти */}
-          {nav && (
-            <div
-              className="absolute inset-x-3 z-[500] flex items-center gap-2 rounded-2xl px-3 py-2.5"
-              style={{
-                bottom: "12px",
-                background: "#0A0A0A",
-                color: "#fff",
-                boxShadow: "0 2px 12px rgba(0,0,0,0.35)",
-              }}
-            >
-              <span
-                aria-hidden
-                className="shrink-0"
-                style={{
-                  width: "10px",
-                  height: "10px",
-                  borderRadius: "50%",
-                  background: "#F97316",
-                }}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate" style={{ fontSize: "14px", fontWeight: 700 }}>
-                  {nav.name}
-                </span>
-                <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                  {nav.distanceKm} км · ~{nav.durationMin} хв
-                </span>
-              </span>
-              {/* Запасний вихід для голосових підказок — свідомо дрібний */}
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${nav.lat},${nav.lng}`}
-                target="_blank"
-                rel="noopener"
-                className="shrink-0 cursor-pointer rounded-lg px-2.5 py-2"
+      {!data ? (
+        <p className="px-4 py-6" style={{ color: "#9CA3AF", fontSize: "14px" }}>
+          Завантаження…
+        </p>
+      ) : stops.length === 0 ? (
+        <div className="px-4 py-6">
+          <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
+            Маршрут на сьогодні ще не передано
+          </p>
+          <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
+            Логіст ще складає список. Точки зʼявляться, щойно маршрут передадуть
+            вам — трек тим часом усе одно записується.
+          </p>
+        </div>
+      ) : (
+        <>
+          {mapLinks.length > 0 && (
+            <section className="px-4 py-3" style={{ background: "#fff" }}>
+              <p
                 style={{
                   fontSize: "12px",
-                  fontWeight: 600,
-                  color: "#93C5FD",
-                  textDecoration: "none",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                }}
-              >
-                Google
-              </a>
-              <button
-                type="button"
-                onClick={() => setNav(null)}
-                aria-label="Завершити навігацію"
-                className="shrink-0 cursor-pointer rounded-lg transition-colors duration-200"
-                style={{
-                  minWidth: "44px",
-                  minHeight: "40px",
-                  border: "none",
-                  background: "rgba(255,255,255,0.12)",
-                  color: "#fff",
-                  fontSize: "15px",
                   fontWeight: 700,
+                  color: "#6B7280",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.03em",
                 }}
               >
-                ✕
-              </button>
-            </div>
+                Дорога в Google Maps
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {mapLinks.map((link, idx) => (
+                  <a
+                    key={link.url}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener"
+                    className="cursor-pointer transition-colors duration-200"
+                    style={{
+                      flex: mapLinks.length === 1 ? "1 1 100%" : "1 1 45%",
+                      padding: "13px 14px",
+                      borderRadius: "12px",
+                      background: idx === 0 ? "#2563EB" : "#EFF6FF",
+                      color: idx === 0 ? "#fff" : "#1D4ED8",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      textAlign: "center",
+                      textDecoration: "none",
+                    }}
+                  >
+                    {mapLinks.length === 1
+                      ? `Відкрити маршрут · ${pointsLabel(link.points)}`
+                      : `Частина ${idx + 1} · ${pointsLabel(link.points)}`}
+                  </a>
+                ))}
+              </div>
+              {mapLinks.length > 1 && (
+                <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
+                  Google веде щонайбільше 10 точок за раз. Доїхали до кінця першої
+                  частини — відкривайте наступну, вона починається там само.
+                </p>
+              )}
+            </section>
           )}
-        </div>
 
-        <aside
-          className="flex min-h-0 shrink-0 flex-col overflow-y-auto landscape:h-full landscape:w-[400px] landscape:max-h-none"
-          style={{
-            background: "#fff",
-            borderTop: "1px solid #E5E7EB",
-            // Портретна орієнтація: список бере половину екрана, карта
-            // лишається читабельною. В альбомній стелю знімає клас вище.
-            maxHeight: "50vh",
-            WebkitOverflowScrolling: "touch",
-            overscrollBehavior: "contain",
-          }}
-        >
-          {!data ? (
-            <p className="px-4 py-6" style={{ color: "#9CA3AF", fontSize: "14px" }}>
-              Завантаження…
-            </p>
-          ) : stops.length === 0 ? (
-            <div className="px-4 py-6">
-              <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-                Маршрут на сьогодні ще не передано
-              </p>
-              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-                Логіст ще складає список. Точки зʼявляться, щойно маршрут
-                передадуть вам — трек тим часом усе одно записується.
-              </p>
-            </div>
-          ) : (
-            <>
-              <BuildRouteButton
-                planning={planning}
-                hasPosition={!!track.position}
-                onBuild={buildPlan}
+          <div style={{ background: "#fff", marginTop: mapLinks.length > 0 ? "8px" : 0 }}>
+            {stops.map((s) => (
+              <StopRow
+                key={s.key}
+                stop={s}
+                open={openStop === s.key}
+                saving={saving === s.key}
+                onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
+                onMark={mark}
               />
+            ))}
+          </div>
 
-              {stops.map((s) => (
-                <StopRow
-                  key={s.key}
-                  stop={s}
-                  open={openStop === s.key}
-                  saving={saving === s.key}
-                  navigating={navigating === s.key}
-                  onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
-                  onMark={mark}
-                  onNavigate={(x) => void navigateTo(x)}
-                />
-              ))}
-            </>
-          )}
-        </aside>
-      </div>
-
-      {/* Варіанти маршруту — шаром поверх усього екрана.
-          Раніше панель була всередині списку точок: на портретному
-          планшеті вона опинялася нижче карти, і водій, натиснувши
-          «Прокласти маршрут», бачив «нічого не сталося». */}
-      {plan && (
-        <RoutePlanner
-          plan={plan}
-          applying={applying}
-          onApply={applyPlan}
-          onPreview={(g) => setPreviewGeom(g)}
-          onDismiss={() => {
-            setPlan(null);
-            setPreviewGeom(null);
-          }}
-        />
+          <CashPanel cash={data.cash} day={data.day} onSaved={load} onError={setError} />
+        </>
       )}
-    </div>
-  );
-}
-
-/** Кнопка запуску розрахунку — живе в списку, поруч із точками. */
-function BuildRouteButton({
-  planning,
-  hasPosition,
-  onBuild,
-}: {
-  planning: boolean;
-  hasPosition: boolean;
-  onBuild: () => void;
-}) {
-  return (
-    <div style={{ padding: "10px 16px", borderBottom: "1px solid #F3F4F6" }}>
-      {/* Заливка, а не рамка: на сонці бліда кнопка читається як
-          неактивна, і водій тисне її вдруге, думаючи, що не спрацювало. */}
-      <button
-        type="button"
-        onClick={onBuild}
-        disabled={planning}
-        className="w-full cursor-pointer transition-colors duration-200"
-        style={{
-          minHeight: "48px",
-          padding: "12px",
-          borderRadius: "12px",
-          border: "none",
-          background: planning ? "#93C5FD" : "#2563EB",
-          color: "#fff",
-          fontSize: "15px",
-          fontWeight: 700,
-        }}
-      >
-        {planning ? "Рахую маршрут…" : "Прокласти маршрут"}
-      </button>
-      <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "6px", lineHeight: 1.45 }}>
-        {hasPosition
-          ? "Порахую від місця, де ви зараз."
-          : "Увімкніть геолокацію, щоб рахувати від вашого місця."}
-      </p>
     </div>
   );
 }
 
 /**
- * Побудова маршруту: дві пропозиції з цінами.
+ * Каса за день: скільки зібрав, скільки везе, кнопка здачі.
  *
- * Вибір показуємо ЗАВЖДИ, коли варіанти різні, і завжди з різницею в
- * гривнях. Автоматично застосувати «розумніший» порядок було б спокусливо,
- * але водій має бачити, за що платить: гак заради боржника коштує пального,
- * і це рішення людини, а не алгоритму.
+ * Стоїть у кінці списку навмисно — це останнє, що водій робить за день,
+ * прокрутивши всі точки.
  */
-function RoutePlanner({
-  plan,
-  applying,
-  onApply,
-  onPreview,
-  onDismiss,
+function CashPanel({
+  cash,
+  day,
+  onSaved,
+  onError,
 }: {
-  plan: OptimizeResp;
-  applying: "cheapest" | "balanced" | null;
-  onApply: (which: "cheapest" | "balanced") => void;
-  /** Тап по картці варіанта — показати його лінію на карті */
-  onPreview: (geometry: RouteLine) => void;
-  onDismiss: () => void;
+  cash: DayResp["cash"];
+  day: string;
+  onSaved: () => Promise<void> | void;
+  onError: (message: string | null) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const { cheapest, balanced, detourPercent, extraCost } = plan;
-  // Пріоритетні точки, які підтягнув балансир — саме їх водій має
-  // побачити, щоб зрозуміти, за що доплачує.
-  const highlights = (balanced?.stops ?? [])
-    .slice(0, 3)
-    .filter((s) => s.score >= 0.35);
+  const startHandover = () => {
+    // Підставляємо те, що на руках: у більшості днів водій просто
+    // підтверджує цифру, не набираючи її пальцем у машині.
+    setAmount(String(Math.max(0, Math.round(cash.onHands * 100) / 100)));
+    setComment("");
+    setOpen(true);
+  };
+
+  const submit = async () => {
+    const value = Number(amount.replace(",", "."));
+    if (!Number.isFinite(value) || value <= 0) {
+      onError("Вкажіть суму, яку здаєте");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/driver/cash-handover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: value, day, comment: comment || undefined }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти здачу");
+      setOpen(false);
+      onError(null);
+      await onSaved();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Не вдалося зберегти здачу");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancel = async (id: string) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/driver/cash-handover?id=${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Не вдалося скасувати");
+      await onSaved();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Не вдалося скасувати здачу");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    // Затемнення на весь екран: результат розрахунку не має ховатися
-    // нижче карти, а тап повз панель — це «передумав».
-    <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center"
-      style={{ background: "rgba(10,10,10,0.45)" }}
-      onClick={onDismiss}
+    <section
+      className="px-4 py-4"
+      style={{ background: "#fff", marginTop: "8px" }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full overflow-y-auto"
+      <p
         style={{
-          maxWidth: "560px",
-          maxHeight: "85vh",
-          background: "#F8FAFC",
-          borderTopLeftRadius: "18px",
-          borderTopRightRadius: "18px",
-          // Нижнє меню водія накриває низ екрана — піднімаємо над ним,
-          // інакше остання кнопка вибору опиняється під навбаром.
-          padding: "14px 16px calc(16px + 4rem + env(safe-area-inset-bottom, 0px))",
-          boxShadow: "0 -4px 24px rgba(0,0,0,0.3)",
+          fontSize: "12px",
+          fontWeight: 700,
+          color: "#6B7280",
+          textTransform: "uppercase",
+          letterSpacing: "0.03em",
         }}
       >
-      <div className="mb-3 flex items-center justify-between">
-        <span style={{ fontSize: "16px", fontWeight: 700, color: "#0A0A0A" }}>
-          Оберіть маршрут
+        Каса за сьогодні
+      </p>
+
+      <div className="mt-2 flex items-baseline gap-3">
+        <span style={{ fontSize: "13px", color: "#374151" }}>
+          Зібрано {money.format(cash.collected)} ₴
         </span>
+        {cash.handed > 0 && (
+          <span style={{ fontSize: "13px", color: "#6B7280" }}>
+            здано {money.format(cash.handed)} ₴
+          </span>
+        )}
+      </div>
+
+      <p style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A", marginTop: "2px" }}>
+        На руках: {money.format(cash.onHands)} ₴
+      </p>
+
+      {cash.handovers.length > 0 && (
+        <ul className="mt-3" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {cash.handovers.map((h) => (
+            <li
+              key={h.id}
+              className="flex items-center gap-2"
+              style={{ padding: "8px 0", borderTop: "1px solid #F3F4F6" }}
+            >
+              <span className="min-w-0 flex-1">
+                <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
+                  {money.format(h.amount)} ₴
+                </span>
+                <span style={{ fontSize: "12px", color: "#6B7280", marginLeft: "8px" }}>
+                  о{" "}
+                  {new Date(h.handedAt).toLocaleTimeString("uk-UA", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <span
+                  className="block"
+                  style={{
+                    fontSize: "12px",
+                    marginTop: "1px",
+                    color: h.confirmedAt ? "#16A34A" : "#D97706",
+                    fontWeight: 600,
+                  }}
+                >
+                  {h.confirmedAt
+                    ? `Прийнято${
+                        h.confirmedAmount != null && h.confirmedAmount !== h.amount
+                          ? ` ${money.format(h.confirmedAmount)} ₴`
+                          : ""
+                      }`
+                    : "Очікує підтвердження офісу"}
+                </span>
+              </span>
+              {/* Скасувати можна лише непідтверджену: після прийому це вже
+                  документ про гроші, і прибирати його водієві не можна. */}
+              {!h.confirmedAt && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void cancel(h.id)}
+                  className="shrink-0 cursor-pointer rounded-lg"
+                  style={{
+                    minHeight: "40px",
+                    padding: "0 12px",
+                    border: "1px solid #E5E7EB",
+                    background: "#fff",
+                    color: "#6B7280",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                  }}
+                >
+                  Скасувати
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!open ? (
         <button
           type="button"
-          onClick={onDismiss}
-          aria-label="Закрити вибір маршруту"
-          className="cursor-pointer transition-colors duration-200"
+          disabled={cash.onHands <= 0}
+          onClick={startHandover}
+          className="w-full cursor-pointer transition-colors duration-200 disabled:cursor-default"
           style={{
-            minWidth: "44px",
-            minHeight: "44px",
+            marginTop: "12px",
+            padding: "15px",
+            borderRadius: "12px",
             border: "none",
-            background: "none",
-            color: "#6B7280",
-            fontSize: "14px",
-            fontWeight: 600,
+            background: cash.onHands > 0 ? "#0A0A0A" : "#F3F4F6",
+            color: cash.onHands > 0 ? "#fff" : "#9CA3AF",
+            fontSize: "15px",
+            fontWeight: 700,
           }}
         >
-          Скасувати
+          {cash.onHands > 0
+            ? `Здаю касу ${money.format(cash.onHands)} ₴`
+            : cash.handed > 0
+              ? "Усе здано"
+              : "Поки нема чого здавати"}
         </button>
-      </div>
-
-      <VariantCard
-        title="Найдешевший"
-        distanceKm={cheapest.distanceKm}
-        durationMin={cheapest.durationMin}
-        fuelCost={cheapest.fuelCost}
-        accent="#16A34A"
-        note="Мінімум кілометрів · тапніть, щоб побачити лінію"
-        busy={applying === "cheapest"}
-        disabled={applying !== null}
-        onApply={() => onApply("cheapest")}
-        onPreview={() => onPreview(cheapest.geometry)}
-      />
-
-      {balanced && (
-        <div style={{ marginTop: "8px" }}>
-          <VariantCard
-            title="З пріоритетами"
-            distanceKm={balanced.distanceKm}
-            durationMin={balanced.durationMin}
-            fuelCost={balanced.fuelCost}
-            accent="#F97316"
-            note={
-              extraCost > 0
-                ? `Довше на ${detourPercent}% · дорожче на ${money.format(extraCost)} ₴`
-                : "Той самий пробіг, кращий порядок"
-            }
-            busy={applying === "balanced"}
-            disabled={applying !== null}
-            onApply={() => onApply("balanced")}
-            onPreview={() => onPreview(balanced.geometry)}
+      ) : (
+        <div className="mt-3">
+          <label
+            htmlFor="cash-amount"
+            style={{ fontSize: "13px", color: "#374151", fontWeight: 600 }}
+          >
+            Скільки здаєте, ₴
+          </label>
+          <input
+            id="cash-amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
+            style={{
+              width: "100%",
+              marginTop: "6px",
+              padding: "13px",
+              borderRadius: "10px",
+              border: "1px solid #E5E7EB",
+              fontSize: "18px",
+              fontWeight: 700,
+              textAlign: "center",
+            }}
           />
-          {highlights.length > 0 && (
-            <ul style={{ margin: "6px 0 0", padding: "0 0 0 14px", listStyle: "disc" }}>
-              {highlights.map((h) => (
-                <li key={h.key} style={{ fontSize: "11.5px", color: "#6B7280", lineHeight: 1.5 }}>
-                  <strong style={{ color: "#374151" }}>{h.name}</strong> раніше — {h.reason}
-                </li>
-              ))}
-            </ul>
-          )}
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Коментар: решта, розмін…"
+            style={{
+              width: "100%",
+              marginTop: "8px",
+              padding: "11px",
+              borderRadius: "10px",
+              border: "1px solid #E5E7EB",
+              fontSize: "14px",
+            }}
+          />
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setOpen(false)}
+              className="cursor-pointer"
+              style={{
+                flex: 1,
+                padding: "13px",
+                borderRadius: "10px",
+                border: "1px solid #E5E7EB",
+                background: "#fff",
+                color: "#374151",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+            >
+              Скасувати
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void submit()}
+              className="cursor-pointer"
+              style={{
+                flex: 2,
+                padding: "13px",
+                borderRadius: "10px",
+                border: "none",
+                background: "#16A34A",
+                color: "#fff",
+                fontSize: "15px",
+                fontWeight: 700,
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {saving ? "Зберігаю…" : "Підтверджую здачу"}
+            </button>
+          </div>
         </div>
       )}
-
-      {!balanced && (
-        <p style={{ fontSize: "11.5px", color: "#6B7280", marginTop: "8px", lineHeight: 1.45 }}>
-          Найкоротший маршрут уже обслуговує важливих клієнтів вчасно —
-          окремий варіант не потрібен.
-        </p>
-      )}
-      </div>
-    </div>
-  );
-}
-
-/** Картка одного варіанта маршруту: цифри великі, кнопка під палець. */
-function VariantCard({
-  title,
-  distanceKm,
-  durationMin,
-  fuelCost,
-  accent,
-  note,
-  busy,
-  disabled,
-  onApply,
-  onPreview,
-}: {
-  title: string;
-  distanceKm: number;
-  durationMin: number;
-  fuelCost: number;
-  accent: string;
-  note: string;
-  busy: boolean;
-  disabled: boolean;
-  onApply: () => void;
-  onPreview: () => void;
-}) {
-  return (
-    // Тап по тілу картки показує лінію варіанта на карті — водій бачить,
-    // КУДИ його поведе кожен варіант, ще до вибору.
-    <div
-      onClick={onPreview}
-      className="cursor-pointer"
-      style={{
-        background: "#fff",
-        border: `1px solid ${accent}33`,
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: "10px",
-        padding: "10px 12px",
-      }}
-    >
-      <div className="flex items-baseline gap-2">
-        <span style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>{title}</span>
-        <span style={{ fontSize: "13px", color: "#6B7280" }}>
-          {distanceKm} км · {Math.round(durationMin / 60)} год {durationMin % 60} хв
-        </span>
-        <span style={{ marginLeft: "auto", fontSize: "16px", fontWeight: 700, color: accent }}>
-          {money.format(fuelCost)} ₴
-        </span>
-      </div>
-      <p style={{ fontSize: "11.5px", color: "#6B7280", margin: "3px 0 8px", lineHeight: 1.4 }}>
-        {note}
-      </p>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation(); // тап по кнопці — вибір, а не превʼю картки
-          onApply();
-        }}
-        disabled={disabled}
-        className="w-full cursor-pointer transition-colors duration-200"
-        style={{
-          minHeight: "44px",
-          borderRadius: "8px",
-          border: "none",
-          background: busy ? "#E5E7EB" : accent,
-          color: busy ? "#6B7280" : "#fff",
-          fontSize: "14px",
-          fontWeight: 700,
-          opacity: disabled && !busy ? 0.5 : 1,
-        }}
-      >
-        {busy ? "Застосовую…" : "Обрати цей"}
-      </button>
-    </div>
+    </section>
   );
 }
 
@@ -1000,23 +687,19 @@ function StopRow({
   stop,
   open,
   saving,
-  navigating,
   onToggle,
   onMark,
-  onNavigate,
 }: {
-  stop: TabletStop;
+  stop: DayStop;
   open: boolean;
   saving: boolean;
-  navigating: boolean;
   onToggle: () => void;
   onMark: (
-    stop: TabletStop,
+    stop: DayStop,
     status: "DONE" | "MISSED",
     money: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE",
     extra?: { collectedAmount?: number; comment?: string }
   ) => void;
-  onNavigate: (stop: TabletStop) => void;
 }) {
   const [partial, setPartial] = useState("");
   const [comment, setComment] = useState("");
@@ -1038,7 +721,7 @@ function StopRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-start gap-3 px-4 text-left"
+        className="flex w-full items-start gap-3 text-left"
         style={{ background: "none", border: "none", padding: "12px 16px" }}
       >
         <span
@@ -1060,7 +743,9 @@ function StopRow({
             className="block truncate"
             style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}
           >
-            {isErrand && <span style={{ marginRight: "5px" }}>{stop.kind === "PICKUP" ? "↩️" : "✳️"}</span>}
+            {isErrand && (
+              <span style={{ marginRight: "5px" }}>{stop.kind === "PICKUP" ? "↩️" : "✳️"}</span>
+            )}
             {stop.name}
           </span>
           {stop.address && (
@@ -1149,7 +834,9 @@ function StopRow({
             <button
               type="button"
               disabled={saving}
-              onClick={() => onMark(stop, "MISSED", "NOT_APPLICABLE", { comment: comment || undefined })}
+              onClick={() =>
+                onMark(stop, "MISSED", "NOT_APPLICABLE", { comment: comment || undefined })
+              }
               style={{
                 flex: 1,
                 padding: "14px",
@@ -1191,6 +878,7 @@ function StopRow({
                 value={partial}
                 onChange={(e) => setPartial(e.target.value.replace(/[^\d.,]/g, ""))}
                 placeholder="Сума"
+                aria-label="Часткова сума"
                 style={{
                   width: "96px",
                   padding: "11px",
@@ -1245,28 +933,26 @@ function StopRow({
           )}
 
           {stop.lat != null && stop.lng != null && (
-            // Кнопка, а не лінк на Google Maps: дорога малюється на нашій
-            // карті, і вкладка з треком не йде у фон.
-            <button
-              type="button"
-              disabled={navigating}
-              onClick={() => onNavigate(stop)}
+            <a
+              href={pointUrl({ lat: stop.lat, lng: stop.lng })}
+              target="_blank"
+              rel="noopener"
               className="w-full cursor-pointer transition-colors duration-200"
               style={{
                 display: "block",
                 marginTop: "8px",
                 padding: "12px",
                 borderRadius: "10px",
-                border: "none",
-                background: navigating ? "#93C5FD" : "#2563EB",
+                background: "#2563EB",
                 color: "#fff",
                 textAlign: "center",
                 fontSize: "14px",
                 fontWeight: 600,
+                textDecoration: "none",
               }}
             >
-              {navigating ? "Прокладаю дорогу…" : "Навігація до точки"}
-            </button>
+              Відкрити в Google Maps
+            </a>
           )}
         </div>
       )}

@@ -13,7 +13,10 @@
  */
 
 import { useEffect, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
+import Link from "next/link";
+import { signOut } from "next-auth/react";
+import { useProfile } from "@/lib/useProfile";
+import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 
 type PayrollRow = {
   driverId: string;
@@ -39,11 +42,13 @@ function monthRange() {
 }
 
 export default function DriverProfilePage() {
-  const { data: session } = useSession();
+  // useProfile, а не useSession: у JWT лежить зліпок на момент входу, і
+  // перейменування чи новий телефон там протухають до наступного логіна.
+  const user = useProfile();
+  const isApp = useIsNativeApp();
+  const update = useAppUpdate();
   const [payroll, setPayroll] = useState<PayrollResp | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const user = session?.user as { name?: string; email?: string; role?: string } | undefined;
 
   useEffect(() => {
     const { from, to } = monthRange();
@@ -127,9 +132,12 @@ export default function DriverProfilePage() {
           <p style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>Як це працює</p>
           <ul style={{ margin: "8px 0 0", padding: "0 0 0 18px", listStyle: "disc" }}>
             {[
-              "«Карта дня» пише ваш маршрут, поки вкладка відкрита — тримайте планшет на зарядці.",
+              isApp
+                ? "Застосунок пише ваш маршрут у фоні — навіть коли ви поїхали за Google Maps."
+                : "У браузері трек пишеться, лише поки відкритий «Мій день». Поставте застосунок — він пише у фоні.",
               "Відмітка «Приїхав» зберігає, де ви були і скільки грошей забрали.",
-              "Якщо зник звʼязок, точки чекають у планшеті й доїжджають самі.",
+              "Наприкінці дня натисніть «Здаю касу» — офіс підтвердить прийом грошей.",
+              "Якщо зник звʼязок, точки чекають у пристрої й доїжджають самі.",
             ].map((t) => (
               <li key={t} style={{ fontSize: "12.5px", color: "#4B5563", lineHeight: 1.6 }}>
                 {t}
@@ -138,9 +146,88 @@ export default function DriverProfilePage() {
           </ul>
         </section>
 
+        {/* Застосунок: у браузері кличемо поставити, всередині —
+            пропонуємо оновитись, коли на сервері свіжіша збірка. */}
+        <section
+          className="rounded-2xl px-4 py-4"
+          style={{ background: "#fff", border: "1px solid #E5E7EB" }}
+        >
+          <p style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>Застосунок</p>
+          <p style={{ fontSize: "12.5px", color: "#6B7280", marginTop: "4px", lineHeight: 1.5 }}>
+            {isApp
+              ? "Ви працюєте в застосунку — трек пишеться у фоні."
+              : "Android-застосунок пише маршрут у фоні, поки ви в системі."}
+          </p>
+
+          {isApp && update.available ? (
+            update.viaBridge ? (
+              <button
+                type="button"
+                onClick={update.start}
+                className="w-full cursor-pointer rounded-xl transition-colors duration-200"
+                style={{
+                  marginTop: "12px",
+                  minHeight: "46px",
+                  background: "#FFD600",
+                  border: "none",
+                  color: "#0A0A0A",
+                  fontSize: "14.5px",
+                  fontWeight: 700,
+                }}
+              >
+                Оновити застосунок
+              </button>
+            ) : (
+              <Link
+                href="/driver/app"
+                style={{
+                  display: "block",
+                  marginTop: "12px",
+                  padding: "13px",
+                  borderRadius: "12px",
+                  background: "#FFD600",
+                  color: "#0A0A0A",
+                  fontSize: "14.5px",
+                  fontWeight: 700,
+                  textAlign: "center",
+                  textDecoration: "none",
+                }}
+              >
+                Доступна нова версія — як оновити
+              </Link>
+            )
+          ) : (
+            !isApp && (
+              <Link
+                href="/driver/app"
+                style={{
+                  display: "block",
+                  marginTop: "12px",
+                  padding: "13px",
+                  borderRadius: "12px",
+                  background: "#FFD600",
+                  color: "#0A0A0A",
+                  fontSize: "14.5px",
+                  fontWeight: 700,
+                  textAlign: "center",
+                  textDecoration: "none",
+                }}
+              >
+                Встановити застосунок
+              </Link>
+            )
+          )}
+        </section>
+
         <button
           type="button"
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => {
+            // У застосунку вихід робить натив: зупиняє трек і стирає токен
+            // пристрою. Через signOut пропала б лише кукі, а служба писала б
+            // маршрут далі — під чужим уже акаунтом.
+            if (isApp && window.BudvikApp) window.BudvikApp.logout();
+            else void signOut({ callbackUrl: "/login" });
+          }}
           className="w-full cursor-pointer rounded-2xl transition-colors duration-200"
           style={{
             minHeight: "48px",

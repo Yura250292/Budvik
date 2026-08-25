@@ -22,12 +22,16 @@ type DayItem = {
   plannedKm: number | null;
   fuelCost: number | null;
   sheet1CKm: number | null;
+  /** Скільки заявив як здане за цей день, ₴ */
+  handed: number;
+  /** Скільки з цього офіс уже прийняв, ₴ */
+  confirmed: number;
 };
 
 type Resp = {
   days: number;
   items: DayItem[];
-  totals: { trackKm: number; visits: number; collected: number; workDays: number };
+  totals: { trackKm: number; visits: number; collected: number; handed: number; workDays: number };
 };
 
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
@@ -146,9 +150,13 @@ export default function DriverHistoryPage() {
                 )}
               </div>
 
+              {/* Каса: жовтим — поки гроші в дорозі, зеленим — коли офіс
+                  підтвердив прийом. Мовчимо лише коли й збирати не було чого. */}
+              {(d.collected > 0 || d.handed > 0) && <CashLine day={d} />}
+
               {d.trackKm === 0 && d.visits > 0 && (
                 <p style={{ fontSize: "11.5px", color: "#D97706", marginTop: "6px" }}>
-                  Треку немає — того дня «Карта дня» не була відкрита
+                  Треку немає — того дня застосунок не писав маршрут
                 </p>
               )}
             </div>
@@ -157,6 +165,36 @@ export default function DriverHistoryPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * Один рядок про гроші за день.
+ *
+ * Три різні стани, які легко злити в один і збрехати: гроші ще на руках,
+ * здані й прийняті, здані й прийняті НЕ повністю. Останній випадок —
+ * саме той, про який водій має дізнатися з історії, а не з розмови.
+ */
+function CashLine({ day }: { day: DayItem }) {
+  const onHands = day.collected - day.handed;
+  const pendingConfirm = day.handed - day.confirmed;
+
+  const [text, color] =
+    onHands > 0
+      ? [`Не здано ${money.format(onHands)} ₴`, "#D97706"]
+      : day.handed === 0
+        ? ["", "#6B7280"]
+        : pendingConfirm > 0.5
+          ? day.confirmed > 0
+            ? [
+                `Здано ${money.format(day.handed)} ₴ · прийнято ${money.format(day.confirmed)} ₴`,
+                "#D97706",
+              ]
+            : [`Здано ${money.format(day.handed)} ₴ · чекає підтвердження`, "#D97706"]
+          : [`Здано ${money.format(day.handed)} ₴ ✓`, "#16A34A"];
+
+  if (!text) return null;
+
+  return <p style={{ fontSize: "12px", marginTop: "6px", fontWeight: 600, color }}>{text}</p>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

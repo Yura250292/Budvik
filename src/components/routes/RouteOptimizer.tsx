@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import DynamicDeliveryMap from "@/components/map/DynamicMap";
+import { googleMapsLinks } from "@/lib/maps/google-links";
 
 type VariantStop = {
   key: string;
@@ -50,37 +51,6 @@ type Plan = {
   /** [lng, lat] точки виїзду — для карти й посилання на Google Maps */
   start?: [number, number] | null;
 };
-
-/**
- * Посилання на Google Maps по затвердженому порядку.
- *
- * Google приймає щонайбільше ~10 точок на посилання (початок + 8 проміжних
- * + кінець), а в денному маршруті їх буває 25. Тому ділимо на частини:
- * кожна наступна стартує з останньої точки попередньої — водій доїхав до
- * кінця частини 1, відкрив частину 2 і поїхав далі без розриву.
- */
-function googleMapsLinks(points: Array<{ lat: number; lng: number }>): string[] {
-  const MAX_PER_LINK = 10;
-  const links: string[] = [];
-  let i = 0;
-  while (i < points.length - 1) {
-    const chunk = points.slice(i, i + MAX_PER_LINK);
-    const origin = chunk[0];
-    const dest = chunk[chunk.length - 1];
-    const waypoints = chunk
-      .slice(1, -1)
-      .map((p) => `${p.lat},${p.lng}`)
-      .join("|");
-    links.push(
-      `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}` +
-        `&destination=${dest.lat},${dest.lng}` +
-        (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
-        `&travelmode=driving`
-    );
-    i += MAX_PER_LINK - 1;
-  }
-  return links;
-}
 
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
@@ -243,7 +213,7 @@ export default function RouteOptimizer({
         ];
         setApplied({
           title: which === "cheapest" ? "Найдешевший" : "З пріоритетами",
-          links: coords.length >= 2 ? googleMapsLinks(coords) : [],
+          links: coords.length >= 2 ? googleMapsLinks(coords).map((l) => l.url) : [],
         });
         setCopied(false);
         setPlan(null);

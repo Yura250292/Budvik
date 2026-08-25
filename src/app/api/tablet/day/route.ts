@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
+import { handoversForDay } from "@/lib/drivers/cash";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
       ? session.user.id
       : url.searchParams.get("userId") || session.user.id;
 
-  const [route, visits, trackSession, points] = await Promise.all([
+  const [route, visits, trackSession, points, handovers] = await Promise.all([
     resolveDriverDay(userId, day),
     prisma.visit.findMany({
       where: { userId, day: dayStart },
@@ -69,12 +70,18 @@ export async function GET(req: NextRequest) {
       orderBy: { recordedAt: "asc" },
       select: { lat: true, lng: true, recordedAt: true, gapGeometry: true },
     }),
+    handoversForDay(userId, dayStart),
   ]);
 
   const stops = attachVisits(route.stops, visits);
 
   const done = stops.filter((s) => s.visit?.status === "DONE").length;
   const missed = stops.filter((s) => s.visit?.status === "MISSED").length;
+
+  // Каса рахується з тих самих відміток, що progress.collected, але
+  // мінус уже здане — водієві на екрані потрібне саме «скільки везти».
+  const collected = round(visits.reduce((sum, v) => sum + (v.collectedAmount ?? 0), 0));
+  const handed = round(handovers.reduce((sum, h) => sum + h.amount, 0));
 
   return NextResponse.json({
     day,
@@ -86,7 +93,7 @@ export async function GET(req: NextRequest) {
       missed,
       left: stops.length - done - missed,
       /** Скільки грошей уже зібрано за відмітками, ₴ */
-      collected: visits.reduce((sum, v) => sum + (v.collectedAmount ?? 0), 0),
+      collected,
       /** Скільки боргу планувалося забрати, ₴ */
       debtPlanned: stops.reduce((sum, s) => sum + s.debtAmount, 0),
     },
@@ -101,5 +108,11 @@ export async function GET(req: NextRequest) {
     extraVisits: visits.filter(
       (v) => !route.stops.some((s) => s.counterpartyId === v.counterpartyId)
     ),
+    /** Каса за день: скільки зібрав, скільки здав, скільки везе */
+    cash: { collected, handed, onHands: round(collected - handed), handovers },
   });
+}
+
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
 }

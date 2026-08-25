@@ -445,106 +445,138 @@ try {
         }
         Log ("rates: " + $rates.Count)
 
+        # Two price types. "retail" is what the site shows. "wholesale" is what
+        # the site falls back to (times a per-brand markup set in the admin)
+        # when a product has no retail row at all: TOTAL and POLAX are priced
+        # in 1C only as "4.OPT", so without this they sat on the site at 0.
+        #
+        # Each type is resolved by name OR code: the names mix Ukrainian and
+        # Russian glyphs that look identical, so the code is the safe key.
+        $priceTypes = @()
+        $priceTypes += @{ key = "retail"; name = [string]$config.priceTypes.retail; ref = $null }
+        if ($config.priceTypes.wholesale) {
+            $priceTypes += @{ key = "wholesale"; name = [string]$config.priceTypes.wholesale; ref = $null }
+        }
+
         # Inlined (not via RunQueryP) with a log per step: this exact spot
         # failed four times with a bare null error, and every value that
         # crosses into COM is cast to [string] -- JSON-sourced strings arrive
         # PSObject-wrapped and can marshal wrong through IDispatch.
-        Log "resolving price type..."
-        $q = $ib.NewObject("Query")
-        Log ("  query object: " + ($null -ne $q))
-        $q.Text = [string]$queries.priceTypeByName
-        Log "  text set"
-        $q.SetParameter([string]$queries.paramName, [string]$config.priceTypes.retail)
-        Log "  parameter set"
-        $rs = $q.Execute()
-        Log ("  executed: " + ($null -ne $rs))
-        if ($null -eq $rs) { throw "Execute() returned null on price type lookup" }
-        $sel = $rs.Choose()
-        Log ("  selection: " + ($null -ne $sel))
-        if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
-        if (-not $sel.Next()) {
-            # Naming in 1C mixes Ukrainian and Russian glyphs that look
-            # identical (Cyrillic I vs Ukrainian I), so an exact-match miss
-            # needs the real list
-            # printed rather than a bare "not found".
-            $names = New-Object Collections.Generic.List[string]
-            $list = RunQuery $queries.priceTypeList
-            while ($list.Next()) { $names.Add((Str $list.Get(0))) }
-            Log ("price types in base: " + ($names -join " | "))
-            throw ("price type not found: '" + $config.priceTypes.retail + "'")
+        foreach ($pt in $priceTypes) {
+            Log ("resolving price type '" + $pt.name + "'...")
+            $q = $ib.NewObject("Query")
+            Log ("  query object: " + ($null -ne $q))
+            $q.Text = [string]$queries.priceTypeByNameOrCode
+            Log "  text set"
+            $q.SetParameter([string]$queries.paramName, [string]$pt.name)
+            Log "  parameter set"
+            $rs = $q.Execute()
+            Log ("  executed: " + ($null -ne $rs))
+            if ($null -eq $rs) { throw "Execute() returned null on price type lookup" }
+            $sel = $rs.Choose()
+            Log ("  selection: " + ($null -ne $sel))
+            if ($null -eq $sel) { throw "Choose() returned null on price type lookup" }
+            if (-not $sel.Next()) {
+                # An exact-match miss needs the real list printed rather than
+                # a bare "not found" (see the glyph note above).
+                $names = New-Object Collections.Generic.List[string]
+                $list = RunQuery $queries.priceTypeList
+                while ($list.Next()) { $names.Add((Str $list.Get(0))) }
+                Log ("price types in base: " + ($names -join " | "))
+                throw ("price type not found: '" + $pt.name + "'")
+            }
+            $pt.ref = $sel.Get(0)
+            if ($null -eq $pt.ref) { throw ("price type ref is null: " + $pt.name) }
         }
-        $priceTypeRef = $sel.Get(0)
-        if ($null -eq $priceTypeRef) { throw "price type ref is null" }
 
-        # On an incremental run, find which products had a price written since
-        # the watermark. Everything else keeps the value the site already has.
+        # On an incremental run, find which products had ANY of the price
+        # types written since the watermark. A changed product is then sent
+        # with all its prices, not just the one that moved: the site derives
+        # retail from wholesale only when retail is absent, so a partial
+        # record would read as "no retail in 1C" and overwrite a real price.
         $changedProducts = $null
         if ($since) {
-            $q = $ib.NewObject("Query")
-            $q.Text = [string]$queries.pricesChangedSince
-            $q.SetParameter([string]$queries.paramFrom, $since)
-            $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
-            $rs = $q.Execute()
-            if ($null -eq $rs) { throw "Execute() returned null on changed-prices query" }
-            $r = $rs.Choose()
             $changedProducts = @{}
-            while ($r.Next()) {
-                $cid = RefId $ib $r.Get(0)
-                if ($cid) { $changedProducts[$cid] = $true }
+            foreach ($pt in $priceTypes) {
+                $q = $ib.NewObject("Query")
+                $q.Text = [string]$queries.pricesChangedSince
+                $q.SetParameter([string]$queries.paramFrom, $since)
+                $q.SetParameter([string]$queries.paramPriceType, $pt.ref)
+                $rs = $q.Execute()
+                if ($null -eq $rs) { throw "Execute() returned null on changed-prices query" }
+                $r = $rs.Choose()
+                while ($r.Next()) {
+                    $cid = RefId $ib $r.Get(0)
+                    if ($cid) { $changedProducts[$cid] = $true }
+                }
             }
             Log ("prices changed since {0:yyyy-MM-dd HH:mm}: {1}" -f $since, $changedProducts.Count)
         }
 
         Log "reading prices..."
 
-        $w = NewWriter (Join-Path $OutDir "price.ndjson")
-        $n = 0
+        $byProduct = @{}
+        $countByType = @{}
         $noRate = 0
         $skipUnchanged = 0
-        # Inline, not a helper: a parameterised query built inside a function
-        # comes back null on this build; the identical inline sequence works.
-        $q = $ib.NewObject("Query")
-        $q.Text = [string]$queries.pricesRetail
-        $q.SetParameter([string]$queries.paramPriceType, $priceTypeRef)
-        $rs = $q.Execute()
-        if ($null -eq $rs) { throw "Execute() returned null on prices query" }
-        $r = $rs.Choose()
-        if ($null -eq $r) { throw "Choose() returned null on prices query" }
-        while ($r.Next()) {
-            $id = RefId $ib $r.Get(0)
-            if (-not $id) { continue }
-            if ($null -ne $changedProducts -and -not $changedProducts.ContainsKey($id)) {
-                $skipUnchanged++
-                continue
-            }
-            $value = Num $r.Get(1)
-            if ($value -le 0) { continue }
+        foreach ($pt in $priceTypes) {
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.pricesRetail
+            $q.SetParameter([string]$queries.paramPriceType, $pt.ref)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw ("Execute() returned null on prices query: " + $pt.key) }
+            $r = $rs.Choose()
+            if ($null -eq $r) { throw ("Choose() returned null on prices query: " + $pt.key) }
+            $cnt = 0
+            while ($r.Next()) {
+                $id = RefId $ib $r.Get(0)
+                if (-not $id) { continue }
+                if ($null -ne $changedProducts -and -not $changedProducts.ContainsKey($id)) {
+                    $skipUnchanged++
+                    continue
+                }
+                $value = Num $r.Get(1)
+                if ($value -le 0) { continue }
 
-            # An unknown or EMPTY currency code means we cannot trust the
-            # figure: this base has 335 price rows in a currency whose code
-            # is blank (EUR entered without a code), and shipping those
-            # unconverted would put them on the site ~52x too cheap.
-            $code = Str $r.Get(2)
-            if ($code -eq [string]$config.baseCurrencyCode) {
-                $rate = 1
-            } elseif ($code -and $rates.ContainsKey($code)) {
-                $rate = $rates[$code]
-            } else {
-                $noRate++
-                continue
-            }
+                # An unknown or EMPTY currency code means we cannot trust the
+                # figure: this base has 335 price rows in a currency whose code
+                # is blank (EUR entered without a code), and shipping those
+                # unconverted would put them on the site ~52x too cheap.
+                $code = Str $r.Get(2)
+                if ($code -eq [string]$config.baseCurrencyCode) {
+                    $rate = 1
+                } elseif ($code -and $rates.ContainsKey($code)) {
+                    $rate = $rates[$code]
+                } else {
+                    $noRate++
+                    continue
+                }
 
-            WriteRecord $w ([ordered]@{
-                externalId = $id
-                retail     = [math]::Round($value * $rate, 2)
-            })
+                if (-not $byProduct.ContainsKey($id)) { $byProduct[$id] = @{} }
+                $byProduct[$id][$pt.key] = [math]::Round($value * $rate, 2)
+                $cnt++
+            }
+            $countByType[$pt.key] = $cnt
+            Log ("  " + $pt.key + ": " + $cnt)
+        }
+
+        $w = NewWriter (Join-Path $OutDir "price.ndjson")
+        $n = 0
+        foreach ($id in $byProduct.Keys) {
+            $prices = $byProduct[$id]
+            $rec = [ordered]@{ externalId = $id }
+            if ($prices.ContainsKey("retail")) { $rec.retail = $prices["retail"] }
+            if ($prices.ContainsKey("wholesale")) { $rec.wholesale = $prices["wholesale"] }
+            WriteRecord $w $rec
             $n++
         }
         $w.Close()
         $stats.prices = $n
+        $stats.pricesRetail = $countByType["retail"]
+        if ($countByType.ContainsKey("wholesale")) { $stats.pricesWholesale = $countByType["wholesale"] }
         if ($noRate -gt 0) { $stats.pricesSkippedNoRate = $noRate }
         if ($skipUnchanged -gt 0) { $stats.pricesUnchanged = $skipUnchanged }
-        Log ("prices: {0}  (unchanged {1}, no-rate {2})" -f $n, $skipUnchanged, $noRate)
+        Log ("prices: {0} products  (unchanged {1}, no-rate {2})" -f $n, $skipUnchanged, $noRate)
     }
 
     # --- warehouses ---

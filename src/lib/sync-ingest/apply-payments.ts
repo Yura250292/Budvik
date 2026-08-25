@@ -16,12 +16,26 @@
 import { prisma } from "@/lib/prisma";
 import type { PaymentRecord } from "./types";
 import type { ApplyContext } from "./context";
+import { rollbackPayment } from "./rollback-payment";
 
 /** Синтетичний контрагент-заглушка не створюється: без клієнта оплату не застосовуємо. */
 export async function applyPayments(
   records: PaymentRecord[],
   ctx: ApplyContext
 ): Promise<void> {
+  // «Оплату підтвердило вивантаження 1С» — до обробки й одним запитом.
+  // На цій мітці тримається звірка розпроведених (reconcile-payments.ts):
+  // запит ПКО бере лише проведені документи, тож розпроведений ордер просто
+  // зникає з вікна, і без мітки його не відрізнити від оплати, яка за це
+  // вікно вийшла. Час — годинником бази, як і всюди в обміні.
+  const externalIds = records.map((r) => r.externalId).filter(Boolean);
+  if (!ctx.isPreview && externalIds.length > 0) {
+    await prisma.$executeRaw`
+      UPDATE "Payment" SET "syncedAt" = now()
+      WHERE "externalId" = ANY(${externalIds}::text[])
+    `;
+  }
+
   for (const rec of records) {
     try {
       await applyOne(rec, ctx);
@@ -37,14 +51,37 @@ async function applyOne(rec: PaymentRecord, ctx: ApplyContext): Promise<void> {
     return;
   }
 
-  // Ідемпотентність: та сама оплата з 1С не має подвоїти нарахування
+  // Ідемпотентність: та сама оплата з 1С не має подвоїти нарахування.
   const existing = await prisma.payment.findUnique({
     where: { externalId: rec.externalId },
-    select: { id: true },
+    select: { id: true, amount: true },
   });
+
   if (existing) {
-    ctx.skipped++;
-    return;
+    // Суму в ордері виправили в 1С. Раніше такий запис мовчки лишався зі
+    // старим числом: у рахунку стояла одна сума, у мотивації торгового —
+    // інша, і жодного сліду про розбіжність. Відкочуємо старий запис і
+    // створюємо наново — так само, як робить 1С, переписуючи документ.
+    if (Math.abs(existing.amount - rec.amount) < 0.01) {
+      ctx.skipped++;
+      return;
+    }
+
+    ctx.discrepancy({
+      entityType: "payment",
+      entityRef: rec.externalId,
+      entityName: `Оплата ${rec.number || rec.externalId}`,
+      field: "amount",
+      value1C: rec.amount.toFixed(2),
+      valueBudvik: existing.amount.toFixed(2),
+    });
+
+    if (ctx.isPreview) {
+      ctx.updated++;
+      return;
+    }
+
+    await rollbackPayment(existing.id);
   }
 
   const counterparty = await prisma.counterparty.findUnique({

@@ -23,6 +23,7 @@ import {
 import { dispatchBatch, detectMissing } from "./dispatch";
 import { reconcileDebts } from "./reconcile-debts";
 import { reconcilePrices } from "./reconcile-prices";
+import { reconcilePayments } from "./reconcile-payments";
 import {
   alertMassPriceChange,
   alertMissingEntities,
@@ -307,7 +308,10 @@ export async function handleCompleteRun(
     try {
       const kind: SyncRunKind = job.type.replace("agent-", "") as SyncRunKind;
       const ctx = new ApplyContext(job.id, runId, kind);
-      const zeroed = (await reconcileDebts(ctx)) + (await reconcilePrices(ctx));
+      const zeroed =
+        (await reconcileDebts(ctx)) +
+        (await reconcilePrices(ctx)) +
+        (await reconcilePayments(ctx));
       if (zeroed > 0) {
         reconcileDiscrepancies = await flushDiscrepancies(ctx);
         await accumulateJobCounters(job.id, ctx, 0);

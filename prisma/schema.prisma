@@ -869,10 +869,19 @@ model Payment {
   /// "1C" | "MANUAL" — звідки запис
   source     String  @default("MANUAL")
 
+  /// Коли оплату востаннє підтвердило вивантаження 1С.
+  ///
+  /// Запит ПКО бере лише проведені документи, тож розпроведений у 1С ордер
+  /// просто зникає з вікна — нулем чи ознакою скасування він не приходить.
+  /// Без цієї мітки відрізнити його від оплати, що просто вийшла за межі
+  /// вікна читання, неможливо. Див. reconcile-payments.ts.
+  syncedAt DateTime?
+
   invoice     Invoice             @relation(fields: [invoiceId], references: [id])
   allocations PaymentAllocation[]
 
   @@index([paidAt])
+  @@index([source, syncedAt])
 }
 
 model CommissionRate {

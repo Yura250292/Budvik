@@ -95,6 +95,26 @@ export async function alertDebtReconcileSkipped(
   );
 }
 
+/**
+ * Звірка оплат відмовилась прибирати: непідтверджених підозріло багато.
+ *
+ * Розпроведення ордера — подія поштучна. Десятки одразу означають радше
+ * обірване вивантаження, і видалення в такому разі стерло б живі гроші.
+ */
+export async function alertPaymentsReconcileSkipped(
+  runId: string,
+  stale: number,
+  confirmed: number
+): Promise<void> {
+  await alert(
+    `⚠️ <b>Звірку оплат пропущено</b>\n` +
+      `Прогін: <code>${runId}</code>\n` +
+      `Без підтвердження: ${stale}, підтверджено: ${confirmed}\n\n` +
+      `Схоже на обірване вивантаження ПКО, тому оплати НЕ прибирались. ` +
+      `Якщо повториться — перевірте запит оплат в агента.`
+  );
+}
+
 export async function alertAgentSilent(lastSeen: Date, hours: number): Promise<void> {
   await alert(
     `🔕 <b>Агент 1С мовчить</b>\n` +

@@ -3,6 +3,7 @@
 import { SessionProvider } from "next-auth/react";
 import { useEffect } from "react";
 import WebstatsTracker from "@/components/webstats/WebstatsTracker";
+import DeploymentWatcher from "@/components/DeploymentWatcher";
 
 function EnableActiveStates() {
   useEffect(() => {
@@ -18,6 +19,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <EnableActiveStates />
       <WebstatsTracker />
+      {/* Нічого не рендерить: стежить, щоб застосунок-PWA не жив на старій
+          збірці, поки його не вимкнуть і не ввімкнуть руками. */}
+      <DeploymentWatcher />
       {children}
     </SessionProvider>
   );

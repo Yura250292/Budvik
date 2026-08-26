@@ -381,21 +381,66 @@ export default function SalesMapPage() {
    * Інакше в режимі «Мої» бейдж каже «Активні 210», а на карті їх 40.
    */
   /**
-   * Кого можна поставити на карту: свої вгорі, далі решта за абеткою.
-   * Ріжемо до 60 — далі гортання втрачає сенс, для цього є пошук.
+   * Кому ставимо точку — по ВСІЙ базі, а не лише серед тих, кого на карті
+   * немає.
+   *
+   * Спершу тут був список самих «без точки», і це відповідало не на те
+   * питання. Торговий сідає ввечері й розставляє точки по пам'яті — а
+   * найчастіше не ставить нову, а виправляє приблизну: таких 3 015 із
+   * 3 042, бо геокодер знає лише місто. Шукаючи «Струк Ольга», він її не
+   * знаходив саме тому, що вона на карті вже є, — і робив висновок, що в
+   * цьому списку взагалі інші клієнти.
+   *
+   * Порядок відповідає роботі: спершу ті, кого на карті немає, далі
+   * приблизні, наприкінці вже уточнені. Всередині кожної групи свої вгорі.
+   *
+   * `canPin` повторює правило сервера (PATCH /api/admin/client-map/[id]):
+   * чужому клієнту точку можна ПОСТАВИТИ, поки вона здогад геокодера, і не
+   * можна ПЕРЕСУНУТИ ту, яку вже уточнила людина. Рядок, який гарантовано
+   * поверне 403, показуємо, але не даємо тапнути — інакше єдиною відповіддю
+   * була б помилка вже після вибору.
    */
-  const toPlace = (data?.unmapped ?? [])
-    .filter((u) => {
-      const q = addQuery.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        u.name.toLowerCase().includes(q) || (u.address ?? "").toLowerCase().includes(q)
-      );
-    })
+  const placeable: Array<{
+    id: string;
+    name: string;
+    address: string | null;
+    mine: boolean;
+    /** 0 — немає точки, 1 — приблизна, 2 — уточнена людиною. */
+    rank: 0 | 1 | 2;
+    canPin: boolean;
+  }> = [
+    ...(data?.unmapped ?? []).map((u) => ({
+      id: u.id,
+      name: u.name,
+      address: u.address,
+      mine: u.mine !== false,
+      rank: 0 as const,
+      // Піна немає взагалі — поставити може будь-хто зі своїх ролей.
+      canPin: true,
+    })),
+    ...(data?.clients ?? []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      address: c.address,
+      mine: c.mine !== false,
+      rank: (c.approximate ? 1 : 2) as 1 | 2,
+      canPin: c.mine !== false || c.approximate,
+    })),
+  ];
+
+  const addQ = addQuery.trim().toLowerCase();
+  const toPlace = placeable
+    .filter(
+      (p) =>
+        !addQ || p.name.toLowerCase().includes(addQ) || (p.address ?? "").toLowerCase().includes(addQ)
+    )
     .sort(
       (a, b) =>
-        Number(b.mine !== false) - Number(a.mine !== false) || a.name.localeCompare(b.name, "uk")
+        a.rank - b.rank ||
+        Number(b.mine) - Number(a.mine) ||
+        a.name.localeCompare(b.name, "uk")
     )
+    // Ріжемо до 60 — далі гортання втрачає сенс, для цього є пошук.
     .slice(0, 60);
 
   const counts = inScope.reduce<Record<string, number>>((acc, c) => {
@@ -711,45 +756,69 @@ export default function SalesMapPage() {
           частіше згадує «когось із цих ще не позначив», ніж прізвище. Свої
           вгорі — з них і починають. */}
       {addOpen && (
-        <div
-          className="absolute inset-x-3 z-[650] flex flex-col rounded-2xl"
-          style={{
-            top: "110px",
-            maxHeight: "62vh",
-            background: "#fff",
-            boxShadow: "0 8px 26px rgba(0,0,0,0.22)",
-            overflow: "hidden",
-          }}
-        >
+        <>
+          {/*
+            Підкладка на весь екран: тап повз панель закриває її.
+            Без неї єдиним виходом лишалася сіра напис-кнопка «Закрити»
+            поруч із полем, і з відкритою клавіатурою на планшеті людина її
+            просто не знаходила — панель ставала пасткою, з якої виходили
+            через нижнє меню.
+          */}
+          <div
+            className="absolute inset-0 z-[640]"
+            onClick={() => setAddOpen(false)}
+            aria-hidden
+          />
+          <div
+            className="absolute inset-x-3 z-[650] flex flex-col rounded-2xl"
+            style={{
+              top: "110px",
+              maxHeight: "62vh",
+              background: "#fff",
+              boxShadow: "0 8px 26px rgba(0,0,0,0.22)",
+              overflow: "hidden",
+            }}
+          >
           <div className="flex items-center gap-2 px-3 pt-3">
             <input
               value={addQuery}
               onChange={(e) => setAddQuery(e.target.value)}
               placeholder="Кому ставимо точку?"
-              aria-label="Пошук клієнта без точки"
+              aria-label="Пошук клієнта"
               autoFocus
               className="min-w-0 flex-1 rounded-full px-3.5 py-2"
               style={{
                 background: "#F3F4F6",
                 border: "none",
-                fontSize: "14px",
+                fontSize: "16px", // нижче 16px iOS зумить сторінку при фокусі
                 color: "#0A0A0A",
                 outline: "none",
               }}
             />
+            {/* Хрестик, а не напис: 44 px цілі дотику й упізнаваний знак —
+                його шукають очима першим, коли треба вийти. */}
             <button
               type="button"
               onClick={() => setAddOpen(false)}
-              className="shrink-0 rounded-full px-3 py-2"
-              style={{ background: "none", border: "none", color: "#6B7280", fontSize: "13px" }}
+              aria-label="Закрити пошук"
+              className="flex shrink-0 items-center justify-center rounded-full"
+              style={{
+                width: "44px",
+                height: "44px",
+                background: "#F3F4F6",
+                border: "none",
+                color: "#0A0A0A",
+                fontSize: "18px",
+                lineHeight: 1,
+              }}
             >
-              Закрити
+              ✕
             </button>
           </div>
 
           <p style={{ fontSize: "11px", color: "#9CA3AF", margin: "6px 12px 4px", lineHeight: 1.4 }}>
-            Оберіть клієнта — далі станьте біля входу й натисніть «Я зараз тут» або тапніть
-            місце на карті.
+            Будь-який клієнт бази, не лише ті, кого немає на карті. Оберіть — далі тапніть
+            місце на карті або натисніть «Я зараз тут», якщо ви вже на місці.
           </p>
 
           <ul
@@ -758,50 +827,65 @@ export default function SalesMapPage() {
           >
             {toPlace.length === 0 ? (
               <li style={{ padding: "10px 12px", fontSize: "13px", color: "#9CA3AF" }}>
-                {addQuery.trim()
-                  ? "Нікого не знайдено серед клієнтів без точки."
-                  : "Усі клієнти вже на карті."}
+                {addQuery.trim() ? "Нікого не знайдено в базі." : "База порожня."}
               </li>
             ) : (
-              toPlace.map((u) => (
-                <li key={u.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddOpen(false);
-                      setPinError(null);
-                      setPinFor({ id: u.id, name: u.name });
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
-                    style={{ background: "none", border: "none" }}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className="block truncate"
-                        style={{ fontSize: "14px", color: "#0A0A0A" }}
-                      >
-                        {u.name}
-                      </span>
-                      {u.address && (
+              toPlace.map((u) => {
+                // Що зараз із точкою — видно ще до вибору, інакше незрозуміло,
+                // ставимо ми нову чи пересуваємо чиюсь.
+                const mark =
+                  u.rank === 0
+                    ? { text: "немає на карті", color: "#D97706" }
+                    : u.rank === 1
+                      ? { text: "точка приблизна", color: "#D97706" }
+                      : u.canPin
+                        ? { text: "точка уточнена", color: "#059669" }
+                        : { text: "уточнив інший", color: "#9CA3AF" };
+                return (
+                  <li key={u.id}>
+                    <button
+                      type="button"
+                      disabled={!u.canPin}
+                      onClick={() => {
+                        setAddOpen(false);
+                        setPinError(null);
+                        setPinFor({ id: u.id, name: u.name });
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        opacity: u.canPin ? 1 : 0.5,
+                      }}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className="block truncate"
+                          style={{ fontSize: "14px", color: "#0A0A0A" }}
+                        >
+                          {u.name}
+                        </span>
                         <span
                           className="block truncate"
                           style={{ fontSize: "11px", color: "#9CA3AF" }}
                         >
-                          {u.address}
+                          <span style={{ color: mark.color }}>{mark.text}</span>
+                          {u.address ? ` · ${u.address}` : ""}
+                        </span>
+                      </span>
+                      {u.mine && (
+                        <span className="shrink-0" style={{ fontSize: "11px", color: "#2563EB" }}>
+                          ваш
                         </span>
                       )}
-                    </span>
-                    {u.mine !== false && (
-                      <span className="shrink-0" style={{ fontSize: "11px", color: "#2563EB" }}>
-                        ваш
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))
+                    </button>
+                  </li>
+                );
+              })
             )}
           </ul>
-        </div>
+          </div>
+        </>
       )}
 
       {/* Постановка піна: панель угорі, щоб не закривати карту знизу, де
@@ -913,6 +997,37 @@ export default function SalesMapPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
               </svg>
             </button>
+
+            {/*
+              «Нові» показані — прибрати в один тап, не відкриваючи легенду.
+              З'являється тільки коли вони справді на екрані. Легенда лежить
+              усередині згорнутої панелі, і поки до неї дійдеш, стіна синього
+              вже заважає — а це саме те, на що скаржаться найгучніше.
+            */}
+            {!hidden.has("NEW") && (counts.NEW ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => toggle("NEW")}
+                className="flex w-full items-center gap-2 px-4 py-2.5"
+                style={{ background: "none", border: "none", borderTop: "1px solid #F0F0F0" }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: "9px",
+                    height: "9px",
+                    borderRadius: "50%",
+                    background: CLIENT_STATE.NEW.color,
+                  }}
+                />
+                <span style={{ fontSize: "13px", color: "#0A0A0A" }}>
+                  Сховати «Нових» ({counts.NEW})
+                </span>
+                <span style={{ marginLeft: "auto", fontSize: "11px", color: "#9CA3AF" }}>
+                  перекривають решту
+                </span>
+              </button>
+            )}
 
             {sheetOpen && (
               <div className="px-3 pb-3">

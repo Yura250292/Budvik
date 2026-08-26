@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
+import useSWR from "swr";
 import { formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
@@ -65,11 +66,46 @@ function ClientsSkeleton() {
   );
 }
 
+const isCustomer = (c: Client) => {
+  const type = (c as unknown as { type?: string }).type;
+  return type === "CUSTOMER" || type === "BOTH";
+};
+
+const ask = (extra: Record<string, string>, query: string) => {
+  const params = new URLSearchParams(extra);
+  if (query) params.set("search", query);
+  return fetch(`/api/erp/counterparties?${params}`)
+    .then((r) => r.json())
+    .then((d): Client[] => (Array.isArray(d) ? d.filter(isCustomer) : []));
+};
+
+/**
+ * У режимі «Всі» тягнемо дві вибірки й зшиваємо: спершу свої, потім
+ * решта бази за абеткою.
+ *
+ * Одним запитом так не вийде: сортувати «спершу мої» довелося б у SQL
+ * спільного роуту, яким користується ще десяток екранів. А без цього
+ * порядку торговий, відкривши «Клієнтів», бачив би дві сотні чужих
+ * прізвищ на «А» замість власного списку — формально всіх, практично
+ * гірше, ніж було.
+ */
+async function loadClients([, scope, query]: [string, Scope, string]): Promise<Client[]> {
+  if (scope === "mine") return ask({ mine: "1" }, query);
+
+  const [mine, all] = await Promise.all([
+    ask({ mine: "1" }, query),
+    ask({ limit: String(ALL_LIMIT) }, query),
+  ]);
+  const mineIds = new Set(mine.map((c) => c.id));
+  return [
+    ...mine.map((c) => ({ ...c, mine: true })),
+    ...all.filter((c) => !mineIds.has(c.id)).map((c) => ({ ...c, mine: false })),
+  ];
+}
+
 export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
   const [scope, setScope] = useState<Scope>("all");
 
   // Debounce: раніше запит летів на кожну натиснуту літеру, і при
@@ -80,60 +116,24 @@ export default function ClientsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-
-    const isCustomer = (c: Client) => {
-      const type = (c as unknown as { type?: string }).type;
-      return type === "CUSTOMER" || type === "BOTH";
-    };
-
-    const ask = (extra: Record<string, string>) => {
-      const params = new URLSearchParams(extra);
-      if (query) params.set("search", query);
-      return fetch(`/api/erp/counterparties?${params}`)
-        .then((r) => r.json())
-        .then((d): Client[] => (Array.isArray(d) ? d.filter(isCustomer) : []));
-    };
-
-    /**
-     * У режимі «Всі» тягнемо дві вибірки й зшиваємо: спершу свої, потім
-     * решта бази за абеткою.
-     *
-     * Одним запитом так не вийде: сортувати «спершу мої» довелося б у SQL
-     * спільного роуту, яким користується ще десяток екранів. А без цього
-     * порядку торговий, відкривши «Клієнтів», бачив би дві сотні чужих
-     * прізвищ на «А» замість власного списку — формально всіх, практично
-     * гірше, ніж було.
-     */
-    const load =
-      scope === "mine"
-        ? ask({ mine: "1" })
-        : Promise.all([ask({ mine: "1" }), ask({ limit: String(ALL_LIMIT) })]).then(
-            ([mine, all]) => {
-              const mineIds = new Set(mine.map((c) => c.id));
-              return [
-                ...mine.map((c) => ({ ...c, mine: true })),
-                ...all.filter((c) => !mineIds.has(c.id)).map((c) => ({ ...c, mine: false })),
-              ];
-            }
-          );
-
-    load
-      .then((list) => {
-        if (cancelled) return;
-        setClients(list);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [query, scope]);
+  /**
+   * Список живе в кеші SWR, а не в стані сторінки.
+   *
+   * З fetch у useEffect кожен захід на вкладку починався з порожнього
+   * екрана й двох запитів по ~0,5 с — навіть якщо торговий був тут
+   * хвилину тому й нічого не змінилося. Ключ масивом: у ньому і зріз, і
+   * пошуковий запит, тож повернення до вже баченого списку миттєве, а
+   * нова літера в пошуку — це новий ключ і новий запит, як і було.
+   */
+  const { data, isLoading } = useSWR(["sales-clients", scope, query] as const, loadClients, {
+    dedupingInterval: 60_000,
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  });
+  const clients = data ?? [];
+  // keepPreviousData лишає на екрані попередній список, поки їде новий —
+  // заглушку показуємо лише коли показувати справді нічого.
+  const loading = isLoading && !data;
 
   const getColor = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 

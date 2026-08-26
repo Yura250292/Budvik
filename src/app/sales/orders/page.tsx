@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import useSWR from "swr";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
@@ -68,6 +69,9 @@ type Order = {
   _count?: { items?: number };
 };
 
+/** Стала порожня вибірка: `?? []` давав би новий масив на кожен рендер. */
+const NO_ORDERS: Order[] = [];
+
 function OrdersSkeleton() {
   return (
     <div className="space-y-2">
@@ -96,8 +100,29 @@ function Orders() {
   const period = (params.get("period") as PeriodKey) || "today";
   const status = params.get("status") || "";
 
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  /**
+   * Список у кеші SWR: повернення з картки документа або з сусідньої
+   * вкладки більше не починається з порожнього екрана й нового запиту.
+   * Ключ — уже зібрана адреса, тож кожен фільтр кешується окремо.
+   */
+  const listQuery = new URLSearchParams();
+  if (status) listQuery.set("status", status);
+  const range = periodRange(period);
+  if (range) {
+    listQuery.set("from", range.from);
+    listQuery.set("to", range.to);
+  }
+
+  const { data, isLoading } = useSWR<Order[]>(
+    `/api/erp/sales?${listQuery}`,
+    (url: string) =>
+      fetch(url)
+        .then((r) => r.json())
+        .then((d) => (Array.isArray(d) ? d : [])),
+    { dedupingInterval: 60_000, revalidateOnFocus: false, keepPreviousData: true }
+  );
+  const orders = data ?? NO_ORDERS;
+  const loading = isLoading && !data;
 
   const setFilter = (next: { period?: PeriodKey; status?: string }) => {
     const p = new URLSearchParams(params.toString());
@@ -113,34 +138,6 @@ function Orders() {
     const qs = p.toString();
     router.replace(qs ? `?${qs}` : "/sales/orders", { scroll: false });
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-
-    const qs = new URLSearchParams();
-    if (status) qs.set("status", status);
-    const range = periodRange(period);
-    if (range) {
-      qs.set("from", range.from);
-      qs.set("to", range.to);
-    }
-
-    fetch(`/api/erp/sales?${qs}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        setOrders(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [period, status]);
 
   // Підсумок рахуємо з уже завантаженого списку — другий запит заради
   // двох чисел не потрібен. Скасовані у суму не йдуть: це не продаж.

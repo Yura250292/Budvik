@@ -810,6 +810,16 @@ model SalesDocument {
 
   @@unique([number, docType])
   @@index([docType, status, createdAt]) // під фільтр аналітики торгових
+  // Пошук документів ОДНОГО клієнта. Без цього індексу кожен такий пошук
+  // ішов Seq Scan-ом по всій таблиці, а запити, які питають про клієнта в
+  // циклі, множили це на 3.7 тис. контрагентів: у debtDeltaByRep вийшло
+  // 41 млн переглянутих рядків і 4 с на кожне відкриття головної кабінету
+  // торгового. Частковий індекс нижче тут не рятує — його умова
+  // (externalId + CONFIRMED) вужча за ці вибірки.
+  //
+  // docType у ключі: усі три місця, які цим ходять (debtDeltaByRep,
+  // my-map, counterparties?mine=1), одразу відсівають повернення.
+  @@index([counterpartyId, docType, createdAt(sort: Desc)])
   // Є ще частковий індекс "SalesDocument_client_recent_idx"
   // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
   // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
@@ -1031,6 +1041,10 @@ model SalesRepClient {
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
 
   @@unique([salesRepId, counterpartyId])
+  // Питання «чий цей клієнт» ставиться частіше за «які клієнти в цього
+  // торгового», а @@unique вище відповідає лише на друге: за порядком
+  // колонок пошук за counterpartyId ним не скористається й іде Seq Scan-ом.
+  @@index([counterpartyId])
 }
 
 model SalesRepCategoryAccess {

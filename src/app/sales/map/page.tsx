@@ -12,9 +12,10 @@
  * рамки — це мінус видима територія.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import useSWR from "swr";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
@@ -66,8 +67,6 @@ type Suggestion = {
 const LEGEND: ClientStateKey[] = ["ACTIVE", "NEW", "SLIPPING", "DORMANT", "LOST"];
 
 export default function SalesMapPage() {
-  const [data, setData] = useState<Resp | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [scope, setScope] = useState<Scope>("all");
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
@@ -109,27 +108,40 @@ export default function SalesMapPage() {
   const track = useTrackRecorder({ enabled: tracking });
 
   /**
-   * Перечитати карту. Окремою функцією, бо після нотатки з фото точка мусить
-   * одразу показати знімок — а перезавантажувати сторінку в машині не варіант.
+   * Карта живе в кеші SWR, а не в стані сторінки.
+   *
+   * Раніше тут був fetch у useEffect, тобто відповідь помирала разом із
+   * розмонтуванням: торговий тапав «Клієнти» й назад — і карта качала ті
+   * самі 3.6 тис. точок наново, показуючи порожній екран, поки вони їдуть.
+   * Саме це читалося як «не перемикається». Кеш SWR живе поза деревом
+   * React, тож повернення на вкладку малює точки миттєво.
+   *
+   * dedupingInterval 5 хв: стани клієнтів і маршрут дня за цей час не
+   * змінюються, а от перемикають вкладки в полі щохвилини.
    */
-  const load = useCallback(async () => {
+  const {
+    data,
+    error: loadError,
+    mutate,
+  } = useSWR<Resp>(
     // Тягнемо одразу всю базу, а перемикач «Мої/Всі» працює вже в пам'яті:
     // повторний запит по мобільному в полі коштує дорожче за зайві рядки.
-    const r = await fetch("/api/sales/my-map?scope=all");
-    const j = await r.json().catch(() => null);
-    if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
-    return j as Resp;
-  }, []);
+    "/api/sales/my-map?scope=all",
+    async (url: string) => {
+      const r = await fetch(url);
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
+      return j as Resp;
+    },
+    { dedupingInterval: 5 * 60_000, revalidateOnFocus: false, keepPreviousData: true }
+  );
 
-  useEffect(() => {
-    let alive = true;
-    load()
-      .then((j) => alive && setData(j))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "Не вдалося завантажити"));
-    return () => {
-      alive = false;
-    };
-  }, [load]);
+  const error =
+    loadError instanceof Error
+      ? loadError.message
+      : loadError
+        ? "Не вдалося завантажити"
+        : null;
 
   const locate = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -250,25 +262,29 @@ export default function SalesMapPage() {
 
         // Переносимо клієнта з «без піна» на карту тут же: перезапит забрав
         // би секунди й скинув би вигляд карти, а нових даних, крім координат,
-        // у відповіді немає.
-        setData((prev) => {
-          if (!prev) return prev;
-          const moved = prev.unmapped.find((u) => u.id === pinFor.id);
-          const counts = { ...prev.counts };
-          if (moved) counts[moved.state] = (counts[moved.state] ?? 0) + 1;
-          return {
-            ...prev,
-            unmapped: prev.unmapped.filter((u) => u.id !== pinFor.id),
-            clients: moved
-              ? [...prev.clients, { ...moved, lat, lng, geoSource: "MANUAL", approximate: false }]
-              : prev.clients.map((c) =>
-                  c.id === pinFor.id
-                    ? { ...c, lat, lng, geoSource: "MANUAL", approximate: false }
-                    : c
-                ),
-            counts,
-          };
-        });
+        // у відповіді немає. revalidate:false саме тому — інакше mutate
+        // сходив би на сервер і звів би нанівець усю економію.
+        await mutate(
+          (prev) => {
+            if (!prev) return prev;
+            const moved = prev.unmapped.find((u) => u.id === pinFor.id);
+            const counts = { ...prev.counts };
+            if (moved) counts[moved.state] = (counts[moved.state] ?? 0) + 1;
+            return {
+              ...prev,
+              unmapped: prev.unmapped.filter((u) => u.id !== pinFor.id),
+              clients: moved
+                ? [...prev.clients, { ...moved, lat, lng, geoSource: "MANUAL", approximate: false }]
+                : prev.clients.map((c) =>
+                    c.id === pinFor.id
+                      ? { ...c, lat, lng, geoSource: "MANUAL", approximate: false }
+                      : c
+                  ),
+              counts,
+            };
+          },
+          { revalidate: false }
+        );
         setPinFor(null);
         setFocus({ lat, lng, id: pinFor.id, nonce: Date.now() });
       } catch (e) {
@@ -277,7 +293,7 @@ export default function SalesMapPage() {
         setPinBusy(false);
       }
     },
-    [pinFor]
+    [pinFor, mutate]
   );
 
   /** «Я зараз тут» — пін по власному GPS. */
@@ -911,9 +927,9 @@ export default function SalesMapPage() {
           client={notesFor}
           onClose={() => setNotesFor(null)}
           onSaved={() => {
-            load()
-              .then(setData)
-              .catch(() => {});
+            // Тут перезапит потрібен: у відповіді нема ні щойно знятого
+            // фото, ні нового лічильника нотаток — їх знає лише сервер.
+            void mutate();
           }}
         />
       )}

@@ -100,7 +100,80 @@ export function ClientCommentsModal({
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  /** Вибір готового файлу — галерея. */
   const fileRef = useRef<HTMLInputElement>(null);
+  /**
+   * Запасний шлях до камери — системний вибір із наміром «зняти».
+   *
+   * Окремим input-ом, а не атрибутом на першому: `capture` не можна
+   * приставити на мить кліку, а два приховані поля нічого не коштують.
+   */
+  const captureRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Камера прямо в сторінці.
+   *
+   * `<input capture="environment">` — лише прохання, і контейнер має право
+   * його не почути: у WebView вибір файлу цілком віддано нативному коду, і
+   * той відкриває документи, а не камеру. Саме тому «зняти фото» на планшеті
+   * перетворювалось на «вибрати з галереї».
+   *
+   * getUserMedia від контейнера не залежить: кадр беремо самі з потоку. Якщо
+   * дозволу немає або камери немає взагалі — тихо відкочуємось на системний
+   * вибір, бо краще галерея, ніж кнопка, яка не робить нічого.
+   */
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+    setCameraReady(false);
+  };
+
+  const openCamera = async () => {
+    setActionError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      captureRef.current?.click();
+      return;
+    }
+    try {
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        // Тилова камера: знімають ворота, а не себе. `ideal`, а не `exact` —
+        // на планшеті без тилової камери exact просто впав би.
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      setCameraOn(true);
+    } catch {
+      captureRef.current?.click();
+    }
+  };
+
+  /** Потік чіпляємо після того, як <video> опинився в дереві. */
+  useEffect(() => {
+    if (!cameraOn) return;
+    const v = videoRef.current;
+    if (!v || !streamRef.current) return;
+    v.srcObject = streamRef.current;
+    v.play().catch(() => {});
+  }, [cameraOn]);
+
+  /**
+   * Камеру гасимо й на розмонтуванні. Без цього вона лишається зайнятою
+   * після закриття модалки — на планшеті це видно по індикатору, і людина
+   * справедливо вирішує, що застосунок за нею підглядає.
+   */
+  useEffect(
+    () => () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    },
+    []
+  );
 
   const pickPhoto = async (file: File | null) => {
     if (!file) return;
@@ -124,7 +197,42 @@ export function ClientCommentsModal({
       if (old) URL.revokeObjectURL(old);
       return null;
     });
+    // Обидва поля: інакше повторний вибір ТОГО САМОГО файлу не дасть
+    // події change, і кнопка виглядатиме зламаною.
     if (fileRef.current) fileRef.current.value = "";
+    if (captureRef.current) captureRef.current.value = "";
+  };
+
+  /** Знімок із живого потоку — кадр як він є на екрані. */
+  const shoot = async () => {
+    const v = videoRef.current;
+    if (!v?.videoWidth) return;
+    setPreparing(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.92)
+      );
+      if (!blob) return;
+      // Гасимо камеру одразу після кадру: далі вона не потрібна, а тримати
+      // її ввімкненою поки людина пише коментар — це і батарея, і індикатор.
+      stopCamera();
+      // Той самий шлях стиснення, що й для файлу з галереї: 1600 px по
+      // довшій стороні, інакше кадр планшета їде в село кілька хвилин.
+      const small = await compress(new File([blob], "location.jpg", { type: "image/jpeg" }));
+      setPhoto(small);
+      setPreview((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return URL.createObjectURL(small);
+      });
+    } finally {
+      setPreparing(false);
+    }
   };
 
   /**
@@ -222,6 +330,7 @@ export function ClientCommentsModal({
   const comments = data?.comments ?? [];
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
@@ -271,20 +380,39 @@ export function ClientCommentsModal({
                 ref={fileRef}
                 type="file"
                 accept="image/*"
-                // capture просить телефон відкрити камеру, а не галерею:
-                // знімок робиться на місці, стоячи біля цих самих воріт.
+                onChange={(e) => pickPhoto(e.target.files?.[0] ?? null)}
+                className="hidden"
+                aria-label="Фото з галереї"
+              />
+              {/* Запасний шлях: системний вибір із наміром «зняти». Сюди
+                  потрапляємо, лише коли getUserMedia недоступний. */}
+              <input
+                ref={captureRef}
+                type="file"
+                accept="image/*"
                 capture="environment"
                 onChange={(e) => pickPhoto(e.target.files?.[0] ?? null)}
                 className="hidden"
-                aria-label="Фото локації"
+                aria-label="Зняти фото"
               />
+              {/* Зйомка — головна дія: торговий стоїть біля цих самих воріт.
+                  Галерея поруч і дрібніша: нею користуються, коли зняли
+                  раніше або телефон не дав камеру. */}
+              <button
+                type="button"
+                onClick={openCamera}
+                disabled={busy || preparing}
+                className="rounded-[var(--radius-btn)] bg-bk px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {preparing ? "Готую знімок…" : photo ? "📷 Перезняти" : "📷 Зняти фото"}
+              </button>
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={busy || preparing}
                 className="rounded-[var(--radius-btn)] border border-line px-3 py-1.5 text-sm text-bk disabled:opacity-50"
               >
-                {preparing ? "Готую знімок…" : photo ? "Інше фото" : "📷 Фото локації"}
+                Галерея
               </button>
 
               {preview && (
@@ -404,5 +532,58 @@ export function ClientCommentsModal({
         </div>
       </div>
     </div>
+
+    {/*
+      Видошукач на весь екран, поверх модалки.
+      Сусідом до неї, а не всередині: та закривається по кліку в підкладку,
+      і тап по кадру гасив би всю форму разом із набраним текстом.
+    */}
+    {cameraOn && (
+      <div className="fixed inset-0 z-[2100] flex flex-col bg-black">
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          onLoadedMetadata={() => setCameraReady(true)}
+          className="min-h-0 flex-1 object-contain"
+        />
+        <div
+          className="flex items-center justify-between gap-4 px-6 py-5"
+          style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <button
+            type="button"
+            onClick={stopCamera}
+            className="text-sm text-white/70"
+            style={{ background: "none", border: "none" }}
+          >
+            Скасувати
+          </button>
+          {/* Кругла кнопка спуску: у неї цілять пальцем у робочій рукавиці,
+              тож 72 px, а не звичайні 44. */}
+          <button
+            type="button"
+            onClick={shoot}
+            disabled={!cameraReady || preparing}
+            aria-label="Зняти"
+            className="rounded-full disabled:opacity-40"
+            style={{
+              width: "72px",
+              height: "72px",
+              background: "#fff",
+              border: "4px solid rgba(255,255,255,0.35)",
+              backgroundClip: "padding-box",
+            }}
+          />
+          {/* Порожній блок тієї ж ширини, що «Скасувати»: без нього спуск
+              з'їжджає з центру екрана. */}
+          <span aria-hidden className="text-sm text-transparent">
+            Скасувати
+          </span>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -22,9 +22,12 @@ export const metadata = {
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
 import BrandCard from "@/components/BrandCard";
-import HeroCta from "@/components/HeroCta";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
+import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
+import CategoryRail from "@/components/home/CategoryRail";
+import SectionTiles from "@/components/home/SectionTiles";
+import HomeBanners, { type HomeBanner } from "@/components/home/HomeBanners";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
 
 export default async function HomePage() {
@@ -44,7 +47,7 @@ export default async function HomePage() {
   // Дві хвилі запитів замість чотирьох послідовних: сезонні промо і дерево
   // брендів ні від чого не залежать, тож їдуть разом із першою хвилею. На
   // кожному revalidate-місі це мінус два послідовні RTT до бази.
-  const [featuredProducts, topOrderedItems, seasonalPromos, brandTree] = await Promise.all([
+  const [featuredProducts, topOrderedItems, seasonalPromos, brandTree, toc, sectionTiles] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
@@ -75,6 +78,8 @@ export default async function HomePage() {
       orderBy: { sortOrder: "asc" },
     }),
     getBrandTree(),
+    getCatalogToc(),
+    getSectionTiles(),
   ]);
 
   let seasonalProducts: any[] = [];
@@ -165,50 +170,78 @@ export default async function HomePage() {
     .filter((b) => brandCounts[b.slug] > 0)
     .sort((a, b) => (brandCounts[b.slug] || 0) - (brandCounts[a.slug] || 0));
 
+  /*
+   * Банери першого екрана. Складаються з того, що в магазині справді є, а не
+   * з намальованих обіцянок: сезонна добірка, найкупованіший товар і обсяг
+   * каталогу. Коли адміністратор заведе акцію в /admin, її банери стануть
+   * першими й витіснять автоматичні — саме так, як і має бути.
+   */
+  const banners: HomeBanner[] = [];
+
+  if (seasonalProducts.length > 0) {
+    banners.push({
+      id: "seasonal",
+      title: seasonalTitle.replace(/^\p{Extended_Pictographic}+\s*/u, ""),
+      subtitle: seasonalDesc,
+      href: `/catalog?search=${encodeURIComponent(seasonalKeywords[0] ?? "")}`,
+      cta: "Дивитись добірку",
+      color: activeSeasonColor,
+      image: seasonalProducts[0]?.image ?? null,
+    });
+  }
+
+  if (sortedBestSellers.length > 0) {
+    banners.push({
+      id: "hits",
+      title: "Хіти продажу",
+      subtitle: "Те, що беруть найчастіше — перевірено покупцями",
+      href: "#hity",
+      cta: "До хітів",
+      color: "#FFD600",
+      image: sortedBestSellers[0]?.image ?? null,
+    });
+  }
+
+  banners.push({
+    id: "catalog",
+    title: `${toc.total.toLocaleString("uk-UA")} позицій у каталозі`,
+    subtitle: "Електро та ручний інструмент, оснастка, кріплення, захист",
+    href: "/catalog/zmist",
+    cta: "Відкрити каталог",
+    color: "#C9D6DF",
+    image: featuredProducts[0]?.image ?? null,
+  });
+
   return (
     <div>
       {/* Магазин у Львові і пошук по сайту — для локальної видачі Google
           і sitelinks searchbox. Дані ті самі, що показує футер. */}
       <JsonLd data={localBusinessJsonLd()} />
       <JsonLd data={websiteJsonLd()} />
-      {/* Hero: креслярська сітка, дрейфуючий прожектор і каскадна поява —
-          чистий CSS на серверному JSX. Свідомо компактний: власник просив,
-          щоб товари було видно одразу, без прокрутки повз банер. */}
-      <section className="relative text-white py-5 sm:py-6 md:py-8 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0A0A0A 0%, #111 15%, #1A1A1A 35%, #222 55%, #333 75%, #444 100%)' }}>
-        <div aria-hidden className="hero-blueprint absolute inset-0" />
-        <div aria-hidden className="hero-spotlight absolute inset-0" />
-        {/* Yellow accent line under header + пробіжка «заряду» */}
-        <div className="hero-accent-charge absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#FFD600] to-transparent" />
-        <div className="relative max-w-7xl mx-auto px-4 text-center">
-          <h1 className="hero-rise text-xl sm:text-2xl md:text-3xl font-bold mb-2 tracking-tight">
-            <span className="logo-text-animated">БУДВІК27</span> — Ваш світ інструментів
-          </h1>
-          <p className="hero-rise hero-rise-2 text-sm md:text-base text-[#9E9E9E] mb-4 max-w-xl mx-auto leading-relaxed px-2">
-            Електро та ручний інструмент від провідних виробників.
-            Широкий асортимент і швидка доставка!
-          </p>
-          <div className="hero-rise hero-rise-3">
-            <HeroCta />
-          </div>
-        </div>
-      </section>
-
       {/*
-        Вхід у зміст за розділами. Раніше він жив лише в шапці десктопу і
-        всередині каталогу: людина, яка не знає назви товару, з головної
-        сторінки не мала жодного способу зорієнтуватись у 49 тис. позицій.
+        Перший екран — вітрина, а не гасло.
+        Було: чорний банер на пів екрана з написом «БУДВІК27 — Ваш світ
+        інструментів» і одна самотня кнопка. Гасло не повідомляє відвідувачу
+        нічого, чого він не знає (він щойно перейшов на цей сайт), а щоб
+        побачити, що взагалі продається, треба було натиснути кнопку й піти на
+        іншу сторінку. Ті самі пікселі тепер працюють: ліворуч постійно
+        розгорнуті розділи, праворуч банери й плитки з фотографіями товарів.
       */}
-      <section className="bg-white py-4">
-        <div className="max-w-7xl mx-auto px-4">
-          <Link
-            href="/catalog/zmist"
-            className="flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-[#E0E0E0] bg-white px-4 text-sm font-bold text-[#0A0A0A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
-            </svg>
-            Каталог за розділами
-          </Link>
+      <section className="border-b border-[#E5E5E5] bg-[#F7F7F7] py-4 sm:py-5">
+        <div className="mx-auto max-w-7xl px-4">
+          <h1 className="mb-3 text-[15px] font-bold tracking-tight text-[#0A0A0A] sm:mb-4 sm:text-lg">
+            <span className="logo-text-animated">БУДВІК27</span>
+            <span className="text-[#6B6B6B]"> — електро та ручний інструмент від провідних виробників</span>
+          </h1>
+
+          <div className="flex gap-5">
+            <CategoryRail sections={toc.sections} className="hidden w-[264px] shrink-0 lg:block" />
+
+            <div className="min-w-0 flex-1">
+              <HomeBanners banners={banners} />
+              <SectionTiles tiles={sectionTiles} className="mt-4 sm:mt-5" />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -236,7 +269,7 @@ export default async function HomePage() {
 
       {/* Best Sellers */}
       {sortedBestSellers.length > 0 && (
-        <section className="py-8 sm:py-10 bg-white">
+        <section id="hity" className="scroll-mt-20 py-8 sm:py-10 bg-white">
           <div className="max-w-7xl mx-auto px-4">
             <div className="reveal flex items-center gap-3 mb-4 sm:mb-7">
               <div className="w-11 h-11 bg-[#0A0A0A] rounded-xl flex items-center justify-center">

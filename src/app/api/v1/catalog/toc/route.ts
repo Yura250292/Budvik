@@ -11,11 +11,23 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCatalogToc } from "@/lib/catalog/sections";
+import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
 
 /** Типи виводяться з назв проходом по всій номенклатурі — не частіше години. */
 export const revalidate = 3600;
 
 export async function GET() {
-  return NextResponse.json(await getCatalogToc());
+  /*
+   * До кожного розділу додаємо знімок справжнього товару з нього.
+   * Піктограма-emoji в застосунку читалась як заглушка: 🎨 однаково позначає
+   * фарбу, дизайн і свято, тож око все одно шукало підпис. Поле додане, а не
+   * замінене — старі збірки застосунку його просто не помітять.
+   */
+  const [toc, tiles] = await Promise.all([getCatalogToc(), getSectionTiles()]);
+  const imageById = new Map(tiles.map((t) => [t.id, t.image]));
+
+  return NextResponse.json({
+    ...toc,
+    sections: toc.sections.map((s) => ({ ...s, image: imageById.get(s.id) ?? null })),
+  });
 }

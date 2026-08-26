@@ -62,7 +62,10 @@ await shot("06-wishlist", "/wishlist");
 
 // Прямі адреси, а не кліки: клік по тексту в react-native-web влучає у
 // вкладений вузол, а не в Pressable, і сторінка мовчки лишається тією ж.
-await shot("07-brand", "/brand/sigma?name=SIGMA");
+// Окремого екрана бренда немає з часу перебудови каталогу — бренд це просто
+// фільтр списку. Адреса /brand/sigma лишалась у стенді й тихо знімала «Unmatched
+// Route», тобто перевірка нічого не перевіряла.
+await shot("07-brand", "/list?brand=sigma&title=SIGMA");
 await shot("08-product", "/product/apro-shchitka-chasha-stalevi-vytky-65-mm-dryl");
 await shot("09-checkout", "/checkout");
 await shot("10-orders", "/orders");

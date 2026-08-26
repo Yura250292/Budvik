@@ -18,12 +18,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { RowSkeleton } from "@/components/Skeleton";
+import { Image } from "expo-image";
 import { BrandTile } from "@/components/BrandTile";
 import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius } from "@/theme";
 
 type TocLine = { key: string; label: string; count: number };
-type TocSection = { id: string; title: string; icon: string; lines: TocLine[]; total: number };
+type TocSection = {
+  id: string;
+  title: string;
+  icon: string;
+  lines: TocLine[];
+  total: number;
+  /** Знімок товару з розділу. Старіші збірки сервера його не шлють. */
+  image?: string | null;
+};
 type Toc = { sections: TocSection[]; other: TocLine[]; total: number };
 
 type Brand = { slug: string; name: string; count: number; color?: string | null; logoUrl?: string | null };
@@ -109,7 +118,22 @@ export default function CatalogScreen() {
                 style={styles.cardHead}
                 onPress={() => setOpenSection((s) => (s === item.id ? null : item.id))}
               >
-                <Text style={styles.icon}>{item.icon}</Text>
+                {/* Знімок товару замість emoji: 🎨 однаково позначає фарбу,
+                    дизайн і свято, тож як мітка розділу він не працює — око все
+                    одно читає підпис. Якщо сервер знімка не дав, лишається
+                    стара піктограма. */}
+                {item.image ? (
+                  <Image
+                    source={item.image}
+                    style={styles.thumb}
+                    alt=""
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    transition={120}
+                  />
+                ) : (
+                  <Text style={styles.icon}>{item.icon}</Text>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardCount}>{item.total} позицій</Text>
@@ -204,6 +228,7 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, minHeight: 64 },
   icon: { fontSize: 22 },
+  thumb: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surface },
   cardTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
   cardCount: { marginTop: 2, fontSize: 12, color: colors.textMuted },
 

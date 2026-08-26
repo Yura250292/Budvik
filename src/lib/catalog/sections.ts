@@ -166,8 +166,22 @@ export const getCatalogToc = unstable_cache(
     const brands = await prisma.brand.findMany({ select: { id: true, name: true } });
     const brandName = new Map(brands.map((b) => [b.id, b.name]));
 
+    /*
+     * Рахуємо лише те, що каталог справді покаже.
+     *
+     * Було `isActive: true` — усі активні рядки, разом із тими, яких немає на
+     * складі. Каталог за замовчуванням віддає лише товар у наявності
+     * (buildWhere додає stock > 0, доки не ввімкнено «Показати відсутні»), тож
+     * зміст обіцяв 1188 позицій малярного інструменту, а за посиланням
+     * відкривалось 475. Число під назвою розділу мусить збігатися з тим, що
+     * побачить людина, інакше воно гірше за відсутнє.
+     *
+     * price > 0 — з тієї ж причини: обмін бере роздріб лише з типу цін
+     * «6.МАГАЗИНИ», і там, де його не ведуть, товар приїжджає з нулем.
+     * Каталог такі рядки не показує, тож і зміст не має їх рахувати.
+     */
     const products = await prisma.product.findMany({
-      where: { isActive: true },
+      where: { isActive: true, stock: { gt: 0 }, price: { gt: 0 } },
       select: { name: true, brandId: true },
     });
 
@@ -215,3 +229,98 @@ export const getCatalogToc = unstable_cache(
   ["catalog-toc"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
+
+/**
+ * Власне сховище знімків. Усе, що поза ним, живе на чужих сайтах і може
+ * зникнути або закритись від гарячих посилань будь-якої миті.
+ */
+const OWN_IMAGE_PREFIX = "https://files.budvik27.com/";
+
+/** Розділ із фотографією справжнього товару — для плиток на головній. */
+export interface SectionTile {
+  id: string;
+  title: string;
+  /** Посилання на весь розділ у каталозі. */
+  href: string;
+  count: number;
+  /** Фото найходовішого товару розділу; null, якщо в розділі немає жодного з фото. */
+  image: string | null;
+}
+
+/**
+ * Знімок товару для кожного розділу.
+ *
+ * Кешується окремо від змісту й містить **тільки** посилання на фото. Спершу
+ * тут лежали готові плитки разом із назвою та лічильником — і два кеші почали
+ * розходитись: рейка розділів брала число зі змісту, плитки — зі своєї копії,
+ * тож під однаковими назвами стояли «430» і «1188». Число мусить мати одне
+ * джерело; дублювати варто лише те, що дорого рахувати, а це саме пошук фото.
+ */
+const getSectionImages = unstable_cache(
+  async (): Promise<Record<string, string | null>> => {
+    const { sections } = await getCatalogToc();
+
+    const found = await Promise.all(
+      sections.map(async (s): Promise<[string, string | null]> => {
+        /**
+         * Три найбільші типи розділу, а не один: у найбільшого знімка може не
+         * бути зовсім, і тоді плитка лишилась би сірою.
+         */
+        const probes = s.lines.slice(0, 3).map((l) => l.key);
+        const base = {
+          isActive: true,
+          stock: { gt: 0 },
+          image: { not: null },
+          NOT: { image: "" },
+          OR: probes.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
+        };
+        const order = [{ priority: "desc" as const }, { stock: "desc" as const }];
+
+        /**
+         * Спершу шукаємо серед знімків на власному сховищі й лише потім —
+         * серед будь-яких. Поле image — довільний https-адрес, і частина
+         * посилань веде на сайти постачальників, які закривають гарячі
+         * посилання: sigma.ua віддає оптимізатору Next 400, тобто плитка
+         * лишається з піктограмою битого зображення. Своїх знімків 2696 із
+         * 2745, тож перший запит майже завжди й спрацьовує.
+         */
+        const hit =
+          (await prisma.product.findFirst({
+            where: { ...base, image: { startsWith: OWN_IMAGE_PREFIX } },
+            orderBy: order,
+            select: { image: true },
+          })) ??
+          (await prisma.product.findFirst({ where: base, orderBy: order, select: { image: true } }));
+
+        return [s.id, hit?.image ?? null];
+      })
+    );
+
+    return Object.fromEntries(found);
+  },
+  ["catalog-section-images"],
+  { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
+);
+
+/**
+ * Плитки розділів із фотографією товару замість піктограми.
+ *
+ * Emoji в ролі іконки виглядає як тимчасова заглушка, а не як навігація: 🎨
+ * однаково позначає і фарбу, і дизайн, і свято. Фотографія відповідає на
+ * питання «що тут лежить» швидше за будь-який підпис — саме так влаштовані
+ * «рекомендовані категорії» у великих магазинах техніки.
+ *
+ * Назва, лічильник і посилання беруться зі змісту наживо — він і сам кешований,
+ * тож виклик дешевий, зате число на плитці не може розійтися з числом у рейці.
+ */
+export async function getSectionTiles(): Promise<SectionTile[]> {
+  const [{ sections }, images] = await Promise.all([getCatalogToc(), getSectionImages()]);
+
+  return sections.map((s) => ({
+    id: s.id,
+    title: s.title,
+    href: `/catalog?type=${encodeURIComponent(s.types.join(","))}`,
+    count: s.total,
+    image: images[s.id] ?? null,
+  }));
+}

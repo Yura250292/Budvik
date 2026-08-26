@@ -95,13 +95,21 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
+    /*
+     * image — знімок справжнього товару з добірки, за яку відповідає банер.
+     * Emoji в цій ролі читалась як заглушка: ☀️ однаково позначає літо, погоду
+     * й вихідний. Поле додане поруч із icon, а не замість нього: установлену
+     * збірку не можна оновити примусово, тож старі застосунки мусять і далі
+     * малювати банер по-своєму.
+     */
     banners: promos.length
-      ? promos.map((p) => ({
+      ? promos.map((p, i) => ({
           id: p.id,
           title: p.title,
           subtitle: p.description,
           icon: p.icon ?? getSeasonIcon(season),
           color: p.color,
+          image: seasonal[i]?.image ?? seasonal[0]?.image ?? null,
           /** Куди веде банер: перше ключове слово як пошуковий запит. */
           search: p.keywords[0] ?? p.title,
         }))
@@ -112,6 +120,7 @@ export async function GET() {
             subtitle: "Те, що зараз потрібно найчастіше",
             icon: getSeasonIcon(season),
             color: getSeasonColor(season),
+            image: seasonal[0]?.image ?? null,
             search: keywords[0],
           },
         ],

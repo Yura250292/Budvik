@@ -51,12 +51,20 @@ export type SalesClientPoint = {
    */
   canPin?: boolean;
   /**
-   * Останнє фото локації: як виглядає вхід, з якого боку заїзд.
+   * Фото точки: як виглядає вхід, з якого боку заїзд.
    *
    * Показуємо просто в попапі, а не за кнопкою: водій під'їхав і мусить
    * упізнати місце за секунду, а не гортати стрічку нотаток.
    */
   photoUrl?: string | null;
+  /**
+   * Це фото САМОГО магазину, а не запасний кадр зі стрічки нотаток.
+   *
+   * Підпис від цього різний, і різниця не косметична: «так виглядає
+   * магазин» — обіцянка, на яку можна покластися, під'їжджаючи, а
+   * «останнє фото з нотаток» цілком може виявитись піддоном чи накладною.
+   */
+  photoIsShop?: boolean;
   /** Скільки нотаток про цю точку — щоб було видно, що є що читати. */
   notes?: number;
 };
@@ -156,8 +164,11 @@ function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
   const photo = c.photoUrl
     ? `<a href="${escapeHtml(c.photoUrl)}" target="_blank" rel="noreferrer"
          style="display:block;margin:6px 0 2px">
-         <img src="${escapeHtml(c.photoUrl)}" alt="Фото локації" loading="lazy"
+         <img src="${escapeHtml(c.photoUrl)}" alt="${c.photoIsShop ? "Фото магазину" : "Фото з нотаток"}" loading="lazy"
            style="width:100%;height:110px;object-fit:cover;border-radius:8px"/>
+         <span style="display:block;font-size:11px;color:${c.photoIsShop ? "#059669" : "#9CA3AF"};margin-top:2px">
+           ${c.photoIsShop ? "Так виглядає магазин" : "Кадр із нотаток — не фото магазину"}
+         </span>
        </a>`
     : "";
 
@@ -257,8 +268,13 @@ export default function SalesClientsMap({
             //
             // toFixed(5) — приблизно метр: точніше за будь-який GPS
             // телефона, а ключ не роздувається хвостом float.
+            // Фото теж у ключі, і з тієї ж причини, що координати: щойно
+            // знятий фасад мусить зʼявитися в попапі одразу. Хвіст адреси
+            // містить мітку часу, тож заміна одного фото на інше ключ
+            // теж змінює — а сама адреса в ключ не лізе, він і так довгий.
             `${c.id}:${c.state}:${c.mine ? 1 : 0}:${c.notes ?? 0}:` +
-            `${c.lat.toFixed(5)},${c.lng.toFixed(5)}:${c.approximate ? 1 : 0}`
+            `${c.lat.toFixed(5)},${c.lng.toFixed(5)}:${c.approximate ? 1 : 0}:` +
+            `${c.photoUrl ? c.photoUrl.slice(-14) : ""}:${c.photoIsShop ? 1 : 0}`
         )
         .join("|") +
       "#" +

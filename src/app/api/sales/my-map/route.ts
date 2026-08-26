@@ -59,8 +59,10 @@ type Row = {
   lastDocAt: Date | null;
   historyDocs: number;
   historyDays: number;
-  /** Останнє фото локації зі стрічки коментарів. */
+  /** Фото магазину, а якщо його немає — останній знімок зі стрічки. */
   photoUrl: string | null;
+  /** Це саме фото магазину, а не запасний кадр із коментарів. */
+  photoIsShop: boolean;
   /** Скільки взагалі нотаток про цього клієнта. */
   notes: number;
 };
@@ -129,12 +131,25 @@ export async function GET(req: NextRequest) {
                  OR EXISTS (SELECT 1 FROM "SalesDocument" d
                              WHERE d."counterpartyId" = c.id AND d."salesRepId" = ${repId})
                ) AS mine,
-               -- Останнє фото локації й кількість нотаток: на точці мусить
-               -- бути видно, що про неї вже щось знають, ще до відкриття
-               -- стрічки. Індекс [counterpartyId, createdAt] це покриває.
-               (SELECT cc."photoUrl" FROM "ClientComment" cc
-                 WHERE cc."counterpartyId" = c.id AND cc."photoUrl" IS NOT NULL
-                 ORDER BY cc."createdAt" DESC LIMIT 1) AS "photoUrl",
+               -- Фото на точці й кількість нотаток: мусить бути видно, що
+               -- про неї вже щось знають, ще до відкриття стрічки.
+               --
+               -- Спершу — фото САМОГО магазину, і лише як запасне
+               -- останній знімок зі стрічки. Доки поля магазину не було,
+               -- на точці показувався просто останній коментарний кадр — а
+               -- ним однаково часто виявляється піддон або накладна, і
+               -- впізнати місце по такому фото неможливо.
+               -- Індекс [counterpartyId, createdAt] покриває запасний шлях.
+               COALESCE(
+                 c."photoUrl",
+                 (SELECT cc."photoUrl" FROM "ClientComment" cc
+                   WHERE cc."counterpartyId" = c.id AND cc."photoUrl" IS NOT NULL
+                   ORDER BY cc."createdAt" DESC LIMIT 1)
+               ) AS "photoUrl",
+               -- Чи це саме фото магазину: у попапі підпис різний, бо
+               -- «так виглядає магазин» і «останнє фото з нотаток» — різні
+               -- за надійністю обіцянки.
+               (c."photoUrl" IS NOT NULL) AS "photoIsShop",
                (SELECT COUNT(*)::int FROM "ClientComment" cc
                  WHERE cc."counterpartyId" = c.id) AS notes
         FROM "Counterparty" c
@@ -197,6 +212,7 @@ export async function GET(req: NextRequest) {
     /** Свій клієнт: закріплений або купував через цього торгового. */
     mine: boolean;
     photoUrl: string | null;
+    photoIsShop: boolean;
     notes: number;
   };
 
@@ -216,6 +232,7 @@ export async function GET(req: NextRequest) {
       overdue: r.overdue,
       mine: r.mine,
       photoUrl: r.photoUrl,
+      photoIsShop: r.photoIsShop,
       notes: r.notes,
       daysSinceLast: r.lastDocAt
         ? Math.max(0, Math.floor((Date.now() - r.lastDocAt.getTime()) / DAY_MS))

@@ -71,7 +71,21 @@ export async function GET(
     orderBy: { createdAt: "desc" },
   });
 
+  /**
+   * Фото магазину віддаємо разом зі стрічкою, а не окремим запитом.
+   *
+   * Модалку відкривають у полі з телефона: два походи на сервер там
+   * коштують дорожче за зайве поле у відповіді, а показати «так виглядає
+   * магазин» треба одразу, поки людина не почала гортати нотатки.
+   */
+  const shop = await prisma.counterparty.findUnique({
+    where: { id: counterpartyId },
+    select: { photoUrl: true, photoAt: true },
+  });
+
   return NextResponse.json({
+    shopPhotoUrl: shop?.photoUrl ?? null,
+    shopPhotoAt: shop?.photoAt?.toISOString() ?? null,
     comments: comments.map((c) => ({
       id: c.id,
       text: c.text,

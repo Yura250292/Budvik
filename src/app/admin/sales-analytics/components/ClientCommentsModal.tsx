@@ -86,9 +86,10 @@ export function ClientCommentsModal({
   onSaved?: () => void;
 }) {
   const { data: session } = useSession();
-  const { data, loading, error, reload } = useApi<{ comments: Comment[] }>(
-    `/api/admin/client-comments/${client.id}`
-  );
+  const { data, loading, error, reload } = useApi<{
+    comments: Comment[];
+    shopPhotoUrl: string | null;
+  }>(`/api/admin/client-comments/${client.id}`);
 
   const [text, setText] = useState("");
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
@@ -126,6 +127,20 @@ export function ClientCommentsModal({
   const [cameraReady, setCameraReady] = useState(false);
   /** Чому камера не відкрилась — показуємо замість мовчазного відкату. */
   const [cameraError, setCameraError] = useState<string | null>(null);
+
+  /**
+   * Куди піде наступний знімок: у нотатку чи у «фото магазину».
+   *
+   * Одна камера на два призначення, бо для людини це одна дія — навести й
+   * зняти. Різниця в тому, куди кадр лягає: нотатка — спостереження на
+   * дату, фото магазину — одне поточне, за яким упізнають місце.
+   */
+  const [target, setTarget] = useState<"note" | "shop">("note");
+  /** Поточне фото магазину: підвантажуємо окремо від стрічки. */
+  const [shopPhoto, setShopPhoto] = useState<string | null | undefined>(undefined);
+  const [shopBusy, setShopBusy] = useState(false);
+  /** undefined — ще не чіпали в цій сесії, тож показуємо серверне. */
+  const shopPhotoUrl = shopPhoto === undefined ? (data?.shopPhotoUrl ?? null) : shopPhoto;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -240,17 +255,74 @@ export function ClientCommentsModal({
     []
   );
 
+  /**
+   * Фото магазину зберігаємо ОДРАЗУ, а не разом із текстом.
+   *
+   * У нотатки текст і знімок їдуть одним запитом, бо це одне
+   * висловлювання. Тут інакше: людина стоїть під магазином, зняла фасад —
+   * і робота на цьому закінчена. Змушувати її після цього ще щось
+   * натиснути означає, що частина фото не доїде.
+   */
+  const saveShopPhoto = async (file: File) => {
+    setShopBusy(true);
+    setActionError(null);
+    try {
+      const form = new FormData();
+      form.set("photo", file);
+      const res = await fetch(`/api/admin/client-photo/${client.id}`, {
+        method: "POST",
+        body: form,
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      setShopPhoto(json?.photoUrl ?? null);
+      // Карта мусить показати новий фасад на точці, не чекаючи закриття.
+      onSaved?.();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не вдалося зберегти фото магазину");
+    } finally {
+      setShopBusy(false);
+      setTarget("note");
+    }
+  };
+
+  const removeShopPhoto = async () => {
+    setShopBusy(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/admin/client-photo/${client.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? `Помилка ${res.status}`);
+      }
+      setShopPhoto(null);
+      onSaved?.();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не вдалося прибрати фото");
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
+  /** Куди лягає щойно отриманий кадр — вирішує `target`. */
+  const acceptShot = async (small: File) => {
+    if (target === "shop") {
+      await saveShopPhoto(small);
+      return;
+    }
+    setPhoto(small);
+    setPreview((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return URL.createObjectURL(small);
+    });
+  };
+
   const pickPhoto = async (file: File | null) => {
     if (!file) return;
     setActionError(null);
     setPreparing(true);
     try {
-      const small = await compress(file);
-      setPhoto(small);
-      setPreview((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(small);
-      });
+      await acceptShot(await compress(file));
     } finally {
       setPreparing(false);
     }
@@ -289,12 +361,9 @@ export function ClientCommentsModal({
       stopCamera();
       // Той самий шлях стиснення, що й для файлу з галереї: 1600 px по
       // довшій стороні, інакше кадр планшета їде в село кілька хвилин.
-      const small = await compress(new File([blob], "location.jpg", { type: "image/jpeg" }));
-      setPhoto(small);
-      setPreview((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(small);
-      });
+      await acceptShot(
+        await compress(new File([blob], "location.jpg", { type: "image/jpeg" }))
+      );
     } finally {
       setPreparing(false);
     }
@@ -421,6 +490,85 @@ export function ClientCommentsModal({
           </button>
         </div>
 
+        {/*
+          Фото магазину — окремим блоком і НАД нотатками.
+          Це відповідь на питання «я туди приїхав?», і вона потрібна раніше
+          за будь-який текст. Знімки в стрічці лишаються тим, чим були:
+          спостереженнями на дату, яких багато.
+        */}
+        <div
+          className="mb-3 rounded-[var(--radius-btn)] p-2.5"
+          style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}
+        >
+          <div className="flex items-start gap-2.5">
+            {shopPhotoUrl ? (
+              <a href={shopPhotoUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={shopPhotoUrl}
+                  alt="Фото магазину"
+                  className="h-16 w-20 rounded-[var(--radius-btn)] object-cover"
+                />
+              </a>
+            ) : (
+              <div
+                className="flex h-16 w-20 shrink-0 items-center justify-center rounded-[var(--radius-btn)]"
+                style={{ background: "#EEF0F2", color: "#9CA3AF", fontSize: "22px" }}
+                aria-hidden
+              >
+                🏪
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#0A0A0A", margin: 0 }}>
+                Фото магазину
+              </p>
+              <p style={{ fontSize: "11px", color: "#6B7280", margin: "2px 0 0", lineHeight: 1.35 }}>
+                {shopPhotoUrl
+                  ? "Так виглядає магазин із вулиці. Перезніміть, якщо змінилась вивіска."
+                  : "Знімок фасаду, за яким упізнають місце. Одне фото, не стрічка."}
+              </p>
+
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  disabled={shopBusy || preparing || busy}
+                  onClick={() => {
+                    setTarget("shop");
+                    void openCamera();
+                  }}
+                  className="rounded-[var(--radius-btn)] bg-bk px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {shopBusy ? "Зберігаю…" : shopPhotoUrl ? "📷 Перезняти" : "📷 Зняти магазин"}
+                </button>
+                <button
+                  type="button"
+                  disabled={shopBusy || preparing || busy}
+                  onClick={() => {
+                    setTarget("shop");
+                    fileRef.current?.click();
+                  }}
+                  className="rounded-[var(--radius-btn)] border border-line bg-white px-2.5 py-1.5 text-xs text-bk disabled:opacity-50"
+                >
+                  Галерея
+                </button>
+                {shopPhotoUrl && (
+                  <button
+                    type="button"
+                    disabled={shopBusy}
+                    onClick={removeShopPhoto}
+                    className="px-1.5 py-1.5 text-xs text-gr underline disabled:opacity-50"
+                    style={{ background: "none", border: "none" }}
+                  >
+                    Прибрати
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Форма: зверху, бо найчастіше сюди заходять саме дописати */}
         <div className="mb-3">
           <textarea
@@ -463,18 +611,27 @@ export function ClientCommentsModal({
               {/* Зйомка — головна дія: торговий стоїть біля цих самих воріт.
                   Галерея поруч і дрібніша: нею користуються, коли зняли
                   раніше або телефон не дав камеру. */}
+              {/* setTarget("note") перед кожним відкриттям: та сама камера
+                  обслуговує і фото магазину, і знімок у нотатку, тож
+                  призначення треба задавати явно, а не вгадувати. */}
               <button
                 type="button"
-                onClick={openCamera}
-                disabled={busy || preparing}
+                onClick={() => {
+                  setTarget("note");
+                  void openCamera();
+                }}
+                disabled={busy || preparing || shopBusy}
                 className="rounded-[var(--radius-btn)] bg-bk px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
               >
                 {preparing ? "Готую знімок…" : photo ? "📷 Перезняти" : "📷 Зняти фото"}
               </button>
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={busy || preparing}
+                onClick={() => {
+                  setTarget("note");
+                  fileRef.current?.click();
+                }}
+                disabled={busy || preparing || shopBusy}
                 className="rounded-[var(--radius-btn)] border border-line px-3 py-1.5 text-sm text-bk disabled:opacity-50"
               >
                 Галерея

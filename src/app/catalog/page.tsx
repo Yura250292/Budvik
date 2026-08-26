@@ -14,7 +14,7 @@ import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SearchTracker from "@/components/webstats/SearchTracker";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { getCatalogToc } from "@/lib/catalog/sections";
-import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
+import { parseFilters, fetchCatalogPage, fetchBrandFacets, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
 
@@ -95,13 +95,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   // оптової ціни для 2%. Оптовик добирає свою знижку на клієнті
   // (useWholesaleDiscounts у ProductCard).
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, brandTypes, toc] = await Promise.all([
-    fetchCatalogPage(filters, page),
-    getBrandTree(),
-    getPriceBounds(),
-    singleBrand ? getBrandTypes(singleBrand) : Promise.resolve([]),
-    getCatalogToc(),
-  ]);
+  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, brandTypes, toc, facets] =
+    await Promise.all([
+      fetchCatalogPage(filters, page),
+      getBrandTree(),
+      getPriceBounds(),
+      singleBrand ? getBrandTypes(singleBrand) : Promise.resolve([]),
+      getCatalogToc(),
+      fetchBrandFacets(filters),
+    ]);
 
   /*
    * Дерево каталогу для лівої колонки.
@@ -141,6 +143,20 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   // сторінки по ній не мають сенсу, «Далі» вело б у порожнечу.
   const totalPages = isFuzzy ? 1 : Math.ceil(total / CATALOG_PAGE_SIZE);
   const allBrands = tree.main.concat(tree.tail);
+
+  /*
+   * Числа біля брендів — у розрізі того, що людина бачить зараз.
+   *
+   * Фасети приходять за brandId, панель фільтрів працює зі slug — переклад
+   * робимо тут, поки під рукою дерево брендів. «none» проходить як є: це той
+   * самий ключ, яким фільтруються товари без бренда.
+   */
+  const brandCounts: Record<string, number> = {};
+  for (const b of allBrands) {
+    const n = facets[b.id];
+    if (n) brandCounts[b.slug] = n;
+  }
+  if (facets.none) brandCounts.none = facets.none;
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
 
   const title =
@@ -235,6 +251,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             unbranded={tree.unbranded}
             types={types}
             sections={sectionOptions}
+            brandCounts={brandCounts}
             priceBounds={priceBounds}
           />
         </aside>

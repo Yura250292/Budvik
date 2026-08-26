@@ -12,6 +12,9 @@ import type { BrandNode, TypeNode } from "@/lib/catalog/brand-tree";
  * вже набрано. Стан тримаємо чернеткою і застосовуємо одним «Показати»:
  * інакше кожна галочка серед 114 брендів — це окремий перехід і очікування.
  */
+/** Скільки брендів показуємо, поки не натиснуть «Ще N брендів». */
+const BRANDS_SHOWN = 20;
+
 /** Розділ каталогу як рівень фільтра: обрати — це обрати всі його типи. */
 export interface SectionOption {
   id: string;
@@ -30,6 +33,11 @@ interface Props {
    * торгового шукають за артикулом і брендом, а не гортають вітрину.
    */
   sections?: SectionOption[];
+  /**
+   * Скільки товарів дає бренд у поточній видачі (slug → кількість, «none» —
+   * без бренда). Порожньо — показуємо глобальні числа з дерева брендів.
+   */
+  brandCounts?: Record<string, number>;
   priceBounds: { min: number; max: number };
   /** Куди застосовувати фільтри: вітрина чи кабінет торгового. */
   basePath?: string;
@@ -49,6 +57,7 @@ export default function CatalogFilters({
   unbranded,
   types,
   sections = [],
+  brandCounts = {},
   priceBounds,
   basePath = "/catalog",
   defaultShowAll = false,
@@ -66,6 +75,7 @@ export default function CatalogFilters({
       unbranded={unbranded}
       types={types}
       sections={sections}
+      brandCounts={brandCounts}
       priceBounds={priceBounds}
       basePath={basePath}
       defaultShowAll={defaultShowAll}
@@ -79,6 +89,7 @@ function FiltersInner({
   unbranded,
   types,
   sections,
+  brandCounts,
   priceBounds,
   basePath,
   defaultShowAll,
@@ -175,12 +186,43 @@ function FiltersInner({
     apply(cleared);
   };
 
+  /** Чи прийшли числа в розрізі поточної видачі. */
+  const faceted = Object.keys(brandCounts).length > 0;
+
+  /** Скільки товарів цього бренда людина справді побачить. */
+  const brandCount = (slug: string, fallback: number) =>
+    faceted ? brandCounts[slug] ?? 0 : fallback;
+
+  /**
+   * Кого показувати у списку брендів.
+   *
+   * Коли є фасети, поділ на «головні» й «дрібні» за глобальною кількістю
+   * перестає працювати: у розділі «Скотч та стрічки» головні бренди дають
+   * нуль, а весь товар лежить у двох марках, які глобально дрібні й ховались
+   * за «показати дрібні бренди». Тому при фасетах список один, порожні
+   * бренди в ньому не показуємо взагалі, а порядок — за кількістю тут.
+   */
   const visibleBrands = useMemo(() => {
     const q = brandSearch.trim().toLowerCase();
-    const pool = showTail ? [...brands, ...tailBrands] : brands;
-    if (!q) return pool;
-    return pool.filter((b) => b.name.toLowerCase().includes(q));
-  }, [brandSearch, showTail, brands, tailBrands]);
+    const all = [...brands, ...tailBrands];
+
+    let pool = faceted
+      ? all
+          .filter((b) => (brandCounts[b.slug] ?? 0) > 0)
+          .sort((a, b) => (brandCounts[b.slug] ?? 0) - (brandCounts[a.slug] ?? 0))
+      : showTail
+        ? all
+        : brands;
+
+    if (q) return pool.filter((b) => b.name.toLowerCase().includes(q));
+    if (faceted && !showTail) pool = pool.slice(0, BRANDS_SHOWN);
+    return pool;
+  }, [brandSearch, showTail, brands, tailBrands, brandCounts, faceted]);
+
+  /** Скільки брендів лишилось під згорткою — для підпису кнопки. */
+  const hiddenBrands = faceted
+    ? [...brands, ...tailBrands].filter((b) => (brandCounts[b.slug] ?? 0) > 0).length - BRANDS_SHOWN
+    : tailBrands.length;
 
   /**
    * Розділ вважаємо обраним, щойно з нього обрано бодай один тип.
@@ -318,20 +360,26 @@ function FiltersInner({
           {visibleBrands.map((b) => (
             <CheckRow key={b.id} checked={draft.brands.includes(b.slug)} onChange={() => toggle("brands", b.slug)}>
               <span className="flex-1 truncate text-sm text-[#1A1A1A]">{b.name}</span>
-              <span className="text-xs text-[#9E9E9E]">{b.count}</span>
+              <span className="text-xs tabular-nums text-[#9E9E9E]">{brandCount(b.slug, b.count)}</span>
             </CheckRow>
           ))}
+          {(!faceted || (brandCounts.none ?? 0) > 0) && (
           <CheckRow checked={draft.brands.includes("none")} onChange={() => toggle("brands", "none")}>
             <span className="flex-1 truncate text-sm text-[#555]">Без бренда</span>
-            <span className="text-xs text-[#9E9E9E]">{unbranded}</span>
+            <span className="text-xs tabular-nums text-[#9E9E9E]">{brandCount("none", unbranded)}</span>
           </CheckRow>
+          )}
         </div>
-        {!brandSearch && tailBrands.length > 0 && (
+        {!brandSearch && hiddenBrands > 0 && (
           <button
             onClick={() => setShowTail((v) => !v)}
             className="mt-1 w-full py-2.5 text-center text-sm font-medium text-[#FFB800] transition hover:text-[#FFC400]"
           >
-            {showTail ? "Згорнути дрібні бренди" : `Показати дрібні бренди (${tailBrands.length})`}
+            {showTail
+              ? "Згорнути список"
+              : faceted
+                ? `Ще ${hiddenBrands} брендів`
+                : `Показати дрібні бренди (${hiddenBrands})`}
           </button>
         )}
       </FilterBlock>

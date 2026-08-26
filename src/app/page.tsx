@@ -25,6 +25,7 @@ import BrandCard from "@/components/BrandCard";
 import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
+import { formatCount, POSITIONS } from "@/lib/utils";
 import CategoryRail from "@/components/home/CategoryRail";
 import SectionCards from "@/components/home/SectionCards";
 import SectionTiles from "@/components/home/SectionTiles";
@@ -182,7 +183,16 @@ export default async function HomePage() {
   if (seasonalProducts.length > 0) {
     banners.push({
       id: "seasonal",
-      title: seasonalTitle.replace(/^\p{Extended_Pictographic}+\s*/u, ""),
+      /*
+       * Знак пори року зрізаємо разом із «хвостом» emoji.
+       *
+       * \p{Extended_Pictographic} — це сам символ, але не селектор
+       * накреслення U+FE0F і не зʼєднувач U+200D, які йдуть за ним. Тому з
+       * «☀️ Сезонні товари» виходило «️ Сезонні товари» — рядок, що
+       * починається з невидимого символу: у банері він з'їдав відступ, а в
+       * пошуковій видачі й у застосунку лишався сміттям у заголовку.
+       */
+      title: seasonalTitle.replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, ""),
       subtitle: seasonalDesc,
       href: `/catalog?search=${encodeURIComponent(seasonalKeywords[0] ?? "")}`,
       cta: "Дивитись добірку",
@@ -205,7 +215,13 @@ export default async function HomePage() {
 
   banners.push({
     id: "catalog",
-    title: `${toc.total.toLocaleString("uk-UA")} позицій у каталозі`,
+    /*
+     * Форму слова рахуємо, а не пишемо: «6 277 позицій», але «6 273 позиції».
+     * Заодно прибирає toLocaleString — розділювач тисяч у ньому залежить від
+     * версії CLDR у середовищі, а це вже одного разу розсипало гідратацію
+     * (див. formatPrice у lib/utils).
+     */
+    title: `${formatCount(toc.total, POSITIONS)} у каталозі`,
     subtitle: "Електро та ручний інструмент, оснастка, кріплення, захист",
     href: "/catalog/zmist",
     cta: "Відкрити каталог",

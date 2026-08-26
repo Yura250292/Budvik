@@ -16,9 +16,22 @@ const filters = (page: Page) => page.locator("aside");
 
 /** Ціни з карток видачі — у гривнях числом, по одній на картку. */
 async function prices(page: Page): Promise<number[]> {
-  return page.evaluate(() =>
-    [...document.querySelectorAll('a[href^="/catalog/"]')]
+  // Дочекатись першої картки: goto з domcontentloaded повертається до того,
+  // як сітка намалювалась, і на завантаженій машині ми читали порожньо.
+  await page.locator('a[href^="/catalog/"]:not([href="/catalog/zmist"])').first().waitFor();
+  return page.evaluate(() => {
+    // Сітка малює картку в кількох варіантах (плитка/список/компакт) і ховає
+    // зайві через CSS — без дедупу за посиланням у масив потрапляли дві
+    // однаково відсортовані послідовності підряд, і перевірка порядку падала.
+    const seen = new Set<string>();
+    return [...document.querySelectorAll('a[href^="/catalog/"]')]
       .filter((a) => a.getAttribute("href") !== "/catalog/zmist")
+      .filter((a) => {
+        const href = a.getAttribute("href") ?? "";
+        if (seen.has(href)) return false;
+        seen.add(href);
+        return true;
+      })
       .map((a) =>
         [...a.querySelectorAll("span")].find(
           // Перекреслена ціна — стара, до знижки: у порядок сортування вона не входить.
@@ -27,8 +40,8 @@ async function prices(page: Page): Promise<number[]> {
       )
       .filter((s): s is HTMLSpanElement => Boolean(s))
       .map((s) => Number((s.textContent ?? "").replace(/[^\d,]/g, "").replace(",", ".")))
-      .filter((n) => Number.isFinite(n) && n > 0)
-  );
+      .filter((n) => Number.isFinite(n) && n > 0);
+  });
 }
 
 test.describe("дерево каталогу", () => {
@@ -137,13 +150,15 @@ test.describe("розділ як один вибір", () => {
   /** Заходимо так, як заходить людина: банером розділу з вітрини. */
   async function openSection(page: Page) {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page
-      .locator("section")
-      .first()
-      .locator("a.rounded-2xl")
+    // Саме банер розділу: за посиланням ?type= ховається ще й рядок сайдбару,
+    // а h3 є тільки в картці.
+    const card = page
+      .locator('a[href^="/catalog?type="]')
+      .filter({ has: page.locator("h3") })
       .filter({ hasText: "Різальний інструмент" })
-      .first()
-      .click();
+      .first();
+    await card.waitFor({ state: "visible" });
+    await card.click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(SECTION);
   }
 
@@ -168,5 +183,50 @@ test.describe("розділ як один вибір", () => {
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Круг");
     expect(new URL(page.url()).searchParams.get("type")).toBe("круг");
+  });
+});
+
+test.describe("лічильники брендів", () => {
+  test.skip(({ viewport }) => (viewport?.width ?? 0) < 768, "ліва колонка фільтрів — від md");
+
+  test("число біля бренда дорівнює тому, що відкриється за ним", async ({ page }) => {
+    await page.goto(KRUG, { waitUntil: "domcontentloaded" });
+
+    const head = filters(page).getByRole("button", { name: /БРЕНДИ/i });
+    if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
+
+    const row = filters(page).locator("label").filter({ hasText: /\d/ }).first();
+    const text = await row.innerText();
+    const promised = Number(text.match(/(\d+)\s*$/)![1]);
+    expect(promised).toBeGreaterThan(0);
+
+    await row.click();
+    await filters(page).getByRole("button", { name: "Показати", exact: true }).click();
+    // Чекаємо на застосований фільтр, а не на текст: «Знайдено 275 товарів»
+    // від попередньої видачі вже на екрані й пройшов би перевірку миттєво.
+    await page.waitForURL(/brand=/);
+    const found = Number(
+      (await page.getByText(/Знайдено [\d\s ]+ товар/).first().innerText()).match(/([\d\s ]+)/)![1].replace(/[\s ]/g, "")
+    );
+    // Панель обіцяє рівно те, що покаже видача: числа рахуються одним where.
+    expect(found).toBe(promised);
+  });
+
+  test("бренди без товару в цій видачі не показуються", async ({ page }) => {
+    await page.goto(KRUG, { waitUntil: "domcontentloaded" });
+
+    const head = filters(page).getByRole("button", { name: /БРЕНДИ/i });
+    if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
+
+    // «Без бренда» — окремий рядок у хвості списку, до порядку брендів не належить.
+    const counts = (
+      await filters(page).locator("label").filter({ hasText: /\d/ }).allInnerTexts()
+    )
+      .filter((t) => !t.includes("Без бренда"))
+      .map((t) => Number(t.match(/(\d+)\s*$/)?.[1] ?? 0));
+    expect(counts.length).toBeGreaterThan(2);
+    expect(counts.every((n) => n > 0)).toBe(true);
+    // І порядок — від найбільшого: у розділі шукають бренд, а не гортають абетку.
+    expect([...counts].sort((a, b) => b - a)).toEqual(counts);
   });
 });

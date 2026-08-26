@@ -237,6 +237,45 @@ const fetchCatalogPageCached = unstable_cache(fetchCatalogPageUncached, ["catalo
 });
 
 /**
+ * Скільки товарів дає кожен бренд **у поточній видачі**.
+ *
+ * Список брендів у фільтрах показував глобальні числа з дерева брендів:
+ * «SIGMA 3202» — усі активні позиції марки, тоді як сама видача за
+ * замовчуванням показує лише наявні з ціною. У розділі «Різальний
+ * інструмент» це виглядало як обіцянка трьох тисяч кругів, а за кліком
+ * відкривалась пара сотень. Гірше, що поруч у тій самій панелі стояли числа
+ * розділів, пораховані по-іншому, — дві шкали в одному списку.
+ *
+ * Бренд у власних фасетах не звужує сам себе: інакше після вибору SIGMA
+ * список схлопнувся б до одного рядка, і зняти вибір було б нічим.
+ */
+export async function fetchBrandFacets(f: CatalogFilters): Promise<Record<string, number>> {
+  if (f.search) return fetchBrandFacetsUncached(f);
+  return fetchBrandFacetsCached(f);
+}
+
+async function fetchBrandFacetsUncached(f: CatalogFilters): Promise<Record<string, number>> {
+  const where = await buildWhere({ ...f, brands: [] });
+  const rows = await prisma.product.groupBy({
+    by: ["brandId"],
+    where,
+    _count: { _all: true },
+  });
+
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    // Товари без бренда живуть під тим самим ключем, що й фільтр: "none".
+    out[r.brandId ?? "none"] = r._count._all;
+  }
+  return out;
+}
+
+const fetchBrandFacetsCached = unstable_cache(fetchBrandFacetsUncached, ["catalog-brand-facets"], {
+  revalidate: 60,
+  tags: [CATALOG_CACHE_TAG],
+});
+
+/**
  * Поля, які читають картки каталогу. Один список на всі шляхи вибірки.
  *
  * Експортується, бо мобільний API мусить віддавати рівно ту саму картку, що

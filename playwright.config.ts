@@ -30,10 +30,21 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
     },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: BASE_URL,
-    reuseExistingServer: true,
-    timeout: 240_000,
-  },
+  /*
+   * Дев-сервер піднімаємо лише коли його немає.
+   *
+   * У репозиторії паралельно працює кілька сесій, і сервер на :3000 у них
+   * спільний. Коли він зайнятий чужою збіркою, перевірка живості не встигає
+   * відповісти, Playwright вирішує, що сервера немає, і запускає свій — а
+   * той падає об .next/dev/lock, бо next dev може бути лише один. Тому:
+   * E2E_NO_SERVER=1 — «сервер уже піднятий, не чіпай».
+   */
+  webServer: process.env.E2E_NO_SERVER
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: BASE_URL,
+        reuseExistingServer: true,
+        timeout: 240_000,
+      },
 });

@@ -26,6 +26,7 @@ import { BRANDS } from "@/lib/brands";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
 import CategoryRail from "@/components/home/CategoryRail";
+import SectionCards from "@/components/home/SectionCards";
 import SectionTiles from "@/components/home/SectionTiles";
 import HomeBanners, { type HomeBanner } from "@/components/home/HomeBanners";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
@@ -229,9 +230,20 @@ export default async function HomePage() {
       */}
       <section className="border-b border-[#E5E5E5] bg-[#F7F7F7] py-4 sm:py-5">
         <div className="mx-auto max-w-7xl px-4">
+          {/*
+            Назва — суцільним чорним із жовтим підкресленням, а не мерехтливим
+            градієнтом logo-text-animated. Той градієнт проходить через білий,
+            і на світлому тлі першого екрана слово раз на п'ять секунд
+            вигорало до невидимого — «БУДВІК27» читалося як «УДВІК27». Клас
+            лишається де й був, на чорній шапці, де білий у градієнті на місці.
+          */}
           <h1 className="mb-3 text-[15px] font-bold tracking-tight text-[#0A0A0A] sm:mb-4 sm:text-lg">
-            <span className="logo-text-animated">БУДВІК27</span>
-            <span className="text-[#6B6B6B]"> — електро та ручний інструмент від провідних виробників</span>
+            <span
+              style={{ backgroundImage: "linear-gradient(to top, #FFD600 0, #FFD600 0.34em, transparent 0.34em)" }}
+            >
+              БУДВІК27
+            </span>
+            <span className="font-medium text-[#5A5A5A]"> — електро та ручний інструмент від провідних виробників</span>
           </h1>
 
           <div className="flex gap-5">
@@ -239,9 +251,15 @@ export default async function HomePage() {
 
             <div className="min-w-0 flex-1">
               <HomeBanners banners={banners} />
-              <SectionTiles tiles={sectionTiles} className="mt-4 sm:mt-5" />
+              {/* Головні розділи — тими самими банерами, що й акції над ними:
+                  на вітрині «Ручний інструмент» з 1 518 позиціями важить не
+                  менше за сезонну добірку. */}
+              <SectionCards tiles={sectionTiles.filter((t) => t.featured)} className="mt-3 sm:mt-4" />
             </div>
           </div>
+
+          {/* Решта розділів — смугою на всю ширину, під колонками. */}
+          <SectionTiles tiles={sectionTiles.filter((t) => !t.featured)} className="mt-4 sm:mt-6" />
         </div>
       </section>
 

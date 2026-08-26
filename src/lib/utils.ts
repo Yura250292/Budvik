@@ -4,13 +4,64 @@ export function cn(...classes: (string | undefined | false)[]) {
   return classes.filter(Boolean).join(" ");
 }
 
+/** Нерозривний пробіл: між тисячами й перед знаком гривні. */
+const NBSP = "\u00A0";
+
+/**
+ * Ціна у гривнях. Свідомо без Intl.
+ *
+ * Було: Intl.NumberFormat("uk-UA", { style: "currency", currency: "UAH" }).
+ * Знак валюти для uk-UA він бере з CLDR, а версія CLDR у Node на Vercel і в
+ * браузері відвідувача — різна: Node 22 (CLDR 47) друкує «1 234 ₴», Chrome
+ * 151 (CLDR 48) на тих самих даних — «1 234 грн». Для React це різний текст
+ * на сервері й на клієнті: гідратація падає з #418 і Next перемальовує все
+ * піддерево наново — на кожній картці головної й каталогу, на телефоні
+ * покупця. Формат ціни — рішення магазину, а не CLDR, тож рахуємо самі й
+ * отримуємо однаковий рядок скрізь: у SSR, у браузері, у застосунку.
+ *
+ * Поведінка збережена один-в-один: копійки показуємо лише коли вони є
+ * (0,5 ₴ — не «0,50 ₴»), округлення до копійки від нуля.
+ */
 export function formatPrice(price: number): string {
-  return new Intl.NumberFormat("uk-UA", {
-    style: "currency",
-    currency: "UAH",
-    minimumFractionDigits: 0,
-  }).format(price);
+  const value = Number.isFinite(price) ? price : 0;
+  const cents = Math.round(Math.abs(value) * 100);
+
+  const whole = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  const frac = cents % 100;
+  // 0 → без дробової частини, 50 → «,5», 7 → «,07»
+  const tail = frac === 0 ? "" : `,${String(frac).padStart(2, "0").replace(/0$/, "")}`;
+
+  return `${value < 0 && cents > 0 ? "-" : ""}${whole}${tail}${NBSP}\u20B4`;
 }
+
+/**
+ * Українська множина: «1 позиція», «2 позиції», «5 позицій».
+ *
+ * Intl.PluralRules сюди не годиться: він каже, яка форма потрібна, але не
+ * знає самих слів, тож форми все одно довелось би тримати поруч — а разом
+ * із ними приїхала б залежність від версії CLDR у середовищі, на якій уже
+ * одного разу розійшлися сервер і браузер (див. formatPrice).
+ *
+ * @param forms [одна, дві, п'ять]
+ */
+export function plural(n: number, forms: [string, string, string]): string {
+  const abs = Math.abs(Math.trunc(n));
+  const tens = abs % 100;
+  if (tens > 10 && tens < 20) return forms[2];
+  const ones = abs % 10;
+  if (ones === 1) return forms[0];
+  if (ones >= 2 && ones <= 4) return forms[1];
+  return forms[2];
+}
+
+/** «1 518 позицій» — з нерозривними пробілами між тисячами. */
+export function formatCount(n: number, forms: [string, string, string]): string {
+  const digits = String(Math.abs(Math.trunc(n))).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return `${digits}${NBSP}${plural(n, forms)}`;
+}
+
+/** Найчастіша пара на вітрині — розділи каталогу. */
+export const POSITIONS: [string, string, string] = ["позиція", "позиції", "позицій"];
 
 export function formatDate(date: Date | string): string {
   return new Intl.DateTimeFormat("uk-UA", {

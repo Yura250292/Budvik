@@ -10,7 +10,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { getToken, clearToken } from "@/lib/auth-store";
 import type {
-  CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig, LoginResult,
+  CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig, LoginResult, SuggestRow,
 } from "./types";
 
 /**
@@ -110,6 +110,10 @@ export const api = {
     const qs = sp.toString();
     return request<CatalogPage>(`/catalog${qs ? `?${qs}` : ""}`);
   },
+
+  /** Вісім рядків для випадайки пошуку — не двадцять чотири картки каталогу. */
+  suggest: (q: string) =>
+    request<{ items: SuggestRow[] }>(`/suggest?q=${encodeURIComponent(q)}`),
 
   product: (slug: string) => request<ProductDto>(`/products/${encodeURIComponent(slug)}`),
 

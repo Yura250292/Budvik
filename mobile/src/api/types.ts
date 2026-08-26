@@ -25,6 +25,18 @@ export type CardDto = {
   label: string | null;
 };
 
+/** Рядок підказки пошуку. Легший за CardDto: без кратності, бренда й басейну цін. */
+export type SuggestRow = {
+  id: string;
+  name: string;
+  slug: string;
+  sku: string | null;
+  price: number;
+  image: string | null;
+  stock: number;
+  label: string | null;
+};
+
 export type CatalogPage = {
   items: CardDto[];
   total: number;

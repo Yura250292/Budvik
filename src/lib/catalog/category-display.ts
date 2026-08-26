@@ -24,6 +24,26 @@ export function isHiddenCategory(name?: string | null): boolean {
 }
 
 /**
+ * Номер вузла в дереві 1С попереду назви: «02.03. ДРИЛІ-ШУРУПОВЕРТИ
+ * АКУМУЛЯТОРНІ». Так названі 1700 категорій із 2569 — тобто дві третини.
+ *
+ * Для комірника це адреса в дереві, для покупця — шум перед назвою, який ще й
+ * з'їдає половину вузького ярлика на картці. Крапка в кінці необов'язкова:
+ * трапляється і «2.07.02. Лопати», і без крапки.
+ */
+const CATEGORY_NUMBER_PREFIX = /^\d+(?:\.\d+)*\.?\s+/;
+
+/**
+ * Назва категорії такою, якою її має бачити покупець.
+ *
+ * В адмінці назви лишаються як є: там номер вузла — робочий орієнтир, за яким
+ * звіряються з 1С.
+ */
+export function cleanCategoryName(name: string): string {
+  return name.replace(CATEGORY_NUMBER_PREFIX, "").trim();
+}
+
+/**
  * Ярлик на картці товару. Категорія з 1С осмислена лише у 16% товарів, тому
  * там, де вона службова, підставляємо бренд — він заповнений майже скрізь і
  * покупцю каже більше, ніж порожнє місце.
@@ -32,6 +52,11 @@ export function productLabel(
   category?: { name: string } | null,
   brand?: { name: string } | null,
 ): string | null {
-  if (category && !isServiceCategory(category.name)) return category.name;
+  if (category && !isServiceCategory(category.name)) {
+    const clean = cleanCategoryName(category.name);
+    /* Якщо після номера нічого не лишилось, назва була самим номером —
+       тоді це службовий вузол, і краще показати бренд. */
+    if (clean) return clean;
+  }
   return brand?.name ?? null;
 }

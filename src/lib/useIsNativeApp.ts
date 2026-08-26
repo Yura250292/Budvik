@@ -110,13 +110,33 @@ function isNewer(server: string, installed: string): boolean {
  * дивна — просто не показуємо пункт. Кнопка «оновити», яка не працює,
  * гірша за її відсутність.
  */
+/**
+ * Перша збірка, підписана постійним ключем.
+ *
+ * До неї кожен APK підписувався ефемерним ключем, який CI-раннер
+ * генерував собі сам, — і кожна нова збірка була для Android «чужим
+ * пакетом». Оновлення поверх такої не стає: система каже «пакет
+ * конфліктує», і єдиний вихід — знести застосунок і поставити наново.
+ *
+ * Число тут потрібне, щоб не гнати на це ВСІХ. Оновлення з 3 на 4 і далі
+ * ставиться поверх звичайно, а зайве знесення коштувало б ненадісланого
+ * буфера точок і повторного входу на кожному планшеті.
+ */
+const FIRST_PERMANENT_KEY_BUILD = 3;
+
 export function useAppUpdate(): {
   available: boolean;
   viaBridge: boolean;
+  /**
+   * Встановлена збірка старша за перехід на постійний ключ — оновлення
+   * впреться в «пакет конфліктує», і його треба ставити з нуля.
+   */
+  signatureChange: boolean;
   start: () => void;
 } {
   const [available, setAvailable] = useState(false);
   const [viaBridge, setViaBridge] = useState(false);
+  const [signatureChange, setSignatureChange] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -149,6 +169,9 @@ export function useAppUpdate(): {
         if (newer) {
           setAvailable(true);
           setViaBridge(canSelfUpdate);
+          setSignatureChange(
+            installedCode !== null && installedCode < FIRST_PERMANENT_KEY_BUILD
+          );
         }
       })
       .catch(() => {});
@@ -161,6 +184,7 @@ export function useAppUpdate(): {
   return {
     available,
     viaBridge,
+    signatureChange,
     start: () => window.BudvikApp?.downloadUpdate?.(),
   };
 }

@@ -40,7 +40,13 @@ export default function ListScreen() {
     title?: string;
   }>();
 
-  const [filters, setFilters] = useState<Filters>({
+  /**
+   * Фільтр, зібраний із параметрів адреси.
+   *
+   * Окремою функцією, бо потрібен двічі: на першій відмальовці й щоразу, коли
+   * людина заходить у цей самий екран з іншого розділу.
+   */
+  const fromParams = (): Filters => ({
     brands: params.brand ? [params.brand] : [],
     types: params.type ? params.type.split(",") : [],
     priceMin: undefined,
@@ -48,6 +54,32 @@ export default function ListScreen() {
     inStockOnly: true,
     sort: "",
   });
+
+  /**
+   * Скидаємо фільтр, коли екран відкрили з іншими параметрами.
+   *
+   * Було: useState із початковим значенням із params — а він виконується лише
+   * при монтуванні. Expo Router тримає /list одним екраном на всі входи, тож
+   * при переході з «Малярного інструменту» в «Кріплення та метизи» params
+   * мінялися, а filters лишалися від попереднього розділу. Заголовок при
+   * цьому оновлювався (він читає params напряму), тож на екрані стояла нова
+   * назва над старим списком — і виглядало це так, ніби застосунок завис.
+   *
+   * Правка стану просто у тілі відмальовки, а не в ефекті: React саме так і
+   * радить скидати стан при зміні вхідних даних — зайвого проходу немає, а
+   * ефект тут дав би зайву відмальовку старого списку перед новим.
+   */
+  const paramsKey = `${params.brand ?? ""}|${params.type ?? ""}|${params.search ?? ""}`;
+  const [state, setState] = useState(() => ({ key: paramsKey, filters: fromParams() }));
+  if (state.key !== paramsKey) setState({ key: paramsKey, filters: fromParams() });
+
+  const filters = state.filters;
+  /** Приймає і готове значення, і функцію-оновлювач — як звичайний setState. */
+  const setFilters = (next: Filters | ((prev: Filters) => Filters)) =>
+    setState((prev) => ({
+      key: paramsKey,
+      filters: typeof next === "function" ? next(prev.filters) : next,
+    }));
 
   /**
    * Заголовок — те, звідки людина прийшла: назва бренда, розділу або сам

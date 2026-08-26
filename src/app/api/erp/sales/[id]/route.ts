@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { findReplacements, isOneCDraft } from "@/lib/erp/superseded";
 
 export async function GET(
   req: NextRequest,
@@ -19,7 +20,19 @@ export async function GET(
       counterparty: true,
       salesRep: { select: { id: true, name: true } },
       createdBy: { select: { id: true, name: true } },
+      // Порядок рядків задаємо ЯВНО: без orderBy Postgres віддає їх як лежить,
+      // і той самий документ у замовленні йшов за назвою, а в реалізації за
+      // артикулом. Торговий звіряє нашу картку з екраном 1С поруч, і мішанина
+      // рядків читається як «дані не ті».
+      //
+      // Спершу номер рядка з 1С — тоді порядок точно той, що набрав оператор.
+      // Документи, що приїхали до появи lineNo (і всі набрані на сайті), його
+      // не мають: nulls: "last" відсуває їх у кінець, а сортує такі документи
+      // назва товару — вона заодно групує по бренду, бо той стоїть першим
+      // словом. Заповнюються номери самі, щойно обмін перезапише табличну
+      // частину документа.
       items: {
+        orderBy: [{ lineNo: { sort: "asc", nulls: "last" } }, { product: { name: "asc" } }],
         include: {
           product: { select: { id: true, name: true, sku: true, price: true, stock: true, image: true } },
         },
@@ -40,7 +53,12 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(doc);
+  if (!isOneCDraft(doc)) return NextResponse.json(doc);
+
+  // На картці чернетки показуємо не лише номер заміни, а й її суму: різниця
+  // між ними — це і є недовіз, і рахувати його в голові торговий не має.
+  const replacedBy = (await findReplacements([doc])).get(doc.id) ?? null;
+  return NextResponse.json({ ...doc, replacedBy });
 }
 
 export async function PATCH(
@@ -59,6 +77,15 @@ export async function PATCH(
   }
   if (existing.status !== "DRAFT") {
     return NextResponse.json({ error: "Можна редагувати тільки чернетку" }, { status: 400 });
+  }
+  // Чернетка з 1С — не наша. Наступний же прогін обміну перезапише табличну
+  // частину цілком, тож правка тут не змінила б нічого, крім враження, що
+  // замовлення виправлено. Правити його треба в 1С.
+  if (existing.externalId) {
+    return NextResponse.json(
+      { error: "Замовлення з 1С — редагувати його треба в 1С" },
+      { status: 400 }
+    );
   }
 
   const body = await req.json();

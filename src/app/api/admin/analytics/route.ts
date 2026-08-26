@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma } from "@prisma/client";
+import { Prisma, type DocumentStatus } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -102,10 +102,14 @@ export async function GET(req: NextRequest) {
 
   // 2-3. Агрегати рахує Postgres по ВСЬОМУ періоду, а не по завантаженій
   //      сторінці — інакше КПІ й графік показували б лише останні
-  //      ORDERS_PAGE_SIZE замовлень. Скасовані сюди не входять, як і раніше.
+  //      ORDERS_PAGE_SIZE замовлень.
+  //
+  //      Скасовані сюди не входять, як і раніше, а разом з ними — чернетки.
+  //      DRAFT — це або непроведене замовлення з 1С, або недонабране на
+  //      сайті; ні те, ні те ще не гроші, і в графіку виручки їм не місце.
   const aggWhere = {
     ...docWhere,
-    status: { not: "CANCELLED" as const },
+    status: { notIn: ["CANCELLED", "DRAFT"] as DocumentStatus[] },
   };
 
   const [kpiAgg, dailyGroups, clientGroups] = await Promise.all([
@@ -120,7 +124,7 @@ export async function GET(req: NextRequest) {
              count(*)::int AS count
       FROM "SalesDocument" d
       WHERE d."docType" = 'ORDER'
-        AND d.status <> 'CANCELLED'
+        AND d.status NOT IN ('CANCELLED', 'DRAFT')
         ${from ? Prisma.sql`AND d."createdAt" >= ${new Date(from)}` : Prisma.empty}
         ${to ? Prisma.sql`AND d."createdAt" <= ${new Date(to + "T23:59:59")}` : Prisma.empty}
         ${repId && repId !== "ALL" ? Prisma.sql`AND d."salesRepId" = ${repId}` : Prisma.empty}
@@ -134,7 +138,7 @@ export async function GET(req: NextRequest) {
       FROM "SalesDocument" d
       JOIN "Counterparty" c ON c.id = d."counterpartyId"
       WHERE d."docType" = 'ORDER'
-        AND d.status <> 'CANCELLED'
+        AND d.status NOT IN ('CANCELLED', 'DRAFT')
         ${from ? Prisma.sql`AND d."createdAt" >= ${new Date(from)}` : Prisma.empty}
         ${to ? Prisma.sql`AND d."createdAt" <= ${new Date(to + "T23:59:59")}` : Prisma.empty}
         ${repId && repId !== "ALL" ? Prisma.sql`AND d."salesRepId" = ${repId}` : Prisma.empty}

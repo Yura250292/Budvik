@@ -18,6 +18,15 @@ const STATUS_COLOR: Record<string, string> = {
   IN_TRANSIT: "#D97706", DELIVERED: "#16A34A", CANCELLED: "#DC2626",
 };
 
+/**
+ * DRAFT з 1С — це непроведене замовлення, набране торговим; DRAFT без
+ * externalId — чернетка, набрана тут. Перше проводить 1С, друге —
+ * менеджер кнопкою нижче, і плутати їх не можна.
+ */
+function isOneCDraft(doc: { status: string; externalId?: string | null }): boolean {
+  return doc.status === "DRAFT" && !!doc.externalId;
+}
+
 export default function SalesDocumentsPage() {
   const { data: session } = useSession();
   const [docs, setDocs] = useState<any[]>([]);
@@ -153,7 +162,7 @@ export default function SalesDocumentsPage() {
                           padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 600,
                           background: STATUS_BG[d.status], color: STATUS_COLOR[d.status],
                         }}>
-                          {STATUS_LABELS[d.status]}
+                          {isOneCDraft(d) ? "Не проведено" : STATUS_LABELS[d.status]}
                         </span>
                       </td>
                       <td style={{ padding: "14px 16px", fontSize: "13px", color: "#6B7280" }}>
@@ -162,7 +171,7 @@ export default function SalesDocumentsPage() {
                       {canConfirm && (
                         <td style={{ padding: "14px 8px", textAlign: "center" }}>
                           <div className="flex gap-1 justify-center">
-                            {d.status === "DRAFT" && (
+                            {d.status === "DRAFT" && !isOneCDraft(d) && (
                               <>
                                 <button onClick={() => handleAction(d.id, "confirm")}
                                   disabled={actionLoading === d.id}

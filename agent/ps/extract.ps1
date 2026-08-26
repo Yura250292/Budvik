@@ -819,6 +819,9 @@ try {
                 productExternalId = $prodId
                 quantity          = Num $r.Get(2)
                 price             = Num $r.Get(3)
+                # Line number, so the site can show the lines in the order the
+                # operator typed them -- 1C has no other stable line identity.
+                lineNo            = Num $r.Get(5)
             })
             $itemRows++
         }
@@ -841,8 +844,14 @@ try {
                 date       = IsoDate $r.Get(2)
                 # Read, not assumed. An unposted document that we already have
                 # is an unposting in 1C, and the server turns it into CANCELLED;
-                # an unposted one we have never seen is a draft and is dropped.
+                # an unposted one we have never seen is the rep's own draft --
+                # the server keeps those as DRAFT so the rep sees his order in
+                # the app before the office posts it.
                 posted     = [bool]$r.Get(7)
+                # Deletion mark. Only orders carry it: they are the only type
+                # we keep while unposted, so they are the only type that can
+                # linger on the site after 1C throws the draft away.
+                deleted    = [bool]$r.Get(8)
             }
             $cp = RefId $ib $r.Get(3)
             if ($cp) { $rec.counterpartyExternalId = $cp }
@@ -924,6 +933,9 @@ try {
                 productExternalId = $prodId
                 quantity          = Num $r.Get(2)
                 price             = Num $r.Get(3)
+                # Line number, so the site can show the lines in the order the
+                # operator typed them -- 1C has no other stable line identity.
+                lineNo            = Num $r.Get(5)
             })
             $itemRows++
         }
@@ -1093,6 +1105,9 @@ try {
                 productExternalId = $prodId
                 quantity          = Num $r.Get(2)
                 price             = Num $r.Get(3)
+                # Line number, so the site can show the lines in the order the
+                # operator typed them -- 1C has no other stable line identity.
+                lineNo            = Num $r.Get(5)
             })
             $itemRows++
         }

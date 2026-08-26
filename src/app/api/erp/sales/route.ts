@@ -6,6 +6,7 @@ import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
 import { getLatestPurchasePrice } from "@/lib/erp/sales";
 import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 import { packQtyOf, roundUpToPack } from "@/lib/pack-qty";
+import { findReplacements } from "@/lib/erp/superseded";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -66,7 +67,18 @@ export async function GET(req: NextRequest) {
     take: 300,
   });
 
-  return NextResponse.json(docs);
+  // Чернетка з 1С, яку офіс замінив власним документом, лишається в списку,
+  // але з міткою: два документи на одну поставку без пояснення читаються як
+  // задвоєння, а з міткою — як «замовляли стільки, поїхало стільки».
+  const replacements = await findReplacements(docs);
+  if (replacements.size === 0) return NextResponse.json(docs);
+
+  return NextResponse.json(
+    docs.map((d) => {
+      const replacedBy = replacements.get(d.id);
+      return replacedBy ? { ...d, replacedBy } : d;
+    })
+  );
 }
 
 export async function POST(req: NextRequest) {

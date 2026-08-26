@@ -32,6 +32,7 @@ function extractItems(row: Row): DocumentItemRecord[] {
       productExternalId,
       quantity,
       price: num(line, "Цена", "Ціна") ?? 0,
+      lineNo: num(line, "LineNumber", "НомерСтроки"),
     });
   }
 
@@ -64,6 +65,7 @@ async function extractDocuments(
       counterpartyExternalId: ref(row, "Контрагент_Key", "Контрагент", "Клиент_Key"),
       totalAmount: num(row, "СуммаДокумента", "Сумма", "СумаДокумента"),
       posted: bool(row, "Posted", "Проведен"),
+      deleted: bool(row, "DeletionMark", "ПометкаУдаления"),
       items: extractItems(row),
     });
   }

@@ -267,7 +267,9 @@ export default function SalesDocumentDetailPage() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9E9E9E" }}>Завантаження...</div>;
 
-  const isDraft = isNew || doc?.status === "DRAFT";
+  // Документи з 1С тут лише читаються: непроведене замовлення проводить і
+  // править 1С, а наша правка все одно злетіла б на наступному обміні.
+  const isDraft = isNew || (doc?.status === "DRAFT" && !doc?.externalId);
   const addedProductIds = new Set(items.map((i) => i.productId));
 
   return (

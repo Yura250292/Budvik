@@ -869,6 +869,13 @@ model SalesDocumentItem {
   purchasePrice   Float
   discountPercent Float  @default(0)
 
+  /// Номер рядка в документі 1С — щоб картка показувала позиції в тому ж
+  /// порядку, що й 1С. Своєї тотожності рядок документа в 1С не має (див.
+  /// коментар угорі apply-documents.ts), тож це саме порядок, а не ключ.
+  /// null — документ прийшов до появи поля або набраний на сайті: такі
+  /// картка сортує за назвою товару.
+  lineNo Int?
+
   salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id])
 

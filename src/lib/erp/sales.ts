@@ -16,6 +16,14 @@ export async function confirmSalesDocument(id: string) {
 
   if (!doc) throw new Error("Документ не знайдено");
   if (doc.status !== "DRAFT") throw new Error("Можна підтвердити тільки чернетку");
+  // Чернетка з 1С проводиться в 1С. Доти документи обміну приходили одразу
+  // CONFIRMED і сюди потрапити не могли; відколи непроведені замовлення
+  // теж живуть на сайті як DRAFT, кнопка «Підтвердити» дістає й до них —
+  // а це списало б залишок і нарахувало комісію за документ, якого в 1С
+  // ще немає. Дві бази розійшлися б мовчки.
+  if (doc.externalId) {
+    throw new Error("Замовлення з 1С — проводити його треба в 1С");
+  }
   if (!doc.salesRepId) throw new Error("Не вказано торгового менеджера");
 
   await prisma.$transaction(async (tx) => {

@@ -4,7 +4,7 @@ import { Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import useSWR from "swr";
-import { formatPrice, formatDate } from "@/lib/utils";
+import { formatPrice, formatDate, formatDocDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { kyivToday } from "@/components/ui/PeriodPicker";
@@ -13,6 +13,20 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Створено", CONFIRMED: "Підтверджено", PACKING: "На упакуванні",
   IN_TRANSIT: "В дорозі", DELIVERED: "Доставлено", CANCELLED: "Скасовано",
 };
+
+/**
+ * Підпис статусу для КОНКРЕТНОГО документа.
+ *
+ * DRAFT означає різне залежно від походження: набране на сайті замовлення,
+ * яке торговий ще не підтвердив, — це «Створено», а те саме DRAFT з 1С
+ * (externalId є) — це «Не проведено», тобто офіс його ще не провів.
+ * Різниця для торгового принципова: перше він може добити сам, друге —
+ * тільки чекати, і поки чекає, кількості в документі ще можуть змінитись.
+ */
+function statusLabel(doc: { status: string; externalId?: string | null }): string {
+  if (doc.status === "DRAFT" && doc.externalId) return "Не проведено";
+  return STATUS_LABELS[doc.status] ?? doc.status;
+}
 const STATUS_BG: Record<string, string> = {
   DRAFT: "#FFF7ED", CONFIRMED: "#EFF6FF", PACKING: "#FDF4FF",
   IN_TRANSIT: "#FFFBEB", DELIVERED: "#F0FDF4", CANCELLED: "#FEF2F2",
@@ -29,7 +43,7 @@ const STATUS_COLOR: Record<string, string> = {
  */
 const STATUS_FILTERS = [
   { key: "", label: "Всі статуси" },
-  { key: "DRAFT", label: "Створені" },
+  { key: "DRAFT", label: "Не проведені" },
   { key: "CONFIRMED", label: "Підтверджені" },
   { key: "IN_TRANSIT", label: "В дорозі" },
   { key: "DELIVERED", label: "Доставлені" },
@@ -65,6 +79,10 @@ type Order = {
   status: string;
   createdAt: string;
   totalAmount: number;
+  /** Ref_Key з 1С. Є — документ прийшов обміном, немає — набраний на сайті. */
+  externalId?: string | null;
+  /** Проведений документ, яким офіс замінив цю чернетку (див. lib/erp/superseded.ts). */
+  replacedBy?: { id: string; number: string; totalAmount: number } | null;
   counterparty?: { name: string } | null;
   _count?: { items?: number };
 };
@@ -140,11 +158,14 @@ function Orders() {
   };
 
   // Підсумок рахуємо з уже завантаженого списку — другий запит заради
-  // двох чисел не потрібен. Скасовані у суму не йдуть: це не продаж.
-  const total = useMemo(
-    () => orders.filter((o) => o.status !== "CANCELLED").reduce((s, o) => s + o.totalAmount, 0),
+  // двох чисел не потрібен. Скасовані у суму не йдуть: це не продаж. Так
+  // само й непроведені: їхня сума ще може змінитись, коли офіс уріже
+  // кількості під залишок, і показувати її як зароблене — обіцяти зайве.
+  const counted = useMemo(
+    () => orders.filter((o) => o.status !== "CANCELLED" && o.status !== "DRAFT"),
     [orders]
   );
+  const total = useMemo(() => counted.reduce((s, o) => s + o.totalAmount, 0), [counted]);
 
   const periodLabel = PERIOD_FILTERS.find((p) => p.key === period)?.label ?? "";
 
@@ -210,7 +231,8 @@ function Orders() {
                 {periodLabel}
               </p>
               <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
-                {orders.length} док.
+                {counted.length} док.
+                {counted.length < orders.length && ` + ${orders.length - counted.length} не проведено`}
               </p>
             </div>
             <p className="tabular-nums" style={{ fontSize: "22px", fontWeight: 700, color: "#FFD600" }}>
@@ -268,11 +290,11 @@ function Orders() {
                         background: STATUS_BG[o.status], color: STATUS_COLOR[o.status],
                       }}
                     >
-                      {STATUS_LABELS[o.status]}
+                      {statusLabel(o)}
                     </span>
                   </div>
                   <p className="shrink-0" style={{ fontSize: "11px", color: "#9CA3AF" }}>
-                    {formatDate(o.createdAt)}
+                    {o.externalId ? formatDocDate(o.createdAt) : formatDate(o.createdAt)}
                   </p>
                 </div>
 
@@ -284,6 +306,13 @@ function Orders() {
                 <p className="truncate" style={{ fontSize: "14px", color: "#6B7280" }}>
                   {o.counterparty?.name || "Без клієнта"}
                 </p>
+                {/* Чернетка, яку офіс провів своїм документом. Без цього рядка
+                    дві картки на одну поставку читаються як задвоєння. */}
+                {o.replacedBy && (
+                  <p className="truncate" style={{ fontSize: "12px", color: "#C2410C", marginTop: "2px" }}>
+                    Замінено №{o.replacedBy.number} · {formatPrice(o.replacedBy.totalAmount)}
+                  </p>
+                )}
                 <div className="mt-1 flex items-baseline justify-between gap-2">
                   <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{o._count?.items || 0} позицій</p>
                   <p className="tabular-nums" style={{ fontSize: "20px", fontWeight: 700, color: "#0A0A0A" }}>

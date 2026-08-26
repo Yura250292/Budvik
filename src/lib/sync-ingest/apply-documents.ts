@@ -71,7 +71,9 @@ async function resolveItems(
   ctx: ApplyContext,
   documentNumber: string,
   sign: 1 | -1 = 1
-): Promise<{ productId: string; quantity: number; price: number; purchasePrice: number }[]> {
+): Promise<
+  { productId: string; quantity: number; price: number; purchasePrice: number; lineNo: number | null }[]
+> {
   if (items.length === 0) return [];
 
   const products = await prisma.product.findMany({
@@ -80,7 +82,13 @@ async function resolveItems(
   });
   const byExternalId = new Map(products.map((p) => [p.externalId!, p.id]));
 
-  const resolved: { productId: string; quantity: number; price: number; purchasePrice: number }[] = [];
+  const resolved: {
+    productId: string;
+    quantity: number;
+    price: number;
+    purchasePrice: number;
+    lineNo: number | null;
+  }[] = [];
 
   for (const item of items) {
     const productId = byExternalId.get(item.productExternalId);
@@ -148,6 +156,9 @@ async function resolveItems(
       quantity: sign * magnitude,
       price,
       purchasePrice: unitCost,
+      // Порядок позицій, як його набрали в 1С. Старий агент поля не шле —
+      // тоді null, і картка сортує такий документ за назвою товару.
+      lineNo: Number.isFinite(item.lineNo) ? Math.trunc(item.lineNo as number) : null,
     });
   }
 
@@ -352,16 +363,39 @@ export async function applySalesDocuments(
     // прогін старим агентом після оновлення сервера поскасовував би все.
     const posted = rec.posted ?? true;
 
-    // Непроведений документ, якого ми ще не бачили, — це чернетка в 1С:
-    // менеджер її ще набирає. Такі не імпортуємо взагалі, інакше сайт
-    // заповнюється сміттям, яке ніколи не стане продажем.
+    // ЗАМОВЛЕННЯ забираємо навіть непроведеними — як DRAFT.
     //
-    // А от непроведений документ, який у нас ВЖЕ Є, — це розпроведення:
-    // документ провели, ми його забрали, потім у 1С скасували. До появи
-    // реального posted обмін про це не дізнавався ніколи (в запитах стояло
-    // «ГДЕ Проведен», тож розпроведене просто зникало з вибірки), і документ
-    // назавжди лишався CONFIRMED — з повною сумою в обороті торгового.
-    if (!posted && !found) {
+    // Торговий набирає замовлення в 1С, офіс проводить його пізніше (а часом
+    // робить замість нього СВОЄ, під фактичний залишок). Доти сайт таких
+    // документів не бачив узагалі: за серпень 2026 повз розділ «Документи»
+    // пройшло 118 номерів замовлень, а торговий бачив натомість офісну копію
+    // з іншою кількістю — саме звідси розбіжність 8300,52 проти 7675,52 у
+    // Мандрика 26.08. Тепер його власне замовлення видно одразу зі статусом
+    // «Не проведено», а коли офіс проведе — та сама картка оновиться до
+    // реальних кількостей.
+    //
+    // Реалізації й повернення лишаються за старим правилом: їх набирає не
+    // торговий, а склад, і непроведена реалізація на екрані торгового — це
+    // сміття, якого він усе одно не пояснить.
+    //
+    // Непроведений документ, який у нас ВЖЕ Є, — окремий випадок: це або
+    // чернетка, яку ще не провели (лишається DRAFT), або розпроведення вже
+    // проведеного (їде в CANCELLED, див. nextStatus нижче).
+    const isOrder = docType === "ORDER";
+    if (!posted && !found && !isOrder) {
+      ctx.skipped++;
+      continue;
+    }
+
+    // Позначка видалення в 1С. Поля немає (старий агент) — документ живий.
+    //
+    // Без неї чернетки, які тепер живуть на сайті, ставали б безсмертними:
+    // вікно перечитування — три дні, тож викинуту в 1С чернетку сайт більше
+    // ніколи не побачив би у вивантаженні й лишив би її висіти в «Документах»
+    // назавжди. Помічену бачимо, поки вона не видалена остаточно, — цього
+    // вистачає, щоб прибрати її з екрана торгового.
+    const deleted = rec.deleted ?? false;
+    if (deleted && !found) {
       ctx.skipped++;
       continue;
     }
@@ -405,12 +439,14 @@ export async function applySalesDocuments(
           docType,
           counterpartyId,
           salesRepId,
-          // Сюди доходять лише проведені (непроведені нові відсіяні вище).
-          status: "CONFIRMED" as const,
+          // Непроведеним сюди доходить лише замовлення (решту відсіяно вище).
+          status: posted ? ("CONFIRMED" as const) : ("DRAFT" as const),
           totalAmount,
           createdById,
           createdAt: new Date(rec.date),
-          confirmedAt: new Date(rec.date),
+          // Дата проведення — тільки для проведеного: інакше чернетка
+          // виглядала б підтвердженою всюди, де ця дата править за ознаку.
+          confirmedAt: posted ? new Date(rec.date) : null,
           profitAmount: profitOf(items),
           items: {
             create: items.map((i) => ({
@@ -418,6 +454,7 @@ export async function applySalesDocuments(
               quantity: i.quantity,
               sellingPrice: i.price,
               purchasePrice: i.purchasePrice,
+              lineNo: i.lineNo,
             })),
           },
         };
@@ -440,7 +477,15 @@ export async function applySalesDocuments(
           found.status === "PACKING" ||
           found.status === "IN_TRANSIT" ||
           found.status === "DELIVERED";
-        const nextStatus = posted ? ("CONFIRMED" as const) : ("CANCELLED" as const);
+        // Непроведений документ означає різне залежно від того, чим він був
+        // у нас. Був чернеткою — чернеткою й лишається: 1С її ще не провела,
+        // і CANCELLED тут був би наклепом на живе замовлення торгового. Був
+        // проведеним — це розпроведення, і йому справді дорога в CANCELLED.
+        const nextStatus = posted
+          ? ("CONFIRMED" as const)
+          : found.status === "DRAFT" && !deleted
+            ? ("DRAFT" as const)
+            : ("CANCELLED" as const);
 
         // Табличну частину перезаписуємо цілком (див. коментар угорі файлу).
         const baseUpdate = {
@@ -455,6 +500,10 @@ export async function applySalesDocuments(
           // більше немає, зібрана чи навіть відвантажена коробка — привід
           // розібратись, а не показувати її як живий продаж.
           ...(liveOnSite && posted ? {} : { status: nextStatus }),
+          // Чернетку провели — фіксуємо дату проведення. Уже проведеному її
+          // не переставляємо: у 1С дата документа не міняється, а от у нас
+          // на цю дату спираються звіти й лідерборд.
+          ...(posted && found.status === "DRAFT" ? { confirmedAt: new Date(rec.date) } : {}),
           totalAmount,
           profitAmount: profitOf(items),
           items: {
@@ -463,6 +512,7 @@ export async function applySalesDocuments(
               quantity: i.quantity,
               sellingPrice: i.price,
               purchasePrice: i.purchasePrice,
+              lineNo: i.lineNo,
             })),
           },
         };

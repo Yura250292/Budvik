@@ -16,6 +16,8 @@ export interface BrandNode {
   name: string;
   slug: string;
   color: string | null;
+  /** Логотип, якщо він у нас є. У переважної більшості порожньо — див. Brand.logoUrl. */
+  logoUrl: string | null;
   count: number;
 }
 
@@ -41,13 +43,20 @@ export const getBrandTree = unstable_cache(
   async (): Promise<BrandTree> => {
     const [rows, unbranded, total] = await Promise.all([
       prisma.$queryRaw<
-        { id: string; name: string; slug: string; color: string | null; cnt: number }[]
+        {
+          id: string;
+          name: string;
+          slug: string;
+          color: string | null;
+          logoUrl: string | null;
+          cnt: number;
+        }[]
       >`
-        SELECT b.id, b.name, b.slug, b.color, count(p.id)::int AS cnt
+        SELECT b.id, b.name, b.slug, b.color, b."logoUrl", count(p.id)::int AS cnt
         FROM "Brand" b
         JOIN "Product" p ON p."brandId" = b.id AND p."isActive"
         WHERE b."isActive"
-        GROUP BY b.id, b.name, b.slug, b.color
+        GROUP BY b.id, b.name, b.slug, b.color, b."logoUrl"
         ORDER BY count(p.id) DESC, b.name ASC
       `,
       prisma.product.count({ where: { isActive: true, brandId: null } }),
@@ -59,6 +68,7 @@ export const getBrandTree = unstable_cache(
       name: r.name,
       slug: r.slug,
       color: r.color,
+      logoUrl: r.logoUrl,
       count: r.cnt,
     }));
 

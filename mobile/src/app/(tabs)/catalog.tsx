@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { RowSkeleton } from "@/components/Skeleton";
+import { BrandTile } from "@/components/BrandTile";
 import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius } from "@/theme";
 
@@ -25,7 +26,7 @@ type TocLine = { key: string; label: string; count: number };
 type TocSection = { id: string; title: string; icon: string; lines: TocLine[]; total: number };
 type Toc = { sections: TocSection[]; other: TocLine[]; total: number };
 
-type Brand = { slug: string; name: string; count: number };
+type Brand = { slug: string; name: string; count: number; color?: string | null; logoUrl?: string | null };
 type BrandTree = { main: Brand[]; tail: Brand[]; total: number };
 
 type Mode = "sections" | "brands";
@@ -157,6 +158,7 @@ export default function CatalogScreen() {
                 router.push({ pathname: "/list", params: { brand: item.slug, title: item.name } })
               }
             >
+              <BrandTile brand={item} size={40} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{item.name}</Text>
                 <Text style={styles.cardCount}>{item.count} позицій</Text>
@@ -219,7 +221,8 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 64,
+    gap: space.md,
+    minHeight: 72,
     paddingHorizontal: space.md,
     marginBottom: space.sm,
     borderRadius: radius.md,

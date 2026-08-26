@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductGridSkeleton } from "@/components/Skeleton";
+import { BrandTile } from "@/components/BrandTile";
 import { addToCart } from "@/lib/cart";
 import type { CardDto } from "@/api/types";
 import { colors, space, radius } from "@/theme";
@@ -34,7 +35,7 @@ type Shelf = { id: string; title: string; items: CardDto[] };
 type Home = {
   banners: Banner[];
   shelves: Shelf[];
-  brands: { slug: string; name: string; count: number }[];
+  brands: { slug: string; name: string; count: number; color?: string | null; logoUrl?: string | null }[];
 };
 
 export default function HomeScreen() {
@@ -108,12 +109,12 @@ export default function HomeScreen() {
           {data.brands.map((b) => (
             <Pressable
               key={b.slug}
-              style={styles.chip}
               onPress={() =>
                 router.push({ pathname: "/list", params: { brand: b.slug, title: b.name } })
               }
+              accessibilityLabel={`${b.name}, ${b.count} позицій`}
             >
-              <Text style={styles.chipText}>{b.name}</Text>
+              <BrandTile brand={b} size={40} />
             </Pressable>
           ))}
         </ScrollView>
@@ -170,15 +171,6 @@ const styles = StyleSheet.create({
   bannerCtaText: { fontSize: 13, fontWeight: "700", color: colors.ink },
 
   chipRow: { paddingHorizontal: space.md, gap: space.sm, paddingBottom: space.md },
-  chip: {
-    minHeight: 36,
-    justifyContent: "center",
-    paddingHorizontal: space.md,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipText: { fontSize: 13, fontWeight: "600", color: colors.text },
 
   shelfHead: { paddingHorizontal: space.md, paddingTop: space.md },
   shelfTitle: { fontSize: 17, fontWeight: "700", color: colors.text },

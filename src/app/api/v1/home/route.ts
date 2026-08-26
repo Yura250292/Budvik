@@ -120,6 +120,12 @@ export async function GET() {
       { id: "seasonal", title: `${getSeasonLabel(season)} — що беруть зараз`, items: seasonal.map(serializeCard) },
       { id: "newest", title: "Нові надходження", items: newest.map(serializeCard) },
     ].filter((s) => s.items.length > 0),
-    brands: brands.main.slice(0, 10).map((b) => ({ slug: b.slug, name: b.name, count: b.count })),
+    brands: brands.main.slice(0, 10).map((b) => ({
+      slug: b.slug,
+      name: b.name,
+      count: b.count,
+      color: b.color,
+      logoUrl: b.logoUrl,
+    })),
   });
 }

@@ -29,6 +29,8 @@ export async function GET(req: Request) {
       slug: b.slug,
       name: b.name,
       count: b.count,
+      color: b.color,
+      logoUrl: b.logoUrl,
     })),
     types,
     price,

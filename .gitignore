@@ -73,3 +73,9 @@ design/
 # Трекер (BudvikTracker.apk, 8 МБ) лишається в git — він на два порядки менший.
 /assets/app/Budvik27*.apk
 output/grosser-catalog/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/

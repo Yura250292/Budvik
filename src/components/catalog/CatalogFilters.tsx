@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useId } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BrandNode, TypeNode } from "@/lib/catalog/brand-tree";
 
@@ -12,11 +12,24 @@ import type { BrandNode, TypeNode } from "@/lib/catalog/brand-tree";
  * вже набрано. Стан тримаємо чернеткою і застосовуємо одним «Показати»:
  * інакше кожна галочка серед 114 брендів — це окремий перехід і очікування.
  */
+/** Розділ каталогу як рівень фільтра: обрати — це обрати всі його типи. */
+export interface SectionOption {
+  id: string;
+  title: string;
+  types: string[];
+  count: number;
+}
+
 interface Props {
   brands: BrandNode[];
   tailBrands: BrandNode[];
   unbranded: number;
   types: TypeNode[];
+  /**
+   * Розділи каталогу. Порожньо — коли розділ не має сенсу: у кабінеті
+   * торгового шукають за артикулом і брендом, а не гортають вітрину.
+   */
+  sections?: SectionOption[];
   priceBounds: { min: number; max: number };
   /** Куди застосовувати фільтри: вітрина чи кабінет торгового. */
   basePath?: string;
@@ -35,6 +48,7 @@ export default function CatalogFilters({
   tailBrands,
   unbranded,
   types,
+  sections = [],
   priceBounds,
   basePath = "/catalog",
   defaultShowAll = false,
@@ -51,6 +65,7 @@ export default function CatalogFilters({
       tailBrands={tailBrands}
       unbranded={unbranded}
       types={types}
+      sections={sections}
       priceBounds={priceBounds}
       basePath={basePath}
       defaultShowAll={defaultShowAll}
@@ -63,6 +78,7 @@ function FiltersInner({
   tailBrands,
   unbranded,
   types,
+  sections,
   priceBounds,
   basePath,
   defaultShowAll,
@@ -126,6 +142,25 @@ function FiltersInner({
     });
   };
 
+  /**
+   * Клік по групі товару, коли обрано весь розділ, — це звуження, а не зняття.
+   *
+   * Інакше людина, яка прийшла з банера «Різальний інструмент» і тицяє
+   * «Круг», отримувала розділ мінус круги: рівно навпаки до того, що
+   * просила. Далі клацання працює звично — типи додаються й знімаються.
+   */
+  const pickType = (value: string) => {
+    setDraft((d) => {
+      const whole =
+        activeSection &&
+        activeSection.types.length === d.types.length &&
+        activeSection.types.every((t) => d.types.includes(t));
+      if (whole) return { ...d, types: [value] };
+      const has = d.types.includes(value);
+      return { ...d, types: has ? d.types.filter((v) => v !== value) : [...d.types, value] };
+    });
+  };
+
   const reset = () => {
     const cleared = {
       ...draft,
@@ -147,10 +182,52 @@ function FiltersInner({
     return pool.filter((b) => b.name.toLowerCase().includes(q));
   }, [brandSearch, showTail, brands, tailBrands]);
 
+  /**
+   * Розділ вважаємо обраним, щойно з нього обрано бодай один тип.
+   *
+   * Без useMemo навмисно: компілятор React не зміг би зберегти ручну
+   * мемоїзацію по полю чернетки (`draft.types`) і мовчки лишив би весь
+   * компонент неоптимізованим — а список зі 114 брендів усередині.
+   */
+  const activeSection = sections.find((s) => s.types.some((t) => draft.types.includes(t))) ?? null;
+
   const body = (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/*
+        Розділ — верхній рівень дерева.
+
+        Без нього фільтри вміли звужувати вже обране, але не пропонували, з
+        чого почати: людині, яка прийшла пошуком і нічого не знайшла,
+        лишалась сітка на 49 тис. позицій і список зі 114 брендів. Обрати
+        розділ — це обрати всі його типи, тож посилання з вітрини й вибір
+        тут дають однакову адресу.
+      */}
+      {sections.length > 0 && (
+        <FilterBlock title="Розділ" defaultOpen={!activeSection}>
+          <div className="max-h-72 overflow-y-auto pr-1">
+            {sections.map((sec) => {
+              const whole = sec.types.every((t) => draft.types.includes(t));
+              const on = sec.types.some((t) => draft.types.includes(t));
+              return (
+                <button
+                  key={sec.id}
+                  onClick={() => setDraft((d) => ({ ...d, types: whole ? [] : sec.types }))}
+                  aria-pressed={on}
+                  className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left transition-colors duration-200 ${
+                    on ? "bg-[#FFD600]/25 font-semibold text-[#0A0A0A]" : "text-[#1A1A1A] hover:bg-[#FAFAFA]"
+                  }`}
+                >
+                  <span className="flex-1 truncate text-sm">{sec.title}</span>
+                  <span className="text-xs tabular-nums text-[#9E9E9E]">{sec.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </FilterBlock>
+      )}
+
       {/* Ціна */}
-      <FilterBlock title="Ціна, грн">
+      <FilterBlock title="Ціна, грн" defaultOpen={!activeSection}>
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -193,7 +270,7 @@ function FiltersInner({
       </FilterBlock>
 
       {/* Наявність */}
-      <FilterBlock title="Показувати">
+      <FilterBlock title="Показувати" defaultOpen={false}>
         {/* Навпаки до колишнього «лише в наявності»: наявність тепер
             за замовчуванням, а галочка відкриває решту асортименту. */}
         <CheckRow checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))}>
@@ -204,16 +281,16 @@ function FiltersInner({
         </CheckRow>
       </FilterBlock>
 
-      {/* Групи товарів */}
+      {/* Групи товарів усередині розділу (або бренда) */}
       {types.length > 0 && (
-        <FilterBlock title="Група товару">
+        <FilterBlock title="Групи товару">
           <div className="flex flex-wrap gap-1.5">
             {types.map((t) => {
               const on = draft.types.includes(t.key);
               return (
                 <button
                   key={t.key}
-                  onClick={() => toggle("types", t.key)}
+                  onClick={() => pickType(t.key)}
                   className={`rounded-lg border px-3 py-2 text-sm transition ${
                     on
                       ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
@@ -230,7 +307,7 @@ function FiltersInner({
       )}
 
       {/* Бренди */}
-      <FilterBlock title="Бренди">
+      <FilterBlock title="Бренди" defaultOpen={!activeSection}>
         <input
           value={brandSearch}
           onChange={(e) => setBrandSearch(e.target.value)}
@@ -358,11 +435,50 @@ function FiltersInner({
   );
 }
 
-function FilterBlock({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * Група фільтрів, яку можна згорнути.
+ *
+ * У колонці одночасно живуть розділи, групи товару, ціна й півтори сотні
+ * брендів — розгорнуте це кілька екранів прокрутки, а на телефоні панель
+ * фільтрів і поготів. Заголовок групи тепер кнопка: те, чим людина зараз не
+ * користується, згортається й не заважає дістатись решти.
+ */
+function FilterBlock({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const id = useId();
+
   return (
-    <div>
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-[#9E9E9E]">{title}</h3>
-      {children}
+    <div className="border-b border-[#F2F2F2] pb-3 last:border-b-0 last:pb-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={id}
+        className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 text-left"
+      >
+        <span className="text-xs font-bold uppercase tracking-wide text-[#9E9E9E]">{title}</span>
+        <svg
+          aria-hidden
+          className={`h-4 w-4 flex-shrink-0 text-[#C9C9C9] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <div id={id} hidden={!open}>
+        {children}
+      </div>
     </div>
   );
 }

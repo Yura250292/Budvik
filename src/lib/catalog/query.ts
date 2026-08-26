@@ -163,12 +163,22 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
 }
 
 export function buildOrderBy(sort?: string): Prisma.ProductOrderByWithRelationInput[] {
+  /*
+   * Обраний порядок — головний, залишок лише розводить однакові значення.
+   *
+   * Було навпаки: `stock: "desc"` стояв першим у кожному рядку, тобто
+   * «Дешевші» насправді сортувало за кількістю на складі, а ціна працювала
+   * тільки всередині товарів з однаковим залишком. У видачі кругів перша
+   * сторінка «найдешевших» починалася з позиції за 59 ₴ (їх на складі 200)
+   * і не показувала жодної за 22 ₴. Людина, яка натиснула «Дешевші», просила
+   * саме про ціну; наявність вона вже отримала фільтром за замовчуванням.
+   */
   const map: Record<string, Prisma.ProductOrderByWithRelationInput[]> = {
-    "price-asc": [{ stock: "desc" }, { price: "asc" }],
-    "price-desc": [{ stock: "desc" }, { price: "desc" }],
-    "name-asc": [{ stock: "desc" }, { name: "asc" }],
-    "name-desc": [{ stock: "desc" }, { name: "desc" }],
-    newest: [{ stock: "desc" }, { createdAt: "desc" }],
+    "price-asc": [{ price: "asc" }, { stock: "desc" }],
+    "price-desc": [{ price: "desc" }, { stock: "desc" }],
+    "name-asc": [{ name: "asc" }],
+    "name-desc": [{ name: "desc" }],
+    newest: [{ createdAt: "desc" }, { stock: "desc" }],
   };
   // За замовчуванням: спершу те, що є на складі — торговий показує клієнту
   // товар, який можна відвантажити сьогодні.

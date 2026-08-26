@@ -9,9 +9,11 @@ import { notFound } from "next/navigation";
 import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogFilters from "@/components/catalog/CatalogFilters";
+import CatalogBreadcrumbs, { sectionOfTypes } from "@/components/catalog/CatalogBreadcrumbs";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SearchTracker from "@/components/webstats/SearchTracker";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
+import { getCatalogToc } from "@/lib/catalog/sections";
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
@@ -93,12 +95,40 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   // оптової ціни для 2%. Оптовик добирає свою знижку на клієнті
   // (useWholesaleDiscounts у ProductCard).
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, types] = await Promise.all([
+  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, brandTypes, toc] = await Promise.all([
     fetchCatalogPage(filters, page),
     getBrandTree(),
     getPriceBounds(),
     singleBrand ? getBrandTypes(singleBrand) : Promise.resolve([]),
+    getCatalogToc(),
   ]);
+
+  /*
+   * Дерево каталогу для лівої колонки.
+   *
+   * Групи товару досі з'являлись лише всередині одного бренда — тобто на
+   * чистому /catalog фільтрувати не було чим, і єдиним способом звузити
+   * видачу лишався бренд. Тепер, коли обрано розділ, показуємо його типи:
+   * «Різальний інструмент» → круг, диск, свердло, бур. Це той самий зміст,
+   * що на вітрині й на /catalog/zmist, тож числа скрізь однакові.
+   */
+  const sectionOptions = toc.sections.map((s) => ({
+    id: s.id,
+    title: s.title,
+    types: s.types,
+    count: s.total,
+  }));
+  const activeSection = sectionOfTypes(filters.types, sectionOptions);
+  const sectionLines = activeSection
+    ? toc.sections.find((s) => s.id === activeSection.id)?.lines ?? []
+    : [];
+  const wholeSection =
+    activeSection &&
+    filters.types.length === activeSection.types.length &&
+    activeSection.types.every((t) => filters.types.includes(t));
+  // Бренд звужує сильніше за розділ: якщо обрано один бренд, групи беремо в
+  // його розрізі — «свердло» всередині YATO, а не по всьому каталогу.
+  const types = singleBrand ? brandTypes : sectionLines;
 
   // Картці потрібен лише короткий анонс без розмітки — повний опис у
   // пропсах їхав би в HTML двічі (розмітка + RSC-payload для гідрації).
@@ -118,10 +148,14 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       ? activeBrands[0].name
       : filters.search
         ? `Пошук: «${filters.search}»`
-        : "Каталог інструментів";
+        : wholeSection && activeSection
+          ? activeSection.title
+          : filters.types.length === 1
+            ? filters.types[0].charAt(0).toUpperCase() + filters.types[0].slice(1)
+            : "Каталог інструментів";
 
   const SORTS = [
-    { value: "", label: "За замовч." },
+    { value: "", label: "Рекомендовані" },
     { value: "price-asc", label: "Дешевші" },
     { value: "price-desc", label: "Дорожчі" },
     { value: "newest", label: "Новинки" },
@@ -134,17 +168,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
           поля пошуку, а нуль результатів — готовий список того, чого в
           каталозі бракує. */}
       {filters.search && <SearchTracker query={filters.search} total={total} />}
-      <nav className="breadcrumb-scroll mb-4 flex items-center gap-2 text-sm text-[#9E9E9E] sm:mb-6">
-        <Link href="/" className="transition duration-200 hover:text-[#FFB800]">Головна</Link>
-        <span className="text-[#DADADA]">/</span>
-        <Link href="/catalog" className="font-medium text-[#0A0A0A]">Каталог</Link>
-        {activeBrands.length === 1 && (
-          <>
-            <span className="text-[#DADADA]">/</span>
-            <span className="font-medium text-[#0A0A0A]">{activeBrands[0].name}</span>
-          </>
-        )}
-      </nav>
+      <CatalogBreadcrumbs filters={filters} sections={sectionOptions} brandName={activeBrands[0]?.name ?? null} />
 
       <div className="mb-4">
         <h1 className="mb-1 text-2xl font-bold text-[#0A0A0A] sm:text-3xl">{title}</h1>
@@ -201,7 +225,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <ActiveFilterChips filters={filters} brands={allBrands} unbranded={tree.unbranded} />
+      <ActiveFilterChips filters={filters} brands={allBrands} unbranded={tree.unbranded} sections={sectionOptions} />
 
       <div className="flex flex-col gap-4 sm:gap-6 md:flex-row">
         <aside className="w-full flex-shrink-0 md:w-72">
@@ -210,6 +234,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             tailBrands={tree.tail}
             unbranded={tree.unbranded}
             types={types}
+            sections={sectionOptions}
             priceBounds={priceBounds}
           />
         </aside>

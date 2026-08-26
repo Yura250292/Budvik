@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { CatalogFilters } from "@/lib/catalog/query";
 import { filtersToQuery } from "@/lib/catalog/query";
 import type { BrandNode } from "@/lib/catalog/brand-tree";
+import type { SectionOption } from "@/components/catalog/CatalogFilters";
 
 /**
  * Увімкнені фільтри рядком під заголовком.
@@ -14,12 +15,15 @@ export default function ActiveFilterChips({
   filters,
   brands,
   unbranded,
+  sections = [],
   basePath = "/catalog",
   defaultShowAll = false,
 }: {
   filters: CatalogFilters;
   brands: BrandNode[];
   unbranded: number;
+  /** Розділи каталогу — щоб цілий розділ показати одним чипом, а не дюжиною. */
+  sections?: SectionOption[];
   /** Куди ведуть чипи: вітрина чи кабінет торгового. */
   basePath?: string;
   /**
@@ -44,11 +48,32 @@ export default function ActiveFilterChips({
     });
   }
 
-  for (const t of filters.types) {
+  /*
+   * Цілий розділ — це дюжина типів в адресі, але для людини один вибір.
+   *
+   * Перехід із банера «Різальний інструмент» малював дванадцять чипів
+   * (Свердло ×, Круг ×, Диск ×…) — рядок, у якому не видно ні що обрано, ні
+   * як це скинути одним рухом. Показуємо назву розділу, а хрестик знімає
+   * його цілком.
+   */
+  const wholeSection = sections.find(
+    (sec) =>
+      sec.types.length === filters.types.length &&
+      sec.types.every((t) => filters.types.includes(t))
+  );
+
+  if (wholeSection) {
     chips.push({
-      label: t.charAt(0).toUpperCase() + t.slice(1),
-      href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
+      label: wholeSection.title,
+      href: `${basePath}${query({ ...filters, types: [] })}`,
     });
+  } else {
+    for (const t of filters.types) {
+      chips.push({
+        label: t.charAt(0).toUpperCase() + t.slice(1),
+        href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
+      });
+    }
   }
 
   if (filters.priceMin !== undefined || filters.priceMax !== undefined) {

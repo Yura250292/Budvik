@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { skuSearchConditions } from "@/lib/catalog/sku-search";
 import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
-import { productType, isMeaningfulType } from "@/lib/catalog/brand-tree";
+import { TYPE_LABELS } from "@/lib/catalog/classify";
 
 export const SUGGEST_LIMIT = 8;
 
@@ -254,7 +254,7 @@ async function suggestFacets(terms: string[]): Promise<{ brands: SuggestFacet[];
       ...SHOWABLE,
       AND: terms.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
     },
-    select: { name: true, brand: { select: { name: true, slug: true } } },
+    select: { typeKey: true, brand: { select: { name: true, slug: true } } },
     orderBy: [{ stock: "desc" }],
     take: FACET_POOL,
   });
@@ -269,13 +269,13 @@ async function suggestFacets(terms: string[]): Promise<{ brands: SuggestFacet[];
     }
 
     /*
-     * Тип виводиться з назви тим самим productType, що й зміст каталогу, —
-     * інакше уточнення вело б у список, який не збігається з обіцяним.
+     * Група береться з тієї самої колонки, якою фільтрує каталог, — інакше
+     * уточнення вело б у список, що не збігається з обіцяним.
      */
-    const t = productType(r.name, r.brand?.name ?? null);
-    if (t && isMeaningfulType(t)) {
+    const t = r.typeKey;
+    if (t) {
       const cur = types.get(t);
-      types.set(t, { label: t.charAt(0).toUpperCase() + t.slice(1), count: (cur?.count ?? 0) + 1 });
+      types.set(t, { label: TYPE_LABELS[t] ?? t, count: (cur?.count ?? 0) + 1 });
     }
   }
 

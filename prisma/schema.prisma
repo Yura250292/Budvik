@@ -437,6 +437,18 @@ model Product {
   /// саме за нею.
   priceSyncedAt DateTime?
 
+  /// Група товару («свердло», «бензопила») і розділ каталогу («osnastka»).
+  ///
+  /// Рахує src/lib/catalog/classify.ts за назвою; тут лежить результат, бо
+  /// каталог фільтрує і гортає в SQL. Поки типу не було в базі, зміст рахував
+  /// групу в пам'яті (перше слово назви), а фільтр шукав це слово підрядком
+  /// у назві — і в «Електроінструмент» приїжджали «Щітка чаша (КШМ)» та
+  /// «Ланцюг до бензопили»: 42% видачі розділу були чужими товарами.
+  ///
+  /// Перераховує scripts/classify-catalog.mts і обмін з 1С при зміні назви.
+  typeKey   String?
+  sectionId String?
+
   // ERP relations
   supplierProducts   SupplierProduct[]
   purchaseOrderItems PurchaseOrderItem[]
@@ -448,6 +460,10 @@ model Product {
   warehouseReportItems WarehouseReportItem[] @relation("warehouseItemProduct")
 
   @@index([brandId])
+  // Розділ і група — головні фільтри вітрини; складений індекс покриває
+  // і «весь розділ», і «одна група всередині розділу».
+  @@index([sectionId, typeKey])
+  @@index([typeKey])
   // GIN — бо шукаємо `barcodes has "482..."`, а B-tree по масиву в цьому не помічний.
   @@index([barcodes], type: Gin)
 }

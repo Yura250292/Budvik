@@ -17,7 +17,7 @@
 
 import Link from "next/link";
 import SectionIcon from "@/components/icons/SectionIcon";
-import type { TocSection } from "@/lib/catalog/sections";
+import { sectionHref, type TocSection } from "@/lib/catalog/sections";
 
 export default function CategoryRail({
   sections,
@@ -40,7 +40,7 @@ export default function CategoryRail({
           {sections.map((s) => (
             <li key={s.id}>
               <Link
-                href={`/catalog?type=${encodeURIComponent(s.types.join(","))}`}
+                href={sectionHref(s.id)}
                 className="group relative flex min-h-11 cursor-pointer items-center gap-2.5 border-b border-[#F2F2F2] py-1.5 pl-3.5 pr-3 text-[13px] leading-tight text-[#1A1A1A] transition-colors duration-200 last:border-b-0 hover:bg-[#FFFCF0] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#0A0A0A]"
               >
                 {/* Жовта смужка ліворуч замість заливки всього рядка: у

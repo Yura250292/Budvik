@@ -19,7 +19,6 @@ const BRANDS_SHOWN = 20;
 export interface SectionOption {
   id: string;
   title: string;
-  types: string[];
   count: number;
 }
 
@@ -101,6 +100,7 @@ function FiltersInner({
     () => ({
       brands: (sp.get("brand") || "").split(",").filter(Boolean),
       types: (sp.get("type") || "").split(",").filter(Boolean),
+      section: sp.get("section") || "",
       priceMin: sp.get("priceMin") || "",
       priceMax: sp.get("priceMax") || "",
       showAll: sp.has("all") ? sp.get("all") === "1" : defaultShowAll,
@@ -121,6 +121,7 @@ function FiltersInner({
   const activeCount =
     current.brands.length +
     current.types.length +
+    (current.section ? 1 : 0) +
     (current.priceMin ? 1 : 0) +
     (current.priceMax ? 1 : 0) +
     (current.showAll !== defaultShowAll ? 1 : 0) +
@@ -130,6 +131,7 @@ function FiltersInner({
     (next: typeof draft) => {
       const q = new URLSearchParams();
       if (next.brands.length) q.set("brand", next.brands.join(","));
+      if (next.section) q.set("section", next.section);
       if (next.types.length) q.set("type", next.types.join(","));
       if (next.search) q.set("search", next.search);
       if (next.priceMin) q.set("priceMin", next.priceMin);
@@ -154,19 +156,14 @@ function FiltersInner({
   };
 
   /**
-   * Клік по групі товару, коли обрано весь розділ, — це звуження, а не зняття.
+   * Клік по групі товару звужує розділ, а не замінює його.
    *
-   * Інакше людина, яка прийшла з банера «Різальний інструмент» і тицяє
-   * «Круг», отримувала розділ мінус круги: рівно навпаки до того, що
-   * просила. Далі клацання працює звично — типи додаються й знімаються.
+   * Розділ тепер живе в окремому ?section=, тож зняття останньої групи
+   * повертає людину до всього розділу, а не до всього каталогу: саме цього
+   * і чекають від кнопки «назад на крок».
    */
   const pickType = (value: string) => {
     setDraft((d) => {
-      const whole =
-        activeSection &&
-        activeSection.types.length === d.types.length &&
-        activeSection.types.every((t) => d.types.includes(t));
-      if (whole) return { ...d, types: [value] };
       const has = d.types.includes(value);
       return { ...d, types: has ? d.types.filter((v) => v !== value) : [...d.types, value] };
     });
@@ -177,6 +174,7 @@ function FiltersInner({
       ...draft,
       brands: [],
       types: [],
+      section: "",
       priceMin: "",
       priceMax: "",
       showAll: defaultShowAll,
@@ -225,13 +223,13 @@ function FiltersInner({
     : tailBrands.length;
 
   /**
-   * Розділ вважаємо обраним, щойно з нього обрано бодай один тип.
+   * Обраний розділ — той, що стоїть у ?section=.
    *
    * Без useMemo навмисно: компілятор React не зміг би зберегти ручну
-   * мемоїзацію по полю чернетки (`draft.types`) і мовчки лишив би весь
-   * компонент неоптимізованим — а список зі 114 брендів усередині.
+   * мемоїзацію по полю чернетки і мовчки лишив би весь компонент
+   * неоптимізованим — а список зі 114 брендів усередині.
    */
-  const activeSection = sections.find((s) => s.types.some((t) => draft.types.includes(t))) ?? null;
+  const activeSection = sections.find((s) => s.id === draft.section) ?? null;
 
   const body = (
     <div className="space-y-3">
@@ -240,20 +238,24 @@ function FiltersInner({
 
         Без нього фільтри вміли звужувати вже обране, але не пропонували, з
         чого почати: людині, яка прийшла пошуком і нічого не знайшла,
-        лишалась сітка на 49 тис. позицій і список зі 114 брендів. Обрати
-        розділ — це обрати всі його типи, тож посилання з вітрини й вибір
-        тут дають однакову адресу.
+        лишалась сітка на 49 тис. позицій і список зі 114 брендів. Розділ
+        їде окремим ?section=, тож посилання з вітрини й вибір тут дають
+        однакову адресу.
       */}
       {sections.length > 0 && (
         <FilterBlock title="Розділ" defaultOpen={!activeSection}>
           <div className="max-h-72 overflow-y-auto pr-1">
             {sections.map((sec) => {
-              const whole = sec.types.every((t) => draft.types.includes(t));
-              const on = sec.types.some((t) => draft.types.includes(t));
+              const on = draft.section === sec.id;
               return (
                 <button
                   key={sec.id}
-                  onClick={() => setDraft((d) => ({ ...d, types: whole ? [] : sec.types }))}
+                  // Зміна розділу скидає групи: «свердло» з оснастки не має
+                  // сенсу всередині садової техніки, а порожня видача виглядає
+                  // як поламаний фільтр.
+                  onClick={() =>
+                    setDraft((d) => (on ? { ...d, section: "", types: [] } : { ...d, section: sec.id, types: [] }))
+                  }
                   aria-pressed={on}
                   className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left transition-colors duration-200 ${
                     on ? "bg-[#FFD600]/25 font-semibold text-[#0A0A0A]" : "text-[#1A1A1A] hover:bg-[#FAFAFA]"

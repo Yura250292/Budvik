@@ -1,7 +1,7 @@
 export const revalidate = 3600;
 
 import Link from "next/link";
-import { getCatalogToc } from "@/lib/catalog/sections";
+import { getCatalogToc, sectionHref } from "@/lib/catalog/sections";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 
 export const metadata = {
@@ -89,24 +89,24 @@ export default async function CatalogTocPage() {
           >
             {/*
               Заголовок розділу — теж посилання: «покажіть увесь малярний
-              інструмент» частіше за «покажіть саме валики». ?type= розуміє
-              список через кому, тож бекенд для цього вже готовий.
+              інструмент» частіше за «покажіть саме валики».
 
-              Числа біля заголовка навмисно немає: зміст рахує за типом
-              (перше слово назви), а фільтр шукає підрядок будь-де, тож
-              «валик» ловить ще й «ручку для валика». Підсумок вийшов би
-              більший за показаний — краще без цифри, ніж з неправдивою.
+              Число біля заголовка тепер можна показувати чесно: розділ і
+              фільтр читають ту саму колонку Product.sectionId, тож підсумок
+              дорівнює тому, що відкриється за посиланням. Раніше зміст
+              рахував тип першим словом назви, а фільтр шукав це слово
+              підрядком, і цифра завжди трохи брехала.
             */}
             <Link
-              href={`/catalog?type=${encodeURIComponent(section.types.join(","))}`}
+              href={sectionHref(section.id)}
               className="group mb-2.5 flex min-h-11 items-center gap-2 border-b border-[#EFEFEF] pb-1.5 transition hover:border-[#FFD600] active:bg-[#FFD600]/10"
             >
               <span className="text-lg">{section.icon}</span>
               <span className="flex-1 text-base font-bold leading-tight text-[#0A0A0A] group-hover:underline sm:text-lg">
                 {section.title}
               </span>
-              <span className="text-xs font-medium text-[#9E9E9E] transition group-hover:text-[#0A0A0A]">
-                усі →
+              <span className="text-xs font-medium tabular-nums text-[#9E9E9E] transition group-hover:text-[#0A0A0A]">
+                {section.total} →
               </span>
             </Link>
 

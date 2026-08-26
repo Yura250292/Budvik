@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
 import { parsePackQty } from "@/lib/pack-qty";
+import { classify } from "@/lib/catalog/classify";
 import { isHiddenCategory } from "@/lib/catalog/category-display";
 import { isRealSku } from "@/lib/catalog/sku-search";
 import crypto from "crypto";
@@ -256,6 +257,11 @@ export async function applyProducts(
       // унікальному індексі. Так сталося з 426 товарами: однойменні позиції
       // з різних батчів претендували на один slug, takenSlugs бачив лише свій
       // батч, і товари просто не створювались.
+      // Розділ і група каталогу — з назви, тим самим класифікатором, що й
+      // масовий прогін (scripts/classify-catalog.mts). Без цього новий товар
+      // лежав би поза будь-яким розділом до наступного запуску скрипта.
+      const group = classify(rec.name);
+
       const createData = {
         externalId: rec.externalId,
         name: rec.name,
@@ -265,6 +271,8 @@ export async function applyProducts(
         categoryId,
         brandId: detectBrandId(rec.name),
         packQty: parsePackQty(rec.name),
+        typeKey: group?.type ?? null,
+        sectionId: group?.section ?? null,
         // Стенди, реклама, сувенірка, обмінний фонд — не для вітрини.
         isActive: !isHiddenCategory(categoryNameById.get(categoryId)),
         syncedAt: new Date(),
@@ -369,6 +377,10 @@ export async function applyProducts(
         valueBudvik: existing.name,
       });
       updates.name = rec.name;
+      // Назва змінилась — група й розділ могли поїхати разом із нею.
+      const c = classify(rec.name);
+      updates.typeKey = c?.type ?? null;
+      updates.sectionId = c?.section ?? null;
     }
 
     // Опис заповнюємо лише якщо на сайті порожньо.

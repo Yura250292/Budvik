@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { productType, CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
+import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { skuSearchConditions, looksLikeSku } from "@/lib/catalog/sku-search";
 import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
@@ -16,8 +16,17 @@ import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
 export interface CatalogFilters {
   /** Slug бренда, "none" — товари без бренда, кілька — через кому. */
   brands: string[];
-  /** Тип товару (перше слово назви після зрізаного бренда). */
+  /** Групи товару (Product.typeKey) — «свердло», «бензопила». */
   types: string[];
+  /**
+   * Розділ каталогу (Product.sectionId) — «osnastka», «sad».
+   *
+   * Окремий фільтр, а не перелік усіх груп розділу в ?type=: посилання
+   * «Електроінструмент» містило 40 токенів, ламалось від кожної правки
+   * складу розділу і не мало як показати товар, який до розділу належить,
+   * а окремої групи ще не набрав.
+   */
+  section?: string;
   search?: string;
   priceMin?: number;
   priceMax?: number;
@@ -58,6 +67,7 @@ export function parseFilters(sp: URLSearchParams | Record<string, string | undef
   return {
     brands: list("brand"),
     types: list("type"),
+    section: get("section") || undefined,
     search: get("search")?.trim() || undefined,
     priceMin: num("priceMin"),
     priceMax: num("priceMax"),
@@ -98,11 +108,21 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
     if (or.length) and.push({ OR: or });
   }
 
-  // Тип живе в назві, а не окремою колонкою, тож фільтруємо підрядком —
-  // всередині обраного бренда це безпечно, бо тип і виведений із цієї ж назви.
-  if (f.types.length) {
-    and.push({ OR: f.types.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })) });
-  }
+  /*
+   * Розділ і група — точний збіг по колонках, а не підрядок у назві.
+   *
+   * Було `name contains «болгарка»`, і посилання розділу тягло все, де це
+   * слово взагалі трапляється: «Щітка чаша (КШМ)», «Ключ для болгарки»,
+   * «Ланцюг до бензопили». Заміряно на живій базі: 42% видачі розділу
+   * «Електроінструмент» були чужими товарами, у «Хімії» — 66%.
+   *
+   * Головне навіть не це, а те, що зміст рахував розділ ОДНИМ способом
+   * (група за назвою), а фільтр відбирав ІНШИМ. Число під назвою розділу
+   * не могло збігтися з видачею в принципі. Тепер обидва читають ті самі
+   * колонки, які проставляє класифікатор.
+   */
+  if (f.section) and.push({ sectionId: f.section });
+  if (f.types.length) and.push({ typeKey: { in: f.types } });
 
   if (f.categorySlug) where.category = { slug: f.categorySlug };
 
@@ -202,6 +222,7 @@ export function filtersToQuery(
   const sp = new URLSearchParams();
   if (f.brands?.length) sp.set("brand", f.brands.join(","));
   if (f.types?.length) sp.set("type", f.types.join(","));
+  if (f.section) sp.set("section", f.section);
   if (f.search) sp.set("search", f.search);
   if (f.priceMin !== undefined) sp.set("priceMin", String(f.priceMin));
   if (f.priceMax !== undefined) sp.set("priceMax", String(f.priceMax));
@@ -371,6 +392,3 @@ async function rescueSearch(f: CatalogFilters) {
   });
   return reorderByIds(found, ids);
 }
-
-/** Ре-експорт, щоб сторінки тягли типізацію з одного модуля. */
-export { productType };

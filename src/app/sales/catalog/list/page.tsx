@@ -6,6 +6,7 @@ import CatalogFilters from "@/components/catalog/CatalogFilters";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SalesProductList from "@/components/catalog/SalesProductList";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
+import { getCatalogToc } from "@/lib/catalog/sections";
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
@@ -42,7 +43,16 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
   ]);
 
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const types = singleBrand ? await getBrandTypes(singleBrand) : [];
+  /*
+   * Групи товару: у розрізі бренда, якщо обрано один, інакше — групи
+   * обраного розділу. Без другої гілки торговий, що прийшов зі змісту
+   * розділом, не мав чим звузити видачу на 1236 позицій оснастки.
+   */
+  const toc = await getCatalogToc();
+  const types = singleBrand
+    ? await getBrandTypes(singleBrand)
+    : toc.sections.find((s) => s.id === filters.section)?.lines ?? [];
+  const sectionOptions = toc.sections.map((s) => ({ id: s.id, title: s.title, count: s.total }));
 
   const allBrands = tree.main.concat(tree.tail);
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
@@ -71,6 +81,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
               tailBrands={tree.tail}
               unbranded={tree.unbranded}
               types={types}
+              sections={sectionOptions}
               priceBounds={priceBounds}
               basePath="/sales/catalog/list"
               defaultShowAll

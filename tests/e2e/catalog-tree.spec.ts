@@ -8,8 +8,11 @@
 
 import { test, expect, type Page } from "@playwright/test";
 
-const KRUG = "/catalog?type=" + encodeURIComponent("круг");
-const SECTION = "Різальний інструмент і оснастка";
+/** Група всередині розділу: розділ в адресі, група — уточненням. */
+const KRUG = "/catalog?section=osnastka&type=" + encodeURIComponent("відрізний-круг");
+const KRUG_LABEL = "Відрізні круги";
+const SECTION = "Оснастка та витратні";
+const SECTION_HREF = "/catalog?section=osnastka";
 
 const crumbs = (page: Page) => page.getByRole("navigation", { name: "Шлях по каталогу" });
 const filters = (page: Page) => page.locator("aside");
@@ -52,22 +55,21 @@ test.describe("дерево каталогу", () => {
     expect(items).toContain("Головна");
     expect(items).toContain("Каталог");
     expect(items).toContain(SECTION);
-    expect(items).toContain("Круг");
+    expect(items).toContain(KRUG_LABEL);
 
     // Остання ланка — місце, де ми зараз: не посилання.
-    await expect(crumbs(page).getByText("Круг", { exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(crumbs(page).getByText(KRUG_LABEL, { exact: true })).toHaveAttribute("aria-current", "page");
   });
 
   test("ланка розділу піднімає на рівень вище, а не скидає все", async ({ page }) => {
     await page.goto(KRUG, { waitUntil: "domcontentloaded" });
     await crumbs(page).getByRole("link", { name: SECTION }).click();
-    // Чекаємо на сам перехід, а не на адресу з ?type=: вона вже така.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(SECTION);
 
-    // Лишились типи розділу — і їх більше, ніж один «круг».
-    const types = new URL(page.url()).searchParams.get("type")!.split(",");
-    expect(types.length).toBeGreaterThan(1);
-    expect(types).toContain("круг");
+    // Розділ лишився, звуження до групи знялось: це крок угору, а не скидання.
+    const sp = new URL(page.url()).searchParams;
+    expect(sp.get("section")).toBe("osnastka");
+    expect(sp.get("type")).toBeNull();
   });
 
   test("з розділу можна піднятись у каталог", async ({ page }) => {
@@ -98,7 +100,7 @@ test.describe("фільтри-дерево", () => {
     await filters(page).locator('button[aria-pressed]').filter({ hasText: SECTION }).click();
     await filters(page).getByRole("button", { name: "Показати", exact: true }).click();
 
-    await page.waitForURL(/type=/);
+    await page.waitForURL(/section=/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(SECTION);
     await expect(crumbs(page)).toContainText(SECTION);
   });
@@ -110,7 +112,7 @@ test.describe("фільтри-дерево", () => {
     await expect(group).toHaveAttribute("aria-expanded", "true");
 
     const panel = page.locator(`#${(await group.getAttribute("aria-controls"))!}`);
-    for (const sibling of ["Круг", "Диск", "Свердло"]) {
+    for (const sibling of ["Відрізні круги", "Свердла", "Бури"]) {
       await expect(panel.getByRole("button", { name: new RegExp(`^${sibling}`) })).toBeVisible();
     }
   });
@@ -150,12 +152,11 @@ test.describe("розділ як один вибір", () => {
   /** Заходимо так, як заходить людина: банером розділу з вітрини. */
   async function openSection(page: Page) {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    // Саме банер розділу: за посиланням ?type= ховається ще й рядок сайдбару,
-    // а h3 є тільки в картці.
+    // Саме банер розділу: за тим самим посиланням ховається ще й рядок
+    // сайдбару, а h3 є тільки в картці.
     const card = page
-      .locator('a[href^="/catalog?type="]')
+      .locator(`a[href="${SECTION_HREF}"]`)
       .filter({ has: page.locator("h3") })
-      .filter({ hasText: "Різальний інструмент" })
       .first();
     await card.waitFor({ state: "visible" });
     await card.click();
@@ -165,9 +166,9 @@ test.describe("розділ як один вибір", () => {
   test("цілий розділ показаний одним чипом, а не дюжиною типів", async ({ page }) => {
     await openSection(page);
 
-    // В адресі типів багато — на екрані має бути один чип із назвою розділу.
-    expect(new URL(page.url()).searchParams.get("type")!.split(",").length).toBeGreaterThan(5);
-    await expect(page.getByRole("link", { name: /^Круг$/ })).toHaveCount(0);
+    // Розділ — один параметр і один чип, без переліку груп в адресі.
+    expect(new URL(page.url()).searchParams.get("type")).toBeNull();
+    await expect(page.getByRole("link", { name: new RegExp(`^${KRUG_LABEL}$`) })).toHaveCount(0);
     // Рівно одне посилання з назвою розділу — той самий чип: у крихтах
     // поточний розділ уже не посилання, а місце, де ми стоїмо.
     await expect(page.getByRole("link", { name: SECTION })).toHaveCount(1);
@@ -178,11 +179,13 @@ test.describe("розділ як один вибір", () => {
     test.skip((viewport?.width ?? 0) < 768, "ліва колонка фільтрів — від md");
     await openSection(page);
 
-    await filters(page).getByRole("button", { name: /^Круг/ }).click();
+    await filters(page).getByRole("button", { name: new RegExp(`^${KRUG_LABEL}`) }).click();
     await filters(page).getByRole("button", { name: "Показати", exact: true }).click();
 
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Круг");
-    expect(new URL(page.url()).searchParams.get("type")).toBe("круг");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(KRUG_LABEL);
+    const sp = new URL(page.url()).searchParams;
+    expect(sp.get("section")).toBe("osnastka");
+    expect(sp.get("type")).toBe("відрізний-круг");
   });
 });
 

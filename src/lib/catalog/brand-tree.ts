@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { TYPE_LABELS } from "@/lib/catalog/classify";
 
 /** Тег для скидання структури каталогу — його смикає обмін з 1С. */
 export const CATALOG_CACHE_TAG = "catalog-brands";
@@ -84,63 +85,15 @@ export const getBrandTree = unstable_cache(
 );
 
 /**
- * Тип товару — другий рівень каталогу.
+ * Група товару — другий рівень каталогу.
  *
- * Класифікатор із закупівель (RULES у lib/procurement/low-stock.ts) сюди не
- * годиться: заміряно, що він розпізнає лише 10,4% каталогу — його писали під
- * акумуляторний і бензиновий інструмент, а не під усі 49 тис. позицій.
- *
- * Працює простіше правило: зрізати назву бренда з початку назви товару, і
- * перше слово, що лишилось, і є типом — «свердло», «ключ», «викрутка»,
- * «рукавиці». Заміряно на базі: непридатних токенів 2,6%, а типи від 15
- * товарів покривають 80,2% каталогу.
+ * Раніше вона виводилась тут-таки з назви правилом «зріж бренд, візьми перше
+ * слово». Правило дешеве, але сліпе: «Акумуляторна батарея» давала групу
+ * «акумуляторна», «Набір конекторів для шланга» — «набір», а фільтр каталогу
+ * шукав ці слова підрядком у назвах і тягнув чуже. Тепер групу рахує
+ * lib/catalog/classify.ts за всією назвою, а результат лежить у колонці
+ * Product.typeKey — тут лишився тільки показ.
  */
-const TYPE_STOP = new Set([
-  "фоп", "ремонт", "тм", "для", "з", "на", "до", "та", "і", "в", "у", "по",
-  "від", "під", "без", "про", "the", "of",
-]);
-
-export function productType(name: string, brandName?: string | null): string | null {
-  let s = name.trim();
-
-  if (brandName) {
-    const escaped = brandName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    s = s.replace(new RegExp(`^\\s*${escaped}\\s*[-–—:]?\\s*`, "i"), "");
-  }
-
-  s = s.replace(/^["'«»\s]+/, "");
-  const token = s
-    .split(/[\s,.:;()/]+/)[0]
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}-]/gu, "");
-
-  if (token.length < 2) return null;
-  if (TYPE_STOP.has(token)) return null;
-  if (/^\d+$/.test(token)) return null;
-
-  return token;
-}
-
-/**
- * Токени, які productType повертає, але типом товару не є.
- *
- * Це залишки брендів у назвах («DNIPRO-М» пишуть і латиницею, і кирилицею),
- * скорочення («акум» від «акумуляторний») і юридичні хвости. Рядок «Dnipro-м
- * 19» серед уточнень пошуку виглядає як група товарів, якою не є.
- *
- * Той самий список поки що продубльовано в sections.ts (NOT_A_TYPE) — там
- * він фільтрує «інші типи» у змісті каталогу. Звести їх в одне місце варто,
- * але той файл зараз переписується паралельно, і чіпати його заради двох
- * рядків означало б гарантований конфлікт.
- */
-const NOT_A_TYPE =
-  /^(dnipro|дніпро|pro|товариство|тов|фоп|ват|пп|акум|акб|б-у|бу)$|^(dnipro|дніпро)-/i;
-
-/** Чи є токен справжнім типом товару, а не сміттям із назви. */
-export function isMeaningfulType(token: string): boolean {
-  return !NOT_A_TYPE.test(token);
-}
-
 export interface TypeNode {
   /** Нормалізований токен — він же значення фільтра ?type=. */
   key: string;
@@ -153,41 +106,42 @@ export interface TypeNode {
 const TYPES_SHOWN = 24;
 
 /**
- * Типи товарів усередині бренда (або серед товарів без бренда).
+ * Групи товарів усередині бренда (або серед товарів без бренда).
  *
- * Рахуємо в пам'яті, а не в SQL: правило «зріж бренд, візьми перше слово»
- * живе в JS і має лишатись одним шматком коду — інакше фільтр на сторінці
- * і лічильник у сайдбарі розійдуться на тих самих даних.
+ * Рахуємо по колонці Product.typeKey — тій самій, якою фільтрує каталог.
+ * Раніше тут працювало правило «зріж бренд, візьми перше слово», а фільтр
+ * шукав це слово підрядком у назві: панель показувала «Акумуляторна 28», а
+ * за кліком відкривалось зовсім інше. Класифікатор тепер один на всіх
+ * (lib/catalog/classify.ts), і його результат лежить у базі.
  */
 export const getBrandTypes = unstable_cache(
   async (brandSlug: string | null): Promise<TypeNode[]> => {
     const brand = brandSlug && brandSlug !== "none"
-      ? await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true, name: true } })
+      ? await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true } })
       : null;
 
     if (brandSlug && brandSlug !== "none" && !brand) return [];
 
-    const products = await prisma.product.findMany({
+    const rows = await prisma.product.groupBy({
+      by: ["typeKey"],
       where: {
         isActive: true,
+        typeKey: { not: null },
         ...(brandSlug === "none" ? { brandId: null } : brand ? { brandId: brand.id } : {}),
       },
-      select: { name: true },
+      _count: { _all: true },
     });
 
-    const counts = new Map<string, number>();
-    for (const p of products) {
-      const t = productType(p.name, brand?.name);
-      if (!t) continue;
-      counts.set(t, (counts.get(t) || 0) + 1);
-    }
-
-    return [...counts.entries()]
-      .map(([key, count]) => ({ key, label: key.charAt(0).toUpperCase() + key.slice(1), count }))
+    return rows
+      .map((r) => ({
+        key: r.typeKey!,
+        label: TYPE_LABELS[r.typeKey!] ?? r.typeKey!,
+        count: r._count._all,
+      }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "uk"))
       .slice(0, TYPES_SHOWN);
   },
-  ["catalog-brand-types"],
+  ["catalog-brand-types-v2"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
 

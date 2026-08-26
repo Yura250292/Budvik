@@ -14,6 +14,10 @@
 import Link from "next/link";
 import { filtersToQuery, type CatalogFilters } from "@/lib/catalog/query";
 import type { SectionOption } from "@/components/catalog/CatalogFilters";
+import { TYPE_LABELS } from "@/lib/catalog/classify";
+
+/** Людська назва групи: «Свердла» замість ключа «свердло». */
+const typeLabel = (key: string) => TYPE_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 
 export interface Crumb {
   label: string;
@@ -21,21 +25,19 @@ export interface Crumb {
 }
 
 /**
- * Розділ, до якого належать обрані типи.
+ * Розділ, у якому людина зараз перебуває.
  *
- * Розділи приходять зі змісту каталогу (getCatalogToc), а не з оголошеного
- * SectionDef.types: у змісті лишаються тільки типи, у яких є що показати,
- * і саме такі посилання роздає вітрина. Якби тут рахувався оголошений
- * список, «увесь розділ» ніколи не збігся б із тим, що в адресі, і ланка
- * розділу поводилась би як ланка типу.
- *
- * Беремо за першим типом: типи з різних розділів одночасно можна лише
- * склеїти руками в адресному рядку, і вигадувати для цього окремий стан
- * дерева немає сенсу.
+ * Раніше він вгадувався за першим обраним типом — доводилось тримати в
+ * SectionOption повний перелік груп і звіряти його з адресою. Тепер розділ
+ * приходить власним ?section=, і крихта завжди знає, звідки прийшли: навіть
+ * коли всередині розділу не обрано жодної групи.
  */
-export function sectionOfTypes(types: string[], sections: SectionOption[]): SectionOption | null {
-  if (types.length === 0) return null;
-  return sections.find((s) => s.types.includes(types[0])) ?? null;
+export function sectionOfFilters(
+  filters: CatalogFilters,
+  sections: SectionOption[]
+): SectionOption | null {
+  if (!filters.section) return null;
+  return sections.find((s) => s.id === filters.section) ?? null;
 }
 
 export function buildCrumbs(
@@ -52,37 +54,33 @@ export function buildCrumbs(
   // людина дивиться на будь-який із них: переносимо на всі ланки.
   const view = { showAll: filters.showAll, withImage: filters.withImage };
 
-  const section = sectionOfTypes(filters.types, sections);
+  const section = sectionOfFilters(filters, sections);
   if (section) {
     crumbs.push({
       label: section.title,
-      href: `/catalog${filtersToQuery({ ...view, types: section.types })}`,
+      href: `/catalog${filtersToQuery({ ...view, section: section.id })}`,
     });
   }
 
   /*
-   * Ланка типу з'являється, лише коли обрано не весь розділ: інакше вона
-   * дублювала б попередню ланку й вела б туди ж, звідки людина щойно
+   * Ланка групи з'являється, лише коли всередині розділу щось обрано:
+   * інакше вона дублювала б попередню й вела б туди ж, звідки людина щойно
    * прийшла — сходинка, що нікуди не веде, гірша за її відсутність.
    */
-  const wholeSection =
-    section &&
-    filters.types.length === section.types.length &&
-    section.types.every((t) => filters.types.includes(t));
-  if (filters.types.length && !wholeSection) {
+  if (filters.types.length) {
     const label = filters.types.length === 1
-      ? filters.types[0].charAt(0).toUpperCase() + filters.types[0].slice(1)
+      ? typeLabel(filters.types[0])
       : `${filters.types.length} групи товарів`;
     crumbs.push({
       label,
-      href: `/catalog${filtersToQuery({ ...view, types: filters.types })}`,
+      href: `/catalog${filtersToQuery({ ...view, section: filters.section, types: filters.types })}`,
     });
   }
 
   if (filters.brands.length === 1 && brandName) {
     crumbs.push({
       label: brandName,
-      href: `/catalog${filtersToQuery({ ...view, types: filters.types, brands: filters.brands })}`,
+      href: `/catalog${filtersToQuery({ ...view, section: filters.section, types: filters.types, brands: filters.brands })}`,
     });
   }
 

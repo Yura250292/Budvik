@@ -9,11 +9,12 @@ import { notFound } from "next/navigation";
 import CatalogGrid from "@/components/CatalogGrid";
 import AiSmartSearch from "@/components/ai/AiSmartSearch";
 import CatalogFilters from "@/components/catalog/CatalogFilters";
-import CatalogBreadcrumbs, { sectionOfTypes } from "@/components/catalog/CatalogBreadcrumbs";
+import CatalogBreadcrumbs, { sectionOfFilters } from "@/components/catalog/CatalogBreadcrumbs";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SearchTracker from "@/components/webstats/SearchTracker";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { getCatalogToc } from "@/lib/catalog/sections";
+import { TYPE_LABELS } from "@/lib/catalog/classify";
 import { parseFilters, fetchCatalogPage, fetchBrandFacets, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
@@ -114,20 +115,13 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
    * «Різальний інструмент» → круг, диск, свердло, бур. Це той самий зміст,
    * що на вітрині й на /catalog/zmist, тож числа скрізь однакові.
    */
-  const sectionOptions = toc.sections.map((s) => ({
-    id: s.id,
-    title: s.title,
-    types: s.types,
-    count: s.total,
-  }));
-  const activeSection = sectionOfTypes(filters.types, sectionOptions);
+  const sectionOptions = toc.sections.map((s) => ({ id: s.id, title: s.title, count: s.total }));
+  const activeSection = sectionOfFilters(filters, sectionOptions);
   const sectionLines = activeSection
     ? toc.sections.find((s) => s.id === activeSection.id)?.lines ?? []
     : [];
-  const wholeSection =
-    activeSection &&
-    filters.types.length === activeSection.types.length &&
-    activeSection.types.every((t) => filters.types.includes(t));
+  // Весь розділ — це коли всередині ще нічого не звужували.
+  const wholeSection = Boolean(activeSection) && filters.types.length === 0;
   // Бренд звужує сильніше за розділ: якщо обрано один бренд, групи беремо в
   // його розрізі — «свердло» всередині YATO, а не по всьому каталогу.
   const types = singleBrand ? brandTypes : sectionLines;
@@ -167,7 +161,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         : wholeSection && activeSection
           ? activeSection.title
           : filters.types.length === 1
-            ? filters.types[0].charAt(0).toUpperCase() + filters.types[0].slice(1)
+            ? TYPE_LABELS[filters.types[0]] ?? filters.types[0]
             : "Каталог інструментів";
 
   const SORTS = [

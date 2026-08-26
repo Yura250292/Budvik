@@ -67,7 +67,7 @@ export default async function SalesCatalogPage() {
                   малярного», ніж конкретно про валики. Числа тут немає —
                   фільтр шукає підрядок і дає більше, ніж сума рядків */}
               <Link
-                href={`/sales/catalog/list?type=${encodeURIComponent(section.types.join(","))}`}
+                href={`/sales/catalog/list?section=${encodeURIComponent(section.id)}`}
                 className="mb-2 flex min-h-11 items-center gap-2 border-b border-g100 pb-1.5 active:bg-[#FFD600]/10"
               >
                 <span className="text-base">{section.icon}</span>

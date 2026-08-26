@@ -11,12 +11,12 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 
 /** Порядок і склад банерів — це домовленість, а не випадковість (SectionDef.featured). */
 const FEATURED = [
-  "Малярний інструмент",
-  "Скотч та стрічки",
-  "Різальний інструмент і оснастка",
   "Ручний інструмент",
+  "Оснастка та витратні",
   "Електроінструмент",
   "Садова техніка й полив",
+  "Малярний інструмент",
+  "Кріплення та метизи",
 ];
 
 /** Те саме правило множини, що й у lib/utils — тут навмисно окремою копією. */
@@ -30,7 +30,7 @@ function positions(n: number): string {
 }
 
 const showcase = (page: Page) => page.locator("section").first();
-const cards = (page: Page) => showcase(page).locator('a[href^="/catalog?type="].rounded-2xl');
+const cards = (page: Page) => showcase(page).locator('a[href^="/catalog?section="].rounded-2xl');
 
 /** Чи справді картинка намальована, а не висить піктограмою битого файлу. */
 async function isDecoded(img: Locator): Promise<boolean> {
@@ -107,12 +107,12 @@ test("жодне зображення першого екрана не відд�
 test("банер веде у свій розділ каталогу і той не порожній", async ({ page }) => {
   const card = cards(page).filter({ hasText: "Ручний інструмент" }).first();
   const href = await card.getAttribute("href");
-  expect(href).toMatch(/^\/catalog\?type=/);
+  expect(href).toMatch(/^\/catalog\?section=/);
 
   await card.click();
-  await page.waitForURL(/\/catalog\?type=/);
+  await page.waitForURL(/\/catalog\?section=/);
 
-  // «Не порожній» — це не «щось намалювалось»: фільтр за типами міг би дати
+  // «Не порожній» — це не «щось намалювалось»: фільтр розділу міг би дати
   // нуль товарів і сторінка все одно виглядала б цілою.
   const found = page.getByText(/Знайдено [\d\s ]+ товар/).first();
   await expect(found).toBeVisible();
@@ -143,7 +143,7 @@ test("сторінка не їде вбік", async ({ page }) => {
 
 test("смуга решти розділів веде в каталог і має фото", async ({ page }) => {
   const strip = page.getByRole("heading", { name: "Ще розділи" }).locator("xpath=../..");
-  const tiles = strip.locator('a[href^="/catalog?type="]');
+  const tiles = strip.locator('a[href^="/catalog?section="]');
   expect(await tiles.count()).toBeGreaterThanOrEqual(6);
 
   for (let i = 0; i < (await tiles.count()); i++) {

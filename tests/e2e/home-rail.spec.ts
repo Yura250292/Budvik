@@ -21,7 +21,7 @@ test.describe("сайдбар розділів", () => {
     const rail = page.getByRole("navigation", { name: "Розділи каталогу" });
     await expect(rail).toBeVisible();
 
-    const rows = rail.locator('a[href^="/catalog?type="]');
+    const rows = rail.locator('a[href^="/catalog?section="]');
     const n = await rows.count();
     expect(n).toBeGreaterThanOrEqual(10);
 
@@ -38,10 +38,10 @@ test.describe("сайдбар розділів", () => {
 
   test("кількість у сайдбарі збігається з кількістю на банері", async ({ page }) => {
     const rail = page.getByRole("navigation", { name: "Розділи каталогу" });
-    const railRow = rail.locator('a[href^="/catalog?type="]').filter({ hasText: "Ручний інструмент" }).first();
+    const railRow = rail.locator('a[href^="/catalog?section="]').filter({ hasText: "Ручний інструмент" }).first();
     const railCount = (await railRow.innerText()).match(/(\d+)/)![1];
 
-    const card = page.locator('a[href^="/catalog?type="]').filter({ hasText: "Ручний інструмент" }).nth(1);
+    const card = page.locator('a[href^="/catalog?section="]').filter({ hasText: "Ручний інструмент" }).nth(1);
     const cardCount = (await card.innerText()).match(/([\d \s]+)\s(позиція|позиції|позицій)/)![1].replace(/[ \s]/g, "");
 
     expect(cardCount).toBe(railCount);
@@ -50,7 +50,7 @@ test.describe("сайдбар розділів", () => {
   test("наведення підсвічує рядок жовтою смужкою", async ({ page }) => {
     const row = page
       .getByRole("navigation", { name: "Розділи каталогу" })
-      .locator('a[href^="/catalog?type="]')
+      .locator('a[href^="/catalog?section="]')
       .first();
     const accent = row.locator("span").first();
 
@@ -67,7 +67,7 @@ test.describe("сайдбар розділів", () => {
   });
 
   test("на банері розділу наведення міняє значок і кнопку", async ({ page }) => {
-    const card = page.locator('a[href^="/catalog?type="]').filter({ hasText: "Малярний інструмент" }).nth(1);
+    const card = page.locator('a[href^="/catalog?section="]').filter({ hasText: "Малярний інструмент" }).nth(1);
     const pill = card.locator("span").filter({ hasText: /позиц/ }).first();
 
     const before = await pill.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -82,7 +82,7 @@ test.describe("сайдбар розділів", () => {
   test("фокус із клавіатури видно", async ({ page }) => {
     const row = page
       .getByRole("navigation", { name: "Розділи каталогу" })
-      .locator('a[href^="/catalog?type="]')
+      .locator('a[href^="/catalog?section="]')
       .first();
 
     await row.focus();
@@ -102,7 +102,7 @@ test.describe("телефон", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("navigation", { name: "Розділи каталогу" })).toBeHidden();
 
-    const cards = page.locator("section").first().locator('a[href^="/catalog?type="].rounded-2xl');
+    const cards = page.locator("section").first().locator('a[href^="/catalog?section="].rounded-2xl');
     const boxes = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
     expect(new Set(boxes.map((x) => Math.round(x))).size, "картки мають стояти одна під одною").toBe(1);
   });

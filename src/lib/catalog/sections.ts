@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { productType, CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
+import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
+import { SECTIONS, SECTION_BY_ID, TYPE_LABELS } from "@/lib/catalog/classify";
 
 /**
  * Зміст каталогу за призначенням — як у паперових каталогах постачальників.
@@ -10,183 +11,15 @@ import { productType, CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
  * торговий возить у машині, зміст побудований саме так: розділ «Малярний
  * інструмент» — і під ним валики, пензлі, ванни, мішалки.
  *
- * Рядки змісту — це типи товарів, виведені з назв (див. productType).
- * Розділи — рукотворні: 254 типи від 30 товарів самі в групи не складуться,
- * а машинна кластеризація дала б «Ніж» поруч із «Ножицями для металу» і
- * «Ножем для гіпсокартону» в різних місцях.
+ * Розділи й групи рахуються з колонок Product.sectionId / Product.typeKey,
+ * які проставляє класифікатор (lib/catalog/classify.ts). Раніше зміст рахував
+ * групу в пам'яті за першим словом назви, а фільтр каталогу шукав те слово
+ * підрядком — два різні способи на тих самих даних, тож число під назвою
+ * розділу не могло збігтися з видачею за посиланням.
  */
 
-export interface SectionDef {
-  id: string;
-  title: string;
-  icon: string;
-  /**
-   * Артикул товару, чиє фото представляє розділ.
-   *
-   * Без нього знімок брався з найбільшого типу розділу — і в «Ручному
-   * інструменті» перемагав «набір» із 166 позицій, де першим за id стояв
-   * набір лакофарбовий, а до того — набір конекторів для шланга. Формально
-   * товар із розділу, а на вигляд — не той магазин. Розділ на вітрині має
-   * впізнаватися з відстані витягнутої руки, тож обличчя йому вибирає
-   * людина, а не порядок рядків у базі.
-   */
-  hero?: string;
-  /**
-   * Короткий перелік того, що в розділі — рядком під назвою банера.
-   *
-   * Автоматичний варіант (три найбільші типи) читається гірше, ніж здається:
-   * тип — це перше слово назви, тож в «Електроінструменті» він давав
-   * «пістолет · компресор · акумуляторна», де останнє навіть не іменник.
-   * Тут людські формулювання для розділів, які показуємо банерами; решта
-   * обходиться автоматичним переліком.
-   */
-  summary?: string;
-  /** Пастельний тон банера розділу. Світлий: напис на ньому — майже чорний. */
-  tint?: string;
-  /** Розділ показуємо банером, а не дрібною плиткою. */
-  featured?: boolean;
-  /** Типи товарів у порядку показу. Рахуються з productType. */
-  types: string[];
-}
-
-/**
- * Порядок розділів — від найходовішого до рідкісного, як у постачальників.
- * Один тип може лежати лише в одному розділі: інакше в змісті двояться
- * рядки, і торговий не розуміє, котрий із них «правильний».
- */
-export const SECTIONS: SectionDef[] = [
-  {
-    id: "malyarnyi",
-    title: "Малярний інструмент",
-    icon: "🎨",
-    hero: "21-008",
-    summary: "валики, пензлі, шпателі, фарбопульти",
-    tint: "#EFE7F8",
-    featured: true,
-    types: ["валик", "валік", "пензель", "пензлі", "пензлик", "макловиця", "ванна", "ванночка", "мішалка", "шпатель", "терка", "фарба", "емаль", "ґрунтовка", "грунтовка", "лак", "розчинник", "аерограф", "фарбопульт", "фарборозпилювач", "пістолет-розпилювач", "шпаклівка", "поліроль", "очищувач"],
-  },
-  {
-    id: "ozdoblennia",
-    title: "Інструмент для оздоблювальних робіт",
-    icon: "🧱",
-    hero: "100-096",
-    tint: "#F0EBE3",
-    types: ["правило", "міксер", "скребок", "кельма", "ківш", "гладилка", "хрестик", "хрестики", "клин", "рубанок", "маяк", "присоска", "шаблон", "затирка", "сітка", "стусло"],
-  },
-  {
-    id: "skotch",
-    title: "Скотч та стрічки",
-    icon: "📏",
-    hero: "MR-7020261",
-    summary: "пакувальний, малярний, двосторонній",
-    tint: "#FBEEDD",
-    featured: true,
-    types: ["скотч", "стрічка", "стрічки", "склохолст", "серпянка", "ізолента", "папір", "тент"],
-  },
-  {
-    id: "rizhuchyi",
-    title: "Різальний інструмент і оснастка",
-    icon: "💿",
-    hero: "223297",
-    summary: "диски, свердла, бури, коронки, полотна",
-    tint: "#E7EDF3",
-    featured: true,
-    types: ["диск", "круг", "коло", "свердло", "свердла", "cверло", "бур", "коронка", "полотно", "ланцюг", "шина", "фреза", "ножівка", "ножовка", "пилка", "лезо", "леза", "різець", "мітчик", "плашка", "напилок", "напильник", "надфіль", "щітка", "щітки", "губка", "наждачка", "алмазний", "шліфувальний", "шліфувальна", "труборіз"],
-  },
-  {
-    id: "ruchnyi",
-    title: "Ручний інструмент",
-    icon: "🔧",
-    hero: "6001112",
-    summary: "ключі, викрутки, молотки, кліщі, набори",
-    tint: "#FFF2CC",
-    featured: true,
-    types: ["ключ", "ключі", "ключ-тріскачка", "ключ-тріскавка", "тріщатка", "викрутка", "головка", "молоток", "киянка", "кувалда", "кліщі", "щипці", "бокорізи", "пасатижі", "плоскогубці", "довгогубці", "круглогубці", "зубило", "стамеска", "сокира", "струбцина", "лещата", "знімач", "вороток", "тріскачка", "кернер", "ніж", "ножиці", "монтувалка", "цвяходер", "лом", "мультитул", "набір", "комплект", "насадка", "біта", "біти", "подовжувач", "кардан", "перехідник", "адаптер", "патрон", "ручка", "держак", "заклепочник", "вклад"],
-  },
-  {
-    id: "vymiriuvannia",
-    title: "Вимірювальний інструмент",
-    icon: "📐",
-    hero: "500296",
-    tint: "#E2F0F2",
-    types: ["рулетка", "рівень", "кутник", "лінійка", "штангенциркуль", "мультиметр", "манометр", "далекомір", "нівелір", "шнур", "олівець", "маркер", "щуп", "термометр"],
-  },
-  {
-    id: "elektro",
-    title: "Електроінструмент",
-    icon: "⚡",
-    hero: "GCD 101KBT",
-    summary: "шуруповерти, болгарки, перфоратори",
-    tint: "#FDE8DA",
-    featured: true,
-    types: ["шліфмашина", "кутова", "болгарка", "дриль", "перфоратор", "шуруповерт", "гайковерт", "лобзик", "пила", "бензопила", "фрезер", "штроборіз", "плиткоріз", "точило", "фен", "пилосос", "мийка", "паяльник", "степлер", "пістолет", "пневмопістолет", "компресор", "станція", "генератор", "зварювальний", "інвертор", "електродотримач", "пальник", "електрод", "електроди", "дріт", "акумуляторний", "акумуляторна", "акум", "зарядний", "бензиновий", "газовий", "пристрій"],
-  },
-  {
-    id: "sad",
-    title: "Садова техніка й полив",
-    icon: "🌿",
-    hero: "GLM 470",
-    summary: "тримери, секатори, шланги",
-    tint: "#E5F1E3",
-    featured: true,
-    types: ["тример", "мотокоса", "газонокосарка", "культиватор", "секатор", "сікатор", "кущоріз", "гілкоруб", "обприскувач", "оприскувач", "зрошувач", "ліска", "лiска", "жилка", "котушка", "катушка", "шланг", "зєднання", "штуцер", "муфта", "конектор", "розпилювач", "лійка", "лопата", "граблі", "вила", "сапа", "тачка", "насос", "помпа", "фільтр", "мотузка"],
-  },
-  {
-    id: "santekhnika",
-    title: "Сантехніка",
-    icon: "🚿",
-    tint: "#E4EEF6",
-    types: ["змішувач", "сифон", "гофра", "підводка", "картридж", "вилив", "душ", "лійка-душ", "унітаз", "кран", "фітинг", "труба", "коліно", "трійник", "трап", "відро"],
-  },
-  {
-    id: "krip",
-    title: "Кріплення та метизи",
-    icon: "🔩",
-    hero: "37-027",
-    tint: "#ECEEEB",
-    types: ["хомут", "стяжка", "дюбель", "саморіз", "шуруп", "гвинт", "болт", "гайка", "шайба", "анкер", "цвях", "цвяхи", "заклепка", "заклепки", "тримач", "кронштейн", "скоба", "скоби", "карабін", "замок", "фіксатори", "стержні"],
-  },
-  {
-    id: "zakhyst",
-    title: "Засоби захисту",
-    icon: "🦺",
-    hero: "9443441",
-    tint: "#FCE9E6",
-    types: ["рукавиці", "рукавички", "окуляри", "маска", "респіратор", "навушники", "каска", "щиток", "костюм", "куртка", "худі", "штани", "футболка", "черевики", "кросівки", "чоботи", "жилет"],
-  },
-  {
-    id: "khimiia",
-    title: "Будівельна хімія та герметики",
-    icon: "🧪",
-    hero: "951237",
-    tint: "#EDE9F6",
-    types: ["піна", "герметик", "силікон", "клей", "змазка", "мастило", "очисник", "антигравій", "розчин", "просочення"],
-  },
-  {
-    id: "zberihannia",
-    title: "Зберігання та організація",
-    icon: "🧰",
-    hero: "330117",
-    tint: "#F1EFE8",
-    types: ["ящик", "сумка", "органайзер", "контейнер", "пояс", "валіза", "кейс", "полиця", "стелаж", "драбина"],
-  },
-  {
-    id: "avto",
-    title: "Автотовари",
-    icon: "🚗",
-    hero: "284028",
-    tint: "#E9EDF2",
-    types: ["домкрат", "колесо", "покришка", "камера", "ремінь", "трос", "омивач"],
-  },
-  {
-    id: "osvitlennia",
-    title: "Освітлення та електрика",
-    icon: "🔦",
-    hero: "900342",
-    tint: "#FCF1D8",
-    types: ["ліхтар", "прожектор", "лампа", "світильник", "розетка", "вимикач", "кабель", "провід", "автомат", "трубка"],
-  },
-];
+export type { SectionDef } from "@/lib/catalog/classify";
+export { SECTIONS } from "@/lib/catalog/classify";
 
 export interface TocLine {
   /** Значення для ?type= */
@@ -201,98 +34,93 @@ export interface TocSection {
   icon: string;
   lines: TocLine[];
   total: number;
-  /**
-   * Типи для посилання «весь розділ» (?type= через кому). Саме ті, що
-   * потрапили в рядки, а не всі оголошені: інакше сума в заголовку
-   * розійшлася б із тим, що каталог реально покаже.
-   */
+  /** Групи розділу — ті, що потрапили в рядки змісту. */
   types: string[];
 }
 
-/** Скільки товарів має мати тип, щоб потрапити в зміст окремим рядком. */
-const MIN_LINE = 8;
+/** Скільки товарів має мати група, щоб потрапити в зміст окремим рядком. */
+const MIN_LINE = 5;
 
 /**
- * Токени, які виглядають як тип, але ним не є: залишки брендів у назвах
- * («DNIPRO-М» пишуть і латиницею, і кирилицею) та юридичні хвости на кшталт
- * «Товариство». Рядок «Dnipro-м 164» у змісті виглядав би як група товарів,
- * якою не є.
- */
-const NOT_A_TYPE = /^(dnipro|дніпро|pro|товариство|тов|фоп|ват|пп)/i;
-
-/**
- * Зміст: розділи з рядками-типами й кількістю товарів.
+ * Зміст: розділи з рядками-групами й кількістю товарів.
  *
- * Рахуємо один раз на годину: типи виводяться з назв у пам'яті, а це прохід
- * по всій номенклатурі — робити його на кожен показ сторінки немає сенсу,
- * бо назви змінюються лише після обміну з 1С.
+ * Рахуємо один раз на годину (і на кожен обмін з 1С — той скидає тег): це
+ * один GROUP BY, але сторінка вітрини не мусить ходити в базу за ним на
+ * кожен показ.
  */
 export const getCatalogToc = unstable_cache(
   async (): Promise<{ sections: TocSection[]; other: TocLine[]; total: number }> => {
-    const brands = await prisma.brand.findMany({ select: { id: true, name: true } });
-    const brandName = new Map(brands.map((b) => [b.id, b.name]));
-
     /*
      * Рахуємо лише те, що каталог справді покаже.
      *
-     * Було `isActive: true` — усі активні рядки, разом із тими, яких немає на
-     * складі. Каталог за замовчуванням віддає лише товар у наявності
-     * (buildWhere додає stock > 0, доки не ввімкнено «Показати відсутні»), тож
-     * зміст обіцяв 1188 позицій малярного інструменту, а за посиланням
-     * відкривалось 475. Число під назвою розділу мусить збігатися з тим, що
-     * побачить людина, інакше воно гірше за відсутнє.
-     *
-     * price > 0 — з тієї ж причини: обмін бере роздріб лише з типу цін
-     * «6.МАГАЗИНИ», і там, де його не ведуть, товар приїжджає з нулем.
-     * Каталог такі рядки не показує, тож і зміст не має їх рахувати.
+     * stock > 0 — бо каталог за замовчуванням віддає лише наявне (buildWhere
+     * додає це, доки не ввімкнено «Показати відсутні»); price > 0 — бо обмін
+     * бере роздріб лише з типу цін «6.МАГАЗИНИ», і де його не ведуть, товар
+     * приїжджає з нулем, а такі рядки каталог не показує. Число під назвою
+     * розділу мусить збігатися з тим, що побачить людина, інакше воно гірше
+     * за відсутнє.
      */
-    const products = await prisma.product.findMany({
-      where: { isActive: true, stock: { gt: 0 }, price: { gt: 0 } },
-      select: { name: true, brandId: true },
+    const rows = await prisma.product.groupBy({
+      by: ["sectionId", "typeKey"],
+      where: { isActive: true, stock: { gt: 0 }, price: { gt: 0 }, typeKey: { not: null } },
+      _count: { _all: true },
     });
 
-    const counts = new Map<string, number>();
-    for (const p of products) {
-      const t = productType(p.name, p.brandId ? brandName.get(p.brandId) : null);
-      if (!t) continue;
-      counts.set(t, (counts.get(t) || 0) + 1);
+    const total = await prisma.product.count({
+      where: { isActive: true, stock: { gt: 0 }, price: { gt: 0 } },
+    });
+
+    const bySection = new Map<string, TocLine[]>();
+    /**
+     * Скільки товарів у розділі насправді — разом із дрібними групами, які
+     * окремим рядком не показуємо.
+     *
+     * Раніше підсумок був сумою показаних рядків, і число під назвою розділу
+     * виходило на 2–8 позицій меншим за видачу за посиланням. Дрібниця, але
+     * саме такі дрібниці й привчають не вірити числам на сайті.
+     */
+    const totalBySection = new Map<string, number>();
+    const orphans: TocLine[] = [];
+
+    for (const r of rows) {
+      if (r.sectionId) {
+        totalBySection.set(r.sectionId, (totalBySection.get(r.sectionId) || 0) + r._count._all);
+      }
+      const line: TocLine = {
+        key: r.typeKey!,
+        label: TYPE_LABELS[r.typeKey!] ?? r.typeKey!,
+        count: r._count._all,
+      };
+      if (line.count < MIN_LINE) continue;
+      // Розділ, якого більше немає в означеннях (правила переписали, а база
+      // ще з попереднім прогоном), — не привід ховати товар зі змісту.
+      if (!r.sectionId || !SECTION_BY_ID.has(r.sectionId)) {
+        orphans.push(line);
+        continue;
+      }
+      if (!bySection.has(r.sectionId)) bySection.set(r.sectionId, []);
+      bySection.get(r.sectionId)!.push(line);
     }
 
-    const used = new Set<string>();
     const sections: TocSection[] = [];
-
     for (const def of SECTIONS) {
-      const lines: TocLine[] = [];
-      for (const t of def.types) {
-        if (used.has(t)) continue;
-        const n = counts.get(t);
-        if (!n || n < MIN_LINE) continue;
-        used.add(t);
-        lines.push({ key: t, label: t.charAt(0).toUpperCase() + t.slice(1), count: n });
-      }
-      if (lines.length === 0) continue;
+      const lines = bySection.get(def.id);
+      if (!lines?.length) continue;
       lines.sort((a, b) => b.count - a.count);
       sections.push({
         id: def.id,
         title: def.title,
         icon: def.icon,
         lines,
-        total: lines.reduce((s, l) => s + l.count, 0),
+        total: totalBySection.get(def.id) ?? lines.reduce((s, l) => s + l.count, 0),
         types: lines.map((l) => l.key),
       });
     }
 
-    // Великі типи, які не потрапили в жоден розділ, показуємо окремо:
-    // мовчки їх ховати означало б, що зміст бреше про повноту каталогу.
-    const other = [...counts.entries()]
-      .filter(([t, n]) => !used.has(t) && n >= 40 && !NOT_A_TYPE.test(t))
-      .map(([t, n]) => ({ key: t, label: t.charAt(0).toUpperCase() + t.slice(1), count: n }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 60);
-
-    return { sections, other, total: products.length };
+    orphans.sort((a, b) => b.count - a.count);
+    return { sections, other: orphans.slice(0, 60), total };
   },
-  ["catalog-toc"],
+  ["catalog-toc-v2"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
 
@@ -309,13 +137,9 @@ export interface SectionTile {
   /** Посилання на весь розділ у каталозі. */
   href: string;
   count: number;
-  /** Фото найходовішого товару розділу; null, якщо в розділі немає жодного з фото. */
+  /** Фото товару з розділу; null, якщо в розділі немає жодного з фото. */
   image: string | null;
-  /**
-   * Що лежить у розділі — три найбільші типи через крапку: «валик · пензель ·
-   * шпатель». Береться з тих самих рядків змісту, тож не може розійтися з
-   * тим, що відкриється за посиланням, і не старіє, як писаний вручну підпис.
-   */
+  /** Що лежить у розділі — рядком під назвою. */
   summary: string;
   /** Тон банера розділу. */
   tint: string;
@@ -334,8 +158,6 @@ export interface SectionTile {
  */
 const getSectionImages = unstable_cache(
   async (): Promise<Record<string, string | null>> => {
-    const { sections } = await getCatalogToc();
-
     /*
      * Закріплені артикули (SectionDef.hero) б'ють будь-який автоматичний
      * вибір. Наявність тут не вимагається навмисно: фото працює ілюстрацією
@@ -358,17 +180,8 @@ const getSectionImages = unstable_cache(
     const bySku = new Map<string, string>();
     for (const p of pinned) if (p.sku && p.image && !bySku.has(p.sku)) bySku.set(p.sku, p.image);
 
-    const brands = await prisma.brand.findMany({ select: { id: true, name: true } });
-    const brandName = new Map(brands.map((b) => [b.id, b.name]));
-
-    /**
-     * Тип рахуємо в пам'яті тим самим productType, що й зміст, а не шукаємо
-     * слово в назві через SQL.
-     *
-     * Підрядок ловив чуже: у розділ «Ручний інструмент» потрапляв «Набір
-     * конекторів для шланга», бо в назві є слово «набір», а в «Електроінструмент»
-     * — пневматичний «Пістолет продувний». Знімок мусить належати товару, який
-     * цей розділ справді рахує, інакше плитка обіцяє одне, а за нею лежить інше.
+    /*
+     * Знімок для розділу без закріпленого артикула — з товару того ж розділу.
      *
      * Порядок за id — щоб переможець був той самий після кожного протухання
      * кешу: знак, який змінюється сам собою, перестає бути знаком.
@@ -378,18 +191,17 @@ const getSectionImages = unstable_cache(
         isActive: true,
         stock: { gt: 0 },
         price: { gt: 0 },
+        sectionId: { not: null },
         image: { not: null },
         NOT: { image: "" },
       },
-      select: { name: true, brandId: true, image: true },
+      select: { sectionId: true, image: true },
       orderBy: { id: "asc" },
     });
 
-    const byType = new Map<string, string>();
+    const bySection = new Map<string, string>();
     for (const p of products) {
-      const t = productType(p.name, p.brandId ? brandName.get(p.brandId) : null);
-      if (!t || !p.image) continue;
-
+      if (!p.sectionId || !p.image) continue;
       /**
        * Знімок із власного сховища б'є будь-який інший, навіть якщо трапився
        * пізніше. Поле image — довільний https-адрес, і частина посилань веде
@@ -397,26 +209,26 @@ const getSectionImages = unstable_cache(
        * віддає оптимізатору Next 400, тобто плитка лишається з піктограмою
        * битого зображення.
        */
-      const current = byType.get(t);
-      if (!current) byType.set(t, p.image);
+      const current = bySection.get(p.sectionId);
+      if (!current) bySection.set(p.sectionId, p.image);
       else if (p.image.startsWith(OWN_IMAGE_PREFIX) && !current.startsWith(OWN_IMAGE_PREFIX)) {
-        byType.set(t, p.image);
+        bySection.set(p.sectionId, p.image);
       }
     }
 
-    /** Закріплене фото; якщо його немає — найбільший тип розділу і далі за спаданням. */
-    const heroBySection = new Map(SECTIONS.map((s) => [s.id, s.hero]));
     return Object.fromEntries(
-      sections.map((s) => {
-        const hero = heroBySection.get(s.id);
-        const pinnedImage = hero ? bySku.get(hero) : undefined;
-        return [s.id, pinnedImage ?? s.lines.map((l) => byType.get(l.key)).find(Boolean) ?? null];
+      SECTIONS.map((s) => {
+        const pinnedImage = s.hero ? bySku.get(s.hero) : undefined;
+        return [s.id, pinnedImage ?? bySection.get(s.id) ?? null];
       })
     );
   },
-  ["catalog-section-images"],
+  ["catalog-section-images-v2"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
+
+/** Посилання на весь розділ каталогу. */
+export const sectionHref = (id: string) => `/catalog?section=${encodeURIComponent(id)}`;
 
 /**
  * Плитки розділів із фотографією товару замість піктограми.
@@ -432,14 +244,12 @@ const getSectionImages = unstable_cache(
 export async function getSectionTiles(): Promise<SectionTile[]> {
   const [{ sections }, images] = await Promise.all([getCatalogToc(), getSectionImages()]);
 
-  const defById = new Map(SECTIONS.map((d) => [d.id, d]));
-
   return sections.map((s) => {
-    const def = defById.get(s.id);
+    const def = SECTION_BY_ID.get(s.id);
     return {
       id: s.id,
       title: s.title,
-      href: `/catalog?type=${encodeURIComponent(s.types.join(","))}`,
+      href: sectionHref(s.id),
       count: s.total,
       image: images[s.id] ?? null,
       summary: def?.summary ?? s.lines.slice(0, 3).map((l) => l.label.toLowerCase()).join(" · "),

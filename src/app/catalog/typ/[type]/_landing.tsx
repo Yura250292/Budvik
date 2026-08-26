@@ -11,6 +11,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchCatalogPage } from "@/lib/catalog/query";
+import { TYPE_LABELS, TYPE_SECTION } from "@/lib/catalog/classify";
 import LandingListing from "@/components/catalog/LandingListing";
 import JsonLd from "@/components/JsonLd";
 import { breadcrumbJsonLd } from "@/lib/seo/jsonld";
@@ -33,7 +34,14 @@ export function parseType(raw: string): string | null {
   return TYPE_RE.test(type) ? type : null;
 }
 
-const typeLabel = (type: string) => type.charAt(0).toUpperCase() + type.slice(1);
+/**
+ * Людська назва групи: «Відрізні круги» замість ключа «відрізний-круг».
+ *
+ * Ключ лишається в адресі — він і є фільтром, — але заголовок сторінки з
+ * дефісом посередині читався як службовий рядок, а не як назва полиці.
+ */
+const typeLabel = (type: string) =>
+  TYPE_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
 
 export const typeBasePath = (type: string) => `/catalog/typ/${encodeURIComponent(type)}`;
 
@@ -105,7 +113,9 @@ export default async function TypeLanding({ raw, page }: { raw: string; page: nu
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Link
-          href={`/catalog?type=${encodeURIComponent(type)}`}
+          // Разом із розділом: у фільтрах видно сусідні групи, а крихти показують,
+          // де людина опинилась, — інакше вона потрапляє в каталог без орієнтирів.
+          href={`/catalog?${TYPE_SECTION[type] ? `section=${TYPE_SECTION[type]}&` : ""}type=${encodeURIComponent(type)}`}
           className="inline-flex min-h-9 items-center rounded-full border border-[#E0E0E0] bg-white px-3 text-xs font-medium text-[#555] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10"
         >
           Фільтрувати за брендом і ціною →

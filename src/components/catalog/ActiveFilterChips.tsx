@@ -3,6 +3,7 @@ import type { CatalogFilters } from "@/lib/catalog/query";
 import { filtersToQuery } from "@/lib/catalog/query";
 import type { BrandNode } from "@/lib/catalog/brand-tree";
 import type { SectionOption } from "@/components/catalog/CatalogFilters";
+import { TYPE_LABELS } from "@/lib/catalog/classify";
 
 /**
  * Увімкнені фільтри рядком під заголовком.
@@ -49,31 +50,26 @@ export default function ActiveFilterChips({
   }
 
   /*
-   * Цілий розділ — це дюжина типів в адресі, але для людини один вибір.
+   * Розділ — один чип, а не дюжина.
    *
-   * Перехід із банера «Різальний інструмент» малював дванадцять чипів
-   * (Свердло ×, Круг ×, Диск ×…) — рядок, у якому не видно ні що обрано, ні
-   * як це скинути одним рухом. Показуємо назву розділу, а хрестик знімає
-   * його цілком.
+   * Перехід із банера «Оснастка та витратні» малював дванадцять чипів
+   * (Свердла ×, Круги ×, Диски ×…) — рядок, у якому не видно ні що обрано,
+   * ні як це скинути одним рухом. Тепер розділ їде окремим ?section=, тож
+   * чип теж один, а хрестик знімає його разом із групами всередині.
    */
-  const wholeSection = sections.find(
-    (sec) =>
-      sec.types.length === filters.types.length &&
-      sec.types.every((t) => filters.types.includes(t))
-  );
-
-  if (wholeSection) {
+  const section = sections.find((s) => s.id === filters.section);
+  if (section) {
     chips.push({
-      label: wholeSection.title,
-      href: `${basePath}${query({ ...filters, types: [] })}`,
+      label: section.title,
+      href: `${basePath}${query({ ...filters, section: undefined, types: [] })}`,
     });
-  } else {
-    for (const t of filters.types) {
-      chips.push({
-        label: t.charAt(0).toUpperCase() + t.slice(1),
-        href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
-      });
-    }
+  }
+
+  for (const t of filters.types) {
+    chips.push({
+      label: TYPE_LABELS[t] ?? t.charAt(0).toUpperCase() + t.slice(1),
+      href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
+    });
   }
 
   if (filters.priceMin !== undefined || filters.priceMax !== undefined) {

@@ -6,6 +6,7 @@
  * дрібну розбіжність, і 401 в одному місці розлогінює, а в іншому мовчить.
  */
 
+import Constants from "expo-constants";
 import { getToken, clearToken } from "@/lib/auth-store";
 import type {
   CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig, LoginResult,
@@ -14,12 +15,26 @@ import type {
 /**
  * Куди ходити.
  *
- * У розробці телефон не бачить localhost машини — треба адреса в локальній
- * мережі (наприклад http://192.168.1.106:3111). Емулятор Android бачить її як
- * 10.0.2.2. Тому адреса береться зі змінної, а не зашита у збірку.
+ * У розробці телефон не бачить localhost машини — потрібна її адреса в
+ * локальній мережі. Раніше вона задавалася змінною й зашивалась у бандл, і це
+ * ламалося щоразу, коли Mac міняв мережу: застосунок мовчки стукав у стару
+ * адресу, а на екрані назавжди лишалися заглушки завантаження.
+ *
+ * Тому в розробці беремо адресу від самого Metro — він знає, звідки телефон
+ * щойно завантажив бандл. Змінна лишається головнішою: вона потрібна, щоб
+ * навести dev-збірку на прод. У релізі hostUri немає, і лишається прод.
  */
+function metroHost(): string | null {
+  /** Виглядає як "192.168.0.31:8081" — беремо хост, порт наш власний. */
+  const hostUri = Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost;
+  const host = hostUri?.split(":")[0];
+  return host ? `http://${host}:3000` : null;
+}
+
 export const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ?? "https://www.budvik27.com";
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  (__DEV__ ? metroHost() : null) ??
+  "https://www.budvik27.com";
 
 /** Помилка з відповіді сервера — з текстом, який можна показати людині. */
 export class ApiError extends Error {

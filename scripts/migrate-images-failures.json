@@ -1,0 +1,52 @@
+[
+ {
+  "id": "cmmhzjdlq11gqp61dqj9zemur",
+  "image": "https://budvik.com/content/images/45/86293102244700_+03e6e0c52b.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjdyu11lup61dklzpur6c",
+  "image": "https://budvik.com/content/images/16/87661448263535_+cbe9cd4ff3.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjdz411lyp61dcppvakdn",
+  "image": "https://budvik.com/content/images/18/55227719045089_+de1c692f44.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjdym11lsp61d75vc4rdp",
+  "image": "https://budvik.com/content/images/15/53009569923748_+8d319f1875.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjdz811m0p61du55o9ezc",
+  "image": "https://budvik.com/content/images/19/52935909972770_+39c75c082a.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjf3q120ep61dsjxli1qn",
+  "image": "https://budvik.com/content/images/5/61506145275971_+a5de5d0c42.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjf40120gp61delqify1j",
+  "image": "https://budvik.com/content/images/25/33942054318136_+4ad9afecd1.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjftf129qp61do1opezyh",
+  "image": "https://budvik.com/content/images/24/55222293024554_+fba08964b9.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjft7129op61deerdandd",
+  "image": "https://budvik.com/content/images/21/41569417529811_+9d75f71f7e.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ },
+ {
+  "id": "cmmhzjfuu12a2p61diuco0gzc",
+  "image": "https://budvik.com/content/images/48/38120327778175_+6823c6c095.jpg",
+  "error": "\nInvalid `prisma.product.update()` invocation:\n\n\nServer has closed the connection."
+ }
+]

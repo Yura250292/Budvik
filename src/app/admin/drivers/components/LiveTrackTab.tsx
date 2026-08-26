@@ -32,14 +32,37 @@ type Person = {
   name: string;
   role: string;
   color: string | null;
-  lat: number;
-  lng: number;
+  /** null — точок сьогодні ще не було. Людина в списку, але не на карті. */
+  lat: number | null;
+  lng: number | null;
   speedKmh: number | null;
-  lastPointAt: string;
-  minutesAgo: number;
+  lastPointAt: string | null;
+  minutesAgo: number | null;
   online: boolean;
   distanceKm: number;
   pointsCount: number;
+  shift: {
+    status: string;
+    startedAt: string;
+    endedAt: string | null;
+    /** Хвилин відкритої зміни без жодної точки — головна цифра тривоги. */
+    silentSinceStartMin: number | null;
+  } | null;
+  /** Що планшет каже про себе сам. null — пульсу ще не було. */
+  device: {
+    minutesAgo: number | null;
+    alive: boolean;
+    tracking: boolean;
+    buffered: number;
+    lastFixMinutesAgo: number | null;
+    lastFixAccuracyM: number | null;
+    batteryPct: number | null;
+    deviceName: string | null;
+    appVersion: string | null;
+    lastError: string | null;
+  } | null;
+  /** Готова фраза «чому не пишеться» або null, якщо все гаразд. */
+  problem: string | null;
 };
 
 type DayDetail = {
@@ -183,6 +206,16 @@ export function LiveTrackTab() {
 
   const isToday = day === kyivToday();
 
+  /** Хто має координати — тільки їх можна намалювати. */
+  const onMap = people.filter(
+    // minutesAgo звужуємо разом із координатами: якщо точка є, то є й час
+    // її запису — карта підписує ним маркер.
+    (p): p is Person & { lat: number; lng: number; minutesAgo: number } =>
+      p.lat != null && p.lng != null && p.minutesAgo != null
+  );
+  /** Хто вимагає уваги: екран існує заради цього рядка. */
+  const troubled = people.filter((p) => p.problem);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -199,6 +232,9 @@ export function LiveTrackTab() {
         {isToday && (
           <span style={{ fontSize: "13px", color: "#6B7280" }}>
             Оновлюється кожні 30 с · {people.filter((p) => p.online).length} на маршруті
+            {troubled.length > 0 && (
+              <b style={{ color: "#DC2626" }}> · {troubled.length} з проблемою</b>
+            )}
           </span>
         )}
       </div>
@@ -227,7 +263,10 @@ export function LiveTrackTab() {
               контейнер із overflow тут лише подвоював би заокруглення. */}
           <div style={{ border: "1px solid #E5E7EB", borderRadius: "12px" }}>
             <TrackDayMap
-              people={people}
+              /* На карту йдуть лише ті, у кого сьогодні була хоч одна
+                 точка. Решта лишається в таблиці — саме там видно, що
+                 планшет мовчить, і саме це треба помітити. */
+              people={onMap}
               selectedId={selected}
               detail={
                 detail
@@ -375,9 +414,16 @@ export function LiveTrackTab() {
                         </span>
                       </td>
                       <td style={td}>
+                        {/* Три рівні, зверху вниз: де людина, що не так із
+                            планшетом, і дрібниці для розбору. Проблема
+                            навмисно окремим рядком — її не можна пропустити
+                            в потоці цифр. */}
                         <span
                           className="inline-flex items-center gap-1.5"
-                          style={{ fontSize: "13px", color: p.online ? "#16A34A" : "#9CA3AF" }}
+                          style={{
+                            fontSize: "13px",
+                            color: p.online ? "#16A34A" : p.problem ? "#DC2626" : "#9CA3AF",
+                          }}
                         >
                           <span
                             aria-hidden
@@ -385,15 +431,51 @@ export function LiveTrackTab() {
                               width: "8px",
                               height: "8px",
                               borderRadius: "50%",
-                              background: p.online ? "#16A34A" : "#D1D5DB",
+                              background: p.online
+                                ? "#16A34A"
+                                : p.problem
+                                  ? "#DC2626"
+                                  : "#D1D5DB",
                             }}
                           />
                           {p.online
                             ? p.speedKmh != null && p.speedKmh > 5
                               ? `їде ${p.speedKmh} км/год`
                               : "на місці"
-                            : `${p.minutesAgo} хв тому`}
+                            : p.minutesAgo != null
+                              ? `${p.minutesAgo} хв тому`
+                              : p.shift?.silentSinceStartMin != null
+                                ? `жодної точки за ${p.shift.silentSinceStartMin} хв зміни`
+                                : "точок немає"}
                         </span>
+                        {p.problem && (
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "12px",
+                              color: "#B91C1C",
+                              marginTop: "3px",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {p.problem}
+                          </span>
+                        )}
+                        {p.device && (
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "11px",
+                              color: "#9CA3AF",
+                              marginTop: "2px",
+                            }}
+                          >
+                            пульс {p.device.minutesAgo} хв тому
+                            {p.device.buffered > 0 && ` · у буфері ${p.device.buffered}`}
+                            {p.device.batteryPct != null && ` · батарея ${p.device.batteryPct}%`}
+                            {p.device.appVersion && ` · v${p.device.appVersion}`}
+                          </span>
+                        )}
                       </td>
                       <td style={tdR}>{p.distanceKm}</td>
                       <td style={tdR}>{sheet ? sheet.distanceKm : "—"}</td>

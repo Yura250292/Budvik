@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
-import { haversineM } from "@/lib/track/geo";
+import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 
 /** Скільки годин зміна може висіти відкритою, поки її не визнають забутою. */
 export const ABANDON_AFTER_HOURS = 20;
@@ -57,24 +57,40 @@ export async function gpsDistanceForShift(shiftId: string): Promise<number | nul
   const points = await prisma.trackPoint.findMany({
     where: { shiftId, phase: "SHIFT" },
     orderBy: { recordedAt: "asc" },
-    select: { lat: true, lng: true, roadMetersFromPrev: true, metersFromPrev: true },
+    select: {
+      lat: true,
+      lng: true,
+      accuracyM: true,
+      roadMetersFromPrev: true,
+    },
   });
   if (points.length < 2) return null;
 
+  /**
+   * Кілометри рахуємо ЛИШЕ між точками, яким можна вірити.
+   *
+   * У треку тепер лежать і слабкі фікси (по вежі, з похибкою в сотні
+   * метрів) — вони показують, де людина їхала, коли GPS не бачив неба, і
+   * без них у дні зяяли дірки. Але в пробіг їх пускати не можна: сусідні
+   * такі точки «стрибають» на пів кілометра, стоячи на місці, і зміна
+   * набирала б кілометри з нічого. Тому йдемо від надійної до надійної,
+   * перестрибуючи слабкі — рівно так, як рахує сам прийом пачки.
+   */
+  const trusted = points.filter(
+    (p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M
+  );
+  if (trusted.length < 2) return null;
+
   let meters = 0;
-  for (let i = 1; i < points.length; i++) {
+  for (let i = 1; i < trusted.length; i++) {
     // Там, де розрив добито реальною дорогою, беремо її — інакше пробіг
-    // занижується рівно на офлайнові ділянки.
-    const road = points[i].roadMetersFromPrev;
-    if (road != null) {
-      meters += road;
-      continue;
-    }
-    const straight = points[i].metersFromPrev;
+    // занижується рівно на офлайнові ділянки. roadMetersFromPrev міряний
+    // саме від попередньої надійної точки, тож ряд не рветься.
+    const road = trusted[i].roadMetersFromPrev;
     meters +=
-      straight != null
-        ? straight
-        : haversineM(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
+      road != null
+        ? road
+        : haversineM(trusted[i - 1].lat, trusted[i - 1].lng, trusted[i].lat, trusted[i].lng);
   }
   return Math.round(meters / 100) / 10;
 }

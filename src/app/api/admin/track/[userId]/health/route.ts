@@ -33,6 +33,14 @@ const GAP_MINUTES = 5;
 /** Похибка, за якої точка ще щось доводить (та сама, що при прийомі). */
 const GOOD_ACCURACY_M = 100;
 
+/**
+ * Пауза в пульсі, з якої вважаємо, що застосунок не працював.
+ *
+ * Пульс іде раз на 3 хвилини; 10 — це три пропущені поспіль, тобто вже
+ * не затримка мережі, а зупинена служба.
+ */
+const HEARTBEAT_GAP_MINUTES = 10;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
@@ -50,7 +58,7 @@ export async function GET(
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const dayStart = kyivDayStart(day);
 
-  const [user, trackSession, allPoints, devices] = await Promise.all([
+  const [user, trackSession, allPoints, beats, devices] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, role: true },
@@ -63,6 +71,34 @@ export async function GET(
       where: { userId, session: { day: dayStart } },
       orderBy: { recordedAt: "asc" },
       select: { recordedAt: true, createdAt: true, accuracyM: true, speedKmh: true },
+    }),
+    /**
+     * Пульс за цю добу.
+     *
+     * Це друга половина відповіді на «чому немає треку». Точки кажуть,
+     * що записалось; пульс — що при цьому діялось із самим застосунком.
+     * Дірка в точках при рівному пульсі означає «GPS не бачив неба», а
+     * дірка в обох — «служби не було». Раніше ці дві різні біди були
+     * нерозрізненні.
+     */
+    prisma.deviceHeartbeat.findMany({
+      where: { userId, at: { gte: dayStart, lt: new Date(dayStart.getTime() + 86_400_000) } },
+      orderBy: { at: "asc" },
+      select: {
+        at: true,
+        tracking: true,
+        mode: true,
+        buffered: true,
+        lastFixAt: true,
+        lastFixAccuracyM: true,
+        lastError: true,
+        locationPermission: true,
+        locationMode: true,
+        batteryOptimized: true,
+        batteryPct: true,
+        appVersion: true,
+        deviceName: true,
+      },
     }),
     // Пристрої цієї людини: якщо точок немає, перше питання — чи взагалі
     // хтось логінився і коли пристрій востаннє озивався.
@@ -155,6 +191,27 @@ export async function GET(
       )
     : null;
 
+  /**
+   * Мовчання пульсу — це і є «застосунок не працював».
+   *
+   * Пульс іде раз на 3 хвилини, тож пауза від 10 хвилин означає, що
+   * служби в цей час не було: вбита системою, вимкнений планшет або
+   * знята задача. Саме ці інтервали й пояснюють дірки в треку.
+   */
+  const beatGaps: Array<{ from: string; to: string; minutes: number }> = [];
+  for (let i = 1; i < beats.length; i++) {
+    const minutes = (beats[i].at.getTime() - beats[i - 1].at.getTime()) / 60_000;
+    if (minutes >= HEARTBEAT_GAP_MINUTES) {
+      beatGaps.push({
+        from: beats[i - 1].at.toISOString(),
+        to: beats[i].at.toISOString(),
+        minutes: Math.round(minutes),
+      });
+    }
+  }
+
+  const lastBeat = beats[beats.length - 1] ?? null;
+
   return NextResponse.json({
     day,
     user,
@@ -185,6 +242,35 @@ export async function GET(
     },
     /** Найдовші паузи — саме їх дивляться першими */
     gaps: gaps.sort((a, b) => b.minutes - a.minutes).slice(0, 10),
+    /**
+     * Що застосунок казав про себе. null — пульсу не було зовсім:
+     * або на планшеті стара збірка, або він не запускався.
+     */
+    device: lastBeat
+      ? {
+          at: lastBeat.at.toISOString(),
+          tracking: lastBeat.tracking,
+          mode: lastBeat.mode,
+          buffered: lastBeat.buffered,
+          lastFixAt: lastBeat.lastFixAt?.toISOString() ?? null,
+          lastFixAccuracyM: lastBeat.lastFixAccuracyM,
+          lastError: lastBeat.lastError,
+          locationPermission: lastBeat.locationPermission,
+          locationMode: lastBeat.locationMode,
+          batteryOptimized: lastBeat.batteryOptimized,
+          batteryPct: lastBeat.batteryPct,
+          appVersion: lastBeat.appVersion,
+          deviceName: lastBeat.deviceName,
+        }
+      : null,
+    /** Скільки разів застосунок озвався за день і коли мовчав. */
+    heartbeat: {
+      count: beats.length,
+      firstAt: beats[0]?.at.toISOString() ?? null,
+      lastAt: lastBeat?.at.toISOString() ?? null,
+      silentMinutes: beatGaps.reduce((sum, g) => sum + g.minutes, 0),
+      gaps: beatGaps.sort((a, b) => b.minutes - a.minutes).slice(0, 10),
+    },
     devices: devices.map((d) => ({
       deviceName: d.deviceName,
       lastUsedAt: d.lastUsedAt?.toISOString() ?? null,

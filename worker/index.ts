@@ -26,6 +26,7 @@ import {
   type IngestDeps,
 } from "@/lib/sync-ingest/handlers";
 import { alertAgentSilent } from "@/lib/sync-ingest/alerts";
+import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -210,6 +211,28 @@ async function checkAgentSilence(): Promise<void> {
 
 const silenceTimer = setInterval(() => void checkAgentSilence(), SILENCE_CHECK_INTERVAL_MS);
 
+/**
+ * Друга перевірка мовчання — про трек торгових і водіїв.
+ *
+ * Живе тут із тієї ж причини, що й перша: воркер уже стоїть поруч із
+ * базою й крутиться цілодобово, а на Vercel це коштувало б окремого
+ * крона. Сама перевірка — у `@/lib/track/silence`, щоб її можна було
+ * викликати й вручну зі скрипта під час розбору.
+ */
+async function checkTrackSilence(): Promise<void> {
+  try {
+    const sent = await trackSilenceCheck();
+    if (sent > 0) console.log(`worker: сповіщень про мертвий трек — ${sent}`);
+  } catch (e) {
+    console.error("worker: перевірка мовчання треку впала", e);
+  }
+}
+
+const trackSilenceTimer = setInterval(
+  () => void checkTrackSilence(),
+  SILENCE_CHECK_INTERVAL_MS
+);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -220,6 +243,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     console.log(`${signal} — зупиняюсь`);
     clearInterval(silenceTimer);
+    clearInterval(trackSilenceTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

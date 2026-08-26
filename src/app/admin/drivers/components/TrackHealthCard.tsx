@@ -38,6 +38,30 @@ type Health = {
     clockSkewSeconds: number | null;
   };
   gaps: Array<{ from: string; to: string; minutes: number }>;
+  /** Що застосунок казав про себе. null — пульсу цього дня не було. */
+  device: {
+    at: string;
+    tracking: boolean;
+    mode: string | null;
+    buffered: number;
+    lastFixAt: string | null;
+    lastFixAccuracyM: number | null;
+    lastError: string | null;
+    locationPermission: string | null;
+    locationMode: string | null;
+    batteryOptimized: boolean | null;
+    batteryPct: number | null;
+    appVersion: string | null;
+    deviceName: string | null;
+  } | null;
+  heartbeat: {
+    count: number;
+    firstAt: string | null;
+    lastAt: string | null;
+    /** Скільки хвилин застосунок мовчав — тобто не працював. */
+    silentMinutes: number;
+    gaps: Array<{ from: string; to: string; minutes: number }>;
+  };
   devices: Array<{
     deviceName: string | null;
     lastUsedAt: string | null;
@@ -282,6 +306,70 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
               </div>
             </div>
           )}
+
+          {/* Пульс застосунку. Головне тут — те, чого немає: мовчання
+              пульсу означає, що служби не було, і саме воно пояснює
+              дірки в треку. Без цього блоку «немає точок» лишалось
+              питанням без відповіді. */}
+          <div
+            className="rounded-lg p-3"
+            style={{ marginTop: "12px", background: "#F9FAFB", border: "1px solid #E5E7EB" }}
+          >
+            <p style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+              Що казав застосунок
+            </p>
+            {data.heartbeat.count === 0 ? (
+              <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+                Пульсу цього дня не було. Або на планшеті стара збірка
+                застосунку (пульс з&apos;явився у версії 1.3), або він не
+                запускався взагалі.
+              </p>
+            ) : (
+              <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.7 }}>
+                <p>
+                  Озвався {data.heartbeat.count} раз
+                  {data.heartbeat.firstAt && data.heartbeat.lastAt
+                    ? ` (з ${clock(data.heartbeat.firstAt)} до ${clock(data.heartbeat.lastAt)})`
+                    : ""}
+                  {data.heartbeat.silentMinutes > 0 && (
+                    <b style={{ color: "#DC2626" }}>
+                      {" "}
+                      · мовчав {data.heartbeat.silentMinutes} хв
+                    </b>
+                  )}
+                </p>
+                {data.device && (
+                  <p style={{ color: "#6B7280" }}>
+                    {data.device.deviceName ?? "планшет"}
+                    {data.device.appVersion && ` · v${data.device.appVersion}`}
+                    {` · запис ${data.device.tracking ? "увімкнено" : "ВИМКНЕНО"}`}
+                    {data.device.locationPermission &&
+                      ` · дозвіл ${
+                        data.device.locationPermission === "ALWAYS"
+                          ? "«Завжди»"
+                          : data.device.locationPermission === "WHILE_USING"
+                            ? "лише «поки відкрито»"
+                            : "не виданий"
+                      }`}
+                    {data.device.batteryOptimized === true && " · економія батареї УВІМКНЕНА"}
+                    {data.device.batteryPct != null && ` · заряд ${data.device.batteryPct}%`}
+                    {data.device.buffered > 0 && ` · у буфері ${data.device.buffered} точок`}
+                  </p>
+                )}
+                {data.device?.lastError && (
+                  <p style={{ color: "#B91C1C" }}>Помилка: {data.device.lastError}</p>
+                )}
+                {data.heartbeat.gaps.length > 0 && (
+                  <p style={{ color: "#6B7280" }}>
+                    Застосунок не працював:{" "}
+                    {data.heartbeat.gaps
+                      .map((g) => `${clock(g.from)}—${clock(g.to)} (${g.minutes} хв)`)
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "12px", lineHeight: 1.5 }}>
             Рахуємо лише робочі години ({data.workHours}).

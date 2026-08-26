@@ -17,7 +17,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { preparePoints, type RawPoint } from "@/lib/track/geo";
+import { preparePoints, MAX_ACCURACY_M, type RawPoint } from "@/lib/track/geo";
 import { findGaps, resolveGaps } from "@/lib/track/gaps";
 import { verifyDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
 
@@ -129,19 +129,38 @@ export async function POST(req: NextRequest) {
   // не знає, і мітити його не можна.
   const phase = shiftId ? (openShift ? "SHIFT" : "AFTER_SHIFT") : null;
 
-  // Остання точка дня — точка відліку для metersFromPrev. Без неї кожна
-  // пачка починалася б «з нуля» і пробіг занижувався на розрив між ними.
-  const last = await prisma.trackPoint.findFirst({
-    where: { sessionId: sessionRow.id },
-    orderBy: { recordedAt: "desc" },
-    select: { lat: true, lng: true, recordedAt: true },
-  });
+  /**
+   * Дві точки відліку з бази, і обидві потрібні.
+   *
+   * `last` — остання точка дня взагалі: від неї рахується metersFromPrev
+   * і ловляться повтори пачки. Без неї кожна пачка починалася б «з нуля».
+   *
+   * `lastTrusted` — остання точка з доброю похибкою: від неї росте пробіг.
+   * Відколи слабкі фікси теж зберігаються (див. MAX_ACCURACY_M), без цієї
+   * опори кілометри рахувалися б від тремтіння вежі.
+   */
+  const [last, lastTrusted] = await Promise.all([
+    prisma.trackPoint.findFirst({
+      where: { sessionId: sessionRow.id },
+      orderBy: { recordedAt: "desc" },
+      select: { lat: true, lng: true, recordedAt: true },
+    }),
+    prisma.trackPoint.findFirst({
+      where: {
+        sessionId: sessionRow.id,
+        OR: [{ accuracyM: null }, { accuracyM: { lte: MAX_ACCURACY_M } }],
+      },
+      orderBy: { recordedAt: "desc" },
+      select: { lat: true, lng: true, recordedAt: true },
+    }),
+  ]);
 
-  const prepared = preparePoints(raw, last);
+  const prepared = preparePoints(raw, last, lastTrusted);
 
   if (prepared.points.length === 0) {
     return NextResponse.json({
       accepted: 0,
+      untrusted: 0,
       rejected: prepared.rejected,
       // Округлення таке саме, як у гілці з прийнятими точками: інакше
       // цифра на планшеті стрибала б між 5.3 і 5.307576 залежно від того,
@@ -207,6 +226,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     accepted: prepared.points.length,
+    // Скільки з прийнятих — «на віру»: планшет показує це в сповіщенні,
+    // і саме за цим числом видно, що фікс поплив, а не що трек перервався.
+    untrusted: prepared.untrusted,
     rejected: prepared.rejected,
     sessionDistanceKm: Math.round(updated.distanceKm * 10) / 10,
     pointsCount: updated.pointsCount,

@@ -44,6 +44,7 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
   check("Перша точка не рахується в пробіг", r.points[0].countsToDistance, false);
   near("Пробіг пачки, км", r.addedKm, 13.5, 2);
   check("Немає відкинутих", r.rejected, { accuracy: 0, stale: 0, malformed: 0 });
+  check("Усі точки надійні", r.points.every((x) => x.trusted), true);
 }
 
 // --- Стрибок GPS ---
@@ -70,7 +71,9 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
   near("Стоянка не додає пробігу", r.addedKm, 0, 0.001);
 }
 
-// --- Відсів за похибкою ---
+// --- Слабкий фікс: зберігаємо, але не міряємо ним ---
+// Саме тут ховалася втрата 55–65% кілометрів дня: точки з похибкою понад
+// 100 м просто зникали, і разом з ними — ділянка дороги за містом.
 {
   const raw: RawPoint[] = [
     { lat: 49.8419, lng: 24.0315, accuracyM: 10, recordedAt: at(0) },
@@ -78,8 +81,36 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
     { lat: 49.8600, lng: 24.1000, accuracyM: 20, recordedAt: at(10) },
   ];
   const r = preparePoints(raw, null);
-  check("Точку з похибкою 500 м відкинуто", r.points.length, 2);
+  check("Слабку точку збережено", r.points.length, 3);
+  check("Нічого не відкинуто за похибкою", r.rejected.accuracy, 0);
+  check("Позначена як ненадійна", r.points[1].trusted, false);
+  check("Порахована як «на віру»", r.untrusted, 1);
+  check("У пробіг не пішла", r.points[1].countsToDistance, false);
+  // Відстань міряється від першої надійної до третьої, слабка не заважає.
+  check("Надійна точка після слабкої рахується", r.points[2].countsToDistance, true);
+  near("Пробіг як між надійними кінцями, км", r.addedKm, 5.6, 1.5);
+}
+
+// --- Здогад по вежі ---
+{
+  const raw: RawPoint[] = [
+    { lat: 49.8419, lng: 24.0315, accuracyM: 10, recordedAt: at(0) },
+    { lat: 49.8500, lng: 24.0500, accuracyM: 3000, recordedAt: at(5) },
+  ];
+  const r = preparePoints(raw, null);
+  check("Похибку в 3 км відкинуто", r.points.length, 1);
   check("Причина — accuracy", r.rejected.accuracy, 1);
+}
+
+// --- Стоїть у клієнта ---
+// Планшет годину віддає той самий фікс. Це не дубль відправки, а факт:
+// саме так виглядає «був у клієнта з 10:31 до 11:40».
+{
+  const prev = { lat: 49.8600, lng: 24.1000, recordedAt: new Date(at(10)) };
+  const raw: RawPoint[] = [{ lat: 49.8600, lng: 24.1000, accuracyM: 12, recordedAt: at(11) }];
+  const r = preparePoints(raw, prev);
+  check("Та сама координата через хвилину — це стоянка, не дубль", r.points.length, 1);
+  check("Пробігу не додає", r.points[0].countsToDistance, false);
 }
 
 // --- Повторна пачка (ідемпотентність) ---
@@ -106,9 +137,12 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
 // момент, і без окремої перевірки вона подвоїла б рядок у треку.
 {
   const prev = { lat: 49.8600, lng: 24.1000, recordedAt: new Date(at(10)) };
-  const raw: RawPoint[] = [{ lat: 49.8600, lng: 24.1000, accuracyM: 12, recordedAt: at(12) }];
+  // 20 секунд — це ретрай: планшет не знімає фікс частіше ніж раз на 30 с.
+  const raw: RawPoint[] = [
+    { lat: 49.8600, lng: 24.1000, accuracyM: 12, recordedAt: new Date(new Date(at(10)).getTime() + 20_000).toISOString() },
+  ];
   const r = preparePoints(raw, prev);
-  check("Дубль координати з новим часом відкинуто", r.points.length, 0);
+  check("Дубль координати за 20 секунд відкинуто", r.points.length, 0);
   check("Порахований як stale", r.rejected.stale, 1);
 }
 

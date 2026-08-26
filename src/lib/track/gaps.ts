@@ -19,7 +19,7 @@
  */
 
 import { getRoute } from "@/lib/geo/osrm";
-import { haversineM } from "@/lib/track/geo";
+import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 
 /**
  * Скільки розривів добираємо за один прохід.
@@ -92,11 +92,33 @@ export async function resolveGaps(gaps: GapSegment[]): Promise<ResolvedGap[]> {
  * трек) лягають як були — з'єднувати їх дорогами і зайве, і дорого.
  */
 export function buildTrackPath(
-  points: Array<{ lat: number; lng: number; gapGeometry?: unknown }>
+  points: Array<{
+    lat: number;
+    lng: number;
+    accuracyM?: number | null;
+    gapGeometry?: unknown;
+  }>
 ): Array<[number, number]> {
   const out: Array<[number, number]> = [];
 
   for (const p of points) {
+    /**
+     * Слабкий фікс малюємо лише тоді, коли він щось каже.
+     *
+     * Такі точки (похибка понад 100 м) з'явилися в треку навмисно: саме
+     * вони засвідчують заміську дорогу, де GPS не бачить неба, і без них
+     * у дні зяяли прямі на десятки кілометрів. Але на стоянці вони ж
+     * дають «стрибки» на пів кварталу туди-сюди — лінія починає
+     * тремтіти там, де людина година не рухалась.
+     *
+     * Правило просте й чесне: зсув менший за власну похибку точки — це
+     * шум, а не рух. Довша дорога лишається, тремтіння зникає.
+     */
+    if (p.accuracyM != null && p.accuracyM > MAX_ACCURACY_M && out.length > 0) {
+      const [prevLat, prevLng] = out[out.length - 1];
+      if (haversineM(prevLat, prevLng, p.lat, p.lng) < p.accuracyM) continue;
+    }
+
     const line = asLineString(p.gapGeometry);
     if (line) {
       // Геометрія OSRM іде в [lng, lat] і включає обидва кінці. Перший
@@ -125,19 +147,28 @@ function asLineString(v: unknown): GeoJSON.LineString | null {
 /**
  * Знаходить розриви серед підготовлених точок.
  *
- * Приймає вже відфільтровані точки (див. preparePoints): ті, що не пройшли
- * перевірку на точність чи правдоподібну швидкість, сюди не доходять.
+ * Приймає вже підготовлені точки (див. preparePoints). Розривом вважається
+ * лише відрізок між точками, яким можна вірити: слабкі фікси в треку
+ * лишаються, але дорогу між ними прокладати немає сенсу — вони й самі
+ * приблизні.
  */
 export function findGaps(
-  points: Array<{ lat: number; lng: number; isGap: boolean }>,
+  points: Array<{
+    lat: number;
+    lng: number;
+    isGap: boolean;
+    gapFrom?: { lat: number; lng: number } | null;
+  }>,
   prev?: { lat: number; lng: number } | null
 ): GapSegment[] {
   const out: GapSegment[] = [];
 
   points.forEach((p, i) => {
     if (!p.isGap) return;
-    // Перша точка пачки міряється від останньої збереженої в базі
-    const from = i === 0 ? prev : points[i - 1];
+    // Опора розриву відома з підготовки: між надійними кінцями могли
+    // лягти слабкі точки, і мірятися треба від кінця, а не від сусіда.
+    // Якщо опори немає (старий виклик) — від сусіда, як було.
+    const from = p.gapFrom ?? (i === 0 ? prev : points[i - 1]);
     if (!from) return;
     out.push({
       index: i,

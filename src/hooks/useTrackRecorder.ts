@@ -37,6 +37,17 @@ const MIN_MOVE_M = 30;
 /** Скільки точок тримаємо в буфері максимум — далі викидаємо найстаріші. */
 const BUFFER_CAP = 2_000;
 
+/**
+ * Скільки точок віддаємо за один запит.
+ *
+ * Сервер приймає щонайбільше 500 і відповідає 400 на більшу пачку. Тут
+ * раніше слався ВЕСЬ буфер: варто було планшету пробути офлайн довше,
+ * ніж на 500 точок, — і кожна наступна спроба поверталася тією самою
+ * помилкою. Точки не зникали одразу, вони просто ніколи не доїжджали, а
+ * потім їх зрізала стеля буфера. День треку губився мовчки.
+ */
+const SEND_CHUNK = 200;
+
 export type TrackStatus =
   | "idle" // ще не стартував
   | "live" // точки йдуть і відправляються
@@ -144,28 +155,40 @@ export function useTrackRecorder(options: { enabled: boolean }): UseTrackRecorde
 
   const flush = useCallback(async () => {
     if (flushingRef.current) return;
-    const batch = bufferRef.current;
-    if (batch.length === 0) return;
+    if (bufferRef.current.length === 0) return;
 
     flushingRef.current = true;
-    // Копію відправляємо, оригінал не чистимо до підтвердження: якщо
-    // запит впаде, точки лишаються в буфері й поїдуть наступного разу.
-    const sending = batch.slice();
     try {
-      const res = await fetch("/api/track/points", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ points: sending }),
-        keepalive: true,
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      const json = await res.json();
+      /**
+       * Віддаємо шматками, поки буфер не спорожніє.
+       *
+       * Цикл, а не одна пачка: після довгого офлайну в буфері легко
+       * набирається кілька сотень точок, а сервер приймає щонайбільше
+       * 500 за раз. Раніше слався ВЕСЬ буфер — і варто було перебрати
+       * межу, як кожна наступна спроба поверталася 400. Точки не
+       * зникали одразу: вони просто ніколи не доїжджали, а потім їх
+       * зрізала стеля буфера, і день треку губився мовчки.
+       *
+       * Буфер зрізаємо лише після підтвердження сервера: обірваний
+       * запит має лишити точки на місці, а не з'їсти їх.
+       */
+      while (bufferRef.current.length > 0) {
+        const sending = bufferRef.current.slice(0, SEND_CHUNK);
+        const res = await fetch("/api/track/points", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ points: sending }),
+          keepalive: true,
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const json = await res.json();
 
-      bufferRef.current = bufferRef.current.slice(sending.length);
-      writeBuffer(bufferRef.current);
-      setPending(bufferRef.current.length);
-      if (typeof json?.sessionDistanceKm === "number") setDistanceKm(json.sessionDistanceKm);
-      setStatus("live");
+        bufferRef.current = bufferRef.current.slice(sending.length);
+        writeBuffer(bufferRef.current);
+        setPending(bufferRef.current.length);
+        if (typeof json?.sessionDistanceKm === "number") setDistanceKm(json.sessionDistanceKm);
+        setStatus("live");
+      }
     } catch {
       setStatus("buffering");
     } finally {

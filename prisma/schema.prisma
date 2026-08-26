@@ -201,13 +201,13 @@ enum DeliveryZone {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String  @id @default(cuid())
+  email        String  @unique
   password     String?
   name         String
   phone        String?
-  role         Role     @default(CLIENT)
-  boltsBalance Float    @default(0)
+  role         Role    @default(CLIENT)
+  boltsBalance Float   @default(0)
 
   /// Колір торгового на мапі напрямків (#RRGGBB); null — детермінований fallback з палітри
   color String?
@@ -232,8 +232,8 @@ model User {
   referredClients      User[]  @relation("referredClients")
   attributedOrders     Order[] @relation("orderSalesRep")
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   orders                Order[]
   boltsTransactions     BoltsTransaction[]
@@ -247,21 +247,21 @@ model User {
   linkedCounterparty Counterparty? @relation("UserLinkedCounterparty", fields: [counterpartyId], references: [id])
 
   // ERP relations
-  purchaseOrdersCreated PurchaseOrder[]    @relation("purchaseOrderCreator")
-  salesDocumentsCreated SalesDocument[]    @relation("salesDocCreator")
-  salesRepSales         SalesDocument[]    @relation("salesRepSales")
-  invoicesCreated       Invoice[]          @relation("invoiceCreator")
-  commissionRates       CommissionRate[]   @relation("commissionRates")
-  commissionRecords     CommissionRecord[] @relation("commissionRecords")
-  aiInsightReports      AiInsightReport[]  @relation("aiInsightRep")
-  savedAiReports        SavedAiReport[]    @relation("savedAiReportRep")
-  savedAiReportsAuthored SavedAiReport[]   @relation("savedAiReportAuthor")
+  purchaseOrdersCreated  PurchaseOrder[]    @relation("purchaseOrderCreator")
+  salesDocumentsCreated  SalesDocument[]    @relation("salesDocCreator")
+  salesRepSales          SalesDocument[]    @relation("salesRepSales")
+  invoicesCreated        Invoice[]          @relation("invoiceCreator")
+  commissionRates        CommissionRate[]   @relation("commissionRates")
+  commissionRecords      CommissionRecord[] @relation("commissionRecords")
+  aiInsightReports       AiInsightReport[]  @relation("aiInsightRep")
+  savedAiReports         SavedAiReport[]    @relation("savedAiReportRep")
+  savedAiReportsAuthored SavedAiReport[]    @relation("savedAiReportAuthor")
 
   // Delivery relations
   driverRoutes   DeliveryRoute[] @relation("driverRoutes")
   createdRoutes  DeliveryRoute[] @relation("routeCreator")
   assignedRoutes DeliveryRoute[] @relation("routeAssigner")
-  savedRoutes   SavedRoute[]    @relation("savedRoutes")
+  savedRoutes    SavedRoute[]    @relation("savedRoutes")
 
   // Sales rep profile
   salesRepRegions    SalesRepRegion[]
@@ -281,12 +281,12 @@ model User {
   salesTrackPoints SalesTrackPoint[] @relation("salesTrackRep")
 
   // Плани та мотивація
-  salesPlans            SalesPlan[]            @relation("salesPlanRep")
-  salesPlansCreated     SalesPlan[]            @relation("salesPlanAuthor")
-  motivationAssignments MotivationAssignment[] @relation("motivationRep")
-  paymentAllocations    PaymentAllocation[]    @relation("paymentAllocations")
-  payrollEntries        MotivationPayrollEntry[] @relation("payrollEntries")
-  individualTermsEntries IndividualTermsEntry[]  @relation("individualTermsEntries")
+  salesPlans             SalesPlan[]              @relation("salesPlanRep")
+  salesPlansCreated      SalesPlan[]              @relation("salesPlanAuthor")
+  motivationAssignments  MotivationAssignment[]   @relation("motivationRep")
+  paymentAllocations     PaymentAllocation[]      @relation("paymentAllocations")
+  payrollEntries         MotivationPayrollEntry[] @relation("payrollEntries")
+  individualTermsEntries IndividualTermsEntry[]   @relation("individualTermsEntries")
 
   // Маршрути торгових і авто
   routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
@@ -311,11 +311,12 @@ model User {
   dashboardNotes  UserDashboardNote[]
 
   // Планшет у машині: веб-трек і відмітки візитів
-  trackSessions TrackSession[] @relation("trackSessionUser")
-  trackPoints   TrackPoint[]   @relation("trackPointUser")
-  deviceTokens  DeviceToken[]  @relation("deviceTokenUser")
-  shifts        Shift[]        @relation("shiftUser")
-  visits        Visit[]        @relation("visitUser")
+  trackSessions TrackSession[]    @relation("trackSessionUser")
+  trackPoints   TrackPoint[]      @relation("trackPointUser")
+  deviceTokens  DeviceToken[]     @relation("deviceTokenUser")
+  heartbeats    DeviceHeartbeat[] @relation("heartbeatUser")
+  shifts        Shift[]           @relation("shiftUser")
+  visits        Visit[]           @relation("visitUser")
 
   // Застосунок покупця
   pushTokens PushToken[]    @relation("pushTokenUser")
@@ -358,11 +359,11 @@ model UserDashboardNote {
 }
 
 model Category {
-  id       String    @id @default(cuid())
-  name     String
-  slug     String    @unique
-  image    String?
-  products Product[]
+  id             String                   @id @default(cuid())
+  name           String
+  slug           String                   @unique
+  image          String?
+  products       Product[]
   salesRepAccess SalesRepCategoryAccess[]
 
   // Синхронізація з 1С: дерево груп номенклатури дзеркалиться сюди,
@@ -384,7 +385,7 @@ model Product {
   wholesalePrice Float?
   /// Роздріб не з 1С, а розрахований з опту (× Brand.retailMarkup): у 1С для
   /// цього товару немає ціни «6.МАГАЗИНИ». Скидається, щойно вона зʼявиться.
-  priceDerived   Boolean @default(false)
+  priceDerived   Boolean  @default(false)
   image          String?
   stock          Int      @default(0)
   isActive       Boolean  @default(true)
@@ -423,9 +424,9 @@ model Product {
   brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
 
   // Sync fields
-  syncedAt    DateTime? // Коли останній раз ЗМІНЕНО даними з 1С
-  syncSource  String?   // "1C" — позначка що дані прийшли з 1С
-  externalId  String?   @unique // Ref_Key (GUID) номенклатури в 1С — стабільний ключ зіставлення
+  syncedAt   DateTime? // Коли останній раз ЗМІНЕНО даними з 1С
+  syncSource String? // "1C" — позначка що дані прийшли з 1С
+  externalId String?   @unique // Ref_Key (GUID) номенклатури в 1С — стабільний ключ зіставлення
 
   /// Коли ціну востаннє ПІДТВЕРДИВ повний зріз 1С — на відміну від syncedAt,
   /// який рухається лише коли значення змінилось.
@@ -441,14 +442,14 @@ model Product {
   purchaseOrderItems PurchaseOrderItem[]
   salesDocumentItems SalesDocumentItem[]
   reservations       StockReservation[]
-
-  @@index([brandId])
-  // GIN — бо шукаємо `barcodes has "482..."`, а B-tree по масиву в цьому не помічний.
-  @@index([barcodes], type: Gin)
   locationStocks     LocationStock[]
 
   // Warehouse reports (лише довідковий матчинг, склад не змінюється)
   warehouseReportItems WarehouseReportItem[] @relation("warehouseItemProduct")
+
+  @@index([brandId])
+  // GIN — бо шукаємо `barcodes has "482..."`, а B-tree по масиву в цьому не помічний.
+  @@index([barcodes], type: Gin)
 }
 
 model SeasonalPromo {
@@ -470,9 +471,9 @@ model SeasonalPromo {
 }
 
 enum PromotionType {
-  QUANTITY_PRICE   // Ступінчасті ціни за кількістю
-  AMOUNT_DISCOUNT  // Знижка від суми замовлення (%)
-  CASHBACK_BOLTS   // Кешбек болтами (%)
+  QUANTITY_PRICE // Ступінчасті ціни за кількістю
+  AMOUNT_DISCOUNT // Знижка від суми замовлення (%)
+  CASHBACK_BOLTS // Кешбек болтами (%)
   PRODUCT_DISCOUNT // Знижка на конкретні товари (%)
 }
 
@@ -481,7 +482,7 @@ model Promotion {
   name        String
   description String?
   type        PromotionType
-  conditions  Json          // масив тирів, залежить від типу
+  conditions  Json // масив тирів, залежить від типу
   productIds  String[]
   categoryIds String[]
   isActive    Boolean       @default(true)
@@ -666,21 +667,37 @@ model DocumentSequence {
 }
 
 model Counterparty {
-  id            String           @id @default(cuid())
-  name          String
-  code          String?          @unique
-  type          CounterpartyType @default(BOTH)
-  phone         String?
-  email         String?
+  id              String           @id @default(cuid())
+  name            String
+  code            String?          @unique
+  type            CounterpartyType @default(BOTH)
+  phone           String?
+  email           String?
   address         String?
-  deliveryAddress String?  // Адреса доставки (НП відділення, адресна доставка)
-  deliveryLat     Float?   // Геокодовані координати для планувальника
+  deliveryAddress String? // Адреса доставки (НП відділення, адресна доставка)
+  deliveryLat     Float? // Геокодовані координати для планувальника
   deliveryLng     Float?
   contactPerson   String?
   notes           String?
-  isActive      Boolean          @default(true)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+
+  /// Фото самого магазину: як він виглядає з вулиці.
+  ///
+  /// Окремо від знімків у стрічці нотаток, і це не дублювання. Нотатка —
+  /// спостереження на дату («ворота відчинені з двору», «вивіска інша»), і
+  /// їх багато. Фото магазину одне: за ним упізнають місце, під'їхавши.
+  /// Поки його не було, картка показувала останній знімок зі стрічки — а
+  /// останнім легко виявляється кадр піддону або накладної.
+  photoUrl        String?
+  /// Ключ у R2 — щоб замінене фото можна було прибрати зі сховища.
+  photoKey        String?
+  photoAt         DateTime?
+  /// Хто зняв. Без зв'язку з User навмисно: рядок переживає видалення
+  /// облікового запису, а тут важливо саме «чиє це знання».
+  photoById       String?
+
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   // Синхронізація з 1С
   externalId        String?   @unique // Ref_Key контрагента в 1С
@@ -711,17 +728,17 @@ model Counterparty {
   /// Коли востаннє намагалися геокодувати — і для успіху, і для провалу.
   geoAttemptedAt DateTime?
 
-  debtSnapshots DebtSnapshot[]
+  debtSnapshots   DebtSnapshot[]
   routeSheetStops RouteSheetStop[]
   prospect        ProspectClient?
   comments        ClientComment[]
   visits          Visit[]
 
-  purchaseOrders   PurchaseOrder[]
-  salesDocuments   SalesDocument[]
-  invoices         Invoice[]
-  supplierProducts SupplierProduct[]
-  deliveryStops    DeliveryStop[]
+  purchaseOrders    PurchaseOrder[]
+  salesDocuments    SalesDocument[]
+  invoices          Invoice[]
+  supplierProducts  SupplierProduct[]
+  deliveryStops     DeliveryStop[]
   assignedSalesReps SalesRepClient[]
   folderItems       ClientFolderItem[]
   linkedUsers       User[]             @relation("UserLinkedCounterparty")
@@ -798,15 +815,20 @@ model SalesDocument {
 
   externalId String? @unique // Ref_Key документа в 1С (унікальний незалежно від типу)
 
-  counterparty Counterparty?       @relation(fields: [counterpartyId], references: [id])
-  salesRep     User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
-  createdBy    User                @relation("salesDocCreator", fields: [createdById], references: [id])
-  items        SalesDocumentItem[]
-  invoice      Invoice?
-  commissions  CommissionRecord[]
-  reservations StockReservation[]
-  deliveryStop DeliveryStop?
-  routeSheetStops RouteSheetStop[] @relation("routeSheetStops")
+  counterparty    Counterparty?       @relation(fields: [counterpartyId], references: [id])
+  salesRep        User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
+  createdBy       User                @relation("salesDocCreator", fields: [createdById], references: [id])
+  items           SalesDocumentItem[]
+  invoice         Invoice?
+  commissions     CommissionRecord[]
+  reservations    StockReservation[]
+  deliveryStop    DeliveryStop?
+  routeSheetStops RouteSheetStop[]    @relation("routeSheetStops")
+  // Є ще частковий індекс "SalesDocument_client_recent_idx"
+  // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
+  // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
+  // тож він живе лише в міграції 20260812210000_client_order_idx. Не видаляти
+  // його руками: без нього вибірка йде Seq Scan-ом по всій таблиці.
 
   @@unique([number, docType])
   @@index([docType, status, createdAt]) // під фільтр аналітики торгових
@@ -820,11 +842,6 @@ model SalesDocument {
   // docType у ключі: усі три місця, які цим ходять (debtDeltaByRep,
   // my-map, counterparties?mine=1), одразу відсівають повернення.
   @@index([counterpartyId, docType, createdAt(sort: Desc)])
-  // Є ще частковий індекс "SalesDocument_client_recent_idx"
-  // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
-  // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
-  // тож він живе лише в міграції 20260812210000_client_order_idx. Не видаляти
-  // його руками: без нього вибірка йде Seq Scan-ом по всій таблиці.
 }
 
 model SalesDocumentItem {
@@ -1062,7 +1079,7 @@ model SalesRepCategoryAccess {
 
 model ClientFolder {
   id          String   @id @default(cuid())
-  name        String   // "Радехів", "Львів центр"
+  name        String // "Радехів", "Львів центр"
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1085,7 +1102,7 @@ model ClientFolderItem {
 
 model StockLocation {
   id        String   @id @default(cuid())
-  name      String   // "Основний склад", "Магазин"
+  name      String // "Основний склад", "Магазин"
   address   String?
   lat       Float?
   lng       Float?
@@ -1147,7 +1164,7 @@ model SavedRoute {
   totalDistanceKm  Float?
   totalDurationMin Float?
   totalFuelCost    Float?
-  routeGeometry    Json?    // GeoJSON LineString
+  routeGeometry    Json? // GeoJSON LineString
   createdById      String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -1157,13 +1174,13 @@ model SavedRoute {
 }
 
 model SavedRouteStop {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   savedRouteId String
   address      String
   displayName  String?
   lat          Float
   lng          Float
-  sequence     Int    @default(0)
+  sequence     Int     @default(0)
 
   savedRoute SavedRoute @relation(fields: [savedRouteId], references: [id], onDelete: Cascade)
 }
@@ -1171,19 +1188,19 @@ model SavedRouteStop {
 // ========== Sync (1С Integration) ==========
 
 model SyncJob {
-  id              String   @id @default(cuid())
-  type            String   // "products", "counterparties"
-  status          String   // "running", "completed", "failed"
-  fileName        String
-  recordsTotal    Int      @default(0)
-  recordsCreated  Int      @default(0)
-  recordsUpdated  Int      @default(0)
-  recordsSkipped  Int      @default(0)
-  recordsFailed   Int      @default(0)
-  errors          String?  // JSON array of error messages
-  startedAt       DateTime @default(now())
-  completedAt     DateTime?
-  createdAt       DateTime @default(now())
+  id             String    @id @default(cuid())
+  type           String // "products", "counterparties"
+  status         String // "running", "completed", "failed"
+  fileName       String
+  recordsTotal   Int       @default(0)
+  recordsCreated Int       @default(0)
+  recordsUpdated Int       @default(0)
+  recordsSkipped Int       @default(0)
+  recordsFailed  Int       @default(0)
+  errors         String? // JSON array of error messages
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
 
   discrepancies SyncDiscrepancy[]
 }
@@ -1191,10 +1208,10 @@ model SyncJob {
 model SyncDiscrepancy {
   id          String   @id @default(cuid())
   syncJobId   String
-  entityType  String   // "product", "counterparty"
-  entityRef   String   // SKU або код контрагента
+  entityType  String // "product", "counterparty"
+  entityRef   String // SKU або код контрагента
   entityName  String
-  field       String   // "price", "stock", "name", "NEW", "MISSING"
+  field       String // "price", "stock", "name", "NEW", "MISSING"
   value1C     String
   valueBudvik String
   resolved    Boolean  @default(false)
@@ -1235,11 +1252,11 @@ model SyncState {
 model Notification {
   id        String   @id @default(cuid())
   userId    String
-  type      String   // "WHOLESALE_ORDER_REQUEST"
+  type      String // "WHOLESALE_ORDER_REQUEST"
   title     String
   body      String
   isRead    Boolean  @default(false)
-  relatedId String?  // salesDocumentId
+  relatedId String? // salesDocumentId
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1670,7 +1687,7 @@ model Brand {
   /// а справжніх логотипів у нас п'ять. Малювати решту «схожими» не можна —
   /// це чужі торгові марки, і приблизний логотип гірший за його відсутність.
   /// Там, де порожньо, застосунок малює плитку з назвою на фірмовому кольорі.
-  logoUrl  String?
+  logoUrl String?
 
   /// Підказки для автопривʼязки товарів: якщо назва товару містить
   /// будь-який із цих рядків — вважаємо, що це бренд. Зберігаємо
@@ -1698,9 +1715,9 @@ model Brand {
 /// План. Одна модель на всі рівні: конкретний торговий або вся команда
 /// (repId = null), конкретний бренд або загальний (brandId = null).
 model SalesPlan {
-  id      String     @id @default(cuid())
-  period  PlanPeriod
-  metric  PlanMetric @default(COLLECTED_AMOUNT)
+  id          String     @id @default(cuid())
+  period      PlanPeriod
+  metric      PlanMetric @default(COLLECTED_AMOUNT)
   /// Початок періоду за київським часом. Кінець виводиться з period —
   /// зберігати обидві межі означало б ризик їх розсинхронізації.
   periodStart DateTime
@@ -1748,12 +1765,12 @@ model MotivationScheme {
 
 /// Правило нарахування. Кілька правил однієї схеми сумуються.
 model MotivationRule {
-  id       String             @id @default(cuid())
-  schemeId String
-  type     MotivationRuleType
+  id        String             @id @default(cuid())
+  schemeId  String
+  type      MotivationRuleType
   /// Порядок застосування; утримання зазвичай ідуть останніми
-  sortOrder Int               @default(0)
-  isActive  Boolean           @default(true)
+  sortOrder Int                @default(0)
+  isActive  Boolean            @default(true)
 
   /// Обмеження дії правила. null = діє на все.
   brandId       String? // лише по цьому бренду
@@ -1782,10 +1799,10 @@ model MotivationRule {
 /// Хто на якій схемі і з якого моменту. Історія зберігається — інакше
 /// перерахунок минулого місяця дав би нові цифри.
 model MotivationAssignment {
-  id       String   @id @default(cuid())
-  repId    String
-  schemeId String
-  validFrom DateTime @default(now())
+  id        String    @id @default(cuid())
+  repId     String
+  schemeId  String
+  validFrom DateTime  @default(now())
   validTo   DateTime?
 
   rep    User             @relation("motivationRep", fields: [repId], references: [id], onDelete: Cascade)
@@ -1905,12 +1922,12 @@ model PaymentAllocation {
   repId     String
 
   /// Частина платежу, віднесена на цього торгового
-  amount Float
+  amount       Float
   /// Прибуток у цій частині: рахується пропорційно маржі накладної,
   /// бо оплата може бути частковою
-  profitAmount Float @default(0)
+  profitAmount Float   @default(0)
   /// Бренд, якщо оплату вдалося рознести по позиціях накладної
-  brandId String?
+  brandId      String?
 
   /// Як визначили торгового: DOCUMENT (через SalesDocument),
   /// CLIENT (через закріплення SalesRepClient), MANUAL (адмін вказав)
@@ -2094,7 +2111,7 @@ model AiInsightReport {
   id String @id @default(cuid())
 
   /// "rep" — по одному торговому, "team" — по команді
-  kind String
+  kind    String
   /// null для командного звіту
   repId   String?
   fromDay String
@@ -2103,7 +2120,7 @@ model AiInsightReport {
   /// Масив Insight (див. src/lib/ai/insights.ts)
   insights Json
   /// Зведення, на якому згенеровано — джерело чисел для карток
-  facts Json
+  facts    Json
 
   /// Яка модель відповідала — щоб було видно, чим саме згенеровано старий звіт
   model     String
@@ -2130,7 +2147,7 @@ model SavedAiReport {
   id String @id @default(cuid())
 
   /// "rep" — по одному торговому, "team" — по команді
-  kind String
+  kind    String
   /// null для командного звіту
   repId   String?
   fromDay String
@@ -2139,7 +2156,7 @@ model SavedAiReport {
   /// Назва від керівника; якщо не ввів — складається з виду й періоду
   title String
   /// Нащо відклали: «перед розмовою з Дмитром», «база для порівняння»
-  note String?
+  note  String?
 
   /// Копії на момент збереження (див. src/lib/ai/insights.ts)
   insights Json
@@ -2186,7 +2203,7 @@ model RouteSheet {
   driverId           String?
 
   vehicle    String?
-  distanceKm Float @default(0)
+  distanceKm Float   @default(0)
 
   /// Сума замовлень, які водій везе цим листом (з 1С)
   ordersTotal Float @default(0)
@@ -2294,7 +2311,7 @@ model DriverPayrollRates {
   /// Відсоток від (ordersTotal − debtsTotal), у відсотках: 0.5 = 0,5%
   turnoverPercent Float @default(0.5)
 
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 // ========== Карта клієнтів ==========
@@ -2514,7 +2531,7 @@ enum MoneyCollected {
 /// маршрутного листа кажуть, куди ПЛАНУВАЛИ, трек — де БУВ, а Visit —
 /// що там СТАЛОСЯ.
 model Visit {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   userId         String
   /// Київська дата візиту
   day            DateTime
@@ -2643,10 +2660,79 @@ model DeviceToken {
 
   createdAt DateTime @default(now())
 
-  user User @relation("deviceTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  user       User              @relation("deviceTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  heartbeats DeviceHeartbeat[] @relation("heartbeatToken")
 
   @@index([userId])
   @@index([userId, scope])
+}
+
+/// Пульс планшета: що застосунок каже про себе сам.
+///
+/// Досі про трекер було відомо рівно стільки, скільки він надіслав точок.
+/// А коли точок немає, розрізнити «служба мертва», «дозвіл забрали»,
+/// «GPS не бачить неба» і «планшет вимкнули» не було чим — кожен розбір
+/// упирався в здогади. Показовий випадок: 26.08 у торгового за 205 хвилин
+/// зміни в базі лежала ОДНА точка, і з'ясувати причину з сервера було
+/// неможливо в принципі.
+///
+/// Пульс приходить раз на кілька хвилин НАВІТЬ із порожнім буфером. Тому
+/// мовчання в цій таблиці саме по собі — діагноз: застосунок не працює.
+/// Рядки не оновлюються, а дописуються: історія «коли саме служба стояла»
+/// цінніша за поточний стан, який і так видно з останнього рядка.
+model DeviceHeartbeat {
+  id         String  @id @default(cuid())
+  userId     String
+  /// З якого пристрою. Токен могли відкликати — історію це не забирає.
+  tokenId    String?
+  deviceName String?
+
+  /// Час сервера: саме за ним рахується «мовчить N хвилин».
+  at         DateTime  @default(now())
+  /// Час на пристрої. Розбіжність із at ловить збитий годинник — через
+  /// нього точки лягали б у чужу добу й ніхто б не зрозумів чому.
+  reportedAt DateTime?
+
+  /// Чи працює служба відстеження цієї миті.
+  tracking  Boolean @default(false)
+  /// SHIFT | AFTER_SHIFT | IDLE — у якому режимі вона зараз.
+  mode      String?
+  /// Чи відкрита зміна за даними пристрою. Розбіжність із сервером
+  /// означає, що планшет живе застарілою картиною.
+  shiftOpen Boolean @default(false)
+
+  /// Скільки точок чекає відправки. Росте — зв'язку немає, але трек
+  /// пишеться; стоїть на нулі при мертвому GPS — фіксів немає взагалі.
+  buffered Int @default(0)
+
+  /// Останній фікс GPS і його похибка — видно, чи є небо.
+  lastFixAt        DateTime?
+  lastFixAccuracyM Int?
+  /// Остання вдала відправка на сервер.
+  lastSyncAt       DateTime?
+  /// Остання помилка, як її бачив пристрій.
+  lastError        String?
+
+  /// Три причини, через які трек тихо вмирає, — і жодної з них не було
+  /// видно з сервера.
+  /// ALWAYS | WHILE_USING | DENIED
+  locationPermission String?
+  /// true — Android має право прибити службу заради батареї.
+  batteryOptimized   Boolean?
+  batteryPct         Int?
+  /// GPS | NETWORK | OFF — стан системного перемикача локації.
+  locationMode       String?
+
+  /// Версія збірки: без неї «у нас це вже виправлено» неперевірне.
+  appVersion String?
+
+  user  User         @relation("heartbeatUser", fields: [userId], references: [id], onDelete: Cascade)
+  token DeviceToken? @relation("heartbeatToken", fields: [tokenId], references: [id], onDelete: SetNull)
+
+  /// Основний запит — «останній пульс людини» і стрічка за день.
+  @@index([userId, at])
+  /// Хто взагалі мовчить: скан по часу без прив'язки до людини.
+  @@index([at])
 }
 
 /// Пристрій, якому можна слати пуш про замовлення.
@@ -2785,17 +2871,17 @@ model Shift {
 
   // --- Похідні ---
   /// endOdometer - startOdometer
-  distanceKm      Int?
-  durationMinutes Int?
+  distanceKm         Int?
+  durationMinutes    Int?
   /// Пробіг за GPS-треком зміни — завжди НИЖЧА межа: трек іде по прямій
   /// між точками, дорога довша.
-  gpsDistanceKm   Float?
+  gpsDistanceKm      Float?
   /// Одометр / GPS. ~1.2-1.6 — норма; сильно більше означає, що
   /// кілометри були, а треку до них немає.
   odometerToGpsRatio Float?
   /// Кілометри між кінцем минулої зміни й початком цієї. НЕ порушення
   /// саме собою: дорога додому теж рахується.
-  personalKm      Int?
+  personalKm         Int?
   /// Різниця від'ємна, нульова або неправдоподібна
   odometerSuspicious Boolean @default(false)
 
@@ -2807,7 +2893,6 @@ model Shift {
 
   /**
    * Зміна закрита заднім числом, без фінішного фото.
-   *
    * Реальний випадок: торговий згадав про незакриту зміну ввечері вдома,
    * коли машина вже у дворі. Фото одометра зробити нема як — цифра на
    * ньому вже інша. Але час закінчення роботи він пам'ятає, і трек за
@@ -2839,7 +2924,7 @@ model Shift {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user   User         @relation("shiftUser", fields: [userId], references: [id], onDelete: Cascade)
+  user   User                @relation("shiftUser", fields: [userId], references: [id], onDelete: Cascade)
   points TrackPoint[]
   reads  ShiftOdometerRead[]
 
@@ -2865,16 +2950,16 @@ model ShiftOdometerRead {
   photoKey    String?
   photoSha256 String?
 
-  aiValue      Int?
-  aiConfidence Float?
+  aiValue        Int?
+  aiConfidence   Float?
   /// Цифри так, як їх побачила модель: «0 9 1 3 0 0» — за ними видно,
   /// де саме вона помилилася.
-  aiDigitsRead String?
-  aiIsTripMeter Boolean @default(false)
+  aiDigitsRead   String?
+  aiIsTripMeter  Boolean @default(false)
   /// Чому вердикт негативний: not_read, trip_meter, too_far…
   rejectedReason String?
   /// Повна відповідь моделі — для розбору польотів
-  rawJson      Json?
+  rawJson        Json?
 
   createdAt DateTime @default(now())
 
@@ -2903,7 +2988,7 @@ model SiteEvent {
   sessionId String
   /// Хто це був, якщо залогінений. Без FK: подія — це історія, вона
   /// мусить пережити видалення користувача.
-  userId String?
+  userId    String?
 
   /// page_view | product_view | search | add_to_cart | add_to_wishlist |
   /// add_to_compare | order_placed | phone_click
@@ -2913,28 +2998,28 @@ model SiteEvent {
   type String
 
   /// Шлях сторінки без query-рядка
-  path String?
+  path      String?
   /// Товар події. Без FK — щоб інжест не ходив у базу перевіряти; у
   /// звітах приєднується через LEFT JOIN.
   productId String?
   /// Пошуковий запит у нижньому регістрі
-  query String?
+  query     String?
   /// Уточнення: для phone_click — вид контакту (tel/mailto/viber/telegram),
   /// для order_placed — id замовлення
-  label String?
+  label     String?
   /// Число події: к-ть знайдених товарів для search (0 = запит без
   /// результатів), кількість для add_to_cart, сума для order_placed
-  value Int?
+  value     Int?
 
   /// Хост, звідки прийшли. Пишеться лише на першій сторінці сесії:
   /// далі реферером був би наш власний сайт.
   referrer String?
   /// Код торгового з QR-переходу (кука budvik_ref). Читається на інжесті —
   /// цей роут не кешується, тож ISR не зачіпає.
-  refCode String?
+  refCode  String?
 
   /// mobile | desktop — з User-Agent на сервері
-  device String?
+  device  String?
   /// Chrome | Safari | Firefox | Edge | Opera | інше
   browser String?
   /// Країна й місто з заголовків Vercel. Безкоштовно й без сторонніх

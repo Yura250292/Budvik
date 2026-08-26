@@ -260,43 +260,56 @@ const getSectionImages = unstable_cache(
   async (): Promise<Record<string, string | null>> => {
     const { sections } = await getCatalogToc();
 
-    const found = await Promise.all(
-      sections.map(async (s): Promise<[string, string | null]> => {
-        /**
-         * Три найбільші типи розділу, а не один: у найбільшого знімка може не
-         * бути зовсім, і тоді плитка лишилась би сірою.
-         */
-        const probes = s.lines.slice(0, 3).map((l) => l.key);
-        const base = {
-          isActive: true,
-          stock: { gt: 0 },
-          image: { not: null },
-          NOT: { image: "" },
-          OR: probes.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
-        };
-        const order = [{ priority: "desc" as const }, { stock: "desc" as const }];
+    const brands = await prisma.brand.findMany({ select: { id: true, name: true } });
+    const brandName = new Map(brands.map((b) => [b.id, b.name]));
 
-        /**
-         * Спершу шукаємо серед знімків на власному сховищі й лише потім —
-         * серед будь-яких. Поле image — довільний https-адрес, і частина
-         * посилань веде на сайти постачальників, які закривають гарячі
-         * посилання: sigma.ua віддає оптимізатору Next 400, тобто плитка
-         * лишається з піктограмою битого зображення. Своїх знімків 2696 із
-         * 2745, тож перший запит майже завжди й спрацьовує.
-         */
-        const hit =
-          (await prisma.product.findFirst({
-            where: { ...base, image: { startsWith: OWN_IMAGE_PREFIX } },
-            orderBy: order,
-            select: { image: true },
-          })) ??
-          (await prisma.product.findFirst({ where: base, orderBy: order, select: { image: true } }));
+    /**
+     * Тип рахуємо в пам'яті тим самим productType, що й зміст, а не шукаємо
+     * слово в назві через SQL.
+     *
+     * Підрядок ловив чуже: у розділ «Ручний інструмент» потрапляв «Набір
+     * конекторів для шланга», бо в назві є слово «набір», а в «Електроінструмент»
+     * — пневматичний «Пістолет продувний». Знімок мусить належати товару, який
+     * цей розділ справді рахує, інакше плитка обіцяє одне, а за нею лежить інше.
+     *
+     * Порядок за id — щоб переможець був той самий після кожного протухання
+     * кешу: знак, який змінюється сам собою, перестає бути знаком.
+     */
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        stock: { gt: 0 },
+        price: { gt: 0 },
+        image: { not: null },
+        NOT: { image: "" },
+      },
+      select: { name: true, brandId: true, image: true },
+      orderBy: { id: "asc" },
+    });
 
-        return [s.id, hit?.image ?? null];
-      })
+    const byType = new Map<string, string>();
+    for (const p of products) {
+      const t = productType(p.name, p.brandId ? brandName.get(p.brandId) : null);
+      if (!t || !p.image) continue;
+
+      /**
+       * Знімок із власного сховища б'є будь-який інший, навіть якщо трапився
+       * пізніше. Поле image — довільний https-адрес, і частина посилань веде
+       * на сайти постачальників, які закривають гарячі посилання: sigma.ua
+       * віддає оптимізатору Next 400, тобто плитка лишається з піктограмою
+       * битого зображення.
+       */
+      const current = byType.get(t);
+      if (!current) byType.set(t, p.image);
+      else if (p.image.startsWith(OWN_IMAGE_PREFIX) && !current.startsWith(OWN_IMAGE_PREFIX)) {
+        byType.set(t, p.image);
+      }
+    }
+
+    /** Найбільший тип розділу і найпоказовіший; далі йдемо, лише якщо фото немає. */
+    return Object.fromEntries(
+      sections.map((s) => [s.id, s.lines.map((l) => byType.get(l.key)).find(Boolean) ?? null])
     );
-
-    return Object.fromEntries(found);
   },
   ["catalog-section-images"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }

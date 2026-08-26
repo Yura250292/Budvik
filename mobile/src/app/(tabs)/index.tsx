@@ -11,7 +11,8 @@
  * відповідаючи на питання, якого в цей момент ніхто не ставить.
  */
 
-import { ScrollView, View, Text, Pressable, StyleSheet } from "react-native";
+import { useRef, useState } from "react";
+import { ScrollView, View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,6 +35,10 @@ type Banner = {
   /** Знімок товару з добірки. Старіші збірки сервера його не шлють. */
   image?: string | null;
   search: string;
+  /** Полиця на цьому ж екрані, до якої веде банер. */
+  shelf?: string;
+  /** Банер веде в каталог цілком, а не в добірку. */
+  catalog?: boolean;
 };
 type Shelf = { id: string; title: string; items: CardDto[] };
 type Toc = { sections: SectionTile[] };
@@ -45,6 +50,36 @@ type Home = {
 
 export default function HomeScreen() {
   const router = useRouter();
+
+  /* Банер на всю ширину екрана мінус поля. Ширину беремо в системи, а не
+     зашиваємо: 390 px це лише один із розмірів, а на планшеті в горизонталі
+     банер має розтягтися разом з екраном. */
+  const { width } = useWindowDimensions();
+  const bannerWidth = width - space.md * 2;
+  const bannerStride = bannerWidth + space.md;
+  const [banner, setBanner] = useState(0);
+
+  /* Банер «Хіти продажу» веде до полиці на цьому ж екрані — так само, як
+     однойменний банер на сайті веде до якоря. Позицію полиці запам'ятовуємо
+     при відмальовці: рахувати її наперед не можна, бо вище лежать банери й
+     розділи змінної висоти. */
+  const scrollRef = useRef<ScrollView>(null);
+  const shelfY = useRef<Record<string, number>>({});
+
+  function openBanner(b: Banner) {
+    if (b.catalog) {
+      router.push("/catalog");
+      return;
+    }
+    if (b.shelf) {
+      const y = shelfY.current[b.shelf];
+      if (y !== undefined) {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - space.md), animated: true });
+        return;
+      }
+    }
+    router.push({ pathname: "/list", params: { search: b.search, title: b.title } });
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["home"],
@@ -71,7 +106,7 @@ export default function HomeScreen() {
   });
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl }}>
+    <ScrollView ref={scrollRef} style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl }}>
       {/*
         Замість чорного банера з гаслом — рядок пошуку.
 
@@ -105,57 +140,83 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {/* Банери горизонтально: їх зазвичай один-два, але їх кількість —
-          рішення маркетингу, і вертикальний список з'їдав би екран цілком. */}
-      {data?.banners.length ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.bannerRow}
-        >
-          {data.banners.map((b) => (
-            <Pressable
-              key={b.id}
-              style={[styles.banner, { backgroundColor: b.color }]}
-              onPress={() =>
-                router.push({ pathname: "/list", params: { search: b.search, title: b.title } })
-              }
-            >
-              {/* Ряд, а не стовпчик: знімок стоїть окремою колонкою праворуч.
-                  Накладений поверх тексту, він перекривав заголовок — а обрізати
-                  заголовок заради картинки означає зіпсувати саме те, заради
-                  чого банер існує. */}
-              <View style={styles.bannerBody}>
-                <Text style={styles.bannerTitle}>{b.title}</Text>
-                {b.subtitle ? <Text style={styles.bannerText}>{b.subtitle}</Text> : null}
-                <View style={styles.bannerCta}>
-                  <Text style={styles.bannerCtaText}>Дивитись</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.ink} />
-                </View>
-              </View>
+      {/*
+        Банери на всю ширину, з крапками під ними.
 
-              {/* Фото товару замість emoji: ☀️ однаково позначає літо, погоду
-                  й вихідний, а знімок показує те, що за банером справді лежить.
-                  Біла плитка під ним — навмисна: знімки з 1С зняті на білому й
-                  без прозорості, тож на кольоровому тлі однаково була б біла
-                  пляма; у рамці вона читається як частина верстки. */}
-              {b.image ? (
-                <View style={styles.bannerThumb}>
-                  <Image
-                    source={b.image}
-                    style={styles.bannerImage}
-                    alt=""
-                    contentFit="contain"
-                    cachePolicy="memory-disk"
-                    transition={150}
-                  />
+        Було 300 px із 390 — банер займав чотири п'ятих смуги, а обрізаний край
+        сусіда виглядав не як «гортай далі», а як помилка верстки. Тепер один
+        банер заповнює екран цілком, а якщо їх кілька — гортаються посторінково,
+        і крапки чесно кажуть, скільки їх усього.
+      */}
+      {data?.banners.length ? (
+        <View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            /* snapToInterval, а не pagingEnabled: перше зупиняє гортання за
+               шириною картки разом із проміжком, друге — за шириною самої
+               стрічки, тож із полями банери поступово з'їжджали б набік. */
+            snapToInterval={bannerStride}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            contentContainerStyle={styles.bannerRow}
+            onScroll={(e) =>
+              setBanner(Math.round(e.nativeEvent.contentOffset.x / bannerStride))
+            }
+            scrollEventThrottle={16}
+          >
+            {data.banners.map((b) => (
+              <Pressable
+                key={b.id}
+                style={[styles.banner, { width: bannerWidth, backgroundColor: b.color }]}
+                onPress={() => openBanner(b)}
+                accessibilityRole="button"
+                accessibilityLabel={`${b.title}. ${b.subtitle ?? ""}`}
+              >
+                {/* Ряд, а не стовпчик: знімок стоїть окремою колонкою праворуч.
+                    Накладений поверх тексту, він перекривав заголовок — а обрізати
+                    заголовок заради картинки означає зіпсувати саме те, заради
+                    чого банер існує. */}
+                <View style={styles.bannerBody}>
+                  <Text style={styles.bannerTitle}>{b.title}</Text>
+                  {b.subtitle ? <Text style={styles.bannerText}>{b.subtitle}</Text> : null}
+                  <View style={styles.bannerCta}>
+                    <Text style={styles.bannerCtaText}>Дивитись</Text>
+                    <Ionicons name="arrow-forward" size={14} color={colors.ink} />
+                  </View>
                 </View>
-              ) : (
-                <Text style={styles.bannerIcon}>{b.icon}</Text>
-              )}
-            </Pressable>
-          ))}
-        </ScrollView>
+
+                {/* Фото товару замість emoji: ☀️ однаково позначає літо, погоду
+                    й вихідний, а знімок показує те, що за банером справді лежить.
+                    Біла плитка під ним — навмисна: знімки з 1С зняті на білому й
+                    без прозорості, тож на кольоровому тлі однаково була б біла
+                    пляма; у рамці вона читається як частина верстки. */}
+                {b.image ? (
+                  <View style={styles.bannerThumb}>
+                    <Image
+                      source={b.image}
+                      style={styles.bannerImage}
+                      alt=""
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
+                      transition={150}
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.bannerIcon}>{b.icon}</Text>
+                )}
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {data.banners.length > 1 ? (
+            <View style={styles.dots}>
+              {data.banners.map((b, i) => (
+                <View key={b.id} style={[styles.dot, i === banner && styles.dotOn]} />
+              ))}
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
       {/*
@@ -200,7 +261,15 @@ export default function HomeScreen() {
         <ProductGridSkeleton count={4} />
       ) : (
         data?.shelves.map((shelf) => (
-          <View key={shelf.id}>
+          <View
+            key={shelf.id}
+            /* Запам'ятовуємо, де полиця опинилась: банер «Хіти продажу» веде
+               саме сюди, а порахувати позицію наперед не можна — вище лежать
+               банери й розділи змінної висоти. */
+            onLayout={(e) => {
+              shelfY.current[shelf.id] = e.nativeEvent.layout.y;
+            }}
+          >
             <View style={styles.shelfHead}>
               <Text style={styles.shelfTitle}>{shelf.title}</Text>
             </View>
@@ -245,7 +314,6 @@ const styles = StyleSheet.create({
 
   bannerRow: { paddingHorizontal: space.md, gap: space.md, paddingBottom: space.md },
   banner: {
-    width: 300,
     flexDirection: "row",
     alignItems: "center",
     gap: space.md,
@@ -264,6 +332,9 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   bannerImage: { width: "100%", height: "100%" },
+  dots: { flexDirection: "row", justifyContent: "center", gap: 6, paddingBottom: space.md },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
+  dotOn: { width: 20, backgroundColor: colors.ink },
   bannerTitle: { fontSize: 17, fontWeight: "800", color: colors.ink },
   bannerText: { fontSize: 13, lineHeight: 18, color: colors.ink, opacity: 0.75 },
   bannerCta: { marginTop: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs },

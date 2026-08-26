@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { getScope } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { BrandHeader } from "@/components/BrandHeader";
 import { colors } from "@/theme";
 
 export default function TabsLayout() {
@@ -49,6 +50,10 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Головна",
+          /* Знак замість слова «Головна»: підпис вкладки внизу вже каже, де
+             людина, а шапка має сказати, чий це застосунок. */
+          headerTitle: () => <BrandHeader />,
+          headerTitleAlign: "left",
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
         }}
       />

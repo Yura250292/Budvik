@@ -6,6 +6,7 @@
  * дрібну розбіжність, і 401 в одному місці розлогінює, а в іншому мовчить.
  */
 
+import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { getToken, clearToken } from "@/lib/auth-store";
 import type {
@@ -25,10 +26,23 @@ import type {
  * навести dev-збірку на прод. У релізі hostUri немає, і лишається прод.
  */
 function metroHost(): string | null {
-  /** Виглядає як "192.168.0.31:8081" — беремо хост, порт наш власний. */
+  /** Виглядає як "192.168.0.242:8081" — беремо хост, порт наш власний. */
   const hostUri = Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost;
   const host = hostUri?.split(":")[0];
-  return host ? `http://${host}:3000` : null;
+  if (host) return `http://${host}:3000`;
+
+  /**
+   * Веб-стенд, яким дивимось верстку: hostUri там порожній, і без цієї гілки
+   * застосунок тихо йшов на прод. Виглядало це найгірше з можливого — екран
+   * малювався, дані приходили, просто не ті: старі знімки розділів і один
+   * банер замість трьох. Сторінку віддав той самий Metro, тож його хост
+   * лежить прямо в адресі вкладки.
+   */
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location?.hostname) {
+    return `http://${window.location.hostname}:3000`;
+  }
+
+  return null;
 }
 
 export const API_BASE =

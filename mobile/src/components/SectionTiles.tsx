@@ -108,8 +108,11 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
+    /* Біле, а не сіре. Знімки товарів зняті на білому тлі й без прозорості,
+       тож сіра підкладка перетворювалась на сіру рамку навколо білого
+       прямокутника — рамка в рамці. На білому фото зливається з карткою і
+       видно сам інструмент, а не коробку, в якій він лежить. */
+    backgroundColor: colors.bg,
   },
   thumb: { width: "100%", height: "100%" },
   title: { marginTop: space.xs, minHeight: 30, fontSize: 11, lineHeight: 15, fontWeight: "600", color: colors.text },

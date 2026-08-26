@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { CARD_SELECT } from "@/lib/catalog/query";
 import { showableProductWhere } from "@/lib/catalog/showable";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
+import { getCatalogToc } from "@/lib/catalog/sections";
 import { serializeCard } from "@/lib/shop/api";
 import {
   getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor,
@@ -67,7 +68,7 @@ export async function GET() {
     })),
   };
 
-  const [seasonal, promoProducts, newest, brands] = await Promise.all([
+  const [seasonal, promoProducts, newest, brands, topOrdered, toc] = await Promise.all([
     prisma.product.findMany({
       where: seasonalWhere,
       select: CARD_SELECT,
@@ -92,40 +93,95 @@ export async function GET() {
       take: SHELF,
     }),
     getBrandTree(),
+    /** Найкупованіше — те саме джерело, що й полиця «Хіти продажу» на сайті. */
+    prisma.orderItem.groupBy({
+      by: ["productId"],
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 8,
+    }),
+    getCatalogToc(),
   ]);
+
+  const hitIds = topOrdered.map((i) => i.productId);
+  const hitRows = hitIds.length
+    ? await prisma.product.findMany({
+        where: { ...showableProductWhere(), id: { in: hitIds } },
+        select: CARD_SELECT,
+      })
+    : [];
+  /** Порядок за продажами, а не за тим, як їх повернула база. */
+  const hits = hitIds.map((id) => hitRows.find((p) => p.id === id)).filter(Boolean) as typeof hitRows;
 
   return NextResponse.json({
     /*
+     * Банери першого екрана. Складаються з того, що в магазині справді є, а не
+     * з намальованих обіцянок: сезонна добірка, найкупованіший товар і обсяг
+     * каталогу. Коли адміністратор заведе акцію в /admin, її банери стануть
+     * першими й витіснять автоматичні — саме так, як і має бути. Той самий
+     * набір, що на головній сайту: одна вітрина, два способи її показати.
+     *
      * image — знімок справжнього товару з добірки, за яку відповідає банер.
      * Emoji в цій ролі читалась як заглушка: ☀️ однаково позначає літо, погоду
      * й вихідний. Поле додане поруч із icon, а не замість нього: установлену
      * збірку не можна оновити примусово, тож старі застосунки мусять і далі
      * малювати банер по-своєму.
      */
-    banners: promos.length
-      ? promos.map((p, i) => ({
-          id: p.id,
-          title: p.title,
-          subtitle: p.description,
-          icon: p.icon ?? getSeasonIcon(season),
-          color: p.color,
-          image: seasonal[i]?.image ?? seasonal[0]?.image ?? null,
-          /** Куди веде банер: перше ключове слово як пошуковий запит. */
-          search: p.keywords[0] ?? p.title,
-        }))
-      : [
-          {
-            id: `season-${season}`,
-            title: `${getSeasonLabel(season)} — сезонні роботи`,
-            subtitle: "Те, що зараз потрібно найчастіше",
-            icon: getSeasonIcon(season),
-            color: getSeasonColor(season),
-            image: seasonal[0]?.image ?? null,
-            search: keywords[0],
-          },
-        ],
+    banners: [
+      ...(promos.length
+        ? promos.map((p, i) => ({
+            id: p.id,
+            title: p.title,
+            subtitle: p.description,
+            icon: p.icon ?? getSeasonIcon(season),
+            color: p.color,
+            image: seasonal[i]?.image ?? seasonal[0]?.image ?? null,
+            /** Куди веде банер: перше ключове слово як пошуковий запит. */
+            search: p.keywords[0] ?? p.title,
+          }))
+        : seasonal.length
+          ? [
+              {
+                id: `season-${season}`,
+                title: `${getSeasonLabel(season)} — сезонні роботи`,
+                subtitle: "Те, що зараз потрібно найчастіше",
+                icon: getSeasonIcon(season),
+                color: getSeasonColor(season),
+                image: seasonal[0]?.image ?? null,
+                search: keywords[0],
+              },
+            ]
+          : []),
+      ...(hits.length
+        ? [
+            {
+              id: "hits",
+              title: "Хіти продажу",
+              subtitle: "Те, що беруть найчастіше — перевірено покупцями",
+              icon: "🔥",
+              color: "#FFD600",
+              image: hits[0]?.image ?? null,
+              /** Полиця «Хіти» лежить на цьому ж екрані — банер веде до неї. */
+              shelf: "hits",
+              search: "",
+            },
+          ]
+        : []),
+      {
+        id: "catalog",
+        title: `${toc.total.toLocaleString("uk-UA")} позицій у каталозі`,
+        subtitle: "Електро та ручний інструмент, оснастка, кріплення, захист",
+        icon: "🧰",
+        color: "#C9D6DF",
+        image: newest[0]?.image ?? null,
+        /** Порожній пошук відкриває каталог цілком. */
+        search: "",
+        catalog: true,
+      },
+    ],
     shelves: [
       { id: "promo", title: "Акції", items: promoProducts.map(serializeCard) },
+      { id: "hits", title: "Хіти продажу", items: hits.map(serializeCard) },
       { id: "seasonal", title: `${getSeasonLabel(season)} — що беруть зараз`, items: seasonal.map(serializeCard) },
       { id: "newest", title: "Нові надходження", items: newest.map(serializeCard) },
     ].filter((s) => s.items.length > 0),

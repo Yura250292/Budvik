@@ -124,6 +124,8 @@ export function ClientCommentsModal({
    */
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  /** Чому камера не відкрилась — показуємо замість мовчазного відкату. */
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -134,12 +136,31 @@ export function ClientCommentsModal({
     setCameraReady(false);
   };
 
+  /**
+   * Чому не «тихо відкотитись на вибір файлу».
+   *
+   * Спершу так і було: не вийшло увімкнути камеру — відкриваємо системний
+   * вибір. Виглядало це для людини рівно як «тисну "зняти фото", а воно
+   * показує галерею», і причина лишалась невидимою. Мовчазний відкат
+   * ховає саме те, що треба полагодити: дозвіл, зайняту камеру або
+   * контейнер, який камеру сторінці взагалі не дає.
+   *
+   * Тому тепер кажемо, що сталося, і лишаємо обидва шляхи кнопками — щоб
+   * людина могла і зняти зараз, і зрозуміти, що ввімкнути потім.
+   */
   const openCamera = async () => {
     setActionError(null);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      captureRef.current?.click();
+    setCameraError(null);
+
+    if (!window.isSecureContext) {
+      setCameraError("Камера доступна лише через захищене з'єднання (https).");
       return;
     }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Цей застосунок не дає сторінці доступ до камери.");
+      return;
+    }
+
     try {
       streamRef.current = await navigator.mediaDevices.getUserMedia({
         // Тилова камера: знімають ворота, а не себе. `ideal`, а не `exact` —
@@ -148,8 +169,17 @@ export function ClientCommentsModal({
         audio: false,
       });
       setCameraOn(true);
-    } catch {
-      captureRef.current?.click();
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      setCameraError(
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "Доступ до камери заборонено. Дозвольте камеру для застосунку в налаштуваннях телефона."
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "Камери не знайдено."
+            : name === "NotReadableError"
+              ? "Камеру зайняв інший застосунок. Закрийте його й спробуйте ще раз."
+              : `Не вдалося увімкнути камеру${name ? ` (${name})` : ""}.`
+      );
     }
   };
 
@@ -433,6 +463,47 @@ export function ClientCommentsModal({
                   </button>
                 </span>
               )}
+            </div>
+          )}
+
+          {/*
+            Камера не відкрилась — кажемо чому і лишаємо обидва шляхи.
+            «Системна камера» — той самий input із capture: у частині
+            контейнерів він камеру таки відкриває, хоч і не в усіх, тож
+            це справжня друга спроба, а не втішна кнопка.
+          */}
+          {!editing && cameraError && (
+            <div
+              className="mt-2 rounded-[var(--radius-btn)] p-2.5"
+              style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}
+            >
+              <p style={{ fontSize: "12px", color: "#92400E", margin: 0, lineHeight: 1.4 }}>
+                {cameraError}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => captureRef.current?.click()}
+                  className="rounded-[var(--radius-btn)] border border-line bg-white px-3 py-1.5 text-sm text-bk"
+                >
+                  Системна камера
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="rounded-[var(--radius-btn)] border border-line bg-white px-3 py-1.5 text-sm text-bk"
+                >
+                  Вибрати з галереї
+                </button>
+                <button
+                  type="button"
+                  onClick={openCamera}
+                  className="rounded-[var(--radius-btn)] px-3 py-1.5 text-sm text-gr underline"
+                  style={{ background: "none", border: "none" }}
+                >
+                  Спробувати ще раз
+                </button>
+              </div>
             </div>
           )}
 

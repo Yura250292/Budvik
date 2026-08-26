@@ -16,7 +16,7 @@ export default function HeaderSearch() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const wrapper = useRef<HTMLDivElement>(null);
-  const { items, open, setOpen, active, onKeyDown } = useSuggest(query);
+  const { items, brands, types, open, setOpen, active, onKeyDown } = useSuggest(query);
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -64,6 +64,8 @@ export default function HeaderSearch() {
         <div className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-[420px] overflow-y-auto overflow-hidden rounded-xl border border-[#E0E0E0] bg-white shadow-lg">
           <SuggestList
             items={items}
+            brands={brands}
+            types={types}
             active={active}
             query={query}
             onPick={() => setOpen(false)}

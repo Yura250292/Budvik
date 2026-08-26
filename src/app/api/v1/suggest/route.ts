@@ -3,22 +3,22 @@
  *
  * Раніше застосунок їх не мав узагалі: на кожен натиск він тягнув повну
  * сторінку каталогу — двадцять чотири картки з описами, щоб показати вісім
- * рядків. Тут приїжджає рівно те, що малює рядок підказки.
+ * рядків. Тут приїжджає рівно те, що малює випадайка.
  *
- * Драбина пошуку спільна з сайтом (lib/catalog/suggest): на однаковий запит
- * вітрина й застосунок мусять показувати те саме.
+ * Драбина пошуку й уточнення спільні з сайтом (lib/catalog/suggest): на
+ * однаковий запит вітрина й застосунок мусять показувати те саме.
  */
 
 import { NextResponse } from "next/server";
-import { suggestProducts } from "@/lib/catalog/suggest";
+import { suggestAll } from "@/lib/catalog/suggest";
 import { productLabel } from "@/lib/catalog/category-display";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const rows = await suggestProducts(searchParams.get("q") ?? "");
+  const { items, brands, types } = await suggestAll(searchParams.get("q") ?? "");
 
   return NextResponse.json({
-    items: rows.map((p) => ({
+    items: items.map((p) => ({
       id: p.id,
       name: p.name,
       slug: p.slug,
@@ -33,5 +33,7 @@ export async function GET(req: Request) {
        */
       label: productLabel(p.category, p.brand),
     })),
+    brands,
+    types,
   });
 }

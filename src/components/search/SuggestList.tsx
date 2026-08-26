@@ -3,7 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
-import type { Suggestion } from "./useSuggest";
+import type { Suggestion, SuggestFacet } from "./useSuggest";
+import { productLabel } from "@/lib/catalog/category-display";
 import NoPhoto from "@/components/ui/NoPhoto";
 
 /**
@@ -12,19 +13,66 @@ import NoPhoto from "@/components/ui/NoPhoto";
  */
 export default function SuggestList({
   items,
+  brands = [],
+  types = [],
   active,
   query,
   onPick,
   onShowAll,
 }: {
   items: Suggestion[];
+  /** Уточнення: бренди й типи серед знайденого. Без них список просто довший. */
+  brands?: SuggestFacet[];
+  types?: SuggestFacet[];
   active: number;
   query: string;
   onPick: () => void;
   onShowAll: () => void;
 }) {
+  const q = query.trim();
+
   return (
     <>
+      {/*
+        Уточнення над товарами.
+
+        «Дриль» — це півтори сотні позицій, і людині потрібен не довший
+        список, а наступне питання: чий і який саме. Вісім підказок не
+        звужують нічого, а один клік по бренду звужує вдвічі.
+      */}
+      {(types.length > 0 || brands.length > 0) && (
+        <div className="border-b border-[#F0F0F0] px-3 py-2.5">
+          {types.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {types.map((t) => (
+                <Link
+                  key={`t-${t.key}`}
+                  href={`/catalog?search=${encodeURIComponent(q)}&type=${encodeURIComponent(t.key)}`}
+                  onClick={onPick}
+                  className="cursor-pointer rounded-full border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-1 text-xs font-medium text-[#1A1A1A] transition-colors duration-200 hover:border-[#FFD600] hover:bg-[#FFD600]/15"
+                >
+                  {t.label}
+                </Link>
+              ))}
+            </div>
+          )}
+          {brands.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {brands.map((b) => (
+                <Link
+                  key={`b-${b.key}`}
+                  href={`/catalog?search=${encodeURIComponent(q)}&brand=${encodeURIComponent(b.key)}`}
+                  onClick={onPick}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#E5E5E5] px-3 py-1 text-xs text-[#1A1A1A] transition-colors duration-200 hover:border-[#FFD600] hover:bg-[#FFD600]/15"
+                >
+                  {b.label}
+                  <span className="text-[10px] tabular-nums text-[#9E9E9E]">{b.count}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {items.map((item, i) => (
         <Link
           key={item.id}
@@ -43,7 +91,11 @@ export default function SuggestList({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-[#0A0A0A] truncate">{item.name}</p>
-            <p className="text-xs text-[#9E9E9E]">{item.category.name}</p>
+            {/* Ярлик через productLabel: у полі category лежить назва з 1С
+                разом із номером вузла («02.03. Дрилі-шуруповерти»), а в 84%
+                товарів там узагалі звалище «Імпорт з 1С» — тоді показуємо
+                бренд. */}
+            <p className="text-xs text-[#9E9E9E]">{productLabel(item.category, item.brand)}</p>
           </div>
           <div className="flex-shrink-0 text-right">
             <span className={`text-sm font-bold ${item.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"}`}>

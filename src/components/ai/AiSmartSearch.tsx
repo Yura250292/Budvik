@@ -15,7 +15,7 @@ export default function AiSmartSearch({ currentSearch }: { currentSearch?: strin
   const [query, setQuery] = useState(currentSearch || "");
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { items, open, setOpen, active, onKeyDown } = useSuggest(query);
+  const { items, brands, types, open, setOpen, active, onKeyDown } = useSuggest(query);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -70,6 +70,8 @@ export default function AiSmartSearch({ currentSearch }: { currentSearch?: strin
             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E0E0E0] rounded-xl shadow-lg z-50 overflow-hidden max-h-[400px] overflow-y-auto">
               <SuggestList
                 items={items}
+                brands={brands}
+                types={types}
                 active={active}
                 query={query}
                 onPick={() => setOpen(false)}

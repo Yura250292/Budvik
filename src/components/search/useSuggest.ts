@@ -9,7 +9,15 @@ export interface Suggestion {
   price: number;
   image?: string | null;
   stock: number;
-  category: { name: string };
+  category: { name: string } | null;
+  brand: { name: string; slug: string } | null;
+}
+
+/** Уточнення запиту: бренд або тип товару серед знайденого. */
+export interface SuggestFacet {
+  key: string;
+  label: string;
+  count: number;
 }
 
 /**
@@ -25,6 +33,8 @@ const MIN_CHARS = 2;
 
 export function useSuggest(query: string) {
   const [items, setItems] = useState<Suggestion[]>([]);
+  const [brands, setBrands] = useState<SuggestFacet[]>([]);
+  const [types, setTypes] = useState<SuggestFacet[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -37,6 +47,8 @@ export function useSuggest(query: string) {
     const q = query.trim();
     if (q.length < MIN_CHARS) {
       setItems([]);
+      setBrands([]);
+      setTypes([]);
       setOpen(false);
       return;
     }
@@ -46,9 +58,18 @@ export function useSuggest(query: string) {
       try {
         const res = await fetch(`/api/products/suggest?q=${encodeURIComponent(q)}`);
         if (!res.ok || mine !== seq.current) return;
-        const data: Suggestion[] = await res.json();
-        setItems(data);
-        setOpen(data.length > 0);
+        /*
+         * Роут тепер віддає об'єкт із уточненнями, а не голий масив: разом із
+         * товарами приїжджають бренди й типи серед знайденого. Так влаштована
+         * випадайка у великих магазинах техніки — вісім підказок не звужують
+         * нічого, а один дотик по бренду звужує вдвічі.
+         */
+        const data: { items: Suggestion[]; brands: SuggestFacet[]; types: SuggestFacet[] } =
+          await res.json();
+        setItems(data.items);
+        setBrands(data.brands ?? []);
+        setTypes(data.types ?? []);
+        setOpen(data.items.length > 0);
         setActive(-1);
       } catch {
         /* мовчки: підказки — допоміжна річ, помилка не має лізти в очі */
@@ -82,5 +103,5 @@ export function useSuggest(query: string) {
     [items, active]
   );
 
-  return { items, open, setOpen, active, onKeyDown };
+  return { items, brands, types, open, setOpen, active, onKeyDown };
 }

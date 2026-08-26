@@ -37,6 +37,15 @@ export type SuggestRow = {
   label: string | null;
 };
 
+/** Уточнення запиту: бренд або тип товару серед знайденого. */
+export type SuggestFacet = { key: string; label: string; count: number };
+
+export type SuggestResult = {
+  items: SuggestRow[];
+  brands: SuggestFacet[];
+  types: SuggestFacet[];
+};
+
 export type CatalogPage = {
   items: CardDto[];
   total: number;

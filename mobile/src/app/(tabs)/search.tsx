@@ -30,7 +30,7 @@ import {
   getHistory, pushHistory, removeFromHistory, clearHistory,
 } from "@/lib/search-history";
 import { colors, space, radius, formatUAH } from "@/theme";
-import type { SuggestRow } from "@/api/types";
+import type { SuggestRow, SuggestFacet } from "@/api/types";
 
 /** Та сама затримка, що в підказках на сайті (useSuggest). */
 const DEBOUNCE_MS = 250;
@@ -220,6 +220,21 @@ export default function SearchScreen() {
         <FlatList
           data={suggest.data.items}
           keyExtractor={(i) => i.id}
+          /*
+           * Уточнення над товарами, а не під ними.
+           *
+           * «Дриль» — це півтори сотні позицій, і людині потрібен не довший
+           * список, а наступне питання: чий і який саме. Так влаштована
+           * випадайка у великих магазинах техніки, і причина та сама: вісім
+           * підказок не звужують нічого, а один дотик по «APRO» звужує вдвічі.
+           */
+          ListHeaderComponent={
+            <FacetBlocks
+              query={query}
+              brands={suggest.data.brands}
+              types={suggest.data.types}
+            />
+          }
           /**
            * Без цього перший дотик по результату лише ховає клавіатуру, а
            * картка не відкривається — людина тисне двічі й вважає, що
@@ -239,6 +254,69 @@ export default function SearchScreen() {
           }
         />
       )}
+    </View>
+  );
+}
+
+/** Уточнення над списком: бренди й типи серед знайденого. */
+function FacetBlocks({
+  query,
+  brands,
+  types,
+}: {
+  query: string;
+  brands: SuggestFacet[];
+  types: SuggestFacet[];
+}) {
+  const router = useRouter();
+  if (brands.length === 0 && types.length === 0) return null;
+
+  return (
+    <View style={styles.facets}>
+      {types.length > 0 ? (
+        <>
+          <Text style={styles.facetTitle}>Уточнити</Text>
+          <View style={styles.chips}>
+            {types.map((t) => (
+              <Pressable
+                key={`t-${t.key}`}
+                style={styles.chip}
+                onPress={() =>
+                  router.push({
+                    pathname: "/list",
+                    params: { search: query, type: t.key, title: `${t.label} · ${query}` },
+                  })
+                }
+              >
+                <Text style={styles.chipText}>{t.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {brands.length > 0 ? (
+        <>
+          <Text style={styles.facetTitle}>Бренд</Text>
+          <View style={styles.chips}>
+            {brands.map((b) => (
+              <Pressable
+                key={`b-${b.key}`}
+                style={styles.chip}
+                onPress={() =>
+                  router.push({
+                    pathname: "/list",
+                    params: { search: query, brand: b.key, title: `${b.label} · ${query}` },
+                  })
+                }
+              >
+                <Text style={styles.chipText}>{b.label}</Text>
+                <Text style={styles.chipCount}>{b.count}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -360,6 +438,17 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   catalogText: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.ink },
+
+  facets: { paddingTop: space.sm, paddingBottom: space.xs },
+  facetTitle: {
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    paddingBottom: space.xs,
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+  },
 
   suggestRow: {
     flexDirection: "row",

@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { skuSearchConditions } from "@/lib/catalog/sku-search";
 import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
+import { productType, isMeaningfulType } from "@/lib/catalog/brand-tree";
 
 export const SUGGEST_LIMIT = 8;
 
@@ -52,8 +53,25 @@ const SELECT = {
   /* Бренд потрібен для ярлика: категорія з 1С у 84% товарів — це звалище
      «Імпорт з 1С», і productLabel замінює її брендом. Без бренда рядок
      підказки лишався б без жодної позначки. */
-  brand: { select: { name: true } },
+  brand: { select: { name: true, slug: true } },
 } as const;
+
+/** Уточнення запиту: «дриль» → «дриль APRO». Веде у відфільтрований список. */
+export type SuggestFacet = {
+  /** Що підставити у поле або в фільтр. */
+  key: string;
+  /** Як показати людині. */
+  label: string;
+  count: number;
+};
+
+export type SuggestResult = {
+  items: SuggestRow[];
+  /** Бренди, у яких є знайдене. Найчастіший спосіб звузити запит. */
+  brands: SuggestFacet[];
+  /** Типи товарів серед знайденого: «дриль» → «Дриль», «Дриль-шуруповерт». */
+  types: SuggestFacet[];
+};
 
 export type SuggestRow = {
   id: string;
@@ -64,19 +82,47 @@ export type SuggestRow = {
   image: string | null;
   stock: number;
   category: { name: string } | null;
-  brand: { name: string } | null;
+  brand: { name: string; slug: string } | null;
 };
 
-export async function suggestProducts(raw: string): Promise<SuggestRow[]> {
-  const q = raw.trim();
-  if (q.length < SUGGEST_MIN_LENGTH) return [];
-
-  const terms = q
+/** Слова запиту, стемлені — те, за чим шукаємо і чим рахуємо уточнення. */
+function queryTerms(q: string): string[] {
+  return q
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter((w) => w.length > 1)
     .map(stemTerm);
+}
+
+/**
+ * Повна відповідь підказок: товари плюс уточнення.
+ *
+ * Обидва клієнти ходять сюди, а не збирають блоки самі: інакше сайт і
+ * застосунок на однаковий запит показали б різні уточнення, і пояснити це
+ * покупцеві було б нічим.
+ */
+export async function suggestAll(raw: string): Promise<SuggestResult> {
+  const q = raw.trim();
+  if (q.length < SUGGEST_MIN_LENGTH) return { items: [], brands: [], types: [] };
+
+  const [items, facets] = await Promise.all([
+    suggestProducts(q),
+    suggestFacets(queryTerms(q)),
+  ]);
+
+  /* Порожня видача — не привід показувати уточнення: вони вели б у списки,
+     де так само нічого немає. */
+  if (items.length === 0) return { items, brands: [], types: [] };
+
+  return { items, ...facets };
+}
+
+export async function suggestProducts(raw: string): Promise<SuggestRow[]> {
+  const q = raw.trim();
+  if (q.length < SUGGEST_MIN_LENGTH) return [];
+
+  const terms = queryTerms(q);
 
   /**
    * Артикул — перший і головний кандидат: якщо людина набирає «GR-30030»,
@@ -177,6 +223,79 @@ function rankByPosition(rows: SuggestRow[], terms: string[]): SuggestRow[] {
   /* Стабільне сортування: за однакової позиції зберігається порядок, у якому
      їх повернула база, тобто «більше на складі — вище». */
   return [...rows].sort((a, b) => score(a) - score(b));
+}
+
+/**
+ * Скільки рядків беремо, щоб порахувати уточнення.
+ *
+ * Не весь збіг: на «набір» їх понад тисячу, а два коротких поля з трьохсот
+ * рядків коштують стільки ж, скільки одна картка товару. Числа під
+ * уточненнями через це можуть бути заниженими — тому вони й не показуються
+ * як точні лічильники каталогу, а лише впорядковують підказки.
+ */
+const FACET_POOL = 300;
+
+/** Скільки уточнень показуємо. Більше — стіна, у яку ніхто не читається. */
+const FACET_LIMIT = 5;
+
+/**
+ * Уточнення запиту: бренди й типи товарів серед знайденого.
+ *
+ * Так влаштована випадайка у великих магазинах техніки, і причина проста:
+ * «дриль» — це півтори сотні позицій, і людині потрібен не довший список, а
+ * наступне питання. «Дриль APRO» або «Дриль-шуруповерт» звужують удвічі одним
+ * дотиком, тоді як гортання восьми підказок не звужує нічого.
+ */
+async function suggestFacets(terms: string[]): Promise<{ brands: SuggestFacet[]; types: SuggestFacet[] }> {
+  if (terms.length === 0) return { brands: [], types: [] };
+
+  const rows = await prisma.product.findMany({
+    where: {
+      ...SHOWABLE,
+      AND: terms.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
+    },
+    select: { name: true, brand: { select: { name: true, slug: true } } },
+    orderBy: [{ stock: "desc" }],
+    take: FACET_POOL,
+  });
+
+  const brands = new Map<string, { label: string; count: number }>();
+  const types = new Map<string, { label: string; count: number }>();
+
+  for (const r of rows) {
+    if (r.brand) {
+      const cur = brands.get(r.brand.slug);
+      brands.set(r.brand.slug, { label: r.brand.name, count: (cur?.count ?? 0) + 1 });
+    }
+
+    /*
+     * Тип виводиться з назви тим самим productType, що й зміст каталогу, —
+     * інакше уточнення вело б у список, який не збігається з обіцяним.
+     */
+    const t = productType(r.name, r.brand?.name ?? null);
+    if (t && isMeaningfulType(t)) {
+      const cur = types.get(t);
+      types.set(t, { label: t.charAt(0).toUpperCase() + t.slice(1), count: (cur?.count ?? 0) + 1 });
+    }
+  }
+
+  const top = (m: Map<string, { label: string; count: number }>): SuggestFacet[] =>
+    [...m.entries()]
+      .map(([key, v]) => ({ key, label: v.label, count: v.count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, FACET_LIMIT);
+
+  /*
+   * Єдиний тип не уточнює нічого: якщо все знайдене — «дриль», рядок «Дриль»
+   * лише повторює запит. Те саме з єдиним брендом.
+   */
+  const typeList = top(types);
+  const brandList = top(brands);
+
+  return {
+    brands: brandList.length > 1 ? brandList : [],
+    types: typeList.length > 1 ? typeList : [],
+  };
 }
 
 async function rescue(q: string): Promise<SuggestRow[]> {

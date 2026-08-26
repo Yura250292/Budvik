@@ -17,7 +17,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { items, active, onKeyDown } = useSuggest(query);
+  const { items, brands, types, active, onKeyDown } = useSuggest(query);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -98,6 +98,8 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
         {items.length > 0 ? (
           <SuggestList
             items={items}
+            brands={brands}
+            types={types}
             active={active}
             query={query}
             onPick={onClose}

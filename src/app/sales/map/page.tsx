@@ -12,7 +12,7 @@
  * рамки — це мінус видима територія.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
@@ -66,8 +66,30 @@ type Suggestion = {
 /** Порядок у легенді: спершу те, з чим треба працювати. */
 const LEGEND: ClientStateKey[] = ["ACTIVE", "NEW", "SLIPPING", "DORMANT", "LOST"];
 
+/**
+ * «Нові» на карті не показуємо, поки їх не попросять.
+ *
+ * У цьому стані опиняється не лише той, хто щойно почав брати. Класифікація
+ * ставить NEW і тому, у кого взагалі немає жодного документа, — а таких на
+ * карті 2 608 із 3 042, тоді як справді нових (перша покупка за 30 днів) —
+ * 22. Виходила стіна синього по всій Україні, крізь яку не видно ані
+ * стабільних, ані втрачених: рівно те, заради чого карту й відкривають.
+ *
+ * Саме сховати, а не викинути: контрагент без документів — це не сміття, а
+ * підказка «сюди ще ніхто не заходив». Просто це інше завдання, ніж робота
+ * з маршрутом, і воно не мусить лізти в очі щодня.
+ *
+ * Класифікацію не чіпаємо: стани навмисно спільні з аналітикою керівника
+ * (див. /api/sales/my-map), і розводити NEW на два різні тут означало б
+ * розвести колір на одному клієнті в торгового й у керівника.
+ */
+const HIDDEN_BY_DEFAULT: ClientStateKey[] = ["NEW"];
+
+/** Вибір людини переживає перехід на сусідню вкладку й назад. */
+const HIDDEN_KEY = "budvik.sales.map.hidden.v1";
+
 export default function SalesMapPage() {
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [hidden, setHidden] = useState<Set<string>>(new Set(HIDDEN_BY_DEFAULT));
   const [scope, setScope] = useState<Scope>("all");
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
@@ -314,13 +336,37 @@ export default function SalesMapPage() {
     );
   }, [savePin]);
 
-  const toggle = (k: string) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+  /**
+   * Збережений вибір читаємо ПІСЛЯ монтування, а не в початковому стані:
+   * сторінка пререндериться статично, і localStorage у ініціалізаторі дав
+   * би розбіжність гідратації.
+   */
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(HIDDEN_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved)) setHidden(new Set(saved as string[]));
+      }
+    } catch {
+      // Приватний режим або переповнена квота — лишаємось на замовчуванні.
+    }
+  }, []);
+
+  const toggle = (k: string) => {
+    // Наступний набір рахуємо тут, а не в оновлювачі стану: писати в
+    // localStorage усередині нього не можна — React має право покликати
+    // його двічі.
+    const next = new Set(hidden);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    setHidden(next);
+    try {
+      window.localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+    } catch {
+      // Не зберегли — не біда: у цій сесії фільтр однаково працює.
+    }
+  };
 
   const inScope = (data?.clients ?? [])
     .filter((c) => scope === "all" || c.mine !== false)
@@ -357,6 +403,12 @@ export default function SalesMapPage() {
     return acc;
   }, {});
   const approximateCount = inScope.filter((c) => c.approximate).length;
+  /**
+   * Скільки точок зараз не показано. Виводимо у ЗГОРНУТІЙ смужці: легенда
+   * з перемикачами лежить усередині, і без цього числа «Нові» просто
+   * зникли б мовчки — карта виглядала б так, ніби клієнтів стало менше.
+   */
+  const hiddenCount = LEGEND.reduce((sum, k) => (hidden.has(k) ? sum + (counts[k] ?? 0) : sum), 0);
 
   return (
     // Фіксований шар на всю висоту мінус нижнє меню: карті потрібен весь екран.
@@ -833,6 +885,13 @@ export default function SalesMapPage() {
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
                 {visible.length} клієнтів на карті
               </span>
+              {/* Першим — те, що людина може ввімкнути назад: інакше
+                  «нових» не знайде ніхто, а вони просто сховані. */}
+              {hiddenCount > 0 && (
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "#2a78d6" }}>
+                  {hiddenCount} приховано
+                </span>
+              )}
               {approximateCount > 0 && (
                 <span style={{ fontSize: "12px", color: "#D97706" }}>
                   ⌖ {approximateCount} приблизних

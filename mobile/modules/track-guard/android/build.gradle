@@ -47,10 +47,18 @@ dependencies {
    * Беремо виконавця BackgroundTaskWork у самого expo-background-task, а не
    * пишемо власного: уся машинерія підняття JS лишається за ним, ми міняємо
    * лише умову запуску (там намертво стоїть NetworkType.CONNECTED).
-   *
-   * androidx.work приходить сюди транзитивно з нього ж — оголошувати версію
-   * окремо не можна, інакше вона може розійтися з тією, під яку зібраний
-   * BackgroundTaskWork.
    */
   implementation project(':expo-background-task')
+
+  /**
+   * androidx.work доводиться оголошувати ЯВНО, хоч expo-background-task його
+   * теж тягне: у нього це `implementation`, а така залежність не потрапляє в
+   * classpath споживача. Без цього рядка збірка падає на Gradle — саме на
+   * цьому вона й впала першого разу.
+   *
+   * Версія та сама, що в нього (android/build.gradle:10). Розійтися їм не
+   * можна: BackgroundTaskWork зібраний саме під неї.
+   */
+  implementation 'androidx.work:work-runtime-ktx:2.9.1'
 }
+

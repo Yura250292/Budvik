@@ -80,3 +80,6 @@ output/unifix-catalog/
 /playwright-report/
 /blob-report/
 /.playwright/
+
+# Зібране з сайтів виробників — фото лежать у R2, у git їм робити нічого
+output/vendor-*/

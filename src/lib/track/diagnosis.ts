@@ -42,6 +42,14 @@ export type DiagnosisInput = {
   shiftOpen: boolean;
   /** Останній пульс або null, якщо його не було зовсім. */
   beat: DeviceBeat | null;
+  /**
+   * Яка збірка стоїть на планшеті — з User-Agent його ж кабінету.
+   *
+   * Єдине джерело для збірок до 1.3: пульсу вони не шлють, і без цього
+   * поля «пульсу немає» означало і стару збірку, і мертвий застосунок
+   * водночас — тобто не означало нічого.
+   */
+  installedVersion?: string | null;
 };
 
 /**
@@ -49,13 +57,22 @@ export type DiagnosisInput = {
  *
  * Мовчання при закритій зміні — не проблема: планшет має право спати.
  */
-export function diagnose({ hasDevice, shiftOpen, beat }: DiagnosisInput): string | null {
+export function diagnose({
+  hasDevice,
+  shiftOpen,
+  beat,
+  installedVersion,
+}: DiagnosisInput): string | null {
   if (!hasDevice) return "Планшет не зареєстрований";
 
   if (!beat) {
-    // Пульсу немає взагалі: або на планшеті збірка до 1.3, або
-    // застосунок не запускався. Розрізнити зможемо, коли всі оновляться.
-    return shiftOpen ? "Пульсу немає: стара збірка або застосунок не працює" : null;
+    // Пульсу немає взагалі. Якщо кабінет назвав свою версію — це стара
+    // збірка, і сказати це треба прямо: у неї немає ні сторожа, який
+    // піднімає вбиту службу, ні доповіді про власний стан.
+    if (!shiftOpen) return null;
+    return installedVersion
+      ? `Збірка ${installedVersion} застаріла — без сторожа треку, оновіть застосунок`
+      : "Пульсу немає: стара збірка або застосунок не працює";
   }
 
   if (beat.minutesAgo != null && beat.minutesAgo > HEARTBEAT_WINDOW_MIN) {

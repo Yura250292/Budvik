@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { verifyDeviceToken } from "@/lib/track/device-token";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,33 @@ export async function GET(req: Request) {
 
   if (!role || !ALLOWED_ROLES.includes(role)) {
     return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
+  }
+
+  /**
+   * Заразом запам'ятовуємо, що саме стоїть на цьому планшеті.
+   *
+   * Питання «у кого яка збірка» коштує дорого рівно тоді, коли воно
+   * терміново потрібне. 27.08 треба було знати, кому оновлення стане
+   * поверх, а кому доведеться ставити застосунок наново через зміну
+   * ключа підпису 25.08 — і відповіді не було: пульс зі своєю версією
+   * шлють лише збірки від 1.3, а питання саме про старіші.
+   *
+   * Версію старі збірки все одно називають — у User-Agent свого
+   * WebView. А цей роут смикає шапка кабінету при кожному відкритті,
+   * тож картина збирається сама, без жодних дій від людей.
+   */
+  const installed = req.headers.get("user-agent")?.match(/BudvikApp\/([\d.]+)/)?.[1];
+  const userId = device?.userId ?? (session?.user as { id?: string } | undefined)?.id;
+  if (installed && userId) {
+    // Помилка запису тут не має ламати перевірку оновлень: це довідка
+    // для офісу, а не частина відповіді застосунку.
+    await prisma.syncState
+      .upsert({
+        where: { key: `app:installed:${userId}` },
+        create: { key: `app:installed:${userId}`, value: installed },
+        update: { value: installed },
+      })
+      .catch(() => {});
   }
 
   let sizeBytes: number;

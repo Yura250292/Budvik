@@ -63,6 +63,8 @@ type Person = {
   } | null;
   /** Скільки клієнтів цієї людини сьогодні замовили. */
   ordersToday: number;
+  /** Збірка на планшеті — відома навіть без пульсу, з User-Agent кабінету. */
+  installedVersion: string | null;
   /** Готова фраза «чому не пишеться» або null, якщо все гаразд. */
   problem: string | null;
 };
@@ -545,6 +547,21 @@ export function LiveTrackTab() {
                             {p.device.buffered > 0 && ` · у буфері ${p.device.buffered}`}
                             {p.device.batteryPct != null && ` · батарея ${p.device.batteryPct}%`}
                             {p.device.appVersion && ` · v${p.device.appVersion}`}
+                          </span>
+                        )}
+                        {/* Збірки до 1.3 пульсу не шлють — версію називає
+                            їхній же кабінет, і без цього рядка вони
+                            виглядали б однаково з мертвим застосунком. */}
+                        {!p.device && p.installedVersion && (
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "11px",
+                              color: "#9CA3AF",
+                              marginTop: "2px",
+                            }}
+                          >
+                            на планшеті v{p.installedVersion} — пульсу не шле
                           </span>
                         )}
                       </td>

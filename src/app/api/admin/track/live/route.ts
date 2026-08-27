@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
 
   if (userIds.length === 0) return NextResponse.json({ day, people: [] });
 
-  const [users, devices, orderCounts] = await Promise.all([
+  const [users, devices, orderCounts, installed] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, name: true, role: true, color: true },
@@ -137,7 +137,20 @@ export async function GET(req: NextRequest) {
     }),
     // Скільки клієнтів у кожного сьогодні замовили — колонка в таблиці.
     orderCountsByRep(day),
+    /**
+     * Яка збірка стоїть на планшеті. Пише її сам кабінет при відкритті
+     * (див. /api/app/version) — це єдиний спосіб дізнатися версію в
+     * тих, хто ще на збірці до 1.3 і пульсу не шле.
+     */
+    prisma.syncState.findMany({
+      where: { key: { in: userIds.map((id) => `app:installed:${id}`) } },
+      select: { key: true, value: true },
+    }),
   ]);
+
+  const versionBy = new Map(
+    installed.map((row) => [row.key.replace("app:installed:", ""), row.value])
+  );
 
   const pointBy = new Map(points.map((p) => [p.userId, p]));
   const sessionBy = new Map(sessions.map((s) => [s.userId, s]));
@@ -170,9 +183,12 @@ export async function GET(req: NextRequest) {
     const shiftOpen = shift?.status === "OPEN";
     const hasDevice = deviceBy.has(u.id);
 
+    const installedVersion = versionBy.get(u.id) ?? null;
+
     const problem = diagnose({
       hasDevice,
       shiftOpen,
+      installedVersion,
       beat: beat
         ? {
             minutesAgo: beatAgo,
@@ -208,6 +224,8 @@ export async function GET(req: NextRequest) {
        * інший, і побачити його треба одразу, а не в іншому розділі.
        */
       ordersToday: orderCounts.get(u.id) ?? 0,
+      /** Збірка на планшеті — навіть коли пульсу немає. */
+      installedVersion,
       shift: shift
         ? {
             status: shift.status,

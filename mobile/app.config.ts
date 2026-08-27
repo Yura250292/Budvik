@@ -33,7 +33,7 @@ const isStaff = FLAVOR === "staff";
  * збільшене число назад у динамічний app.config.ts, тож лічильник мовчки
  * стояв би на місці.
  */
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const versionCode = (() => {
   const [major, minor, patch] = VERSION.split(".").map(Number);
   return major * 10000 + minor * 100 + patch;

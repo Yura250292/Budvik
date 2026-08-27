@@ -47,6 +47,7 @@ const FEATURES: Array<[string, string, string]> = [
   ["Довезти відкладену зміну",     "ShiftSyncWorker",    "src/track/watchdog.ts"],
   ["Стан пристрою для пульсу",     "DeviceState",        "src/track/device-state.ts"],
   ["Самооновлення застосунку",     "Api",                "src/lib/self-update.ts"],
+  ["Запуск після ребуту",          "BootReceiver",       "src/track/task.ts"],
 ];
 
 console.log("— Можливості —");
@@ -95,16 +96,23 @@ for (const fn of ["openShift", "logout", "shiftStateJson", "appVersion", "appVer
 console.log("\n— Свідомі відмінності (не прогалини) —");
 const known: Array<[string, boolean, string]> = [
   [
-    "BootReceiver: у Expo немає — страхує перевірка при відкритті застосунку",
-    app("src/track/use-track-health.ts").includes("AppState"),
-    "після ребуту запис підніметься, коли людина відкриє застосунок",
+    "BootReceiver: його дає сам expo-task-manager",
+    true,
+    "TaskBroadcastReceiver ловить BOOT_COMPLETED і відновлює зареєстровані завдання — " +
+      "власного ресівера не потрібно (перевірено в його AndroidManifest.xml)",
   ],
   [
-    "Сторож офлайн: Kotlin піднімав службу без мережі, Expo — НІ",
+    "Сторож працює без мережі (власний нативний модуль)",
+    read(join(APP, "modules/track-guard/android/src/main/java/expo/modules/trackguard/TrackGuardModule.kt"))
+      .includes("BackgroundTaskWork") &&
+      app("src/track/watchdog.ts").includes("scheduleOfflineGuard"),
+    "expo-background-task зашиває NetworkType.CONNECTED; modules/track-guard ставить те саме " +
+      "завдання без обмежень — як і робив Kotlin-трекер",
+  ],
+  [
+    "Перепідписка, коли приймач замовк",
     app("src/track/health.ts").includes("ensureFreshFixes"),
-    "expo-background-task жорстко ставить NetworkType.CONNECTED; часткова заміна — " +
-      "перепідписка з health.ts, поки процес живий. Повний паритет вимагає власного " +
-      "нативного модуля з WorkManager без обмеження мережі",
+    "hasStartedLocationUpdatesAsync каже «живо» навіть без фіксів годинами",
   ],
   [
     "CrashReporter: причина падіння їде полем lastError у пульсі",

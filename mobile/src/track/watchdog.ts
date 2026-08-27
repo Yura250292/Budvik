@@ -12,6 +12,7 @@
  */
 
 import * as BackgroundTask from "expo-background-task";
+import { hasOfflineGuard, scheduleOfflineGuard, cancelOfflineGuard } from "@modules/track-guard";
 import { WATCHDOG_TASK } from "./task-name";
 import { getMode, getRole, isShiftOpen } from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
@@ -71,8 +72,24 @@ export async function registerWatchdog(): Promise<void> {
     // 15 хвилин — мінімум, який дозволяє Android; менше просто ігнорується.
     minimumInterval: 15,
   }).catch(() => {});
+
+  /**
+   * Другий будильник — без вимоги мережі.
+   *
+   * Реєстрація вище ставить роботу з обмеженням `NetworkType.CONNECTED`, яке
+   * expo-background-task зашиває намертво. Тобто в селі без зв'язку вона не
+   * спрацьовує — саме там, де служба треку й гине. Власний нативний модуль
+   * ставить те саме завдання ще раз, але без жодних обмежень.
+   *
+   * Два запуски замість одного нешкідливі: тіло завдання ідемпотентне.
+   */
+  scheduleOfflineGuard(15);
 }
 
 export async function unregisterWatchdog(): Promise<void> {
   await BackgroundTask.unregisterTaskAsync(WATCHDOG_TASK).catch(() => {});
+  cancelOfflineGuard();
 }
+
+/** Чи є в цій збірці сторож, що працює без мережі. */
+export { hasOfflineGuard };

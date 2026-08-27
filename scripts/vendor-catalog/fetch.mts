@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
-import { vendorBySlug, describe, normArticle, type Vendor, type Specs } from "./vendors";
+import { vendorBySlug, describe, normArticle, strip, type Vendor, type Specs } from "./vendors";
 
 const prisma = new PrismaClient();
 const args = process.argv.slice(2);
@@ -152,12 +152,15 @@ if (brands.length !== vendor.brands.length) {
 }
 const need = await prisma.product.findMany({
   where: {
-    brandId: { in: brands.map((b) => b.id) },
+    // Картки без бренду беремо лише там, де джерело це прямо дозволяє
+    // (див. Vendor.unbranded) — інакше чужий артикул міг би зачепити товар,
+    // про який ми нічого не знаємо.
+    OR: [{ brandId: { in: brands.map((b) => b.id) } }, ...(vendor.unbranded ? [{ brandId: null }] : [])],
     isActive: true,
     ...(ALL ? {} : { OR: [{ image: null }, { image: "" }] }),
     ...(INSTOCK ? { stock: { gt: 0 } } : {}),
   },
-  select: { sku: true, name: true, stock: true },
+  select: { sku: true, name: true, stock: true, image: true },
 });
 
 /**
@@ -166,11 +169,17 @@ const need = await prisma.product.findMany({
  * Ключ — нормалізований артикул (див. normArticle), значення тримає СВІЙ,
  * непочіплений sku: саме за ним потім оновлюється картка в базі.
  */
-const wanted = new Map<string, { sku: string; name: string; stock: number }>();
+const wanted = new Map<string, { sku: string; name: string; stock: number; needsPhoto: boolean }>();
 for (const p of need) {
   if (!p.sku || /^1C-/i.test(p.sku)) continue;
   if (vendor.ourProduct && !vendor.ourProduct(p.name)) continue;
-  wanted.set(normArticle(p.sku), { sku: p.sku.trim(), name: p.name, stock: p.stock });
+  const key = normArticle(p.sku);
+  const entry = { sku: p.sku.trim(), name: p.name, stock: p.stock, needsPhoto: !p.image };
+  if (!wanted.has(key)) wanted.set(key, entry);
+  // У 1С трапляється артикул із хвостом-уточненням: «S220 (S222)», «808
+  // (61893006)». Виробник знає лише перший токен, тому реєструємо і його.
+  const head = normArticle(p.sku.split(/[\s(]/)[0]);
+  if (head.length >= 3 && !wanted.has(head)) wanted.set(head, entry);
 }
 console.log(`Джерело: ${vendor.title} (${vendor.site})`);
 console.log(`Бренди в базі: ${brands.map((b) => b.name).join(", ")}`);
@@ -212,10 +221,20 @@ async function crawlUrls(d: Extract<Vendor["discover"], { kind: "crawl" }>): Pro
     } catch {
       continue;
     }
-    for (const m of html.matchAll(/href="(https:\/\/[^"#?]+(?:\?page=\d+)?)"/g)) {
-      const link = m[1].replace(/\/$/, "");
+    // Відносні адреси теж: частина сайтів (somafix.com.ua) пише href="/ua/…",
+    // і перша версія, яка ловила лише «https://…», не бачила там нічого.
+    for (const m of html.matchAll(/href="([^"#\s]+)"/g)) {
+      let link: string;
+      try {
+        link = new URL(m[1], u).toString().replace(/\/$/, "");
+      } catch {
+        continue;
+      }
       if (d.pageMatch.test(link)) products.add(link);
-      else if (d.follow.test(link) && !seen.has(link)) queue.push(link);
+      else if (d.follow.test(link)) {
+        const next = d.expand?.(link) ?? link;
+        if (!seen.has(next)) queue.push(next);
+      }
     }
     if (visited % 20 === 0) console.log(`  обійдено сторінок каталогу: ${visited}, знайдено карток: ${products.size}`);
   }
@@ -232,8 +251,8 @@ if (vendor.discover.kind === "direct") {
 } else if (vendor.discover.kind === "sitemap") {
   console.log("Читаю карту сайту…");
   const all = await sitemapUrls(vendor.discover.urls);
-  const pm = vendor.discover.pageMatch;
-  pages = [...new Set(all.filter((u) => (pm ? pm.test(u) : true)))];
+  const { pageMatch: pm, rewrite } = vendor.discover;
+  pages = [...new Set(all.filter((u) => (pm ? pm.test(u) : true)).map((u) => rewrite?.(u) ?? u))];
   console.log(`  адрес у карті: ${all.length}, схожих на картку товару: ${pages.length}`);
 } else {
   console.log("Обхід категорій…");
@@ -260,11 +279,10 @@ if (!REFRESH && fs.existsSync(cacheFile)) {
 }
 const cacheOut = fs.createWriteStream(cacheFile, { flags: "a" });
 
+// Через spільний strip, а не власним regexp: інакше в назву їде «&quot;»
+// замість лапок і потім потрапляє в опис картки.
 const title = (html: string) =>
-  (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  strip(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/\s+/g, " ");
 
 type Row = {
   /** Наш артикул із 1С — саме за ним sync знаходить картку. */
@@ -274,7 +292,7 @@ type Row = {
   size: null;
   title: string;
   page: number;
-  photo: string;
+  photo: string | null;
   source: string;
   specs: Specs;
   /** Живий текст виробника, якщо сайт його друкує (у більшості — ні). */
@@ -306,18 +324,23 @@ async function handle(url: string) {
   const mine = wanted.get(key);
   if (!mine) return;
   hits++;
-  if (!p.photo) { failed.push(`${p.article}: на сторінці немає фото`); return; }
-
-  const ext = (p.photo.match(/\.(jpe?g|png|webp)(?:\?|$)/i)?.[1] ?? "jpg").toLowerCase().replace("jpeg", "jpg");
-  // Ім'я файлу — з нормалізованого артикулу: кирилична «А» з 1С інакше
-  // перетворилась би на «_» і файл став би нечитабельним.
-  const rel = `photos/${key.replace(/[^\w.-]/g, "_")}.${ext}`;
-  const dest = path.join(outdir, rel);
-  if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
-    const buf = Buffer.from(await (await get(p.photo, url)).arrayBuffer());
-    if (buf.length < 1000) { failed.push(`${p.article}: фото ${buf.length} б`); return; }
-    fs.writeFileSync(dest, buf);
-    downloaded++;
+  // Фото качаємо лише тим, у кого його немає. Режим --all потрібен заради
+  // описів, і без цієї умови він тягнув би з сайту весь каталог заново — по
+  // POLAX це вийшло 900 МБ, з яких 95% були копіями того, що вже лежить у R2.
+  let rel: string | null = null;
+  if (mine.needsPhoto) {
+    if (!p.photo) { failed.push(`${p.article}: на сторінці немає фото`); return; }
+    const ext = (p.photo.match(/\.(jpe?g|png|webp)(?:\?|$)/i)?.[1] ?? "jpg").toLowerCase().replace("jpeg", "jpg");
+    // Ім'я файлу — з нормалізованого артикулу: кирилична «А» з 1С інакше
+    // перетворилась би на «_» і файл став би нечитабельним.
+    rel = `photos/${key.replace(/[^\w.-]/g, "_")}.${ext}`;
+    const dest = path.join(outdir, rel);
+    if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
+      const buf = Buffer.from(await (await get(p.photo, url)).arrayBuffer());
+      if (buf.length < 1000) { failed.push(`${p.article}: фото ${buf.length} б`); return; }
+      fs.writeFileSync(dest, buf);
+      downloaded++;
+    }
   }
   rows.push({
     article: mine.sku,
@@ -354,8 +377,27 @@ cacheOut.end();
 
 /* ───────────────────────────── підсумок ───────────────────────────── */
 
+/**
+ * Індекс накопичувальний: до знайденого зараз домішуємо те, що вже було в
+ * ньому з попередніх прогонів.
+ *
+ * Інакше виходила пастка. Список «шукаємо» — це картки БЕЗ фото; щойно фото
+ * поставлено, вони з нього зникають, і повторний запуск (наприклад, щоб
+ * дозібрати описи) знаходив нуль збігів і перезаписував index.json порожнім.
+ * Фото в R2 при цьому лишалися, але індекс переставав їх описувати.
+ */
 const uniq = new Map<string, Row>();
-for (const r of rows) if (!uniq.has(r.article)) uniq.set(r.article, r);
+const indexFile = path.join(outdir, "index.json");
+if (fs.existsSync(indexFile)) {
+  try {
+    const prev = JSON.parse(fs.readFileSync(indexFile, "utf8")) as { rows: Row[] };
+    for (const r of prev.rows ?? []) {
+      if (!r.photo || fs.existsSync(path.join(outdir, r.photo))) uniq.set(r.article, r);
+    }
+  } catch { /* побитий індекс — просто збираємо заново */ }
+}
+const carried = uniq.size;
+for (const r of rows) uniq.set(r.article, r);
 const final = [...uniq.values()];
 
 fs.writeFileSync(
@@ -364,7 +406,7 @@ fs.writeFileSync(
 );
 
 console.log(`\nРозібрано сторінок: ${parsed} (з кешу ${cached}), без артикулу ${noArticle}`);
-console.log(`Збіглося з нашими артикулами: ${final.length} із ${wanted.size} шуканих`);
+console.log(`Збіглося з нашими артикулами: ${rows.length} із ${wanted.size} шуканих (в індексі всього ${final.length}, з них перенесено з минулого прогону ${carried})`);
 console.log(`  завантажено нових фото: ${downloaded}`);
 console.log(`  з характеристиками: ${final.filter((r) => Object.keys(r.specs).length).length}`);
 if (failed.length) {

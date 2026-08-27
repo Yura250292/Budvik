@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { vendorBySlug, normArticle, describe, type Specs } from "./vendors";
+import { vendorBySlug, normArticle, describe, similarity, sharedNumbers, type Specs } from "./vendors";
 
 const prisma = new PrismaClient();
 const args = process.argv.slice(2);
@@ -34,7 +34,7 @@ const FORCE = flag("force");
 const DESCR = flag("descriptions") || flag("all-descriptions");
 const DESCR_ALL = flag("all-descriptions");
 
-type Row = { article: string; vendorArticle: string; title: string; photoUrl: string; source: string; specs: Specs; text: string | null; description: string };
+type Row = { article: string; vendorArticle: string; title: string; photoUrl: string | null; source: string; specs: Specs; text: string | null; description: string };
 type Index = { vendor: string; brand: string; catalogDate: string; source: string; rows: Row[] };
 
 async function loadIndex(): Promise<Index> {
@@ -79,12 +79,30 @@ const changes: Change[] = [];
 const kept: string[] = [];
 const foreign: string[] = [];
 const absent: string[] = [];
+const mismatched: string[] = [];
+const weakMatch: string[] = []; // збіглося, але назви схожі слабко — варто глянути очима
 
 for (const r of index.rows) {
   const p = bySku.get(normArticle(r.article));
   if (!p) { absent.push(r.article); continue; }
-  // Артикул збігся, але картка чужого бренду — фото виробника їй не належить.
-  if (!brandIds.has(p.brandId ?? "") && !(vendor.ourProduct?.(p.name) ?? false)) {
+  if (!p.brandId && vendor.unbranded) {
+    // У картки немає бренду, тож збіг артикулу — єдиний доказ. Вимагаємо ще й
+    // впізнаваної назви: нумерація постачальників місцями перетинається, і
+    // без цієї перевірки «Рукавиці 83-0601» могли б отримати чуже фото.
+    const sim = similarity(p.name, r.title);
+    const nums = sharedNumbers(p.name, r.title);
+    // Або назви схожі, або збігається хоча б один розмір при не нульовій
+    // схожості. Самого артикулу мало, але й одних слів мало: у MASTERTOOL
+    // «Стусло» називається «Навскісник столярний», а «Ліска струна» —
+    // «Жилка для тримера».
+    const ok = sim >= 0.25 || (nums >= 1 && sim >= 0.04);
+    if (!ok) {
+      mismatched.push(`${r.article} (схожість ${sim.toFixed(2)}, спільних розмірів ${nums}) наше «${p.name.slice(0, 42)}» ≠ сайт «${r.title.slice(0, 42)}»`);
+      continue;
+    }
+    if (sim < 0.25) weakMatch.push(`${r.article} (${sim.toFixed(2)}, розміри ${nums}) «${p.name.slice(0, 38)}» ~ «${r.title.slice(0, 38)}»`);
+  } else if (!brandIds.has(p.brandId ?? "") && !(vendor.ourProduct?.(p.name) ?? false)) {
+    // Артикул збігся, але картка чужого бренду — фото виробника їй не належить.
     foreign.push(`${r.article} → «${p.name}» (бренд ${p.brand?.name ?? "—"})`);
     continue;
   }
@@ -111,6 +129,8 @@ console.log(`\nЗіставлено з базою: ${index.rows.length - absent.
 console.log(`  поставити фото: ${withPhoto.length}`);
 console.log(`  фото вже є (пропускаємо${FORCE ? " — але --force" : ""}): ${kept.length}`);
 console.log(`  оновити опис: ${withText.length}${DESCR ? "" : " (вимкнено; увімкнути --descriptions)"}`);
+if (weakMatch.length) console.log(`  збіг слабкий, але прийнято (гляньте): ${weakMatch.length}\n    ${weakMatch.slice(0, 20).join("\n    ")}`);
+if (mismatched.length) console.log(`  назва не збіглася, не чіпаємо: ${mismatched.length}\n    ${mismatched.slice(0, 90).join("\n    ")}`);
 if (foreign.length) console.log(`  чужий бренд, не чіпаємо: ${foreign.length}\n    ${foreign.slice(0, 15).join("\n    ")}`);
 if (absent.length) console.log(`  на сайті є, у базі нема: ${absent.length} — ${absent.slice(0, 25).join(", ")}`);
 

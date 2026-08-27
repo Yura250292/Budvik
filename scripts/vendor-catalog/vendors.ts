@@ -21,11 +21,27 @@ export type Vendor = {
   site: string;
   /** Slug брендів у нашій базі, які покриває це джерело. */
   brands: string[];
+  /**
+   * Чи шукати ще й серед карток БЕЗ бренду.
+   *
+   * Потрібне для MASTERTOOL: у нього своя наскрізна нумерація, і під нею в
+   * нас лежить не тільки GRANITE чи PROFI, а й тисячі позицій, яким бренд
+   * узагалі не проставлений (рукавиці, котушки до бензокос, перехідники).
+   */
+  unbranded?: boolean;
   /** Як знайти сторінки товарів. */
   discover:
-    | { kind: "sitemap"; urls: string[]; pageMatch?: RegExp }
+    | { kind: "sitemap"; urls: string[]; pageMatch?: RegExp; /** Переписати адресу з карти (напр. додати мовний префікс). */ rewrite?: (url: string) => string }
     | { kind: "direct"; url: (sku: string) => string }
-    | { kind: "crawl"; roots: string[]; pageMatch: RegExp; follow: RegExp; pages?: number };
+    | {
+        kind: "crawl";
+        roots: string[];
+        pageMatch: RegExp;
+        follow: RegExp;
+        pages?: number;
+        /** Переписати адресу категорії перед заходом (напр. «?limit=100»). */
+        expand?: (url: string) => string;
+      };
   /** Артикул, який сторінка декларує сама. null — сторінка не про товар. */
   article: (html: string, url: string) => string | null;
   /** Повнорозмірне фото товару. */
@@ -244,25 +260,19 @@ const polax: Vendor = {
   brands: ["polax"],
   discover: {
     kind: "crawl",
-    roots: [
-      "https://polax.ua/abrazyvni-materialy",
-      "https://polax.ua/avtoinstrument-ta-obladnannia",
-      "https://polax.ua/budivelna-ta-avtomobilna-khimiia",
-      "https://polax.ua/dim-ta-sad",
-      "https://polax.ua/elektroinstrument",
-      "https://polax.ua/hazove-obladnannia",
-      "https://polax.ua/instrument-dlia-ozdobliuvalnykh-robit",
-      "https://polax.ua/kripylnyi-instrument",
-      "https://polax.ua/maliarnyi-instrument",
-      "https://polax.ua/ruchnyi-instrument",
-      "https://polax.ua/santekhnika",
-      "https://polax.ua/zasoby-zakhystu",
-    ],
-    follow: /^https:\/\/polax\.ua\/[a-z0-9-]+(\?page=\d+)?$/,
+    // /manufacturer — сторінка виробника, де перелічені геть усі підрозділи.
+    // Перша версія стартувала з дюжини кореневих розділів і ходила лише по
+    // односегментних адресах, тому в підрозділи (abrazyvni-materialy/dysky-
+    // almazni) не заходила зовсім — і з ~1600 карток бачила 204.
+    roots: ["https://polax.ua/manufacturer"],
+    expand: (u) => (u.includes("?") ? u : `${u}?limit=100`),
+    // (?!en|ru|pl) — сайт багатомовний, і перемикач мов веде на /en, /ru, /pl.
+    // Без цього обхід ішов і туди, і описи приїжджали англійською.
+    follow: /^https:\/\/polax\.ua\/(?!(?:en|ru|pl)(?:\/|$))[a-z0-9-]+(\/[a-z0-9-]+)?(\?limit=100)?(&page=\d+)?$/,
     // Артикул POLAX має вигляд «49-005», «54-060», «1-07» — цифри в хвості
     // адреси. Перша, вужча версія (\d{2}-\d{3}) губила короткі артикули.
-    pageMatch: /-\d{1,3}-\d{2,4}$/,
-    pages: 120,
+    pageMatch: /^https:\/\/polax\.ua\/(?!(?:en|ru|pl)\/)[a-z0-9-]+-\d{1,3}-\d{2,4}$/,
+    pages: 400,
   },
   article(html, url) {
     const ld = jsonLdProducts(html)[0];
@@ -364,7 +374,155 @@ const ultra: Vendor = {
   ourProduct: (n) => /\bultra\b/i.test(n),
 };
 
-export const VENDORS: Vendor[] = [apro, sila, makita, polax, gradient, ultra];
+/**
+ * revolt-tools.com.ua — офіційний магазин марки REVOLT. Платформа та сама, що
+ * в gradient.ua, тож і JS-перевірка та сама (стала кука challenge_passed).
+ *
+ * Чи збігається нумерація — питання відкрите: у нашій базі майже вся REVOLT
+ * сидить на сурогатних «1C-…», тому реально шукати є лише сотню артикулів.
+ */
+const revolt: Vendor = {
+  slug: "revolt",
+  title: "REVOLT",
+  site: "https://revolt-tools.com.ua",
+  brands: ["revolt"],
+  challenge: true,
+  discover: {
+    kind: "sitemap",
+    urls: ["https://revolt-tools.com.ua/content/export/revolt-tools.com.ua/catalog-sitemap.xml"],
+    pageMatch: /^https:\/\/revolt-tools\.com\.ua\/(?!ru\/)[a-z0-9-]+\/$/,
+  },
+  article(html) {
+    const ld = jsonLdProducts(html)[0];
+    if (ld?.sku) return String(ld.sku).trim();
+    const m = strip(html).match(/(?:Артикул|Код товару)[:\s]*([A-Za-z0-9][\w\-./ ]{2,20}?)(?:\s{2,}|$)/i);
+    return m?.[1]?.trim() ?? null;
+  },
+  photo: (html, url) => ogImage(html, url),
+  specs(html) {
+    const block = html.match(/<table[^>]*>[\s\S]*?<\/table>/i)?.[0];
+    return block ? tableSpecs(block) : {};
+  },
+  ourProduct: (n) => /\brevolt\b/i.test(n),
+};
+
+/**
+ * somafix.com.ua — офіційний сайт марки в Україні.
+ *
+ * Артикула на сторінці немає ніде в тексті: ні в розмітці, ні в JSON-LD (його
+ * взагалі немає), а og:image — це логотип. Але фото товару лежать під власним
+ * кодом виробника: /img/product/S801_01.png. Саме цей код у 41 з 89 наших
+ * карток стоїть як артикул із 1С, тож ім'я файлу і є ключем зіставлення.
+ *
+ * Адреси в карті сайту без мовного префікса і тому віддають 404 — треба
+ * ходити на /ua/…
+ */
+const somafix: Vendor = {
+  slug: "somafix",
+  title: "SOMA FIX",
+  site: "https://somafix.com.ua",
+  brands: ["soma-fix"],
+  // Карта сайту застаріла: у ній 54 картки, з них 12 уже 404, — тож ідемо
+  // сімома розділами каталогу, які виробник тримає в актуальному стані.
+  discover: {
+    kind: "crawl",
+    roots: ["https://somafix.com.ua/ua/catalog"],
+    follow: /^https:\/\/somafix\.com\.ua\/ua\/catalog(\/[a-z0-9-]+)?$/,
+    pageMatch: /^https:\/\/somafix\.com\.ua\/ua\/product\/[a-z0-9-]+$/,
+    pages: 40,
+  },
+  article: (html) => html.match(/\/img\/product\/([A-Za-z]?\d{2,5})_\d/i)?.[1]?.toUpperCase() ?? null,
+  photo(html, url) {
+    const f = html.match(/\/img\/product\/([A-Za-z]?\d{2,5}_\d+\.(?:png|jpe?g))/i)?.[1];
+    return f ? new URL(`/img/product/${f}`, url).toString() : null;
+  },
+  specs(html) {
+    // Характеристики надруковані списком «- ключ: значення <br>».
+    const block = html.match(/data-type="characteristics"[\s\S]*?product-description__content"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    if (!block) return {};
+    const specs: Specs = {};
+    for (const line of strip(block).split("\n")) {
+      const m = line.replace(/^[-–—•]\s*/, "").match(/^(.{2,45}?):\s*(.+)$/);
+      if (m) specs[m[1].trim()] = m[2].trim();
+    }
+    return specs;
+  },
+  text(html) {
+    const d = html.match(/data-type="description"[\s\S]*?product-description__content"[^>]*>([\s\S]*?)<\/div>/i)?.[1]
+      ?? html.match(/<h1[^>]*>[\s\S]*?<\/h1>([\s\S]{0,900}?)<h2/i)?.[1];
+    const t = d ? strip(d).replace(/\s+/g, " ") : "";
+    return t.length > 60 ? t.slice(0, 900) : null;
+  },
+  ourProduct: (n) => /soma\s?fix/i.test(n),
+};
+
+/**
+ * mastertool.ua — офіційний сайт MASTERTOOL, під яким живуть і власні марки
+ * GRANITE, ТИТУЛ, ГОСПОДАР.
+ *
+ * Чому це найцінніше джерело з усіх: нумерація MASTERTOOL наскрізна («19-4224»,
+ * «78-0008», «83-0601»), і саме вона стоїть артикулом у купи наших карток —
+ * зокрема в тих, де бренд у 1С не проставлений зовсім. Тому `unbranded: true`.
+ *
+ * Особливості верстки: og:image немає, зате фото товару лежить під власним
+ * артикулом — assets/images/products/<id>/<артикул>.jpg. Опис — у блоці
+ * .tezis, характеристики — у вкладці #tabcard-2. Сайт водить не-браузерні
+ * клієнти по редиректах, доки ті не почнуть носити куки, — рушій це вміє.
+ */
+const mastertool: Vendor = {
+  slug: "mastertool",
+  title: "MASTERTOOL / GRANITE / ТИТУЛ",
+  site: "https://mastertool.ua",
+  brands: ["mastertool", "granite", "granite-active", "granite-premium", "tytul", "profi", "kt", "eva", "zak", "ievro", "al", "lan"],
+  unbranded: true,
+  // Карта сайту віддається лише клієнту з куками — curl без банки кук ловить
+  // нескінченний редирект і порожню відповідь. Обхід категорій теж працює,
+  // але він послідовний і на цьому каталозі тягнеться годинами.
+  discover: {
+    kind: "sitemap",
+    urls: ["https://mastertool.ua/sitemap.xml"],
+    pageMatch: /^https:\/\/mastertool\.ua\/(?:ua\/)?[a-z0-9-]+-id-\d+$/,
+    rewrite: (u) => (u.includes("/ua/") ? u : u.replace("mastertool.ua/", "mastertool.ua/ua/")),
+  },
+  article(html, url) {
+    const declared = html.match(/number-code-avail-block[\s\S]{0,400}?<span>\s*([^<]{2,24}?)\s*<\/span>/i)?.[1];
+    if (declared) return declared.trim();
+    return url.match(/-([A-Za-z0-9][\w.-]{2,20})-id-\d+$/)?.[1] ?? null;
+  },
+  photo(html, url) {
+    const id = url.match(/-id-(\d+)$/)?.[1];
+    // Фото самого товару лежить у теці його ж id і БЕЗ thumbsmall — решта
+    // знімків на сторінці це мініатюри супутніх товарів.
+    const re = id
+      ? new RegExp(`assets/images/products/${id}/([^"'/]+\\.(?:jpe?g|png|webp))`, "i")
+      : /assets\/images\/products\/\d+\/([^"'/]+\.(?:jpe?g|png|webp))/i;
+    const f = html.match(re)?.[1];
+    return f && id ? `https://mastertool.ua/assets/images/products/${id}/${f}` : null;
+  },
+  specs(html) {
+    const block = html.match(/id="tabcard-2"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i)?.[1];
+    if (!block) return {};
+    const specs: Specs = {};
+    for (const row of block.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const c = [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((x) => strip(x[1]));
+      if (c.length >= 2 && c[0] && c[1]) specs[c[0].replace(/:$/, "")] = c[1];
+    }
+    if (!Object.keys(specs).length) {
+      for (const line of strip(block).split("\n")) {
+        const m = line.match(/^(.{2,40}?):\s*(.{1,80})$/);
+        if (m) specs[m[1].trim()] = m[2].trim();
+      }
+    }
+    return specs;
+  },
+  text(html) {
+    const t = html.match(/class="tezis"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const s = t ? strip(t).replace(/\s+/g, " ") : "";
+    return s.length > 40 ? s.slice(0, 900) : null;
+  },
+};
+
+export const VENDORS: Vendor[] = [apro, sila, makita, polax, gradient, ultra, revolt, somafix, mastertool];
 
 export function vendorBySlug(slug: string): Vendor {
   const v = VENDORS.find((x) => x.slug === slug);
@@ -380,6 +538,56 @@ export function vendorBySlug(slug: string): Vendor {
  * товару. Дані виробника точніші, тому переписуємо їх у той самий формат, що
  * вже прижився в картках POLAX: перше речення + «Характеристики — к: з».
  */
+/**
+ * Наскільки назва з 1С і назва в виробника — про той самий товар.
+ *
+ * Потрібне там, де бренд не підказує нічого: у картці без бренду збіг самого
+ * артикулу лишається єдиним доказом, а нумерація в різних постачальників
+ * місцями перетинається. Рахуємо частку спільних значущих токенів.
+ */
+export function similarity(a: string, b: string): number {
+  // Триграми, а не збіг слів: назви з 1С і в виробника різняться формою —
+  // «Рукавиці для скла» проти «Рукавички скляра», «бетонщика» проти
+  // «бетонщика фарбована». За словами це давало 0.14 на очевидному збігу,
+  // за триграмами — 0.4+.
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[«»"'()\[\],.;:*]/g, " ")
+      .replace(/[хx×]/g, "x")
+      .replace(/\s+/g, " ")
+      .trim();
+  const grams = (s: string) => {
+    const t = ` ${norm(s)} `;
+    const out = new Set<string>();
+    for (let i = 0; i < t.length - 2; i++) out.add(t.slice(i, i + 3));
+    return out;
+  };
+  const A = grams(a);
+  const B = grams(b);
+  if (!A.size || !B.size) return 0;
+  let hit = 0;
+  for (const g of A) if (B.has(g)) hit++;
+  return (2 * hit) / (A.size + B.size);
+}
+
+/**
+ * Спільні числа в назвах — другий доказ, коли слова різні.
+ *
+ * У MASTERTOOL термінологія розходиться з нашою з 1С настільки, що триграми
+ * дають 0.05 на очевидному збігу: «Ванна для валіків 150*220» проти «Кювета
+ * малярська 160×220 мм». Але розмір 220 стоїть в обох — і саме він, разом із
+ * точним збігом артикулу, і робить пару достовірною.
+ */
+export function sharedNumbers(a: string, b: string): number {
+  const nums = (s: string) => new Set((s.match(/\d+(?:[.,]\d+)?/g) ?? []).filter((n) => n.length >= 2));
+  const A = nums(a);
+  const B = nums(b);
+  let hit = 0;
+  for (const n of A) if (B.has(n)) hit++;
+  return hit;
+}
+
 export function describe(title: string, specs: Specs, text?: string | null): string {
   // Службові поля: покупцю ні до чого артикул (він у картці окремо), крос-код
   // «Аналоги» і «гарантія не передбачена».
@@ -402,7 +610,14 @@ export function describe(title: string, specs: Specs, text?: string | null): str
     return true;
   });
 
-  const head = (text ?? title).replace(/\s+/g, " ").trim();
+  // «…(36-044)Шукаєте надійного супутника…» — у JSON-LD POLAX заголовок
+  // склеєний з текстом без пробілу. Чистимо саме тут, а не при обході сайту:
+  // розібрані сторінки лежать у кеші, і правка формулювання інакше вимагала б
+  // качати весь каталог заново.
+  const head = (text ?? title)
+    .replace(/\)([А-ЯІЇЄҐA-Z][а-яіїєґ])/g, "). $1")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!pairs.length) return head;
   const tail = pairs.map(([k, v]) => `${k.replace(/:$/, "")}: ${v}`).join("; ");
   return `${head.replace(/\.$/, "")}.\nХарактеристики — ${tail}.`

@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { getShoppableBrandTree, getBrandTypes } from "@/lib/catalog/brand-tree";
+import { getShoppableBrandTree, getBrandTypes, getBrandSummaries } from "@/lib/catalog/brand-tree";
 import { getBrandShowcase, getBrandPhotos } from "@/lib/catalog/brand-showcase";
 
 /** Структура каталогу змінюється не частіше, ніж приїжджає обмін із 1С. */
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ types: await getBrandTypes(brand) });
   }
 
-  const [tree, showcase, photos] = await Promise.all([
+  const [tree, showcase, photos, summaries] = await Promise.all([
     /*
      * Лише те, що можна купити.
      *
@@ -37,18 +37,22 @@ export async function GET(req: Request) {
     getShoppableBrandTree(),
     getBrandShowcase(),
     getBrandPhotos(),
+    getBrandSummaries(),
   ]);
 
   /*
-   * Дерево, плюс два поля для вигляду.
+   * Дерево, плюс три поля для вигляду.
    *
    * showcase — ті самі вісім банерів, що на головній сайту й застосунку: у
    * списку брендів вони йдуть першими, бо це фірми, за якими ми стоїмо, а не
    * просто найдовші рядки в таблиці.
    *
-   * photos — по знімку на бренд, для решти списку. Обидва поля додані, а не
-   * підмінили щось: установлену збірку не оновити примусово, і старий
-   * застосунок мусить і далі малювати свій список.
+   * photos і summaries — знімок і рядок «що всередині» для решти списку. Назва
+   * бренда сама по собі не відповідає на питання, з яким на цей список
+   * дивляться: «METEC» чи «REVOLT» не кажуть нічого, доки не відкриєш.
+   *
+   * Усі три поля додані, а не підмінили щось: установлену збірку не оновити
+   * примусово, і старий застосунок мусить і далі малювати свій список.
    */
-  return NextResponse.json({ ...tree, showcase, photos });
+  return NextResponse.json({ ...tree, showcase, photos, summaries });
 }

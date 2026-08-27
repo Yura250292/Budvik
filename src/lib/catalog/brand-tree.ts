@@ -198,6 +198,44 @@ export const getBrandTypes = unstable_cache(
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
 
+/**
+ * Чим торгує бренд — рядком під назвою.
+ *
+ * Плитка з самою назвою й числом не відповідає на питання, з яким людина
+ * дивиться на список: «а що в них є». Назва бренда відповіді не містить —
+ * «METEC» чи «REVOLT» не кажуть нічого, доки не відкриєш. Три найбільші групи
+ * товару кажуть.
+ *
+ * Той самий прийом, що на банерах розділів сайту (SectionDef.summary), і те
+ * саме джерело, що у фільтрах каталогу — колонка Product.typeKey.
+ */
+export const getBrandSummaries = unstable_cache(
+  async (): Promise<Record<string, string>> => {
+    const rows = await prisma.$queryRaw<{ slug: string; keys: string[] }[]>`
+      SELECT slug, array_agg("typeKey" ORDER BY cnt DESC) FILTER (WHERE rn <= 3) AS keys FROM (
+        SELECT b.slug, p."typeKey", count(*)::int AS cnt,
+               row_number() OVER (PARTITION BY b.slug ORDER BY count(*) DESC, p."typeKey") AS rn
+        FROM "Brand" b
+        JOIN "Product" p ON p."brandId" = b.id
+        WHERE b."isActive" AND p."isActive" AND p.stock > 0 AND p.price > 0 AND p."typeKey" IS NOT NULL
+        GROUP BY b.slug, p."typeKey"
+      ) t
+      GROUP BY slug
+    `;
+
+    const out: Record<string, string> = {};
+    for (const r of rows) {
+      const labels = (r.keys ?? [])
+        .map((k) => (TYPE_LABELS[k] ?? k).toLowerCase())
+        .filter(Boolean);
+      if (labels.length) out[r.slug] = labels.join(", ");
+    }
+    return out;
+  },
+  ["brand-summaries-v1"],
+  { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
+);
+
 /** Діапазон цін активних товарів — межі для повзунка «ціна від/до». */
 export const getPriceBounds = unstable_cache(
   async (): Promise<{ min: number; max: number }> => {

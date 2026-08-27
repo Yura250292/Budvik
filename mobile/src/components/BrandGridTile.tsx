@@ -25,6 +25,8 @@ export type GridBrand = BrandLike & {
   count: number;
   /** Знімок товару бренда. Є менш ніж у кожного восьмого — решта лишається кольором. */
   photo?: string | null;
+  /** Три найбільші групи товару: «свердла, хомути, круги». */
+  summary?: string | null;
 };
 
 /** Той самий колір, притемнений: другий тон градієнта, коли свого немає. */
@@ -81,14 +83,22 @@ export function BrandGridTile({
             />
           </View>
         ) : (
-          <Text style={[styles.wordmark, { color: ink }]} numberOfLines={2}>
+          <Text style={[styles.wordmark, { color: ink }]} numberOfLines={1}>
             {b.name.toUpperCase()}
           </Text>
         )}
 
-        <View style={styles.countPill}>
-          <Text style={styles.countText}>{formatPositions(b.count)}</Text>
-        </View>
+        {/* Рядок «що всередині» — той самий прийом, що на банерах розділів
+            сайту: назва бренда сама по собі не каже, що там лежить. */}
+        {b.summary ? (
+          <Text style={[styles.summary, { color: ink }]} numberOfLines={2}>
+            {b.summary}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.countPill}>
+        <Text style={styles.countText}>{formatPositions(b.count)}</Text>
       </View>
 
       {b.photo ? (
@@ -109,13 +119,15 @@ export function BrandGridTile({
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 126,
+    minHeight: 148,
     padding: space.md,
     borderRadius: radius.md,
     overflow: "hidden",
     justifyContent: "space-between",
   },
-  body: { gap: space.sm, paddingRight: 46 },
+  /* Текст тримається лівої частини: правий нижній кут займає знімок. */
+  body: { gap: 3, paddingRight: 8 },
+  summary: { fontSize: 10, lineHeight: 13, opacity: 0.8 },
   logoWrap: {
     alignSelf: "flex-start",
     borderRadius: radius.sm,
@@ -127,6 +139,7 @@ const styles = StyleSheet.create({
   wordmark: { fontSize: 15, fontWeight: "900", letterSpacing: 0.2 },
   countPill: {
     alignSelf: "flex-start",
+    marginTop: space.sm,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
@@ -139,8 +152,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: space.sm,
     bottom: space.sm,
-    width: 58,
-    height: 58,
+    width: 62,
+    height: 62,
     borderRadius: radius.sm,
     backgroundColor: "#FFFFFF",
     alignItems: "center",

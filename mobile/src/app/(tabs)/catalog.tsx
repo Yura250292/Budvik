@@ -45,6 +45,8 @@ type BrandTree = {
   showcase?: ShowcaseBrand[];
   /** Знімок на бренд, за slug. Є менш ніж у кожного восьмого. */
   photos?: Record<string, string>;
+  /** Три найбільші групи товару бренда — рядок під назвою. */
+  summaries?: Record<string, string>;
 };
 
 type Mode = "sections" | "brands";
@@ -204,6 +206,7 @@ export default function CatalogScreen() {
           const showcase = brandTree.data?.showcase ?? [];
           const banner = new Set(showcase.map((b) => b.slug));
           const photos = brandTree.data?.photos ?? {};
+          const summaries = brandTree.data?.summaries ?? {};
           const rest = [...(brandTree.data?.main ?? []), ...(brandTree.data?.tail ?? [])].filter(
             (b) => !banner.has(b.slug)
           );
@@ -236,7 +239,7 @@ export default function CatalogScreen() {
               }
               renderItem={({ item }) => (
                 <BrandGridTile
-                  brand={{ ...item, photo: photos[item.slug] }}
+                  brand={{ ...item, photo: photos[item.slug], summary: summaries[item.slug] }}
                   width={tileWidth}
                   onPress={() => open(item.slug, item.name)}
                 />

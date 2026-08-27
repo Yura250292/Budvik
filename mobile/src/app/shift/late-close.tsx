@@ -20,7 +20,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { staffApi, StaffApiError, type LateCloseSuggestion } from "@/api/staff";
 import { colors, space, radius } from "@/theme";
 import { setShiftOpen } from "@/track/state";
-import { stopTracking } from "@/track/controller";
+import { stopEverything } from "@/track/controller";
 
 export default function LateCloseScreen() {
   const router = useRouter();
@@ -57,7 +57,7 @@ export default function LateCloseScreen() {
        * Тут трек глушимо повністю, а не переводимо в режим «дорога додому»:
        * людина вже вдома, дописувати нічого.
        */
-      await stopTracking();
+      await stopEverything();
       Alert.alert("Зміну закрито", "Пробіг порахований за GPS — одометра за такий час уже не спитати.");
       router.back();
     } catch (e) {

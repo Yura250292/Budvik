@@ -7,6 +7,8 @@
 
 import { staffApi, StaffApiError, APP_VERSION } from "@/api/staff";
 import { readDeviceState } from "./device-state";
+import { getRole } from "./state";
+import { notifyNow } from "./notify";
 import {
   bufferedCount,
   dropPoints,
@@ -157,6 +159,30 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     // Правда про зміну — серверна: її міг закрити офіс, поки планшет був поза мережею.
     if (typeof pulse?.shiftOpen === "boolean" && pulse.shiftOpen !== shiftOpen) {
       await setShiftOpen(pulse.shiftOpen);
+
+      /**
+       * Зміну закрили не з цього пристрою — офіс або автозакриття.
+       *
+       * Без цієї гілки служба лишалася б у робочому режимі з карткою «зміна
+       * відкрита»: людина бачила б одне, а сервер знав інше, і трек далі
+       * писався б як робочий. Тому переводимо запис у режим «після зміни» й
+       * кажемо людині, що сталося — інакше вона дізнається про це аж тоді,
+       * коли не зійдеться пробіг.
+       *
+       * Водія не чіпаємо: він зміну не відкриває взагалі, і його трек іде від
+       * входу до виходу (див. controller.onStaffLogin).
+       */
+      if (!pulse.shiftOpen) {
+        const role = await getRole();
+        if (role !== "DRIVER") {
+          const { endShiftTracking } = await import("./controller");
+          await endShiftTracking();
+          await notifyNow(
+            "Зміну закрито",
+            "Зміну закрито не з цього пристрою. Зранку сфотографуйте одометр — інакше пробіг порахується за GPS."
+          );
+        }
+      }
     }
     return { shouldTrack: pulse?.shouldTrack ?? false };
   } catch {

@@ -13,7 +13,7 @@
 
 import * as BackgroundTask from "expo-background-task";
 import { WATCHDOG_TASK } from "./task-name";
-import { getRole, isShiftOpen } from "./state";
+import { getMode, getRole, isShiftOpen } from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
@@ -31,16 +31,31 @@ export async function runWatchdog(): Promise<void> {
   await maybeFlush().catch(() => {});
   await heartbeat().catch(() => {});
 
-  const [role, shiftOpen, tracking] = await Promise.all([
+  const [role, shiftOpen, tracking, mode] = await Promise.all([
     getRole(),
     isShiftOpen(),
     isTracking(),
+    getMode(),
   ]);
 
   // Водій пише трек від входу, торговий — поки відкрита зміна (див. controller.ts).
   const shouldTrack = shiftOpen || role === "DRIVER";
   if (shouldTrack && !tracking) {
     await startTracking("SHIFT");
+    return;
+  }
+
+  /**
+   * Дорога додому теж не має обриватися.
+   *
+   * Режим «після зміни» вмикає геозона, і якщо систему після цього щось
+   * прибило, відновити запис немає кому: геозона вже спрацювала й знята.
+   * Тому сторож піднімає і його — інакше поїздка після роботи обірвалася б на
+   * першому ж прибитті процесу, і саме та відповідь, заради якої все це
+   * робиться, загубилася б.
+   */
+  if (!shouldTrack && mode === "AFTER_SHIFT" && !tracking) {
+    await startTracking("AFTER_SHIFT");
   }
 }
 

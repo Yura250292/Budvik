@@ -9,3 +9,5 @@
 export const TRACK_TASK = "budvik-track-location";
 /** Періодична перевірка: чи не заснула служба, чи не завис буфер. */
 export const WATCHDOG_TASK = "budvik-track-watchdog";
+/** Геозона навколо місця, де закрилася зміна: будить нас, коли машина поїхала. */
+export const AFTER_SHIFT_TASK = "budvik-after-shift-geofence";

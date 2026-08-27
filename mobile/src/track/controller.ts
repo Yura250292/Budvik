@@ -15,6 +15,7 @@ import { clearPoints } from "./db";
 import { flush, heartbeat } from "./uploader";
 import { getMode, getRole, resetState, setLastError, setMode, setRole } from "./state";
 import { currentPermissions } from "./permissions";
+import { armAfterShift, disarmAfterShift } from "./after-shift";
 
 export type TrackMode = "SHIFT" | "AFTER_SHIFT";
 
@@ -72,6 +73,12 @@ export async function startTracking(mode: TrackMode): Promise<boolean> {
     await Location.stopLocationUpdatesAsync(TRACK_TASK).catch(() => {});
   }
 
+  /**
+   * Нова зміна знімає коло попередньої: інакше воно спрацювало б посеред
+   * робочого дня й перевело б запис у розріджений режим.
+   */
+  if (mode === "SHIFT") await disarmAfterShift();
+
   await setMode(mode);
   try {
     await Location.startLocationUpdatesAsync(TRACK_TASK, OPTIONS[mode]);
@@ -92,6 +99,28 @@ export async function stopTracking(): Promise<void> {
 }
 
 /**
+ * Зміна закінчилася: перестаємо писати й ставимо коло навколо місця фінішу.
+ *
+ * Саме коло, а не розріджений запис. Запис «про всяк випадок» до півночі дав би
+ * ту саму відповідь про поїздки після роботи, але ціною нічного розряду батареї
+ * й кілометрів дрейфу на стоянці, які потім не відрізниш від справжньої дороги.
+ * Поки машина стоїть — процес спить; виїхала — геозона нас розбудить.
+ */
+export async function endShiftTracking(): Promise<void> {
+  const last = await Location.getLastKnownPositionAsync().catch(() => null);
+  await stopTracking();
+  await armAfterShift(
+    last ? { lat: last.coords.latitude, lng: last.coords.longitude } : null
+  );
+}
+
+/** Людина вдома і дописувати нічого — глушимо все, включно з колом. */
+export async function stopEverything(): Promise<void> {
+  await stopTracking();
+  await disarmAfterShift();
+}
+
+/**
  * Вихід із акаунта.
  *
  * Порядок важливий: спершу дописати те, що встигли, і аж потім гасити токен —
@@ -100,7 +129,7 @@ export async function stopTracking(): Promise<void> {
  * не має лишатися з правом лити трек.
  */
 export async function logoutAndStop(): Promise<void> {
-  await stopTracking();
+  await stopEverything();
   await flush().catch(() => {});
   await staffApi.logout().catch(() => {});
   await clearPoints().catch(() => {});
@@ -115,7 +144,7 @@ export async function logoutAndStop(): Promise<void> {
  * вимикається старий трекер, коли людина входить у нову збірку.
  */
 setUnauthorizedHandler(async () => {
-  await stopTracking();
+  await stopEverything();
   await resetState();
 });
 
@@ -149,6 +178,15 @@ export async function syncTrackingWithServer(role: string | null): Promise<void>
     await startTracking("SHIFT");
     return;
   }
+
+  /**
+   * Зміни немає — але це ще не привід глушити запис.
+   *
+   * Якщо ми в режимі «після зміни», людина зараз їде додому (або не додому), і
+   * саме цей відрізок і треба дописати. Заглушити його на холодному старті
+   * означало б втратити відповідь на питання, заради якого режим існує.
+   */
+  if ((await getMode()) === "AFTER_SHIFT") return;
 
   await stopTracking();
 }

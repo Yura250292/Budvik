@@ -12,7 +12,7 @@ import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { staffApi, type ShiftState } from "@/api/staff";
 import { colors, space, radius } from "@/theme";
 import { bufferedCount } from "@/track/db";
-import { isTracking, startTracking, stopTracking } from "@/track/controller";
+import { isTracking, startTracking, stopEverything } from "@/track/controller";
 import { getPendingShift, type PendingShift } from "@/track/pending-shift";
 import {
   askIgnoreBatteryOptimizations,
@@ -200,7 +200,7 @@ export default function ShiftScreen() {
       )}
 
       {tracking && !shiftOpen && (
-        <Pressable style={styles.link} onPress={() => stopTracking().then(refresh)}>
+        <Pressable style={styles.link} onPress={() => stopEverything().then(refresh)}>
           <Text style={styles.linkText}>Зупинити запис маршруту</Text>
         </Pressable>
       )}

@@ -29,7 +29,7 @@ import { staffApi, StaffApiError } from "@/api/staff";
 import { colors, space, radius } from "@/theme";
 import { setPendingShift } from "@/track/pending-shift";
 import { setShiftOpen } from "@/track/state";
-import { startTracking, stopTracking } from "@/track/controller";
+import { endShiftTracking, startTracking, stopEverything } from "@/track/controller";
 
 /** Фото звужуємо до 1280 px: сервер відхиляє завеликі, а більше й не потрібно. */
 const PHOTO_WIDTH = 1280;
@@ -121,10 +121,12 @@ export default function OdometerScreen() {
         await staffApi.shiftClose(body);
         await setShiftOpen(false);
         /**
-         * Після закриття трек не глушимо, а переводимо в рідкий режим: дорога
-         * додому має домалюватися, інакше маршрут обривається на порозі складу.
+         * Після закриття не глушимо все, а ставимо коло навколо місця фінішу:
+         * поки машина стоїть — процес спить, а щойно вона поїхала, запис
+         * відновиться сам. Так і дорога додому не губиться, і батарея за ніч
+         * не сідає.
          */
-        await startTracking("AFTER_SHIFT");
+        await endShiftTracking();
       } else {
         await staffApi.shiftOpen(body);
         await setShiftOpen(true);
@@ -155,7 +157,7 @@ export default function OdometerScreen() {
       // щоб почати писати дорогу, немає жодного сенсу.
       if (isClosing) {
         await setShiftOpen(false);
-        await startTracking("AFTER_SHIFT");
+        await endShiftTracking();
       } else {
         await setShiftOpen(true);
         await startTracking("SHIFT");
@@ -236,7 +238,7 @@ export default function OdometerScreen() {
       {isClosing && (
         <Pressable
           style={styles.link}
-          onPress={() => stopTracking().then(() => router.back())}
+          onPress={() => stopEverything().then(() => router.back())}
         >
           <Text style={styles.linkText}>Закрити зміну і зупинити запис зовсім</Text>
         </Pressable>

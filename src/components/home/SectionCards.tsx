@@ -32,7 +32,10 @@ export default function SectionCards({
   if (tiles.length === 0) return null;
 
   return (
-    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${className}`}>
+    /* auto-rows-fr: ряди ділять висоту порівну. Разом із flex-1 на самій
+       смузі це дає банерам дотягнутися до низу рейки розділів — інакше під
+       ними лишалась порожня пляма мало не в третину першого екрана. */
+    <div className={`grid auto-rows-fr grid-cols-1 gap-3 sm:grid-cols-2 ${className}`}>
       {tiles.map((t) => (
         <Link
           key={t.id}

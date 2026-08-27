@@ -16,7 +16,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, space, radius } from "@/theme";
+import { colors, space, radius, formatPositions } from "@/theme";
 
 export type SectionTile = {
   id: string;
@@ -57,7 +57,7 @@ function Tile({ section, onPress }: { section: SectionTile; onPress: () => void 
       style={styles.tile}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${section.title}, ${section.total} позицій`}
+      accessibilityLabel={`${section.title}, ${formatPositions(section.total)}`}
     >
       <View style={styles.thumbWrap}>
         {showImage ? (
@@ -81,7 +81,7 @@ function Tile({ section, onPress }: { section: SectionTile; onPress: () => void 
       <Text style={styles.title} numberOfLines={2}>
         {section.title}
       </Text>
-      <Text style={styles.count}>{section.total} позицій</Text>
+      <Text style={styles.count}>{formatPositions(section.total)}</Text>
     </Pressable>
   );
 }

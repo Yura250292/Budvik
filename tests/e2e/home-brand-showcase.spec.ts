@@ -11,7 +11,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 /** Склад вітрини — домовленість (SHOWCASE у lib/catalog/brand-showcase.ts). */
-const BRANDS = ["total", "polax", "grosser", "apro", "unifix", "aurora", "sigma", "syla"];
+const BRANDS = ["apro", "polax", "total", "grosser", "unifix", "sigma", "aurora", "syla"];
 
 /** Те саме правило множини, що й у lib/utils — тут навмисно окремою копією. */
 function positions(n: number): string {
@@ -166,8 +166,12 @@ test("написи на банерах читаються на фірмовом�
   const list = banners(page);
   for (let i = 0; i < (await list.count()); i++) {
     const banner = list.nth(i);
-    // Тон — перший колір градієнта, тобто найсвітліший край підкладки.
-    const accent = rgb(await banner.evaluate((el) => getComputedStyle(el).backgroundImage));
+    /*
+     * Колір під написом беремо з backgroundColor, а не з градієнта: шарів у
+     * банері три (відблиск, притемнення, фірмова пара), і перший rgb() у
+     * backgroundImage — це відблиск, а не тон бренда.
+     */
+    const accent = rgb(await banner.evaluate((el) => getComputedStyle(el).backgroundColor));
 
     for (const node of [banner.locator("span.uppercase").first(), banner.locator("p").first()]) {
       if (!(await node.count())) continue;

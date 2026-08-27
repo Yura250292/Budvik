@@ -21,7 +21,7 @@ import { RowSkeleton } from "@/components/Skeleton";
 import { Image } from "expo-image";
 import { BrandTile } from "@/components/BrandTile";
 import { EmptyState } from "@/components/EmptyState";
-import { colors, space, radius } from "@/theme";
+import { colors, space, radius, formatPositions } from "@/theme";
 
 type TocLine = { key: string; label: string; count: number };
 type TocSection = {
@@ -136,7 +136,7 @@ export default function CatalogScreen() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardCount}>{item.total} позицій</Text>
+                  <Text style={styles.cardCount}>{formatPositions(item.total)}</Text>
                 </View>
                 <Ionicons
                   name={openSection === item.id ? "chevron-up" : "chevron-down"}
@@ -185,7 +185,7 @@ export default function CatalogScreen() {
               <BrandTile brand={item} size={40} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{item.name}</Text>
-                <Text style={styles.cardCount}>{item.count} позицій</Text>
+                <Text style={styles.cardCount}>{formatPositions(item.count)}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>

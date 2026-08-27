@@ -40,3 +40,22 @@ export function formatUAH(value: number): string {
     : value.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${n} ₴`;
 }
+
+/**
+ * «1 532 позиції», а не «1532 позицій».
+ *
+ * Форму слова рахуємо, а не пишемо однією на всі числа: застосунок писав
+ * «позицій» скрізь, і на кожній другій картці стояло «1224 позицій». Та сама
+ * логіка, що у formatCount на сайті (src/lib/utils.ts).
+ */
+export function formatPositions(n: number): string {
+  const value = Math.abs(Math.trunc(n));
+  const tens = value % 100;
+  const ones = value % 10;
+  const form =
+    tens > 10 && tens < 20 ? "позицій"
+    : ones === 1 ? "позиція"
+    : ones >= 2 && ones <= 4 ? "позиції"
+    : "позицій";
+  return `${value.toLocaleString("uk-UA")} ${form}`;
+}

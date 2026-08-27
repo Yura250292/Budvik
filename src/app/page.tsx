@@ -12,7 +12,6 @@
  */
 export const revalidate = 300;
 
-import Link from "next/link";
 import JsonLd from "@/components/JsonLd";
 import { localBusinessJsonLd, websiteJsonLd } from "@/lib/seo/jsonld";
 
@@ -20,7 +19,6 @@ export const metadata = {
   alternates: { canonical: "/" },
 };
 import { prisma } from "@/lib/prisma";
-import ProductCard from "@/components/ProductCard";
 import BrandShowcase from "@/components/home/BrandShowcase";
 import { getBrandShowcase } from "@/lib/catalog/brand-showcase";
 import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
@@ -37,37 +35,16 @@ export default async function HomePage() {
   const seasonIcon = getSeasonIcon(season);
   const seasonColor = getSeasonColor(season);
 
-  const excludeFilter = {
-    isActive: true as const,
-    NOT: { name: { contains: "верстат" } },
-    category: { slug: { notIn: ["1964", "1970", "1465", "1960", "1963", "1972"] } },
-  };
-
-  const popularKeywords = ["шуруповерт", "бензопил", "електропил", "ланцюгова пил", "болгарк", "шліфмашин", "генератор", "дриль", "дрель", "перфоратор"];
-
-  // Дві хвилі запитів замість чотирьох послідовних: сезонні промо і дерево
-  // брендів ні від чого не залежать, тож їдуть разом із першою хвилею. На
-  // кожному revalidate-місі це мінус два послідовні RTT до бази.
-  const [featuredProducts, topOrderedItems, seasonalPromos, showcaseBrands, toc, sectionTiles] = await Promise.all([
-    prisma.product.findMany({
-      where: {
-        ...excludeFilter,
-        stock: { gt: 0 },
-        price: { gte: 500 },
-        AND: [{ image: { not: null } }, { NOT: { image: "" } }],
-        OR: popularKeywords.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
-      },
-      include: { category: true, brand: { select: { name: true } } },
-      take: 8,
-      orderBy: { price: "asc" },
-    }),
-    // Best sellers: products most ordered
-    prisma.orderItem.groupBy({
-      by: ["productId"],
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 8,
-    }),
+  /*
+   * Одна хвиля запитів замість двох.
+   *
+   * Тут були ще дві вибірки товарів — «Хіти продажу» (найбільше замовлень) і
+   * «Популярні товари» (десяток ключових слів на кшталт «шуруповерт»). Обидві
+   * сітки з головної прибрані: замовлень у базі поки надто мало, щоб «хіти»
+   * означали хоч щось, а «популярне» відбиралось за словами в назві, тобто
+   * було не популярним, а випадковим. Разом із сітками пішли й запити.
+   */
+  const [seasonalPromos, showcaseBrands, toc, sectionTiles] = await Promise.all([
     prisma.seasonalPromo.findMany({
       where: {
         isActive: true,
@@ -104,37 +81,26 @@ export default async function HomePage() {
   // «Тепловентилятор» у літню добірку через слово «вентилятор».
   const seasonalExclude = seasonalPromos.length > 0 ? [] : DEFAULT_SEASONAL_EXCLUDE[season];
 
-  // Друга хвиля: сезонні товари і бестселери залежать від першої, але не
-  // одне від одного — тож теж разом.
-  const bestSellerIds = topOrderedItems.map((i) => i.productId);
-  const [seasonalProducts, bestSellers] = await Promise.all([
-    /*
-     * Сезонна добірка лишилась однією позицією: з неї банер бере знімок і
-     * дізнається, чи є взагалі що показувати. Сітку сезонних товарів на
-     * головній замінила вітрина брендів, тож решта вибірки нікуди не йшла.
-     */
-    seasonalConditions.length > 0
-      ? prisma.product.findMany({
-          where: {
-            isActive: true,
-            stock: { gt: 0 },
-            price: { gte: 200 },
-            AND: [{ image: { not: null } }, { NOT: { image: "" } }],
-            OR: seasonalConditions,
-            NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
-          },
-          select: { image: true },
-          orderBy: [{ priority: "desc" }, { stock: "desc" }],
-          take: 1,
-        })
-      : Promise.resolve([]),
-    bestSellerIds.length > 0
-      ? prisma.product.findMany({
-          where: { id: { in: bestSellerIds }, isActive: true, stock: { gt: 0 }, AND: [{ image: { not: null } }, { NOT: { image: "" } }] },
-          include: { category: true, brand: { select: { name: true } } },
-        })
-      : Promise.resolve([]),
-  ]);
+  /*
+   * Сезонна добірка лишилась однією позицією: з неї банер бере знімок і
+   * дізнається, чи є взагалі що показувати. Сітку сезонних товарів на головній
+   * замінила вітрина брендів, тож решта вибірки нікуди не йшла.
+   */
+  const seasonalProducts = seasonalConditions.length > 0
+    ? await prisma.product.findMany({
+        where: {
+          isActive: true,
+          stock: { gt: 0 },
+          price: { gte: 200 },
+          AND: [{ image: { not: null } }, { NOT: { image: "" } }],
+          OR: seasonalConditions,
+          NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
+        },
+        select: { image: true },
+        orderBy: [{ priority: "desc" }, { stock: "desc" }],
+        take: 1,
+      })
+    : [];
 
   const seasonalTitle = seasonalPromos.length > 0
     ? seasonalPromos[0].title
@@ -149,16 +115,14 @@ export default async function HomePage() {
     ? seasonalPromos[0].color
     : seasonColor;
 
-  // Keep order by sales
-  const sortedBestSellers = bestSellerIds
-    .map((id) => bestSellers.find((p) => p.id === id))
-    .filter(Boolean) as typeof bestSellers;
-
   /*
    * Банери першого екрана. Складаються з того, що в магазині справді є, а не
-   * з намальованих обіцянок: сезонна добірка, найкупованіший товар і обсяг
-   * каталогу. Коли адміністратор заведе акцію в /admin, її банери стануть
-   * першими й витіснять автоматичні — саме так, як і має бути.
+   * з намальованих обіцянок: сезонна добірка й обсяг каталогу. Коли
+   * адміністратор заведе акцію в /admin, її банери стануть першими й
+   * витіснять автоматичні — саме так, як і має бути.
+   *
+   * Банера «Хіти продажу» більше немає: він вів якорем до однойменної сітки
+   * нижче, а тієї сітки на головній не лишилось.
    */
   const banners: HomeBanner[] = [];
 
@@ -183,18 +147,6 @@ export default async function HomePage() {
     });
   }
 
-  if (sortedBestSellers.length > 0) {
-    banners.push({
-      id: "hits",
-      title: "Хіти продажу",
-      subtitle: "Те, що беруть найчастіше — перевірено покупцями",
-      href: "#hity",
-      cta: "До хітів",
-      color: "#FFD600",
-      image: sortedBestSellers[0]?.image ?? null,
-    });
-  }
-
   banners.push({
     id: "catalog",
     /*
@@ -208,7 +160,9 @@ export default async function HomePage() {
     href: "/catalog/zmist",
     cta: "Відкрити каталог",
     color: "#C9D6DF",
-    image: featuredProducts[0]?.image ?? null,
+    // Знімок беремо з першого банера розділів — він уже порахований і лежить
+    // у власному сховищі, тож окремий запит по товар тут зайвий.
+    image: sectionTiles.find((t) => t.image)?.image ?? null,
   });
 
   return (
@@ -244,15 +198,24 @@ export default async function HomePage() {
             <span className="font-medium text-[#5A5A5A]"> — електро та ручний інструмент від провідних виробників</span>
           </h1>
 
-          <div className="flex gap-5">
+          {/*
+            Ліва колонка з розділами вища за праву, і під банерами лишалась
+            порожня пляма мало не в третину екрана. Тепер права колонка тягне
+            свої банери на всю висоту рейки: місце заповнене не новим блоком, а
+            тим, що на ньому й так стояло, — банери просто стали більшими.
+          */}
+          <div className="flex items-stretch gap-5">
             <CategoryRail sections={toc.sections} className="hidden w-[264px] shrink-0 lg:block" />
 
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col">
               <HomeBanners banners={banners} />
               {/* Головні розділи — тими самими банерами, що й акції над ними:
                   на вітрині «Ручний інструмент» з 1 518 позиціями важить не
                   менше за сезонну добірку. */}
-              <SectionCards tiles={sectionTiles.filter((t) => t.featured)} className="mt-3 sm:mt-4" />
+              <SectionCards
+                tiles={sectionTiles.filter((t) => t.featured)}
+                className="mt-3 sm:mt-4 lg:flex-1"
+              />
             </div>
           </div>
 
@@ -265,55 +228,17 @@ export default async function HomePage() {
         Бренди — банерами з фотографіями фірмових каталогів.
 
         На цьому місці була сезонна добірка товарів, але вона повторювала те,
-        що вже показують банери першого екрана й «Хіти продажу» нижче: ще одна
-        сітка карток між ними нічого не додавала. Бренд же — головний вимір
-        цього каталогу, і саме його на вітрині не було видно зовсім.
+        що вже показують банери першого екрана: ще одна сітка карток між ними
+        нічого не додавала. Бренд же — головний вимір цього каталогу, і саме
+        його на вітрині не було видно зовсім.
+
+        Нижче стояли ще дві сітки — «Хіти продажу» й «Популярні товари». Перша
+        рахувалась за кількістю замовлень, а замовлень у базі поки надто мало,
+        щоб слово «хіт» щось означало; друга відбирала товар за словами в
+        назві, тобто була не популярною, а випадковою. Разом вони давали три
+        екрани прокрутки, на яких покупець не дізнавався нічого нового.
       */}
       <BrandShowcase brands={showcaseBrands} />
-
-      {/* Best Sellers */}
-      {sortedBestSellers.length > 0 && (
-        <section id="hity" className="scroll-mt-20 py-8 sm:py-10 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="reveal flex items-center gap-3 mb-4 sm:mb-7">
-              <div className="w-11 h-11 bg-[#0A0A0A] rounded-xl flex items-center justify-center">
-                <svg className="h-5 w-5 text-[#FFD600]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-lg sm:text-2xl font-bold text-[#0A0A0A]">Хіти продажу</h2>
-                <p className="text-xs sm:text-sm text-[#9E9E9E]">Найпопулярніші товари серед наших покупців</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
-              {sortedBestSellers.map((product) => (
-                <ProductCard key={product.id} {...product} category={product.category} />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Featured Products */}
-      <section className="py-8 sm:py-10">
-        <div className="max-w-7xl mx-auto px-4">
-          <h2 className="reveal text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-4 sm:mb-8 text-center">Популярні товари</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
-            {featuredProducts.map((product) => (
-              <ProductCard key={product.id} {...product} category={product.category} />
-            ))}
-          </div>
-          <div className="reveal text-center mt-10">
-            <Link
-              href="/catalog"
-              className="inline-block bg-[#FFD600] hover:bg-[#FFC400] text-[#0A0A0A] px-8 py-3.5 rounded-[10px] font-bold transition duration-200 hover:-translate-y-px"
-            >
-              Дивитись весь каталог
-            </Link>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

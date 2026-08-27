@@ -25,7 +25,7 @@ import { BrandBannerRail, type ShowcaseBrand } from "@/components/BrandBannerRai
 import { SectionTiles, type SectionTile } from "@/components/SectionTiles";
 import { addToCart } from "@/lib/cart";
 import type { CardDto } from "@/api/types";
-import { colors, space, radius } from "@/theme";
+import { colors, space, radius, formatPositions } from "@/theme";
 
 type Banner = {
   id: string;
@@ -62,10 +62,9 @@ export default function HomeScreen() {
   const bannerStride = bannerWidth + space.md;
   const [banner, setBanner] = useState(0);
 
-  /* Банер «Хіти продажу» веде до полиці на цьому ж екрані — так само, як
-     однойменний банер на сайті веде до якоря. Позицію полиці запам'ятовуємо
-     при відмальовці: рахувати її наперед не можна, бо вище лежать банери й
-     розділи змінної висоти. */
+  /* Банер може вести до полиці на цьому ж екрані, а не в окремий список.
+     Позицію полиці запам'ятовуємо при відмальовці: рахувати її наперед не
+     можна, бо вище лежать банери й розділи змінної висоти. */
   const scrollRef = useRef<ScrollView>(null);
   const shelfY = useRef<Record<string, number>>({});
 
@@ -271,7 +270,7 @@ export default function HomeScreen() {
               onPress={() =>
                 router.push({ pathname: "/list", params: { brand: b.slug, title: b.name } })
               }
-              accessibilityLabel={`${b.name}, ${b.count} позицій`}
+              accessibilityLabel={`${b.name}, ${formatPositions(b.count)}`}
             >
               <BrandTile brand={b} size={40} />
             </Pressable>
@@ -285,7 +284,7 @@ export default function HomeScreen() {
         data?.shelves.map((shelf) => (
           <View
             key={shelf.id}
-            /* Запам'ятовуємо, де полиця опинилась: банер «Хіти продажу» веде
+            /* Запам'ятовуємо, де полиця опинилась: банер із полем shelf веде
                саме сюди, а порахувати позицію наперед не можна — вище лежать
                банери й розділи змінної висоти. */
             onLayout={(e) => {

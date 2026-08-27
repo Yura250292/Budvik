@@ -29,7 +29,7 @@ import { EmptyState } from "@/components/EmptyState";
 import {
   getHistory, pushHistory, removeFromHistory, clearHistory,
 } from "@/lib/search-history";
-import { colors, space, radius, formatUAH } from "@/theme";
+import { colors, space, radius, formatUAH, formatPositions } from "@/theme";
 import type { SuggestRow, SuggestFacet } from "@/api/types";
 
 /** Та сама затримка, що в підказках на сайті (useSuggest). */
@@ -188,7 +188,7 @@ export default function SearchScreen() {
                         params: { type: line.key, title: line.label },
                       })
                     }
-                    accessibilityLabel={`${line.label}, ${line.count} позицій`}
+                    accessibilityLabel={`${line.label}, ${formatPositions(line.count)}`}
                   >
                     <Text style={styles.chipText}>{line.label}</Text>
                     <Text style={styles.chipCount}>{line.count}</Text>

@@ -69,7 +69,7 @@ export async function GET() {
     })),
   };
 
-  const [seasonal, promoProducts, newest, brands, showcase, topOrdered, toc] = await Promise.all([
+  const [seasonal, promoProducts, newest, brands, showcase, toc] = await Promise.all([
     prisma.product.findMany({
       where: seasonalWhere,
       select: CARD_SELECT,
@@ -95,31 +95,14 @@ export async function GET() {
     }),
     getBrandTree(),
     getBrandShowcase(),
-    /** Найкупованіше — те саме джерело, що й полиця «Хіти продажу» на сайті. */
-    prisma.orderItem.groupBy({
-      by: ["productId"],
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 8,
-    }),
     getCatalogToc(),
   ]);
-
-  const hitIds = topOrdered.map((i) => i.productId);
-  const hitRows = hitIds.length
-    ? await prisma.product.findMany({
-        where: { ...showableProductWhere(), id: { in: hitIds } },
-        select: CARD_SELECT,
-      })
-    : [];
-  /** Порядок за продажами, а не за тим, як їх повернула база. */
-  const hits = hitIds.map((id) => hitRows.find((p) => p.id === id)).filter(Boolean) as typeof hitRows;
 
   return NextResponse.json({
     /*
      * Банери першого екрана. Складаються з того, що в магазині справді є, а не
-     * з намальованих обіцянок: сезонна добірка, найкупованіший товар і обсяг
-     * каталогу. Коли адміністратор заведе акцію в /admin, її банери стануть
+     * з намальованих обіцянок: сезонна добірка й обсяг каталогу. Коли
+     * адміністратор заведе акцію в /admin, її банери стануть
      * першими й витіснять автоматичні — саме так, як і має бути. Той самий
      * набір, що на головній сайту: одна вітрина, два способи її показати.
      *
@@ -154,21 +137,6 @@ export async function GET() {
               },
             ]
           : []),
-      ...(hits.length
-        ? [
-            {
-              id: "hits",
-              title: "Хіти продажу",
-              subtitle: "Те, що беруть найчастіше — перевірено покупцями",
-              icon: "🔥",
-              color: "#FFD600",
-              image: hits[0]?.image ?? null,
-              /** Полиця «Хіти» лежить на цьому ж екрані — банер веде до неї. */
-              shelf: "hits",
-              search: "",
-            },
-          ]
-        : []),
       {
         id: "catalog",
         title: `${toc.total.toLocaleString("uk-UA")} позицій у каталозі`,
@@ -181,9 +149,15 @@ export async function GET() {
         catalog: true,
       },
     ],
+    /*
+     * Полиці «Хіти продажу» більше немає — ні тут, ні на сайті. Вона
+     * рахувалась за кількістю замовлень, а замовлень у базі поки надто мало,
+     * щоб слово «хіт» щось означало: у полицю потрапляло те, що хтось узяв
+     * двічі. Порожній ключ у відповіді старі збірки переживають — вони
+     * малюють полиці за тим, що приїхало.
+     */
     shelves: [
       { id: "promo", title: "Акції", items: promoProducts.map(serializeCard) },
-      { id: "hits", title: "Хіти продажу", items: hits.map(serializeCard) },
       { id: "seasonal", title: `${getSeasonLabel(season)} — що беруть зараз`, items: seasonal.map(serializeCard) },
       { id: "newest", title: "Нові надходження", items: newest.map(serializeCard) },
     ].filter((s) => s.items.length > 0),
@@ -212,6 +186,10 @@ export async function GET() {
       name: b.name,
       tagline: b.tagline,
       accent: b.accent,
+      /* Другий фірмовий колір і колір назви. Старі збірки їх не знають і
+         малюють картку одним accent — простіше, але не зламано. */
+      accentTo: b.accentTo,
+      wordmark: b.wordmark,
       logoUrl: b.logoUrl,
       count: b.count,
       photos: b.photos.slice(0, 2),

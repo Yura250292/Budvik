@@ -21,7 +21,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { formatCount, POSITIONS } from "@/lib/utils";
-import { inkOn, shade } from "@/lib/color";
+import { inkOn, INK_LIGHT } from "@/lib/color";
 import type { ShowcaseBrand } from "@/lib/catalog/brand-showcase";
 
 export default function BrandShowcase({
@@ -74,6 +74,21 @@ function BrandBanner({ brand: b }: { brand: ShowcaseBrand }) {
   const ink = inkOn(b.accent);
   const photos = b.photos.slice(0, large ? 3 : 1);
 
+  /*
+   * Три шари замість однієї заливки — інакше банер виглядає як кольоровий
+   * прямокутник, а не як полиця бренда.
+   *
+   * Зверху вниз: м'який відблиск у лівому верхньому куті (там, де напис) —
+   * він дає світлу «пляму» й відчуття об'єму; притемнення знизу, яке
+   * притискає банер до сторінки; і власне фірмова пара кольорів по діагоналі.
+   *
+   * Відблиск світлий на темних банерах і темний на світлих — біле по білому
+   * (APRO) не видно, а чорне по чорному (СИЛА, POLAX) з'їдало б кут.
+   */
+  const glare = ink === INK_LIGHT
+    ? "radial-gradient(120% 120% at 6% 0%, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 58%)"
+    : "radial-gradient(120% 120% at 6% 0%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 58%)";
+
   return (
     <Link
       href={`/brand/${b.slug}`}
@@ -83,7 +98,19 @@ function BrandBanner({ brand: b }: { brand: ShowcaseBrand }) {
           ? "col-span-2 min-h-[196px] sm:min-h-[248px] lg:col-span-6"
           : "col-span-1 min-h-[132px] sm:min-h-[168px] lg:col-span-3"
       }`}
-      style={{ background: `linear-gradient(135deg, ${b.accent} 0%, ${shade(b.accent)} 100%)` }}
+      /*
+       * Колір під написом — окремим backgroundColor, а не тільки першою
+       * зупинкою градієнта: за ним перевіряють контраст напису і тести, і
+       * людина в інструментах браузера.
+       */
+      style={{
+        backgroundColor: b.accent,
+        backgroundImage: [
+          glare,
+          "linear-gradient(to top, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0) 38%)",
+          `linear-gradient(128deg, ${b.accent} 0%, ${b.accent} 22%, ${b.accentTo} 88%)`,
+        ].join(", "),
+      }}
     >
       <div
         className={`relative z-10 flex min-w-0 flex-col justify-between ${
@@ -120,7 +147,7 @@ function BrandBanner({ brand: b }: { brand: ShowcaseBrand }) {
               className={`block font-black uppercase leading-none tracking-tight ${
                 large ? "text-2xl sm:text-[32px]" : "text-lg sm:text-xl"
               }`}
-              style={{ color: ink }}
+              style={{ color: b.wordmark ?? ink }}
             >
               {b.name}
             </span>

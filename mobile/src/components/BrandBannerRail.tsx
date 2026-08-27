@@ -16,14 +16,21 @@ import { ScrollView, View, Text, Pressable, StyleSheet, useWindowDimensions } fr
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { inkFor } from "@/components/BrandTile";
-import { colors, space, radius } from "@/theme";
+import { colors, space, radius, formatPositions } from "@/theme";
 
 export type ShowcaseBrand = {
   slug: string;
   name: string;
   tagline: string;
-  /** Фірмовий колір банера. Сервер уже підставив запасний, якщо свого немає. */
+  /** Фірмовий колір під написом. */
   accent: string;
+  /**
+   * Другий фірмовий колір — під знімком. Старіші збірки сервера його не
+   * шлють, тоді картка лишається однотонною.
+   */
+  accentTo?: string | null;
+  /** Колір назви, коли логотипа немає. Немає — беремо за контрастом. */
+  wordmark?: string | null;
   logoUrl?: string | null;
   count: number;
   photos: string[];
@@ -63,8 +70,21 @@ export function BrandBannerRail({
             style={[styles.card, { width: cardWidth, backgroundColor: b.accent }]}
             onPress={() => onOpen(b)}
             accessibilityRole="button"
-            accessibilityLabel={`${b.name}. ${b.tagline}. ${b.count} позицій`}
+            accessibilityLabel={`${b.name}. ${b.tagline}. ${formatPositions(b.count)}`}
           >
+            {/*
+              Друга фірмова барва — смугою праворуч, під знімком.
+
+              У React Native немає градієнтів без окремого пакета, тож пара
+              кольорів бренда (у POLAX помаранч-чорний, у СИЛИ жовтий-чорний)
+              показана площинами: напис лежить на першій, знімок — на другій.
+              Виглядає як фірмовий блок, а не як залитий прямокутник, і не
+              тягне в застосунок нову залежність.
+            */}
+            {b.accentTo ? (
+              <View style={[styles.accentPanel, { backgroundColor: b.accentTo }]} />
+            ) : null}
+
             <View style={styles.body}>
               {b.logoUrl ? (
                 // Біле тло під логотипом: майже всі вони намальовані для
@@ -82,7 +102,7 @@ export function BrandBannerRail({
               ) : (
                 // Логотипа немає — пишемо назву. «Схожий» логотип малювати не
                 // можна: це чужа торгова марка.
-                <Text style={[styles.wordmark, { color: ink }]} numberOfLines={1}>
+                <Text style={[styles.wordmark, { color: b.wordmark ?? ink }]} numberOfLines={1}>
                   {b.name.toUpperCase()}
                 </Text>
               )}
@@ -92,7 +112,7 @@ export function BrandBannerRail({
               </Text>
 
               <View style={styles.countPill}>
-                <Text style={styles.countText}>{b.count} позицій</Text>
+                <Text style={styles.countText}>{formatPositions(b.count)}</Text>
                 <Ionicons name="arrow-forward" size={12} color={colors.ink} />
               </View>
             </View>
@@ -125,7 +145,10 @@ const styles = StyleSheet.create({
     padding: space.lg,
     borderRadius: radius.lg,
     minHeight: 140,
+    overflow: "hidden",
   },
+  /** Смуга другого кольору: права третина картки, під знімком. */
+  accentPanel: { position: "absolute", right: 0, top: 0, bottom: 0, width: "38%" },
   body: { flex: 1, gap: space.xs },
   logoWrap: {
     alignSelf: "flex-start",

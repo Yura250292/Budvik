@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { issueDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { issueDeviceToken, revokeOtherDeviceTokens, TRACK_ROLES } from "@/lib/track/device-token";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +58,11 @@ export async function POST(req: NextRequest) {
   const deviceName =
     typeof body.deviceName === "string" ? body.deviceName.slice(0, 100) : null;
   const token = await issueDeviceToken(user.id, deviceName);
+
+  /** Вхід із робочої збірки гасить старий трекер — див. /api/v1/auth/login. */
+  if (req.headers.get("x-budvik-app")?.startsWith("staff/")) {
+    await revokeOtherDeviceTokens(user.id, token);
+  }
 
   return NextResponse.json({
     token,

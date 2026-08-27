@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { uploadFile } from "@/lib/r2";
+import { resolveIdentity } from "@/lib/app/identity";
 
 /**
  * Фото профілю.
@@ -28,10 +27,8 @@ const EXT_BY_TYPE: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -56,7 +53,7 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const ext = EXT_BY_TYPE[file.type] ?? "jpg";
   // id із сесії, не з формі: інакше можна було б записати файл у чужу теку.
-  const key = `avatars/${session.user.id}-${Date.now()}.${ext}`;
+  const key = `avatars/${me.userId}-${Date.now()}.${ext}`;
 
   // Без catch виняток R2 (немає ключів, бакет недоступний) віддавав би
   // HTML-500, фронт не міг його розібрати і показував загальне
@@ -65,7 +62,7 @@ export async function POST(req: NextRequest) {
     const url = await uploadFile(buffer, key, file.type);
 
     await prisma.user.update({
-      where: { id: session.user.id },
+      where: { id: me.userId },
       data: { avatarUrl: url },
     });
 
@@ -80,14 +77,12 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
+export async function DELETE(req: Request) {
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
 
   await prisma.user.update({
-    where: { id: session.user.id },
+    where: { id: me.userId },
     data: { avatarUrl: null },
   });
 

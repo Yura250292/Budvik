@@ -10,10 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { verifyDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +19,9 @@ export const dynamic = "force-dynamic";
 const LIMIT = 30;
 
 export async function GET(req: NextRequest) {
-  const userId = await resolveUser(req);
-  if (!userId) return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const userId = auth.me.userId;
 
   const shifts = await prisma.shift.findMany({
     where: { userId },
@@ -66,11 +65,3 @@ export async function GET(req: NextRequest) {
   });
 }
 
-async function resolveUser(req: NextRequest): Promise<string | null> {
-  const device = await verifyDeviceToken(req.headers.get("authorization"));
-  if (device) return device.userId;
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  if (!TRACK_ROLES.includes(session.user.role)) return null;
-  return session.user.id;
-}

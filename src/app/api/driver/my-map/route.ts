@@ -11,8 +11,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import {
@@ -24,10 +22,10 @@ import {
 } from "@/lib/analytics/clients";
 import { kyivDate } from "@/lib/date/kyiv";
 import { resolveDriverDay } from "@/lib/track/day-stops";
+import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["DRIVER", "ADMIN", "MANAGER"];
 const DAY_MS = 86_400_000;
 const MIN_DOCS_FOR_LOST = 2;
 
@@ -70,20 +68,16 @@ function classify(row: Row): ClientState {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const url = new URL(req.url);
   // Водій завжди дивиться власну карту; керівник може відкрити чужу.
   const driverId =
-    session.user.role === "DRIVER"
-      ? session.user.id
-      : url.searchParams.get("driverId") || session.user.id;
+    me.role === "DRIVER"
+      ? me.userId
+      : url.searchParams.get("driverId") || me.userId;
   const day = url.searchParams.get("day") || kyivDate(new Date());
 
   /**

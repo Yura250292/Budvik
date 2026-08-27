@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 /**
  * ERP product search — searches by name, SKU, and category.
  * Returns purchase prices from SupplierProduct for auto-fill.
  */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get("search")?.trim();
@@ -23,9 +21,9 @@ export async function GET(req: NextRequest) {
 
   // Check if sales rep has category restrictions
   let allowedCategoryIds: string[] | null = null;
-  if (session.user.role === "SALES") {
+  if (me.role === "SALES") {
     const catAccess = await prisma.salesRepCategoryAccess.findMany({
-      where: { salesRepId: session.user.id },
+      where: { salesRepId: me.userId },
       select: { categoryId: true },
     });
     if (catAccess.length > 0) {

@@ -11,24 +11,21 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
 import { calculateDriverPeriod } from "@/lib/drivers/payroll";
 import { getRates, loadBonuses, loadPayrollRows, sheetToFacts } from "@/lib/drivers/payroll-facts";
+import { resolveIdentity } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
 const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
 
-  const role = session.user.role;
+  const role = me.role;
   const isFullAccess = FULL_ACCESS_ROLES.includes(role);
   if (!isFullAccess && role !== "DRIVER") {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
@@ -39,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   // Водій бачить лише себе, і параметром це не обійти.
   const driverFilter = searchParams.get("driverId");
-  const restrictToDriver = isFullAccess ? driverFilter : session.user.id;
+  const restrictToDriver = isFullAccess ? driverFilter : me.userId;
 
   const [sheets, bonuses, rates, drivers, unmappedCount] = await Promise.all([
     loadPayrollRows(period.from, period.to, restrictToDriver),

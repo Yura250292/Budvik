@@ -11,14 +11,10 @@
 import { stat } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { verifyDeviceToken } from "@/lib/track/device-token";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
-
-const ALLOWED_ROLES = ["SALES", "DRIVER", "ADMIN", "MANAGER"];
 
 const APK_PATH = path.join(process.cwd(), "assets", "app", "BudvikTracker.apk");
 
@@ -46,13 +42,8 @@ const CURRENT_VERSION_NAME = "1.5";
 
 export async function GET(req: Request) {
   /** Дві авторизації, як у решти роутів застосунку: Bearer і кукі. */
-  const device = await verifyDeviceToken(req.headers.get("authorization"));
-  const session = device ? null : await getServerSession(authOptions);
-  const role = device?.role ?? (session?.user as { role?: string } | undefined)?.role;
-
-  if (!role || !ALLOWED_ROLES.includes(role)) {
-    return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
 
   /**
    * Заразом запам'ятовуємо, що саме стоїть на цьому планшеті.
@@ -68,7 +59,7 @@ export async function GET(req: Request) {
    * тож картина збирається сама, без жодних дій від людей.
    */
   const installed = req.headers.get("user-agent")?.match(/BudvikApp\/([\d.]+)/)?.[1];
-  const userId = device?.userId ?? (session?.user as { id?: string } | undefined)?.id;
+  const userId = auth.me.userId;
   if (installed && userId) {
     // Помилка запису тут не має ламати перевірку оновлень: це довідка
     // для офісу, а не частина відповіді застосунку.

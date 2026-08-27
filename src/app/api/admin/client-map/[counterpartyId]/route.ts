@@ -13,9 +13,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveIdentity } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -71,12 +70,11 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ counterpartyId: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
+
   const { counterpartyId } = await params;
-  const isFullAccess = FULL_ACCESS_ROLES.includes(session.user.role);
+  const isFullAccess = FULL_ACCESS_ROLES.includes(me.role);
 
   /**
    * Поточний стан точки. Потрібен ДО перевірки прав: правило для торгового
@@ -98,11 +96,11 @@ export async function PATCH(
     // під'їжджає фурою і першим бачить, що заїзд з іншого боку. Прив'язки
     // «свій клієнт» у нього немає (закріплень водіям не роздають), тож
     // обмежуємо тим, куди він реально їздив: точки маршрутів і візити.
-    if (session.user.role === "DRIVER") {
-      if (!(await droveTo(counterpartyId, session.user.id))) {
+    if (me.role === "DRIVER") {
+      if (!(await droveTo(counterpartyId, me.userId))) {
         return NextResponse.json({ error: "Ви туди не їздили" }, { status: 403 });
       }
-    } else if (session.user.role === "SALES") {
+    } else if (me.role === "SALES") {
       /**
        * Карта торгового показує всю базу компанії, тож «свій клієнт» більше
        * не єдиний критерій. Правило точніше: чужому клієнту можна ПОСТАВИТИ
@@ -111,7 +109,7 @@ export async function PATCH(
        * даних безпечне — саме заради цього торговий і стоїть біля дверей;
        * затирання чужого знання — ні.
        */
-      if (!isGuess && !(await ownsClient(counterpartyId, session.user.id))) {
+      if (!isGuess && !(await ownsClient(counterpartyId, me.userId))) {
         return NextResponse.json(
           { error: "Точку цього клієнта вже уточнили вручну, а він не ваш" },
           { status: 403 }
@@ -151,7 +149,7 @@ export async function PATCH(
     UPDATE "Counterparty"
     SET "deliveryLat" = ${lat}, "deliveryLng" = ${lng},
         "geoSource" = 'MANUAL', "geoAttemptedAt" = NOW(),
-        "geoById" = ${session.user.id}, "geoAt" = NOW(), "geoAccuracyM" = ${accuracyM}
+        "geoById" = ${me.userId}, "geoAt" = NOW(), "geoAccuracyM" = ${accuracyM}
     WHERE id = ${counterpartyId}`;
 
   return NextResponse.json({ id: counterpartyId, lat, lng, geoSource: "MANUAL" });

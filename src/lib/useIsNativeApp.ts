@@ -68,8 +68,23 @@ export function useIsNativeApp(): boolean {
  */
 function versionNameFromUserAgent(): string | null {
   if (typeof navigator === "undefined") return null;
-  const m = navigator.userAgent.match(/BudvikApp\/([\d.]+)/);
+  const m = navigator.userAgent.match(/Budvik(?:App|Staff)\/([\d.]+)/);
   return m ? m[1] : null;
+}
+
+/**
+ * Яку збірку питати про оновлення.
+ *
+ * У полі співіснують дві: старий Kotlin-трекер (мітка BudvikApp) і нова робоча
+ * збірка Expo (BudvikStaff). Лічильники версій у них незалежні — у трекера 6,
+ * у робочої 10100 — тож питати спільну адресу не можна: трекер завжди бачив би
+ * оновлення, якого для нього немає, а робоча збірка не бачила б жодного.
+ */
+function versionEndpoint(): string {
+  if (typeof navigator !== "undefined" && /BudvikStaff\//.test(navigator.userAgent)) {
+    return "/api/app/staff/version";
+  }
+  return "/api/app/version";
 }
 
 /**
@@ -153,7 +168,7 @@ export function useAppUpdate(): {
 
     let cancelled = false;
 
-    fetch("/api/app/version", { cache: "no-store" })
+    fetch(versionEndpoint(), { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;

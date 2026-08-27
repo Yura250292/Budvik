@@ -14,14 +14,9 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { verifyDeviceToken } from "@/lib/track/device-token";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
-
-/** Кому можна: ті, хто застосунком і користується, плюс керівники. */
-const ALLOWED_ROLES = ["SALES", "DRIVER", "ADMIN", "MANAGER"];
 
 const APK_PATH = path.join(process.cwd(), "assets", "app", "BudvikTracker.apk");
 
@@ -31,13 +26,8 @@ export async function GET(req: Request) {
    * самого застосунку — щоб він колись міг оновлювати себе тим же
    * посиланням.
    */
-  const device = await verifyDeviceToken(req.headers.get("authorization"));
-  const session = device ? null : await getServerSession(authOptions);
-  const role = device?.role ?? (session?.user as { role?: string } | undefined)?.role;
-
-  if (!role || !ALLOWED_ROLES.includes(role)) {
-    return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
 
   let apk: Buffer;
   try {

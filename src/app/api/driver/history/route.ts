@@ -8,14 +8,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
+import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["DRIVER", "ADMIN", "MANAGER"];
 /** Скільки днів історії показуємо за раз. */
 const DEFAULT_DAYS = 30;
 
@@ -26,19 +24,15 @@ type DayRow = {
 };
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const url = new URL(req.url);
   const driverId =
-    session.user.role === "DRIVER"
-      ? session.user.id
-      : url.searchParams.get("driverId") || session.user.id;
+    me.role === "DRIVER"
+      ? me.userId
+      : url.searchParams.get("driverId") || me.userId;
 
   const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || DEFAULT_DAYS));
   const from = kyivDayStart(kyivDate(new Date(Date.now() - days * 86_400_000)));

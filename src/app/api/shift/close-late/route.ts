@@ -14,18 +14,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { verifyDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { guessWorkEnd, gpsKmBetween } from "@/lib/shift/late-close";
 
 export const dynamic = "force-dynamic";
 
 /** GET: що застосунок покаже як пропозицію. */
 export async function GET(req: NextRequest) {
-  const userId = await resolveUser(req);
-  if (!userId) return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const userId = auth.me.userId;
 
   const shift = await prisma.shift.findFirst({
     where: { userId, status: "OPEN" },
@@ -53,8 +52,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const userId = await resolveUser(req);
-  if (!userId) return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const userId = auth.me.userId;
 
   let body: { endedAt?: string; source?: string };
   try {
@@ -132,11 +132,3 @@ export async function POST(req: NextRequest) {
   });
 }
 
-async function resolveUser(req: NextRequest): Promise<string | null> {
-  const device = await verifyDeviceToken(req.headers.get("authorization"));
-  if (device) return device.userId;
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  if (!TRACK_ROLES.includes(session.user.role)) return null;
-  return session.user.id;
-}

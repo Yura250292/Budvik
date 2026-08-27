@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { issueShopToken, SHOP_ROLES } from "@/lib/shop/app-token";
-import { issueDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { issueDeviceToken, revokeOtherDeviceTokens, TRACK_ROLES } from "@/lib/track/device-token";
 import { defaultTargetFor } from "@/lib/app/role-target";
 import { rateLimit, clientIp, tooManyRequests } from "@/lib/shop/rate-limit";
 
@@ -79,6 +79,22 @@ export async function POST(req: Request) {
   const token = isShopper
     ? await issueShopToken(user.id, device)
     : await issueDeviceToken(user.id, device);
+
+  /**
+   * Вхід із робочої збірки гасить решту робочих токенів цієї людини.
+   *
+   * Поки в полі співіснують старий Kotlin-трекер і нова збірка, обидва з живими
+   * токенами писали б трек одночасно — у дні виходили б дві пачки точок від
+   * однієї людини, і пробіг подвоївся б. Старий застосунок на 401 сам зупиняє
+   * службу й показує форму входу, тож це вимикач попереднього застосунку без
+   * жодної правки в ньому.
+   *
+   * Прив'язка саме до заголовка, а не до ролі: заголовок шле лише робоча
+   * збірка, тож вхід із сайту чи зі старого трекера нікого не вимикає.
+   */
+  if (isStaff && req.headers.get("x-budvik-app")?.startsWith("staff/")) {
+    await revokeOtherDeviceTokens(user.id, token);
+  }
 
   return NextResponse.json(
     {

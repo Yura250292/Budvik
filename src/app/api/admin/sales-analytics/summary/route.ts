@@ -14,8 +14,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
 import { fuelCost, revenueByRep, shiftFactsByUser, NO_SHIFTS } from "@/lib/analytics/facts";
@@ -23,18 +21,17 @@ import { collectedByRepBrand, collectedTotals, receivableRowsByRep, agingByRep }
 import { EMPTY_AGING } from "@/lib/erp/receivables";
 import { earningsByRep } from "@/lib/motivation/period-facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
+import { resolveIdentity } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
 const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
 
-  const role = session.user.role;
+  const role = me.role;
   const isFullAccess = FULL_ACCESS_ROLES.includes(role);
   if (!isFullAccess && role !== "SALES") {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
@@ -50,7 +47,7 @@ export async function GET(req: NextRequest) {
     ? requestedRep && requestedRep !== "ALL"
       ? requestedRep
       : null
-    : session.user.id;
+    : me.userId;
 
   const now = new Date();
 

@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
+import { requireRoles, DRIVER_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "DRIVER"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
@@ -21,8 +19,8 @@ export async function GET(req: NextRequest) {
   // Drivers see only their own routes — і лише передані їм. Чернетка
   // логіста (PLANNED) для водія не існує: він побачив би напівскладений
   // список і поїхав би за ним.
-  if (session.user.role === "DRIVER") {
-    where.driverId = session.user.id;
+  if (me.role === "DRIVER") {
+    where.driverId = me.userId;
     where.status = status && status !== "PLANNED"
       ? status
       : { in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] };
@@ -60,10 +58,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, OFFICE_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const body = await req.json();
   const { driverId, date, vehicleInfo, fuelConsumption, fuelPricePer, notes, salesDocumentIds } = body;
@@ -84,7 +81,7 @@ export async function POST(req: NextRequest) {
         fuelConsumption: fuelConsumption || null,
         fuelPricePer: fuelPricePer || null,
         notes: notes || null,
-        createdById: session.user.id,
+        createdById: me.userId,
       },
     });
 

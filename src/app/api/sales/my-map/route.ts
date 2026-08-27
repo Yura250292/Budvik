@@ -23,8 +23,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import {
@@ -36,10 +34,10 @@ import {
 } from "@/lib/analytics/clients";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { kyivDate } from "@/lib/date/kyiv";
+import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["SALES", "ADMIN", "MANAGER"];
 const DAY_MS = 86_400_000;
 /** Один документ за всю історію — разова покупка, а не втрачений клієнт. */
 const MIN_DOCS_FOR_LOST = 2;
@@ -95,19 +93,15 @@ function classify(row: Row): ClientState {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   // Торговий завжди дивиться власну карту, хай що прийде в параметрі —
   // інакше чужий портфель відкривався б підстановкою id у запит.
   const url = new URL(req.url);
   const repId =
-    session.user.role === "SALES" ? session.user.id : url.searchParams.get("rep") || session.user.id;
+    me.role === "SALES" ? me.userId : url.searchParams.get("rep") || me.userId;
 
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const scopeAll = url.searchParams.get("scope") === "all";

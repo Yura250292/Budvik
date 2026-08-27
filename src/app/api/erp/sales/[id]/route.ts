@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findReplacements, isOneCDraft } from "@/lib/erp/superseded";
+import { requireRoles, STAFF_ROLES, CABINET_ROLES } from "@/lib/app/identity";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES", "WAREHOUSE", "DRIVER"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, STAFF_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const { id } = await params;
   const doc = await prisma.salesDocument.findUnique({
@@ -49,7 +47,7 @@ export async function GET(
   }
 
   // SALES can only see their own
-  if (session.user.role === "SALES" && doc.salesRepId !== session.user.id) {
+  if (me.role === "SALES" && doc.salesRepId !== me.userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -65,10 +63,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES);
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const existing = await prisma.salesDocument.findUnique({ where: { id } });

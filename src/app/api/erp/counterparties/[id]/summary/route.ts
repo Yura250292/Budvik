@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 /**
  * Картка клієнта показує ВСЮ його історію, а не лише документи того, хто
@@ -20,10 +19,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES);
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
 

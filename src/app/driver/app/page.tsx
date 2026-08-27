@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
+import { StaffBuildCard } from "@/components/app-install/StaffBuildCard";
 
 /**
  * Сторінка встановлення застосунку для водія.
@@ -67,6 +68,8 @@ export default function DriverAppPage() {
       </header>
 
       <div className="mx-auto px-4" style={{ maxWidth: "480px", paddingTop: "16px", paddingBottom: "32px" }}>
+        <StaffBuildCard />
+
         {isApp &&
           update.available &&
           (update.viaBridge ? (

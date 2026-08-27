@@ -12,19 +12,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Prisma, TrackPhase } from "@prisma/client";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { preparePoints, MAX_ACCURACY_M, type RawPoint } from "@/lib/track/geo";
 import { findGaps, resolveGaps } from "@/lib/track/gaps";
-import { verifyDeviceToken, TRACK_ROLES } from "@/lib/track/device-token";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
-
-/** Хто возить планшет. Решті ролей трек ні до чого. */
-const ALLOWED_ROLES = TRACK_ROLES;
 
 /** Стеля на пачку: більше — це вже не буфер, а спроба залити історію. */
 const MAX_BATCH = 500;
@@ -46,26 +41,13 @@ const SHIFT_GRACE_MS = 15 * 60_000;
 
 export async function POST(req: NextRequest) {
   /**
-   * Два способи входу в один ендпоінт: cookie для веб-планшета в
-   * браузері й Bearer-токен для нативного застосунку. Токен перевіряємо
-   * першим — у застосунку cookie немає взагалі, і зайвий getServerSession
-   * на кожній пачці нічого б не дав.
+   * Два способи входу в один ендпоінт: кукі для веб-планшета в браузері й
+   * Bearer-токен для нативного застосунку. Обидва розводить resolveIdentity,
+   * і порядок там той самий — токен першим, бо в застосунку кукі немає взагалі.
    */
-  const device = await verifyDeviceToken(req.headers.get("authorization"));
-
-  let userId: string;
-  if (device) {
-    userId = device.userId;
-  } else {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-    }
-    if (!ALLOWED_ROLES.includes(session.user.role)) {
-      return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-    }
-    userId = session.user.id;
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const userId = auth.me.userId;
 
   let body: { points?: RawPoint[]; phase?: string };
   try {

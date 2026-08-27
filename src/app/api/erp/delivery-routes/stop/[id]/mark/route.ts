@@ -12,23 +12,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
-const ALLOWED_ROLES = ["DRIVER", "ADMIN", "MANAGER"];
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -62,8 +56,8 @@ export async function POST(
   // Водій відмічає лише свій маршрут; підставити чужий id не вийде, бо
   // driverId береться з бази й порівнюється із сесією.
   if (
-    session.user.role === "DRIVER" &&
-    stop.deliveryRoute.driverId !== session.user.id
+    me.role === "DRIVER" &&
+    stop.deliveryRoute.driverId !== me.userId
   ) {
     return NextResponse.json({ error: "Це маршрут іншого водія" }, { status: 403 });
   }

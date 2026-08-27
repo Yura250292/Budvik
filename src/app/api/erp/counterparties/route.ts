@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { agingByCounterparty } from "@/lib/analytics/money-facts";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 /**
  * Скільки контрагентів віддаємо, якщо клієнт не попросив інакше.
@@ -15,10 +14,9 @@ const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 5000;
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const { searchParams } = new URL(req.url);
   const type = searchParams.get("type"); // SUPPLIER, CUSTOMER, BOTH
@@ -54,11 +52,11 @@ export async function GET(req: NextRequest) {
    * території не бачив у базі нікого — включно з клієнтом, до якого його
    * щойно відправили. Тепер вибірку звужує той, кому це потрібно.
    */
-  if (session.user.role === "SALES" && searchParams.get("mine") === "1") {
+  if (me.role === "SALES" && searchParams.get("mine") === "1") {
     and.push({
       OR: [
-        { assignedSalesReps: { some: { salesRepId: session.user.id } } },
-        { salesDocuments: { some: { salesRepId: session.user.id } } },
+        { assignedSalesReps: { some: { salesRepId: me.userId } } },
+        { salesDocuments: { some: { salesRepId: me.userId } } },
       ],
     });
   }
@@ -105,10 +103,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, ["ADMIN"]);
+  if (!auth.ok) return auth.response;
 
   const body = await req.json();
   const { name, code, type, phone, email, address, deliveryAddress, deliveryLat, deliveryLng, contactPerson, notes } = body;

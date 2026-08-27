@@ -1,24 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { confirmSalesDocument } from "@/lib/erp/sales";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, CABINET_ROLES, { withProfile: true });
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   try {
     const { id } = await params;
     await confirmSalesDocument(id);
 
     // If confirmed by a SALES rep — notify all managers
-    if (session.user.role === "SALES") {
+    if (me.role === "SALES") {
       const doc = await prisma.salesDocument.findUnique({
         where: { id },
         select: { number: true, totalAmount: true, counterparty: { select: { name: true } } },
@@ -36,7 +34,7 @@ export async function POST(
             userId: m.id,
             type: "SALES_DOC_CONFIRMED",
             title: "Нове замовлення потребує підтвердження",
-            body: `${session.user.name} підтвердив замовлення №${doc.number} (${clientName}) на суму ${doc.totalAmount.toLocaleString("uk-UA", { style: "currency", currency: "UAH" })}`,
+            body: `${me.name} підтвердив замовлення №${doc.number} (${clientName}) на суму ${doc.totalAmount.toLocaleString("uk-UA", { style: "currency", currency: "UAH" })}`,
             relatedId: id,
           })),
         });

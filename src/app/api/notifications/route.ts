@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveIdentity } from "@/lib/app/identity";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const me = await resolveIdentity(req);
+  if (!me) return NextResponse.json({ error: "Потрібно увійти" }, { status: 401 });
 
   const notifications = await prisma.notification.findMany({
-    where: { userId: session.user.id },
+    where: { userId: me.userId },
     orderBy: { createdAt: "desc" },
     take: 50,
   });

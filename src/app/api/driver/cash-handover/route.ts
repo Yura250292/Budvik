@@ -11,15 +11,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { cashForDay } from "@/lib/drivers/cash";
+import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["DRIVER", "ADMIN", "MANAGER"];
 
 /** Далі назад здавати нічого: місячна зарплата вже закрита. */
 const MAX_BACKDATE_DAYS = 14;
@@ -31,13 +29,9 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   let body: Body;
   try {
@@ -72,7 +66,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const driverId = session.user.id;
+  const driverId = me.userId;
   const cash = await cashForDay(driverId, dayStart);
 
   const handover = await prisma.cashHandover.create({
@@ -93,20 +87,16 @@ export async function POST(req: NextRequest) {
 
 /** Власні здачі за період — для історії водія. */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const url = new URL(req.url);
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
 
   const where: { driverId: string; day?: { gte?: Date; lte?: Date } } = {
-    driverId: session.user.id,
+    driverId: me.userId,
   };
   if (from || to) {
     where.day = {};
@@ -129,13 +119,9 @@ export async function GET(req: NextRequest) {
  * прибирати його водієві вже не можна.
  */
 export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, DRIVER_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) {
@@ -146,7 +132,7 @@ export async function DELETE(req: NextRequest) {
     where: { id },
     select: { id: true, driverId: true, day: true, confirmedAt: true },
   });
-  if (!existing || existing.driverId !== session.user.id) {
+  if (!existing || existing.driverId !== me.userId) {
     return NextResponse.json({ error: "Запис не знайдено" }, { status: 404 });
   }
   if (existing.confirmedAt) {

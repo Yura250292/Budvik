@@ -2,6 +2,7 @@
 
 import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { StaffBuildCard } from "@/components/app-install/StaffBuildCard";
 
 /**
  * Сторінка встановлення застосунку.
@@ -58,6 +59,8 @@ export default function SalesAppPage() {
       <SalesHeader title="Застосунок" subtitle="Встановлення" backTo="/sales" />
 
       <div className="mx-auto px-4" style={{ maxWidth: "480px", paddingTop: "20px", paddingBottom: "40px" }}>
+        <StaffBuildCard />
+
         {isApp && update.available && (
           update.viaBridge ? (
             /* Збірка вміє оновитись сама — кнопка нижче спрацює. */

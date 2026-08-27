@@ -116,3 +116,34 @@ export async function verifyDeviceToken(
 
   return { userId: row.user.id, role: row.user.role, tokenId: row.id };
 }
+
+/** Вихід із застосунку на цьому пристрої. Дзеркало revokeShopToken. */
+export async function revokeDeviceToken(tokenId: string): Promise<void> {
+  await prisma.deviceToken.updateMany({
+    where: { id: tokenId, scope: TRACK_SCOPE, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+/**
+ * Гасить решту робочих токенів людини, лишаючи один — щойно виданий.
+ *
+ * Потрібно на час переїзду зі старого трекера на нову збірку: два застосунки з
+ * живими токенами пишуть трек одночасно, і в дні виходять дві пачки точок від
+ * однієї людини. Старий трекер на 401 сам зупиняє службу й показує форму входу
+ * — тобто це вимикач попереднього застосунку без жодної правки в ньому.
+ *
+ * Свідомо не чіпає shop-токени: у торгового може стояти й застосунок покупця,
+ * і вхід у робочу збірку не має вибивати його з магазину.
+ */
+export async function revokeOtherDeviceTokens(userId: string, keepToken: string): Promise<void> {
+  await prisma.deviceToken.updateMany({
+    where: {
+      userId,
+      scope: TRACK_SCOPE,
+      revokedAt: null,
+      tokenHash: { not: hashToken(keepToken) },
+    },
+    data: { revokedAt: new Date() },
+  });
+}

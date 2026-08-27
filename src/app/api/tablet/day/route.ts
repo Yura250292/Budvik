@@ -12,26 +12,20 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { handoversForDay } from "@/lib/drivers/cash";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["DRIVER", "SALES", "ADMIN", "MANAGER"];
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const url = new URL(req.url);
   const day = url.searchParams.get("day") || kyivDate(new Date());
@@ -40,9 +34,9 @@ export async function GET(req: NextRequest) {
   // Водій завжди дивиться свій день; адмін може підглянути чужий, щоб
   // розібрати ситуацію постфактум.
   const userId =
-    session.user.role === "DRIVER" || session.user.role === "SALES"
-      ? session.user.id
-      : url.searchParams.get("userId") || session.user.id;
+    me.role === "DRIVER" || me.role === "SALES"
+      ? me.userId
+      : url.searchParams.get("userId") || me.userId;
 
   const [route, visits, trackSession, points, handovers] = await Promise.all([
     resolveDriverDay(userId, day),
@@ -85,7 +79,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     day,
-    role: session.user.role,
+    role: me.role,
     route: { ...route, stops },
     progress: {
       total: stops.length,

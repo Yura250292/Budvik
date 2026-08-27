@@ -11,14 +11,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
+import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_ROLES = ["DRIVER", "SALES", "ADMIN", "MANAGER"];
 const STATUSES = ["DONE", "MISSED"] as const;
 const MONEY = ["FULL", "PARTIAL", "NONE", "NOT_APPLICABLE"] as const;
 
@@ -40,13 +38,9 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   let body: Body;
   try {
@@ -94,7 +88,7 @@ export async function POST(req: NextRequest) {
 
   const day = body.day || kyivDate(new Date());
   const dayStart = kyivDayStart(day);
-  const userId = session.user.id;
+  const userId = me.userId;
 
   const client = await prisma.counterparty.findUnique({
     where: { id: body.counterpartyId },
@@ -129,13 +123,9 @@ export async function POST(req: NextRequest) {
 
 /** Зняти відмітку — водій натиснув помилково. */
 export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
-  }
-  if (!ALLOWED_ROLES.includes(session.user.role)) {
-    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, FIELD_ROLES);
+  if (!auth.ok) return auth.response;
+  const me = auth.me;
 
   const url = new URL(req.url);
   const counterpartyId = url.searchParams.get("counterpartyId");
@@ -145,7 +135,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   await prisma.visit.deleteMany({
-    where: { userId: session.user.id, day: kyivDayStart(day), counterpartyId },
+    where: { userId: me.userId, day: kyivDayStart(day), counterpartyId },
   });
 
   return NextResponse.json({ ok: true });

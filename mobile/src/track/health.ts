@@ -1,0 +1,71 @@
+/**
+ * Чи справді йде запис — і перепідписка, коли приймач замовк.
+ *
+ * Окремо від watchdog.ts, і причина конкретна: `expo-background-task` жорстко
+ * ставить WorkManager-обмеження `NetworkType.CONNECTED` (див. його
+ * BackgroundTaskScheduler.kt), тобто той сторож НЕ прокидається без мережі.
+ * А саме там, де мережі немає — у селі за сімдесят кілометрів — трек і
+ * пропадає «і далі не відновлюється».
+ *
+ * Тут перевірка, яка мережі не потребує взагалі. Вона ловить стан, який
+ * `hasStartedLocationUpdatesAsync()` не бачить: підписка формально жива, а
+ * фіксів немає годинами. Для системи це «все гаразд», для людини — дірка в
+ * маршруті.
+ *
+ * Ліки — перепідписка: зупинити й запустити оновлення наново. Зависла підписка
+ * на провайдер від цього оживає, а якщо трек ішов нормально, перезапуск
+ * коштує однієї пропущеної точки.
+ */
+
+import * as Location from "expo-location";
+import { TRACK_TASK } from "./task-name";
+import { getLastFix, getMode, setLastError } from "./state";
+
+/**
+ * Скільки тиші вважати збоєм.
+ *
+ * У робочому режимі фікс іде раз на 20 с, тож п'ять хвилин — це вже не
+ * «погано видно небо», а зупинений приймач. Після зміни інтервал три хвилини,
+ * тому й поріг більший.
+ */
+const STALE_MS: Record<"SHIFT" | "AFTER_SHIFT", number> = {
+  SHIFT: 5 * 60_000,
+  AFTER_SHIFT: 15 * 60_000,
+};
+
+/** Щоб перепідписка не крутилася по колу, якщо приймач мовчить із фізичних причин. */
+const MIN_RETRY_MS = 5 * 60_000;
+let lastRestartAt = 0;
+
+export type HealthResult = "не-пишемо" | "свіжо" | "перепідписались" | "зарано-повторювати";
+
+export async function ensureFreshFixes(): Promise<HealthResult> {
+  const mode = await getMode();
+  if (!mode) return "не-пишемо";
+
+  const fix = await getLastFix();
+  const silentMs = fix ? Date.now() - fix.at : Infinity;
+  if (silentMs < STALE_MS[mode]) return "свіжо";
+
+  if (Date.now() - lastRestartAt < MIN_RETRY_MS) return "зарано-повторювати";
+  lastRestartAt = Date.now();
+
+  const minutes = Number.isFinite(silentMs) ? Math.round(silentMs / 60_000) : null;
+  await setLastError(
+    minutes === null ? "жодного фікса — перепідписка" : `приймач мовчав ${minutes} хв — перепідписка`
+  );
+
+  try {
+    // Зупинка обов'язкова: повторний start поверх живої підписки нових
+    // параметрів не підхоплює й провайдер лишається тим самим зависшим.
+    if (await Location.hasStartedLocationUpdatesAsync(TRACK_TASK)) {
+      await Location.stopLocationUpdatesAsync(TRACK_TASK);
+    }
+    const { startTracking } = await import("./controller");
+    await startTracking(mode);
+    return "перепідписались";
+  } catch (e) {
+    await setLastError(e instanceof Error ? e.message : String(e));
+    return "перепідписались";
+  }
+}

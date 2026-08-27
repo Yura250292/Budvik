@@ -18,6 +18,7 @@ import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
 import { isTracking, startTracking } from "./controller";
+import { ensureFreshFixes } from "./health";
 
 export async function runWatchdog(): Promise<void> {
   /**
@@ -30,6 +31,9 @@ export async function runWatchdog(): Promise<void> {
   // Далі віддати те, що назбиралося: буфер важливіший за все інше.
   await maybeFlush().catch(() => {});
   await heartbeat().catch(() => {});
+
+  // Підписка може бути формально живою, а фіксів не бути — це окремий збій.
+  await ensureFreshFixes().catch(() => {});
 
   const [role, shiftOpen, tracking, mode] = await Promise.all([
     getRole(),

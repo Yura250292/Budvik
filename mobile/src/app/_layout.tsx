@@ -29,6 +29,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { isBiometricEnabled, unlock, clearToken } from "@/lib/auth-store";
 import { useNotificationTaps } from "@/track/notification-taps";
+import { useTrackHealth } from "@/track/use-track-health";
 import { colors, space, radius } from "@/theme";
 
 const queryClient = new QueryClient({
@@ -186,6 +187,12 @@ export default function RootLayout() {
   // Тап по нагадуванню «зміна ще відкрита» веде на екран зміни, а не просто
   // відкриває застосунок там, де його закрили.
   useNotificationTaps();
+  /**
+   * Перевірка живості запису. Потрібна саме тут, а не у сторожі: той працює
+   * через WorkManager і без мережі не прокидається — тобто мовчить у селі,
+   * де трек і губиться.
+   */
+  useTrackHealth();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

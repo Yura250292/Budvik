@@ -125,5 +125,43 @@ const speedKmh = (ms: number) => Math.min(Math.round(ms * 3.6), MAX_SPEED_KMH);
 check("90 км/год лишається 90", speedKmh(25) === 90, speedKmh(25));
 check("Збій приймача (300 м/с) зрізано до 150", speedKmh(300) === 150, speedKmh(300));
 
+// --- 5. Пороги «приймач замовк» мусять бути кратно більші за інтервал запису ---
+/**
+ * Інакше перепідписка крутилася б безкінечно: поріг, порівнянний з інтервалом,
+ * спрацьовував би на кожній нормальній паузі між фіксами.
+ */
+const healthSrc = readFileSync(join(HERE, "../src/track/health.ts"), "utf8");
+const ctrlSrc = readFileSync(join(HERE, "../src/track/controller.ts"), "utf8");
+
+const staleShift = Number(healthSrc.match(/SHIFT: (\d+) \* 60_000/)?.[1]);
+const staleAfter = Number(healthSrc.match(/AFTER_SHIFT: (\d+) \* 60_000/)?.[1]);
+const intervals = [...ctrlSrc.matchAll(/timeInterval: ([0-9_]+)/g)].map((m) => Number(m[1].replace(/_/g, "")) / 1000);
+
+check("Поріг тиші в зміні знайдено", Number.isFinite(staleShift), staleShift);
+check("Поріг тиші після зміни знайдено", Number.isFinite(staleAfter), staleAfter);
+check("Інтервали запису знайдено (2)", intervals.length === 2, intervals);
+
+if (intervals.length === 2) {
+  const [shiftSec, afterSec] = intervals;
+  check(
+    `Поріг у зміні (${staleShift} хв) ≥ 10 інтервалів (${shiftSec} с)`,
+    staleShift * 60 >= shiftSec * 10,
+    { поріг_с: staleShift * 60, інтервал_с: shiftSec }
+  );
+  check(
+    `Поріг після зміни (${staleAfter} хв) ≥ 3 інтервали (${afterSec} с)`,
+    staleAfter * 60 >= afterSec * 3,
+    { поріг_с: staleAfter * 60, інтервал_с: afterSec }
+  );
+}
+
+/** Повтор не частіше ніж поріг — інакше перезапуски накладаються один на одного. */
+const minRetry = Number(healthSrc.match(/MIN_RETRY_MS = (\d+) \* 60_000/)?.[1]);
+check(
+  `Пауза між перепідписками (${minRetry} хв) ≥ порогу зміни (${staleShift} хв)`,
+  minRetry >= staleShift,
+  { minRetry, staleShift }
+);
+
 console.log(failed === 0 ? "\nУсе зійшлося." : `\nПровалено: ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

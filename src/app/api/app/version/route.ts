@@ -40,8 +40,8 @@ const APK_PATH = path.join(process.cwd(), "assets", "app", "BudvikTracker.apk");
  * входу. Перша збірка з постійним ключем підпису, тому саме її ставлять
  * з видаленням старої: попередній ключ утрачено разом із тим оточенням.
  */
-const CURRENT_VERSION_CODE = 5;
-const CURRENT_VERSION_NAME = "1.4";
+const CURRENT_VERSION_CODE = 6;
+const CURRENT_VERSION_NAME = "1.5";
 
 export async function GET(req: Request) {
   /** Дві авторизації, як у решти роутів застосунку: Bearer і кукі. */

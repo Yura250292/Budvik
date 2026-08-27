@@ -14,6 +14,9 @@
  *   npx tsx scripts/check-app-versions.ts
  */
 import { prisma } from "../src/lib/prisma";
+/** Збірка, яка зараз лежить на сайті (див. /api/app/version). */
+const CURRENT = "1.5";
+
 async function main(){
   const rows = await prisma.syncState.findMany({
     where: { key: { startsWith: "app:installed:" } },
@@ -26,8 +29,18 @@ async function main(){
   for (const r of rows) {
     const v = r.value;
     const major = Number(v.split(".")[0]); const minor = Number(v.split(".")[1] ?? 0);
-    const permanentKey = major > 1 || minor >= 2;   // 1.2 (25.08) — перша з постійним ключем
-    console.log(`${(nameOf.get(r.key.replace("app:installed:","")) ?? "?").padEnd(20)} v${v.padEnd(5)} ${permanentKey ? "→ 1.5 стане ПОВЕРХ" : "→ потрібне перевстановлення"}   (сказав ${r.updatedAt.toISOString().slice(11,16)})`);
+    // 1.2 (25.08) — перша збірка з постійним ключем підпису.
+    const permanentKey = major > 1 || minor >= 2;
+    const verdict =
+      v === CURRENT
+        ? "актуальна"
+        : permanentKey
+          ? `→ ${CURRENT} стане поверх`
+          : `→ потрібне перевстановлення (старий ключ підпису)`;
+    const kyiv = new Date(r.updatedAt.getTime()).toLocaleTimeString("uk-UA", {
+      timeZone: "Europe/Kyiv", hour: "2-digit", minute: "2-digit",
+    });
+    console.log(`${(nameOf.get(r.key.replace("app:installed:","")) ?? "?").padEnd(20)} v${v.padEnd(5)} ${verdict.padEnd(46)} (озвався ${kyiv})`);
   }
   await prisma.$disconnect();
 }

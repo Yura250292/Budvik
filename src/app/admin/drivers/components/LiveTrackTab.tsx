@@ -159,6 +159,29 @@ type DayDetail = {
 
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
+/**
+ * Найсвіжіше з того, що ми знаємо про збірку на планшеті.
+ *
+ * Пульс надійніший: його шле сама служба, і він приходить щохвилини. Але
+ * шлють його лише збірки від 1.3 — а найцікавіші якраз старіші, і про
+ * них розповідає User-Agent кабінету, збережений при відкритті.
+ */
+function appVersion(p: Person): string | null {
+  return p.device?.appVersion ?? p.installedVersion;
+}
+
+/**
+ * Поточна збірка. Свідомо рядком, а не звіркою з /api/app/version:
+ * зайвий запит заради кольору однієї підказки не вартий того, а
+ * розходження після релізу помітно одразу — уся колонка стає
+ * помаранчевою, поки планшети не оновляться.
+ */
+const CURRENT_BUILD = "1.5";
+
+function isCurrentBuild(v: string | null): boolean {
+  return v === CURRENT_BUILD;
+}
+
 /** Як часто перепитуємо, хто де. Частіше немає сенсу: планшет шле пачку раз на 25 с. */
 const POLL_MS = 30_000;
 
@@ -485,6 +508,30 @@ export function LiveTrackTab() {
                         <span style={{ color: "#9CA3AF", marginLeft: "6px", fontSize: "12px" }}>
                           {p.role === "DRIVER" ? "водій" : "торговий"}
                         </span>
+                        {/*
+                          Збірка застосунку — поруч з іменем, дрібним.
+                          Половина розборів «чому немає треку» починається
+                          саме з цього питання, а відповідь досі лежала в
+                          іншому місці: у пульсі, якого старі збірки не
+                          шлють. Помаранчевим — усе, що старіше за поточну:
+                          там немає сторожа, який піднімає вбиту службу.
+                        */}
+                        {appVersion(p) && (
+                          <span
+                            title={
+                              isCurrentBuild(appVersion(p))
+                                ? "Актуальна збірка"
+                                : "Стара збірка — оновити застосунок"
+                            }
+                            style={{
+                              marginLeft: "6px",
+                              fontSize: "11px",
+                              color: isCurrentBuild(appVersion(p)) ? "#9CA3AF" : "#B45309",
+                            }}
+                          >
+                            v{appVersion(p)}
+                          </span>
+                        )}
                       </td>
                       <td style={td}>
                         {/* Три рівні, зверху вниз: де людина, що не так із
@@ -546,22 +593,6 @@ export function LiveTrackTab() {
                             пульс {p.device.minutesAgo} хв тому
                             {p.device.buffered > 0 && ` · у буфері ${p.device.buffered}`}
                             {p.device.batteryPct != null && ` · батарея ${p.device.batteryPct}%`}
-                            {p.device.appVersion && ` · v${p.device.appVersion}`}
-                          </span>
-                        )}
-                        {/* Збірки до 1.3 пульсу не шлють — версію називає
-                            їхній же кабінет, і без цього рядка вони
-                            виглядали б однаково з мертвим застосунком. */}
-                        {!p.device && p.installedVersion && (
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: "11px",
-                              color: "#9CA3AF",
-                              marginTop: "2px",
-                            }}
-                          >
-                            на планшеті v{p.installedVersion} — пульсу не шле
                           </span>
                         )}
                       </td>

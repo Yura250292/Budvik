@@ -157,6 +157,54 @@ function shape(rows: Row[]): OrdersToday {
   return { dots, unmapped, total: rows.length };
 }
 
+/**
+ * Скільки замовлень у кожного торгового за кожен день періоду.
+ *
+ * Ключ — «id торгового|день», бо в списку змін один рядок це і людина, і
+ * дата: та сама людина за тиждень трапляється сім разів, і цифра біля
+ * кожної зміни мусить бути своя.
+ *
+ * Одним запитом на весь період, а не по запиту на рядок: у списку їх до
+ * двохсот.
+ */
+export async function orderCountsByDay(
+  from: string,
+  to: string
+): Promise<Map<string, number>> {
+  const rows = await prisma.$queryRaw<Array<{ repId: string | null; day: Date; count: bigint }>>`
+    SELECT
+      COALESCE(s."salesRepId", rc."salesRepId", last."salesRepId") AS "repId",
+      date_trunc('day', s."createdAt") AS day,
+      COUNT(*) AS count
+    FROM "SalesDocument" s
+    JOIN "Counterparty" c ON c.id = s."counterpartyId"
+    LEFT JOIN LATERAL (
+      SELECT "salesRepId" FROM "SalesRepClient"
+      WHERE "counterpartyId" = c.id ORDER BY id LIMIT 1
+    ) rc ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT "salesRepId" FROM "SalesDocument"
+      WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL AND "docType" <> 'RETURN'
+      ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC
+      LIMIT 1
+    ) last ON TRUE
+    WHERE s."docType" = 'ORDER'
+      AND s."externalId" IS NOT NULL
+      AND s.status <> 'CANCELLED'
+      AND s."createdAt" >= ${new Date(`${from}T00:00:00.000Z`)}
+      AND s."createdAt" <= ${new Date(`${to}T23:59:59.999Z`)}
+    GROUP BY 1, 2
+  `;
+
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.repId) continue;
+    // День беремо як є: у базі це вже київський стінний час (див. вище).
+    out.set(`${r.repId}|${r.day.toISOString().slice(0, 10)}`, Number(r.count));
+  }
+  return out;
+}
+
 /** Сьогоднішні замовлення одного торгового. */
 export async function ordersTodayForRep(repId: string, day: string): Promise<OrdersToday> {
   const rows = await ordersOfDay(day);

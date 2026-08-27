@@ -10,7 +10,7 @@
  * розмір.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { TableScroll } from "@/components/ui/TableScroll";
@@ -41,6 +41,8 @@ type ShiftRow = {
   startPhotoUrl: string | null;
   endPhotoUrl: string | null;
   pointsCount: number;
+  /** Скільки замовлень від клієнтів цього торгового того дня. */
+  ordersCount: number;
   /** Перевитрата проти призначеного маршруту; null — маршруту на день немає */
   overrun: {
     plannedKm: number;
@@ -136,6 +138,75 @@ const SOURCE_LABEL: Record<string, string> = {
   CORRECTED: "AI + правка",
 };
 
+/** Київська доба рядком «2026-08-27» — за нею групуються зміни. */
+function kyivDay(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date(iso));
+}
+
+/** Тільки час, «09:47»: дата вже стоїть у заголовку дня. */
+function clock(iso: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+/**
+ * Заголовок дня. «Сьогодні» і «Вчора» словами: у списку, який дивляться
+ * щодня, це швидше за «27 серпня» — око не звіряє число з календарем.
+ */
+function dayLabel(day: string): string {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
+  const yesterday = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(
+    new Date(Date.now() - 86_400_000)
+  );
+  if (day === today) return "Сьогодні";
+  if (day === yesterday) return "Вчора";
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    day: "numeric",
+    month: "long",
+    weekday: "short",
+  }).format(new Date(`${day}T12:00:00Z`));
+}
+
+function duration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `${d} ${plural(d, "доба", "доби", "діб")} ${h % 24} год`;
+  }
+  return h > 0 ? `${h} год ${m} хв` : `${m} хв`;
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function sumKm(rows: ShiftRow[]): number {
+  return Math.round(rows.reduce((sum, r) => sum + (r.distanceKm ?? 0), 0));
+}
+
+/**
+ * Що означає число в колонці «Збіг».
+ *
+ * Саме по собі «0.97» не каже нічого — треба ще пам'ятати, який бік
+ * добрий. Трек іде по прямій між точками, тож він завжди коротший за
+ * одометр: усе, що менше одиниці, означає помилку в показах.
+ */
+function ratioHint(ratio: number | null): string {
+  if (ratio == null) return "Нема з чим порівняти: немає або одометра, або треку";
+  if (ratio < 1) return "Одометр менший за трек — так не буває, перевірте покази";
+  if (ratio > 2.5) return "Трек утричі коротший за одометр: або дірки в треку, або зайві кілометри";
+  return "У межах норми";
+}
+
 function time(iso: string): string {
   return new Intl.DateTimeFormat("uk-UA", {
     timeZone: "Europe/Kyiv",
@@ -216,6 +287,30 @@ export function ShiftsTab({ period }: { period: Period }) {
     };
   }, [selected]);
 
+  /**
+   * Зміни, згруповані за київською добою. Порядок від нових до старих
+   * зберігається — сервер уже віддав їх у ньому.
+   */
+  const groups = useMemo(() => {
+    const map = new Map<string, ShiftRow[]>();
+    for (const s of rows) {
+      const day = kyivDay(s.startedAt);
+      const bucket = map.get(day);
+      if (bucket) bucket.push(s);
+      else map.set(day, [s]);
+    }
+    return [...map.entries()];
+  }, [rows]);
+
+  /**
+   * Колонка «План» з'являється, лише коли є що в ній показувати.
+   * Стовпчик із самих прочерків не інформує, а забирає ширину в тих,
+   * що інформують.
+   */
+  const hasPlans = rows.some((r) => r.overrun != null);
+
+  const totalOrders = rows.reduce((sum, r) => sum + (r.ordersCount ?? 0), 0);
+
   if (error) {
     return (
       <div className="rounded-xl p-4" style={{ border: "1px solid #FECACA", background: "#FEF2F2" }}>
@@ -227,36 +322,52 @@ export function ShiftsTab({ period }: { period: Period }) {
   return (
     <div className="space-y-4">
       {summary && (
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2" style={{ fontSize: 14 }}>
-          <span>
-            Змін: <b>{summary.count}</b>
-          </span>
-          <span>
-            Пробіг: <b>{summary.totalKm} км</b>
-          </span>
+        <div className="flex flex-wrap items-stretch gap-2">
+          <Metric label="Змін" value={String(summary.count)} />
+          <Metric label="Пробіг" value={`${summary.totalKm} км`} hint="за одометром" />
+          <Metric
+            label="Замовлень"
+            value={String(totalOrders)}
+            hint={totalOrders === 0 ? "жодного" : "за ці дні"}
+            color={totalOrders > 0 ? "#7C3AED" : undefined}
+          />
+          {/*
+            Тривожні числа — не просто підпис, а фільтр: побачив «2» і
+            клацнув, щоб залишились лише вони. Досі для цього треба було
+            знайти окремий прапорець у кутку.
+          */}
           {summary.suspicious > 0 && (
-            <span style={{ color: "#DC2626" }}>
-              Потребують уваги: <b>{summary.suspicious}</b>
-            </span>
+            <button
+              type="button"
+              onClick={() => setOnlySuspicious((v) => !v)}
+              title={onlySuspicious ? "Показати всі зміни" : "Залишити лише ці"}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+            >
+              <Metric
+                label="Потребують уваги"
+                value={String(summary.suspicious)}
+                hint={onlySuspicious ? "показано лише їх ✕" : "показати лише їх"}
+                color="#DC2626"
+                active={onlySuspicious}
+              />
+            </button>
           )}
           {summary.autoClosed > 0 && (
-            <span style={{ color: "#D97706" }}>
-              Закриті автоматично: <b>{summary.autoClosed}</b>
-            </span>
+            <Metric
+              label="Закриті авто"
+              value={String(summary.autoClosed)}
+              hint="без фінішного фото"
+              color="#D97706"
+            />
           )}
           {summary.overrunning > 0 && (
-            <span style={{ color: "#DC2626" }}>
-              Понад план: <b>{summary.overrunning}</b>
-            </span>
-          )}
-          <label className="flex items-center gap-2" style={{ marginLeft: "auto", fontSize: 13, cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={onlySuspicious}
-              onChange={(e) => setOnlySuspicious(e.target.checked)}
+            <Metric
+              label="Понад план"
+              value={String(summary.overrunning)}
+              hint="перевитрата кілометрів"
+              color="#DC2626"
             />
-            Лише підозрілі
-          </label>
+          )}
         </div>
       )}
 
@@ -273,99 +384,163 @@ export function ShiftsTab({ period }: { period: Period }) {
             <thead>
               <tr style={{ background: "#F9FAFB" }}>
                 <th style={th}>Торговий</th>
-                <th style={th}>Початок</th>
-                <th style={th}>Кінець</th>
-                <th style={thR}>Одометр</th>
-                <th style={thR}>Пробіг</th>
-                <th style={thR}>GPS</th>
-                <th style={thR}>Одометр/GPS</th>
-                <th style={thR}>План</th>
-                <th style={th}>Стан</th>
+                <th style={th}>Час</th>
+                <th style={thR} title="Різниця показів одометра — за нею платять">
+                  Пробіг
+                </th>
+                <th style={thR} title="Скільки намалював GPS-трек">За треком</th>
+                <th style={thR} title="Одометр поділити на трек. Трек завжди коротший, тож норма — від 1 до 2,5">
+                  Збіг
+                </th>
+                <th style={thR}>Замовлень</th>
+                {hasPlans && <th style={thR}>План</th>}
               </tr>
             </thead>
-            <tbody>
-              {rows.map((s) => {
-                const mine = selected === s.id;
-                return (
-                  <tr
-                    key={s.id}
-                    onClick={() => setSelected(mine ? null : s.id)}
-                    title="Клацніть, щоб побачити маршрут і замовлення цього дня"
-                    className={mine ? undefined : "hover:bg-g50"}
-                    style={{
-                      borderTop: "1px solid #F3F4F6",
-                      cursor: "pointer",
-                      background: mine ? "#F0F9FF" : s.odometerSuspicious ? "#FFFBEB" : undefined,
-                    }}
-                  >
-                    <td style={td}>
-                      {/* Смужка ліворуч у вибраного: у таблиці на два екрани
-                          підсвітка тла зникає з очей, щойно доїдеш до картки. */}
-                      <span
-                        aria-hidden
+            {groups.map(([day, dayRows]) => (
+              <tbody key={day}>
+                {/*
+                  Заголовок дня замість дати в кожному рядку.
+                  Досі «27.08» повторювалось двічі в рядку й тринадцять
+                  разів на екрані, а згрупувати зміни за днем — те, що
+                  око робить першим.
+                */}
+                <tr>
+                  <td colSpan={hasPlans ? 7 : 6} style={{ padding: "10px 12px 6px", background: "#fff" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{dayLabel(day)}</span>
+                    <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 8 }}>
+                      {dayRows.length} {plural(dayRows.length, "зміна", "зміни", "змін")}
+                      {sumKm(dayRows) > 0 && ` · ${sumKm(dayRows)} км`}
+                    </span>
+                  </td>
+                </tr>
+                {dayRows.map((s) => {
+                  const mine = selected === s.id;
+                  const endsSameDay =
+                    s.endedAt != null && kyivDay(s.endedAt) === day;
+                  return (
+                    <tr
+                      key={s.id}
+                      onClick={() => setSelected(mine ? null : s.id)}
+                      title="Клацніть, щоб побачити маршрут і замовлення цього дня"
+                      className={mine ? undefined : "hover:bg-g50"}
+                      style={{
+                        borderTop: "1px solid #F3F4F6",
+                        cursor: "pointer",
+                        background: mine ? "#F0F9FF" : s.odometerSuspicious ? "#FFFBEB" : undefined,
+                      }}
+                    >
+                      <td style={td}>
+                        {/* Смужка ліворуч у вибраного: у таблиці на два екрани
+                            підсвітка тла зникає з очей, щойно доїдеш до картки. */}
+                        <span
+                          aria-hidden
+                          style={{
+                            display: "inline-block", width: 3, height: 15, borderRadius: 2,
+                            marginRight: 8, verticalAlign: "-2px",
+                            background: mine ? "#2563EB" : "transparent",
+                          }}
+                        />
+                        {s.name}
+                        {/* Стан — біля імені, а не в дев'ятій колонці. Мовчить
+                            там, де все звично: закрита зміна це норма, а от
+                            «триває» і «не закрита» треба помітити. */}
+                        {s.status !== "CLOSED" && (
+                          <span
+                            style={{
+                              marginLeft: 8, fontSize: 11, fontWeight: 600,
+                              padding: "1px 7px", borderRadius: 999,
+                              background: s.status === "OPEN" ? "#DCFCE7" : "#FEF3C7",
+                              color: s.status === "OPEN" ? "#15803D" : "#92400E",
+                            }}
+                          >
+                            {STATUS_LABEL[s.status] ?? s.status}
+                            {s.closedAutomatically && " · авто"}
+                          </span>
+                        )}
+                      </td>
+
+                      <td style={td}>
+                        <span>
+                          {clock(s.startedAt)}
+                          {s.endedAt
+                            ? endsSameDay
+                              ? ` — ${clock(s.endedAt)}`
+                              : ` — ${time(s.endedAt)}`
+                            : " — …"}
+                        </span>
+                        {s.durationMinutes != null && (
+                          <span style={{ display: "block", fontSize: 11, color: "#9CA3AF" }}>
+                            {duration(s.durationMinutes)}
+                          </span>
+                        )}
+                      </td>
+
+                      <td style={tdR}>
+                        <span style={{ fontWeight: 700 }}>
+                          {s.distanceKm != null ? `${s.distanceKm} км` : "—"}
+                        </span>
+                        <span style={{ display: "block", fontSize: 11, color: "#9CA3AF" }}>
+                          {s.endOdometer != null
+                            ? `${s.startOdometer.toLocaleString("uk-UA")} → ${s.endOdometer.toLocaleString("uk-UA")}`
+                            : `з ${s.startOdometer.toLocaleString("uk-UA")}`}
+                        </span>
+                      </td>
+
+                      <td style={tdR}>
+                        {s.gpsDistanceKm != null ? `${s.gpsDistanceKm} км` : "—"}
+                        <span style={{ display: "block", fontSize: 11, color: "#9CA3AF" }}>
+                          {s.pointsCount > 0 ? `${s.pointsCount} точок` : "треку немає"}
+                        </span>
+                      </td>
+
+                      <td
                         style={{
-                          display: "inline-block",
-                          width: 3,
-                          height: 15,
-                          borderRadius: 2,
-                          marginRight: 8,
-                          verticalAlign: "-2px",
-                          background: mine ? "#2563EB" : "transparent",
+                          ...tdR,
+                          color:
+                            s.odometerToGpsRatio == null
+                              ? "#9CA3AF"
+                              : s.odometerToGpsRatio < 1 || s.odometerToGpsRatio > 2.5
+                                ? "#DC2626"
+                                : "#16A34A",
                         }}
-                      />
-                      {s.name}
-                    </td>
-                    <td style={td}>{time(s.startedAt)}</td>
-                    <td style={td}>{s.endedAt ? time(s.endedAt) : "—"}</td>
-                    <td style={tdR}>
-                      {s.startOdometer.toLocaleString("uk-UA")}
-                      {s.endOdometer != null && ` → ${s.endOdometer.toLocaleString("uk-UA")}`}
-                    </td>
-                    <td style={{ ...tdR, fontWeight: 600 }}>
-                      {s.distanceKm != null ? `${s.distanceKm} км` : "—"}
-                    </td>
-                    <td style={tdR}>{s.gpsDistanceKm != null ? `${s.gpsDistanceKm} км` : "—"}</td>
-                    <td
-                      style={{
-                        ...tdR,
-                        // Менше за 1 означає, що одометр показав менше за трек —
-                        // фізично так не буває, отже щось не так із числом.
-                        color:
-                          s.odometerToGpsRatio == null
-                            ? "#9CA3AF"
-                            : s.odometerToGpsRatio < 1 || s.odometerToGpsRatio > 2.5
-                              ? "#DC2626"
-                              : "#16A34A",
-                      }}
-                    >
-                      {s.odometerToGpsRatio != null ? s.odometerToGpsRatio.toFixed(2) : "—"}
-                    </td>
-                    <td
-                      style={{
-                        ...tdR,
-                        color: s.overrun == null ? "#9CA3AF" : s.overrun.exceeded ? "#DC2626" : "#16A34A",
-                        fontWeight: s.overrun?.exceeded ? 700 : 400,
-                      }}
-                      title={
-                        s.overrun
-                          ? `План ${s.overrun.plannedKm} км · Факт ${s.overrun.actualKm} км`
-                          : "На цей день маршрут не призначений"
-                      }
-                    >
-                      {s.overrun
-                        ? `${s.overrun.overrunPct >= 0 ? "+" : ""}${s.overrun.overrunPct}%`
-                        : "—"}
-                    </td>
-                    <td style={td}>
-                      {STATUS_LABEL[s.status] ?? s.status}
-                      {s.closedAutomatically && (
-                        <span style={{ color: "#D97706", fontSize: 12 }}> · авто</span>
+                        title={ratioHint(s.odometerToGpsRatio)}
+                      >
+                        {s.odometerToGpsRatio != null ? s.odometerToGpsRatio.toFixed(2) : "—"}
+                      </td>
+
+                      <td
+                        style={{
+                          ...tdR,
+                          fontWeight: s.ordersCount > 0 ? 700 : 400,
+                          color: s.ordersCount > 0 ? "#7C3AED" : "#9CA3AF",
+                        }}
+                      >
+                        {s.ordersCount || "—"}
+                      </td>
+
+                      {hasPlans && (
+                        <td
+                          style={{
+                            ...tdR,
+                            color: s.overrun == null ? "#9CA3AF" : s.overrun.exceeded ? "#DC2626" : "#16A34A",
+                            fontWeight: s.overrun?.exceeded ? 700 : 400,
+                          }}
+                          title={
+                            s.overrun
+                              ? `План ${s.overrun.plannedKm} км · Факт ${s.overrun.actualKm} км`
+                              : "На цей день маршрут не призначений"
+                          }
+                        >
+                          {s.overrun
+                            ? `${s.overrun.overrunPct >= 0 ? "+" : ""}${s.overrun.overrunPct}%`
+                            : "—"}
+                        </td>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            ))}
           </table>
         </TableScroll>
       )}
@@ -635,16 +810,25 @@ function Metric({
   value,
   hint,
   color,
+  active = false,
 }: {
   label: string;
   value: string;
   hint?: string;
   color?: string;
+  /** Плитка-фільтр, який зараз увімкнено. */
+  active?: boolean;
 }) {
   return (
     <div
       className="rounded-lg"
-      style={{ background: "#F9FAFB", border: "1px solid #F3F4F6", padding: "8px 12px", minWidth: 118 }}
+      style={{
+        background: active ? "#FEF2F2" : "#F9FAFB",
+        border: `1px solid ${active ? "#FECACA" : "#F3F4F6"}`,
+        padding: "8px 12px",
+        minWidth: 118,
+        height: "100%",
+      }}
     >
       <p style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>
         {label}

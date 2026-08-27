@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
+import { orderCountsByDay } from "@/lib/track/orders-today";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { computeOverrun } from "@/lib/shift/plan-overrun";
 import { readCachedLegs } from "@/lib/shift/base-legs";
@@ -112,12 +113,25 @@ export async function GET(req: NextRequest) {
     })
   );
 
+  /**
+   * Замовлення того дня — щоб у списку поруч із кілометрами стояв
+   * результат. Сто вісімдесят кілометрів і жодного замовлення — теж
+   * відповідь, просто інша, і побачити її треба до того, як відкриєш
+   * картку.
+   */
+  const orderCounts =
+    from && to
+      ? await orderCountsByDay(from, to)
+      : new Map<string, number>();
+
   const rows = shifts.map((s) => {
-    const plannedKm = plans.get(`${s.userId}|${kyivDate(s.startedAt)}`) ?? null;
+    const day = kyivDate(s.startedAt);
+    const plannedKm = plans.get(`${s.userId}|${day}`) ?? null;
     return {
       ...s,
       name: s.user.name,
       pointsCount: s._count.points,
+      ordersCount: orderCounts.get(`${s.userId}|${day}`) ?? 0,
       // Одометр — база порівняння; GPS лише коли зміна ще не закрита.
       overrun: computeOverrun(s.distanceKm ?? s.gpsDistanceKm, plannedKm),
       user: undefined,

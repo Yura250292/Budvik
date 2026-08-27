@@ -83,6 +83,38 @@ export async function staffRequest<T>(path: string, opts: Options = {}): Promise
   return (await res.json().catch(() => null)) as T;
 }
 
+/* ---------- Історія та пізнє закриття ---------- */
+
+export type ShiftRow = {
+  id: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
+  distanceKm: number | null;
+  durationMinutes: number | null;
+  gpsDistanceKm: number | null;
+  personalKm: number | null;
+  odometerSuspicious: boolean;
+  closedAutomatically: boolean;
+};
+
+export type ShiftHistory = {
+  shifts: ShiftRow[];
+  summary: { count: number; totalKm: number; totalMinutes: number; autoClosed: number };
+};
+
+export type LateCloseSuggestion = {
+  shift: { id: string; startedAt: string; startOdometer: number | null } | null;
+  suggestion: {
+    endedAt: string;
+    stoodMinutes: number;
+    workKm: number | null;
+    afterWorkKm: number | null;
+  } | null;
+};
+
 /* ---------- День водія ---------- */
 
 /**
@@ -180,7 +212,13 @@ export const staffApi = {
   shiftClose: (body: Record<string, unknown>) =>
     staffRequest<unknown>("/api/shift/close", { method: "POST", body }),
 
-  shiftHistory: () => staffRequest<unknown>("/api/shift/history"),
+  shiftHistory: () => staffRequest<ShiftHistory>("/api/shift/history"),
+
+  /** Підказка «коли ви насправді закінчили» — з треку, а не з пам'яті людини. */
+  lateCloseSuggestion: () => staffRequest<LateCloseSuggestion>("/api/shift/close-late"),
+
+  lateClose: (body: { endedAt: string; source: "GPS" | "MANUAL" }) =>
+    staffRequest<unknown>("/api/shift/close-late", { method: "POST", body }),
 
   /** Розпізнавання одометра: фото йде multipart, бо це файл, а не JSON. */
   odometerRecognize: (form: FormData) =>

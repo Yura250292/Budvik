@@ -186,6 +186,19 @@ export default function ShiftScreen() {
         <Text style={styles.linkText}>Перевірити фонову службу</Text>
       </Pressable>
 
+      <Pressable style={styles.link} onPress={() => router.push("/shift/history")}>
+        <Text style={styles.linkText}>Історія змін</Text>
+      </Pressable>
+
+      {/* Вихід на пізнє закриття показуємо лише коли він потрібен: зміна
+          відкрита довше за робочий день. Кнопка «забув закрити» на очах у
+          того, хто нічого не забув, лише плутає. */}
+      {shift?.shouldRemindToClose && (
+        <Pressable style={styles.link} onPress={() => router.push("/shift/late-close")}>
+          <Text style={styles.linkText}>Забув закрити — порахувати за треком</Text>
+        </Pressable>
+      )}
+
       {tracking && !shiftOpen && (
         <Pressable style={styles.link} onPress={() => stopTracking().then(refresh)}>
           <Text style={styles.linkText}>Зупинити запис маршруту</Text>

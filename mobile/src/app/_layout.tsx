@@ -213,6 +213,8 @@ export default function RootLayout() {
             <Stack.Screen name="day" options={{ title: "Мій день" }} />
             <Stack.Screen name="shift/index" options={{ title: "Зміна" }} />
             <Stack.Screen name="shift/odometer" options={{ title: "Одометр" }} />
+            <Stack.Screen name="shift/history" options={{ title: "Історія змін" }} />
+            <Stack.Screen name="shift/late-close" options={{ title: "Забув закрити зміну" }} />
           </Stack>
         </LockGate>
       </PersistQueryClientProvider>

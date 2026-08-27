@@ -59,7 +59,7 @@
     "lint": "expo lint",
     "screens": "node scripts/screens.mjs",
     "build:staff": "eas build -p android --profile staff",
-    "update:staff": "APP_FLAVOR=staff EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel staff --message",
+    "update:staff": "APP_FLAVOR=staff EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel staff --platform android --message",
     "update:shop": "EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel production --message"
   },
   "private": true

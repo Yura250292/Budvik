@@ -24,7 +24,18 @@
 
 import { readFile, stat } from "fs/promises";
 import { execFileSync } from "child_process";
-import { fileSize, uploadFile } from "../src/lib/r2";
+
+/**
+ * Ключі R2 лежать у .env, і поза Next їх ніхто не підвантажує.
+ *
+ * Без цього рядка S3Client отримує undefined замість ключів і падає з
+ * «Resolved credential object is not valid» — повідомленням, яке звучить як
+ * «ключі невірні», хоча насправді їх просто не прочитали. Той самий прийом
+ * уже вживають інші скрипти, що ходять у сховище.
+ */
+try { (await import("dotenv")).config(); } catch { /* оточення вже задане */ }
+
+const { fileSize, uploadFile } = await import("../src/lib/r2");
 import {
   STAFF_APK_KEY,
   STAFF_APK_VERSION_CODE,

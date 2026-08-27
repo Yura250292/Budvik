@@ -104,6 +104,11 @@ const known: Array<[string, boolean, string]> = [
     app("src/track/uploader.ts").includes("lastError"),
     "ApplicationExitInfo з Expo недоступний — лише помилки JS",
   ],
+  [
+    "Обмеження батареї видно (головна причина дір у треку)",
+    app("src/track/device-state.ts").includes("isBatteryOptimizationEnabledAsync"),
+    "expo-battery це вміє — раніше поле хибно вважали недоступним",
+  ],
 ];
 for (const [name, ok, why] of known) check(`${name}`, ok, why);
 

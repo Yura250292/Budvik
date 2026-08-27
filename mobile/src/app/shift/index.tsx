@@ -30,6 +30,7 @@ import {
   type PermissionState,
 } from "@/track/permissions";
 import { flush } from "@/track/uploader";
+import { readDeviceState, type DeviceState } from "@/track/device-state";
 import { setShiftOpen } from "@/track/state";
 import { registerWatchdog } from "@/track/watchdog";
 
@@ -40,16 +41,19 @@ export default function ShiftScreen() {
   const [perms, setPerms] = useState<PermissionState | null>(null);
   const [tracking, setTracking] = useState(false);
   const [buffered, setBuffered] = useState(0);
+  const [device, setDevice] = useState<DeviceState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [p, t, b, q] = await Promise.all([
+    const [p, t, b, q, dev] = await Promise.all([
       currentPermissions(),
       isTracking(),
       bufferedCount(),
       getPendingShift(),
+      readDeviceState(),
     ]);
+    setDevice(dev);
     setPerms(p);
     setTracking(t);
     setBuffered(b);
@@ -180,6 +184,34 @@ export default function ShiftScreen() {
           <Text style={[styles.muted, { marginTop: space.sm }]}>
             Дозвіл «Завжди» не виданий — запис зупиниться, коли екран згасне.
           </Text>
+        )}
+
+        {/*
+          Найчастіша причина дір у маршруті, і людина про неї не здогадається
+          сама: система присипляє застосунок заради батареї, трек рветься на
+          години й «сам відновлюється». Тому це не підказка дрібним шрифтом, а
+          помітне попередження з кнопкою, що веде прямо в потрібні налаштування.
+        */}
+        {device?.batteryOptimized === true && (
+          <View style={styles.alert}>
+            <Text style={styles.alertTitle}>Система присипляє застосунок</Text>
+            <Text style={styles.muted}>
+              Через це маршрут рветься на години, а пробіг виходить меншим за справжній. Відкрийте
+              налаштування й оберіть для «Будвік27 Робота» варіант «Без обмежень».
+            </Text>
+            <Pressable style={styles.secondary} onPress={askIgnoreBatteryOptimizations}>
+              <Text style={styles.secondaryText}>Відкрити налаштування батареї</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {device?.locationMode === "OFF" && (
+          <View style={styles.alert}>
+            <Text style={styles.alertTitle}>Геолокацію вимкнено</Text>
+            <Text style={styles.muted}>
+              Маршрут не пишеться взагалі. Увімкніть визначення місця в шторці налаштувань телефона.
+            </Text>
+          </View>
         )}
         <Pressable style={styles.link} onPress={askIgnoreBatteryOptimizations}>
           <Text style={styles.linkText}>Не обмежувати батарею для застосунку</Text>
@@ -424,6 +456,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.bg,
   },
+  alert: {
+    marginTop: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: colors.sale,
+    gap: space.xs,
+  },
+  alertTitle: { fontSize: 14, fontWeight: "700", color: colors.sale },
   link: { paddingVertical: space.sm, alignItems: "center" },
   linkText: { color: colors.textMuted, fontSize: 13, textDecorationLine: "underline" },
 });

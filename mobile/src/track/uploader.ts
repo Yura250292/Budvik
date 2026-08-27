@@ -153,6 +153,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       locationPermission: device.locationPermission,
       locationMode: device.locationMode,
       batteryPct: device.batteryPct ?? undefined,
+      batteryOptimized: device.batteryOptimized ?? undefined,
       appVersion: APP_VERSION,
     });
     await setLastHeartbeatAt(Date.now());

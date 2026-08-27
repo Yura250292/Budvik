@@ -23,20 +23,22 @@ export type DeviceState = {
   /**
    * Чи має система право приспати застосунок заради батареї.
    *
-   * У Expo немає доступу до isIgnoringBatteryOptimizations, тож тут завжди
-   * null — і це чесніше за здогад. Саме цей стан ховається за «трек обірвався
-   * серед дня і сам відновився через пів години», тож якщо він знадобиться —
-   * знадобиться і власний нативний модуль.
+   * `true` — має, і це найгірший стан із можливих: саме він ховається за
+   * «трек обірвався серед дня і сам відновився через пів години». За даними
+   * пульсів станом на 27.08 він увімкнений на ВСІХ планшетах, і саме звідси
+   * розриви по кілька годин у маршрутах.
    */
-  batteryOptimized: null;
+  batteryOptimized: boolean | null;
 };
 
 export async function readDeviceState(): Promise<DeviceState> {
-  const [fg, bg, provider, pct] = await Promise.all([
+  const [fg, bg, provider, pct, optimized] = await Promise.all([
     Location.getForegroundPermissionsAsync().catch(() => null),
     Location.getBackgroundPermissionsAsync().catch(() => null),
     Location.getProviderStatusAsync().catch(() => null),
     Battery.getBatteryLevelAsync().catch(() => -1),
+    // Полярність та сама, що в Kotlin: true = система МОЖЕ приспати застосунок.
+    Battery.isBatteryOptimizationEnabledAsync().catch(() => null),
   ]);
 
   const locationPermission = !fg?.granted ? "DENIED" : bg?.granted ? "ALWAYS" : "WHILE_USING";
@@ -54,6 +56,6 @@ export async function readDeviceState(): Promise<DeviceState> {
     locationMode,
     // getBatteryLevelAsync віддає частку 0..1 або -1, коли система мовчить.
     batteryPct: pct != null && pct >= 0 ? Math.round(pct * 100) : null,
-    batteryOptimized: null,
+    batteryOptimized: optimized,
   };
 }

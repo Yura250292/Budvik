@@ -25,6 +25,7 @@ import { API_BASE } from "@/api/client";
 import { APP_VERSION, APP_VERSION_CODE } from "@/api/staff";
 import { getToken } from "@/lib/auth-store";
 import { bridgeScript, parseBridgeMessage, type BridgeState } from "@/lib/bridge";
+import { nativeRouteFor } from "@/lib/native-routes";
 import { downloadAndInstallApk } from "@/lib/self-update";
 import { bufferedCount } from "@/track/db";
 import { isShiftOpen } from "@/track/state";
@@ -218,10 +219,24 @@ export default function CabinetScreen() {
           if (nativeEvent.statusCode === 401) setFailed(true);
         }}
         /**
-         * Посилання за межі свого домену відкриваємо в зовнішньому браузері:
+         * Дві перевірки в одному місці.
+         *
+         * Перша: сторінки, які вже переписані нативно, не відкриваємо у
+         * WebView — перехоплюємо перехід і показуємо нативний екран. Так
+         * кабінет переїжджає по одному екрану за реліз, і на сайті нічого не
+         * доводиться міняти: посилання лишаються ті самі.
+         *
+         * Друга: посилання за межі свого домену йдуть у зовнішній браузер —
          * чужа сторінка не має опинятися у вікні, де вже стоїть кукі кабінету.
          */
-        onShouldStartLoadWithRequest={(req) => req.url.startsWith(API_BASE)}
+        onShouldStartLoadWithRequest={(req) => {
+          const native = nativeRouteFor(req.url);
+          if (native) {
+            router.push(native);
+            return false;
+          }
+          return req.url.startsWith(API_BASE);
+        }}
         startInLoadingState
         renderLoading={() => <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />}
         style={{ flex: 1 }}

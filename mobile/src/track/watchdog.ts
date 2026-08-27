@@ -16,6 +16,7 @@ import { WATCHDOG_TASK } from "./task-name";
 import { getRole, isShiftOpen } from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
+import { flushPendingVisits } from "./pending-visits";
 import { isTracking, startTracking } from "./controller";
 
 export async function runWatchdog(): Promise<void> {
@@ -24,6 +25,8 @@ export async function runWatchdog(): Promise<void> {
    * людина на маршруті, і трек лягає в день без зміни.
    */
   await flushPendingShift().catch(() => {});
+  // Відмітки візитів — теж наперед: із них складається день і каса.
+  await flushPendingVisits().catch(() => {});
   // Далі віддати те, що назбиралося: буфер важливіший за все інше.
   await maybeFlush().catch(() => {});
   await heartbeat().catch(() => {});

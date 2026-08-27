@@ -6,6 +6,7 @@
  */
 
 import { staffApi, StaffApiError, APP_VERSION } from "@/api/staff";
+import { readDeviceState } from "./device-state";
 import {
   bufferedCount,
   dropPoints,
@@ -121,13 +122,14 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
   const last = await getLastHeartbeatAt();
   if (!force && Date.now() - last < HEARTBEAT_INTERVAL_MS) return null;
 
-  const [buffered, mode, shiftOpen, fix, lastError, lastSync] = await Promise.all([
+  const [buffered, mode, shiftOpen, fix, lastError, lastSync, device] = await Promise.all([
     bufferedCount(),
     getMode(),
     isShiftOpen(),
     getLastFix(),
     getLastError(),
     getLastFlushAt(),
+    readDeviceState(),
   ]);
 
   try {
@@ -141,6 +143,13 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       lastFixAccuracyM: fix?.accuracyM ?? undefined,
       lastSyncAt: lastSync ? new Date(lastSync).toISOString() : undefined,
       lastError: lastError ?? undefined,
+      /**
+       * Стан пристрою — заради відповіді на питання «чому трек обірвався».
+       * Ті самі значення, що шле Kotlin-трекер, щоб адмінка не мала двох шкал.
+       */
+      locationPermission: device.locationPermission,
+      locationMode: device.locationMode,
+      batteryPct: device.batteryPct ?? undefined,
       appVersion: APP_VERSION,
     });
     await setLastHeartbeatAt(Date.now());

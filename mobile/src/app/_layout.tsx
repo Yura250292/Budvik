@@ -210,6 +210,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="cabinet" options={{ title: "Кабінет" }} />
             <Stack.Screen name="scan" options={{ title: "Сканер", presentation: "modal" }} />
+            <Stack.Screen name="day" options={{ title: "Мій день" }} />
             <Stack.Screen name="shift/index" options={{ title: "Зміна" }} />
             <Stack.Screen name="shift/odometer" options={{ title: "Одометр" }} />
           </Stack>

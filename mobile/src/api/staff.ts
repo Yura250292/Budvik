@@ -83,6 +83,79 @@ export async function staffRequest<T>(path: string, opts: Options = {}): Promise
   return (await res.json().catch(() => null)) as T;
 }
 
+/* ---------- День водія ---------- */
+
+/**
+ * Точка дня. Форма — з src/lib/track/day-stop-type.ts на сервері; тримати її
+ * тут копією доводиться тому, що застосунок не має доступу до коду сайту.
+ * Розбіжність виявиться як порожні поля на екрані, тож змінювати серверний тип
+ * без правки тут не можна.
+ */
+export type DayStop = {
+  key: string;
+  counterpartyId: string | null;
+  name: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  sequence: number;
+  amount: number;
+  debtAmount: number;
+  /** PICKUP/ERRAND — бонусна поїздка: без товару й без інкасації. */
+  kind: "DELIVERY" | "PICKUP" | "ERRAND";
+  notes: string | null;
+  visit: { status: string; money: string; collectedAmount: number | null } | null;
+};
+
+export type Handover = {
+  id: string;
+  amount: number;
+  confirmedAt: string | null;
+  confirmedAmount: number | null;
+  comment: string | null;
+};
+
+export type DayCash = {
+  collected: number;
+  handed: number;
+  /** Скільки грошей водій везе просто зараз. Рахує сервер — клієнту тут не вірять. */
+  onHands: number;
+  handovers: Handover[];
+};
+
+export type DayResponse = {
+  day: string;
+  role: string;
+  route: {
+    source: string | null;
+    number: string | null;
+    stops: DayStop[];
+  } | null;
+  progress: {
+    total: number;
+    done: number;
+    missed: number;
+    left: number;
+    collected: number;
+    debtPlanned: number;
+  };
+  track: { distanceKm: number; pointsCount: number; lastPointAt: string | null };
+  cash: DayCash;
+};
+
+export type VisitInput = {
+  counterpartyId: string;
+  status: "DONE" | "MISSED";
+  money: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE";
+  debtAmount?: number | null;
+  collectedAmount?: number | null;
+  comment?: string | null;
+  routeSheetStopId?: string | null;
+  deliveryStopId?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
+
 /* ---------- Зміна ---------- */
 
 export type ShiftState = {
@@ -129,6 +202,27 @@ export const staffApi = {
       method: "POST",
       body,
     }),
+
+  /* ---------- День водія ---------- */
+
+  day: (day?: string) =>
+    staffRequest<DayResponse>(`/api/tablet/day${day ? `?day=${day}` : ""}`),
+
+  markVisit: (body: VisitInput) =>
+    staffRequest<{ visit: { id: string } }>("/api/visits", { method: "POST", body }),
+
+  /** Бонусна поїздка не має клієнта — її станом служить сам DeliveryStop. */
+  markErrand: (stopId: string, body: { status: "DELIVERED" | "FAILED"; comment?: string }) =>
+    staffRequest<unknown>(`/api/erp/delivery-routes/stop/${stopId}/mark`, {
+      method: "POST",
+      body,
+    }),
+
+  cashHandover: (body: { amount: number; day?: string; comment?: string }) =>
+    staffRequest<{ cash: DayCash }>("/api/driver/cash-handover", { method: "POST", body }),
+
+  cancelHandover: (id: string) =>
+    staffRequest<unknown>(`/api/driver/cash-handover?id=${id}`, { method: "DELETE" }),
 
   /* ---------- Збірка й вихід ---------- */
 

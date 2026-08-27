@@ -42,13 +42,28 @@ android {
   }
 }
 
+/**
+ * Версію expo-background-task читаємо з його ж package.json.
+ *
+ * Прибити її числом не можна: при оновленні SDK вона зміниться, і збірка
+ * почала б падати на неочевидному «артефакт не знайдено». Так вона завжди
+ * дорівнює тій, що справді встановлена.
+ */
+def backgroundTaskVersion = new groovy.json.JsonSlurper()
+  .parse(file("${projectDir}/../../../node_modules/expo-background-task/package.json")).version
+
 dependencies {
   /**
    * Беремо виконавця BackgroundTaskWork у самого expo-background-task, а не
    * пишемо власного: уся машинерія підняття JS лишається за ним, ми міняємо
    * лише умову запуску (там намертво стоїть NetworkType.CONNECTED).
+   *
+   * Саме maven-артефакт, а НЕ project(':expo-background-task'). Модулі Expo
+   * потрапляють у збірку публікацією в локальний maven-репозиторій, а не як
+   * gradle-підпроєкти — і посилання на підпроєкт валить усю збірку з
+   * «Project with path could not be found». Один раз я на цьому вже впав.
    */
-  implementation project(':expo-background-task')
+  implementation "host.exp.exponent:expo.modules.backgroundtask:${backgroundTaskVersion}"
 
   /**
    * androidx.work доводиться оголошувати ЯВНО, хоч expo-background-task його

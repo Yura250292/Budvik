@@ -10,7 +10,13 @@ import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
 import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 
-/** Скільки годин зміна може висіти відкритою, поки її не визнають забутою. */
+/**
+ * Скільки годин зміна може висіти відкритою, поки її не визнають забутою.
+ *
+ * Після появи автозакриття (`@/lib/shift/auto-close`) стеля майже
+ * недосяжна: зміну закриють увечері того ж дня. Константа лишається
+ * запасним поясненням для випадків, коли воркер не працював.
+ */
 export const ABANDON_AFTER_HOURS = 20;
 
 export type ShiftSummary = {

@@ -25,6 +25,8 @@ import {
   OVERRUN_THRESHOLD_PCT,
 } from "@/lib/shift/plan-overrun";
 import { resolveLegs } from "@/lib/shift/base-legs";
+import { confirmShift, loadForConfirm } from "@/lib/shift/confirm";
+import { autoCloseNote, closeWithoutPhoto } from "@/lib/shift/reconcile";
 
 export const dynamic = "force-dynamic";
 
@@ -240,4 +242,97 @@ export async function GET(
       planFromGeometry: planVsFact.planFromGeometry,
     },
   });
+}
+
+/**
+ * Офіс править і підтверджує зміну.
+ *
+ * Досі адмінка вміла лише дивитися: незакрита зміна або зміна з
+ * очевидно хибним одометром лишалася такою назавжди, бо єдиний, хто міг
+ * її змінити, — сам торговий у застосунку. Для WarehouseShift така
+ * правка існує з самого початку (EditWarehouseShiftModal), і причина
+ * там та сама: людина забуває, а число потрібне зарплаті.
+ *
+ * Тіло: `{ endedAt?, endOdometer?, confirm?, notes? }`. Порядок дій —
+ * спершу закрити, якщо зміна ще відкрита, потім проставити одометр і
+ * підтвердити; кожен крок необов'язковий.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: "Не авторизовано" }, { status: 401 });
+  if (!ALLOWED_ROLES.includes(session.user.role)) {
+    return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
+  }
+
+  const { id } = await params;
+
+  let body: { endedAt?: string; endOdometer?: number; confirm?: boolean; notes?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Некоректний JSON" }, { status: 400 });
+  }
+
+  let shift = await loadForConfirm(id);
+  if (!shift) return NextResponse.json({ error: "Зміну не знайдено" }, { status: 404 });
+
+  let endedAt: Date | undefined;
+  if (body.endedAt) {
+    endedAt = new Date(body.endedAt);
+    if (Number.isNaN(endedAt.getTime())) {
+      return NextResponse.json({ error: "Некоректний час закінчення" }, { status: 400 });
+    }
+  }
+
+  /**
+   * Відкриту зміну офіс закриває тим самим шляхом, що й автомат, —
+   * інакше в базі з'явився б четвертий різновид закриття зі своїм
+   * набором прапорців.
+   */
+  if (shift.status === "OPEN") {
+    if (!endedAt) {
+      return NextResponse.json(
+        { error: "Зміна ще відкрита — вкажіть час закінчення" },
+        { status: 400 }
+      );
+    }
+    if (endedAt <= shift.startedAt) {
+      return NextResponse.json(
+        { error: "Час закінчення раніший за початок зміни" },
+        { status: 400 }
+      );
+    }
+    await prisma.$transaction((tx) =>
+      closeWithoutPhoto(tx, shift!, {
+        endedAt: endedAt!,
+        source: "OFFICE",
+        notes: body.notes ?? autoCloseNote("OFFICE", null),
+      })
+    );
+    shift = await loadForConfirm(id);
+    if (!shift) return NextResponse.json({ error: "Зміну не знайдено" }, { status: 404 });
+    // Час уже застосований — далі його не переприсвоюємо.
+    endedAt = undefined;
+  }
+
+  if (body.endOdometer != null || endedAt || body.confirm) {
+    const result = await confirmShift(
+      shift,
+      { endOdometer: body.endOdometer, endedAt },
+      { userId: session.user.id, source: "OFFICE" }
+    );
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    shift = result.shift;
+  }
+
+  if (body.notes != null) {
+    await prisma.shift.update({ where: { id }, data: { notes: body.notes } });
+  }
+
+  return NextResponse.json({ shift });
 }

@@ -21,7 +21,7 @@ import { haversineM } from "@/lib/track/geo";
  * приїзд додому — так. Менший поріг ловив би кожну зупинку на каву й
  * пропонував би закінчити зміну опівдні.
  */
-const STOP_MINUTES = 40;
+export const STOP_MINUTES = 40;
 
 /** Зсув, менший за який вважаємо, що машина стоїть, а не їде. */
 const STOP_RADIUS_M = 300;
@@ -40,8 +40,18 @@ export type StopGuess = {
  *
  * Шукаємо саме ОСТАННЮ: за день таких зупинок кілька (обід, склад), а
  * нас цікавить та, після якої рух уже не відновився по-робочому.
+ *
+ * `tailOnly` міняє питання з «де людина довго стояла» на «чи стоїть
+ * вона ЗАРАЗ». Різниця принципова для автозакриття: воно дивиться на
+ * зміну ввечері, коли людина ще може їхати, і без цього прапорця
+ * закрило б її обідом — найдовшою зупинкою дня, що давно позаду.
+ * Людині в застосунку, навпаки, потрібна саме здогадка про кінець
+ * роботи, тому там прапорець не ставиться.
  */
-export async function guessWorkEnd(shiftId: string): Promise<StopGuess | null> {
+export async function guessWorkEnd(
+  shiftId: string,
+  opts: { tailOnly?: boolean } = {}
+): Promise<StopGuess | null> {
   const points = await prisma.trackPoint.findMany({
     where: { shiftId },
     orderBy: { recordedAt: "asc" },
@@ -54,6 +64,8 @@ export async function guessWorkEnd(shiftId: string): Promise<StopGuess | null> {
   let anchorIdx = 0;
 
   for (let i = 1; i < points.length; i++) {
+    // У режимі хвоста проміжні зупинки не цікавлять — потрібен лише
+    // якір останнього відрізка, тому здогадку тут не запам'ятовуємо.
     const moved = haversineM(
       points[anchorIdx].lat,
       points[anchorIdx].lng,
@@ -65,7 +77,7 @@ export async function guessWorkEnd(shiftId: string): Promise<StopGuess | null> {
       // Поїхали далі — рахуємо, скільки простояли на попередньому місці.
       const stoodMin =
         (points[i - 1].recordedAt.getTime() - points[anchorIdx].recordedAt.getTime()) / 60_000;
-      if (stoodMin >= STOP_MINUTES) {
+      if (!opts.tailOnly && stoodMin >= STOP_MINUTES) {
         best = {
           at: points[anchorIdx].recordedAt,
           minutes: Math.round(stoodMin),

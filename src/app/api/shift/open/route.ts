@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import type { OdometerSource } from "@prisma/client";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { autoCloseForgotten, findLastFinished, summarize } from "@/lib/shift/service";
+import { recountAfterWorkKm } from "@/lib/shift/reconcile";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
           closedLate: true,
           afterWorkKm: true,
           endedAt: true,
+          lateCloseSource: true,
         },
       });
 
@@ -116,8 +118,26 @@ export async function POST(req: NextRequest) {
        * autoClosedByShiftId проставляємо другим кроком: id нової зміни
        * ще не існує.
        */
+      /**
+       * Вечірні кілометри перераховуємо ЗАРАЗ, а не беремо збережені.
+       *
+       * afterWorkKm пораховано в момент закриття — а після нього людина
+       * ще їздила: у магазин, до школи, куди завгодно. Ті точки долетіли
+       * пізніше, з фазою AFTER_SHIFT, і без перерахунку вони лягають у
+       * робочий пробіг учорашньої зміни — тобто в кілометри, за які
+       * питають з торгового.
+       */
+      const afterWorkKm = forgotten
+        ? await recountAfterWorkKm(forgotten.id, forgotten.endedAt)
+        : null;
+
       const forgottenClosed = forgotten
-        ? await autoCloseForgotten(tx, forgotten, odometer, null)
+        ? await autoCloseForgotten(
+            tx,
+            { ...forgotten, afterWorkKm: afterWorkKm ?? forgotten.afterWorkKm },
+            odometer,
+            null
+          )
         : null;
 
       const shift = await tx.shift.create({
@@ -163,7 +183,17 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return { shift, autoClosed, forgottenStartedAt: forgotten?.startedAt ?? null };
+      return {
+        shift,
+        autoClosed,
+        forgotten: forgotten
+          ? {
+              startedAt: forgotten.startedAt,
+              endedAt: forgotten.endedAt,
+              lateCloseSource: forgotten.lateCloseSource,
+            }
+          : null,
+      };
     });
 
     return NextResponse.json({
@@ -174,8 +204,16 @@ export async function POST(req: NextRequest) {
         ? {
             shiftId: result.autoClosed.id,
             distanceKm: result.autoClosed.distanceKm,
-            startedAt: result.forgottenStartedAt,
-            note: "Попередня зміна не була закрита. Пробіг порахований до старту цієї зміни й включає вечір.",
+            startedAt: result.forgotten?.startedAt ?? null,
+            // Час і джерело потрібні застосунку, щоб показати картку
+            // підтвердження («вчора закрито автоматично о 19:53»), а не
+            // просто число пробігу.
+            endedAt: result.forgotten?.endedAt ?? null,
+            lateCloseSource: result.forgotten?.lateCloseSource ?? null,
+            afterWorkKm: result.autoClosed.afterWorkKm,
+            note: result.forgotten?.endedAt
+              ? "Попередня зміна була закрита без фінішного фото. Пробіг порахований за одометром, вечірні кілометри відняті за треком."
+              : "Попередня зміна не була закрита. Пробіг порахований до старту цієї зміни й включає вечір.",
           }
         : null,
       previous: previous

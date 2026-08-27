@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { guessWorkEnd, gpsKmBetween } from "@/lib/shift/late-close";
+import { autoCloseNote, closeWithoutPhoto } from "@/lib/shift/reconcile";
 
 export const dynamic = "force-dynamic";
 
@@ -90,42 +91,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Час закінчення в майбутньому" }, { status: 400 });
   }
 
-  const workKm = await gpsKmBetween(shift.id, shift.startedAt, endedAt);
-  const afterWorkKm = await gpsKmBetween(shift.id, endedAt, null);
-
-  const durationMinutes = Math.round((endedAt.getTime() - shift.startedAt.getTime()) / 60_000);
-
   /**
-   * Статус ABANDONED, а не CLOSED: фінішного фото немає, і пробіг за
-   * одометром ще невідомий. Видавати таку зміну за нормально закриту
-   * означало б ховати те, що її треба буде звірити зранку.
+   * Запис — спільний з автозакриттям і правкою офісу
+   * (`@/lib/shift/reconcile`). Тут лишається тільки рішення «чи можна
+   * закрити цим часом», бо воно в кожного шляху своє.
    */
-  const updated = await prisma.shift.update({
-    where: { id: shift.id },
-    data: {
-      status: "ABANDONED",
-      endedAt,
-      durationMinutes,
-      closedLate: true,
-      lateCloseSource: body.source === "GPS" ? "GPS" : "MANUAL",
-      gpsDistanceKm: workKm,
-      afterWorkKm,
-      // Підозра стоїть, бо одометра немає — але тепер керівник бачить
-      // причину, а не просто червоний прапорець.
-      odometerSuspicious: true,
-      notes: "Закрито заднім числом без фінішного фото",
-    },
-    select: {
-      id: true,
-      endedAt: true,
-      durationMinutes: true,
-      gpsDistanceKm: true,
-      afterWorkKm: true,
-    },
-  });
+  const source = body.source === "GPS" ? "GPS" : "MANUAL";
+  const updated = await prisma.$transaction((tx) =>
+    closeWithoutPhoto(tx, shift, { endedAt, source, notes: autoCloseNote(source, null) })
+  );
 
   return NextResponse.json({
-    shift: updated,
+    // Форма відповіді незмінна: на неї спирається екран пізнього
+    // закриття в застосунку.
+    shift: {
+      id: updated.id,
+      endedAt: updated.endedAt,
+      durationMinutes: updated.durationMinutes,
+      gpsDistanceKm: updated.gpsDistanceKm,
+      afterWorkKm: updated.afterWorkKm,
+    },
     note:
       "Зміну закрито. Пробіг за одометром порахується зранку, коли ви " +
       "сфотографуєте одометр на початку наступної зміни.",

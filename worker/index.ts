@@ -27,6 +27,7 @@ import {
 } from "@/lib/sync-ingest/handlers";
 import { alertAgentSilent } from "@/lib/sync-ingest/alerts";
 import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
+import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -233,6 +234,34 @@ const trackSilenceTimer = setInterval(
   SILENCE_CHECK_INTERVAL_MS
 );
 
+/**
+ * Третя перевірка — про зміни, які торговий забув закрити.
+ *
+ * Живе поруч із двома попередніми з тієї ж причини: потрібен постійний
+ * процес, який дивиться на ВІДСУТНІСТЬ дії. Раз на чверть години — з
+ * запасом: вікно рішення відкривається о 20:00 і триває до 23:00, тож
+ * пізніше ніж на п'ятнадцять хвилин зміна не затримається.
+ *
+ * Сама логіка — у `@/lib/shift/auto-close`, щоб її можна було прогнати
+ * скриптом у режимі `--dry` і побачити рішення, не змінюючи бази.
+ */
+async function closeStaleShifts(): Promise<void> {
+  try {
+    const decisions = await autoCloseStaleShifts();
+    const closed = decisions.filter((d) => d.close);
+    if (closed.length > 0) {
+      console.log(
+        `worker: автозакрито змін — ${closed.length}: ` +
+          closed.map((d) => `${d.name ?? d.userId} (${d.close!.source})`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: автозакриття змін впало", e);
+  }
+}
+
+const staleShiftTimer = setInterval(() => void closeStaleShifts(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -244,6 +273,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     console.log(`${signal} — зупиняюсь`);
     clearInterval(silenceTimer);
     clearInterval(trackSilenceTimer);
+    clearInterval(staleShiftTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

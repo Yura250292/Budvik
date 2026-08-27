@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
   const to = url.searchParams.get("to");
   const userId = url.searchParams.get("userId");
   const onlySuspicious = url.searchParams.get("suspicious") === "1";
+  const onlyUnconfirmed = url.searchParams.get("confirmed") === "0";
 
   const where: Record<string, unknown> = {};
   if (from && to) {
@@ -39,6 +40,15 @@ export async function GET(req: NextRequest) {
   }
   if (userId) where.userId = userId;
   if (onlySuspicious) where.odometerSuspicious = true;
+  /**
+   * «Не підтверджені» — це зміни, закриті без фінішного фото, яким ще
+   * ніхто не сказав «так було». Звичайні закриті сюди не потрапляють:
+   * у них є фото одометра, і підтверджувати там нема чого.
+   */
+  if (onlyUnconfirmed) {
+    where.closedLate = true;
+    where.confirmedAt = null;
+  }
 
   const shifts = await prisma.shift.findMany({
     where,
@@ -61,6 +71,11 @@ export async function GET(req: NextRequest) {
       personalKm: true,
       odometerSuspicious: true,
       closedAutomatically: true,
+      closedLate: true,
+      lateCloseSource: true,
+      afterWorkKm: true,
+      confirmedAt: true,
+      confirmSource: true,
       startPhotoUrl: true,
       endPhotoUrl: true,
       user: { select: { name: true, role: true } },
@@ -146,6 +161,7 @@ export async function GET(req: NextRequest) {
       totalKm: shifts.reduce((sum, s) => sum + (s.distanceKm ?? 0), 0),
       suspicious: shifts.filter((s) => s.odometerSuspicious).length,
       autoClosed: shifts.filter((s) => s.closedAutomatically).length,
+      unconfirmed: shifts.filter((s) => s.closedLate && !s.confirmedAt).length,
       overrunning: rows.filter((r) => r.overrun?.exceeded).length,
     },
   });

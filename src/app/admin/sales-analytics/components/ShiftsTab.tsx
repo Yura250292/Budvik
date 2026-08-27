@@ -38,6 +38,13 @@ type ShiftRow = {
   personalKm: number | null;
   odometerSuspicious: boolean;
   closedAutomatically: boolean;
+  closedLate: boolean;
+  /** Звідки взявся час закінчення: GPS | MANUAL | AUTO_* | OFFICE */
+  lateCloseSource: string | null;
+  afterWorkKm: number | null;
+  confirmedAt: string | null;
+  /** REP — підтвердив торговий, OFFICE — офіс */
+  confirmSource: string | null;
   startPhotoUrl: string | null;
   endPhotoUrl: string | null;
   pointsCount: number;
@@ -138,6 +145,22 @@ const SOURCE_LABEL: Record<string, string> = {
   CORRECTED: "AI + правка",
 };
 
+/**
+ * Чому зміна закрита без фінішного фото.
+ *
+ * Різниця між ними — це різниця в довірі до цифри: «стояла з 19:53» —
+ * це висновок з треку, а «трек мовчав» означає, що часу ми не знаємо
+ * взагалі й узяли останнє, що бачили.
+ */
+const LATE_CLOSE_LABEL: Record<string, string> = {
+  GPS: "за підказкою треку",
+  MANUAL: "час вказано вручну",
+  AUTO_GPS: "авто: машина стояла",
+  AUTO_DEAD: "авто: трек мовчав",
+  AUTO_FORCED: "авто: за часом",
+  OFFICE: "закрив офіс",
+};
+
 /** Київська доба рядком «2026-08-27» — за нею групуються зміни. */
 function kyivDay(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date(iso));
@@ -224,6 +247,7 @@ export function ShiftsTab({ period }: { period: Period }) {
     totalKm: number;
     suspicious: number;
     autoClosed: number;
+    unconfirmed: number;
     overrunning: number;
   } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -241,11 +265,18 @@ export function ShiftsTab({ period }: { period: Period }) {
   const detailRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [onlySuspicious, setOnlySuspicious] = useState(false);
+  const [onlyUnconfirmed, setOnlyUnconfirmed] = useState(false);
+  /** Форма правки в картці: одометр і час закінчення. */
+  const [editOdometer, setEditOdometer] = useState("");
+  const [editEndedAt, setEditEndedAt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const q = new URLSearchParams({ from: period.from, to: period.to });
       if (onlySuspicious) q.set("suspicious", "1");
+      if (onlyUnconfirmed) q.set("confirmed", "0");
       const res = await fetch(`/api/admin/shifts?${q}`);
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
@@ -255,7 +286,7 @@ export function ShiftsTab({ period }: { period: Period }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося завантажити");
     }
-  }, [period.from, period.to, onlySuspicious]);
+  }, [period.from, period.to, onlySuspicious, onlyUnconfirmed]);
 
   useEffect(() => {
     void load();
@@ -360,6 +391,27 @@ export function ShiftsTab({ period }: { period: Period }) {
               color="#D97706"
             />
           )}
+          {/*
+            Черга офісу: зміни, закриті без фото, яким ще ніхто не сказав
+            «так було». Поки їх не звірити, кілометри в них стоять на
+            здогадці треку — тому це фільтр, а не просто число.
+          */}
+          {summary.unconfirmed > 0 && (
+            <button
+              type="button"
+              onClick={() => setOnlyUnconfirmed((v) => !v)}
+              title={onlyUnconfirmed ? "Показати всі зміни" : "Залишити лише ці"}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+            >
+              <Metric
+                label="Не підтверджені"
+                value={String(summary.unconfirmed)}
+                hint={onlyUnconfirmed ? "показано лише їх ✕" : "показати лише їх"}
+                color="#D97706"
+                active={onlyUnconfirmed}
+              />
+            </button>
+          )}
           {summary.overrunning > 0 && (
             <Metric
               label="Понад план"
@@ -455,6 +507,28 @@ export function ShiftsTab({ period }: { period: Period }) {
                           >
                             {STATUS_LABEL[s.status] ?? s.status}
                             {s.closedAutomatically && " · авто"}
+                          </span>
+                        )}
+                        {/* Зміна без фінішного фото чекає слова людини.
+                            Підтверджена мовчить — питання закрите. */}
+                        {s.closedLate && !s.confirmedAt && (
+                          <span
+                            style={{
+                              marginLeft: 6, fontSize: 11, fontWeight: 600,
+                              padding: "1px 7px", borderRadius: 999,
+                              background: "#FFEDD5", color: "#9A3412",
+                            }}
+                            title={LATE_CLOSE_LABEL[s.lateCloseSource ?? ""] ?? "закрито без фото"}
+                          >
+                            не звірено
+                          </span>
+                        )}
+                        {s.confirmedAt && (
+                          <span
+                            style={{ marginLeft: 6, fontSize: 11, color: "#6B7280" }}
+                            title={`Підтверджено ${time(s.confirmedAt)}`}
+                          >
+                            ✓ {s.confirmSource === "OFFICE" ? "офіс" : "торговий"}
                           </span>
                         )}
                       </td>
@@ -636,14 +710,66 @@ export function ShiftsTab({ period }: { period: Period }) {
             />
           </div>
 
-          {detail.shift.closedAutomatically && (
+          {detail.shift.closedAutomatically && detail.shift.endOdometer == null && (
             <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
               <p style={{ fontSize: 13, color: "#92400E", lineHeight: 1.5 }}>
-                Зміну закрито автоматично: торговий не зробив фінішного фото.
-                Пробіг порахований до старту наступної зміни, тому включає вечір
-                і дорогу додому — це не чисто робочі кілометри.
+                Зміну закрито автоматично: фінішного фото немає. Час закінчення —{" "}
+                {LATE_CLOSE_LABEL[detail.shift.lateCloseSource ?? ""] ?? "невідомо звідки"}.
+                Одометр підтягнеться зранку зі старту наступної зміни
+                {detail.shift.afterWorkKm != null &&
+                  `, вечірні ${detail.shift.afterWorkKm} км уже відділені за треком`}
+                .
               </p>
             </div>
+          )}
+
+          {/*
+            Правка й підтвердження — те, чого адмінці бракувало найдужче.
+            Досі офіс міг лише дивитися: зміна з очевидно хибним числом
+            або зовсім незакрита лишалася такою назавжди, бо єдиний, хто
+            мав право її змінити, — сам торговий у застосунку.
+          */}
+          {(detail.shift.status === "OPEN" ||
+            (detail.shift.closedLate && !detail.shift.confirmedAt)) && (
+            <OfficeFix
+              shift={detail.shift}
+              odometer={editOdometer}
+              endedAt={editEndedAt}
+              onOdometer={setEditOdometer}
+              onEndedAt={setEditEndedAt}
+              saving={saving}
+              error={saveError}
+              onSubmit={async (payload) => {
+                setSaving(true);
+                setSaveError(null);
+                try {
+                  const res = await fetch(`/api/admin/shifts/${detail.shift.id}`, {
+                    method: "PATCH",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify(payload),
+                  });
+                  const json = await res.json().catch(() => null);
+                  if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+                  setEditOdometer("");
+                  setEditEndedAt("");
+                  // Перезавантажуємо і список, і картку: змінилися обидва.
+                  await load();
+                  const fresh = await fetch(`/api/admin/shifts/${detail.shift.id}`);
+                  if (fresh.ok) setDetail(await fresh.json());
+                } catch (e) {
+                  setSaveError(e instanceof Error ? e.message : "Не вдалося зберегти");
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            />
+          )}
+
+          {detail.shift.confirmedAt && (
+            <p style={{ fontSize: 12, color: "#6B7280" }}>
+              Звірено {time(detail.shift.confirmedAt)} —{" "}
+              {detail.shift.confirmSource === "OFFICE" ? "офісом" : "торговим у застосунку"}.
+            </p>
           )}
 
           {detail.plan.route && <PlanVerdict plan={detail.plan} route={detail.plan.route} />}
@@ -805,6 +931,127 @@ export function ShiftsTab({ period }: { period: Period }) {
  * «у межах норми» під ним знімає питання, не змушуючи згадувати, який
  * бік добрий. Кольором — лише те, що виходить за межі.
  */
+/**
+ * Правка зміни офісом: закрити, проставити одометр, підтвердити.
+ *
+ * Три дії в одній формі, бо в житті вони йдуть разом: керівник дивиться
+ * на зміну, яку закрив автомат, звіряє з паперовим листом і або
+ * погоджується, або вписує справжнє число. Розносити це по трьох
+ * кнопках означало б змушувати робити три кліки там, де думка одна.
+ */
+function OfficeFix({
+  shift,
+  odometer,
+  endedAt,
+  onOdometer,
+  onEndedAt,
+  saving,
+  error,
+  onSubmit,
+}: {
+  shift: ShiftRow & { notes: string | null };
+  odometer: string;
+  endedAt: string;
+  onOdometer: (v: string) => void;
+  onEndedAt: (v: string) => void;
+  saving: boolean;
+  error: string | null;
+  onSubmit: (payload: {
+    endOdometer?: number;
+    endedAt?: string;
+    confirm?: boolean;
+  }) => void | Promise<void>;
+}) {
+  const isOpen = shift.status === "OPEN";
+  const parsed = Number(odometer.replace(/\D/g, ""));
+  const hasOdometer = odometer.trim() !== "" && Number.isInteger(parsed) && parsed > 0;
+
+  /**
+   * Час у формі — місцевий рядок для <input type="datetime-local">, а
+   * на сервер іде ISO. Без явного перетворення браузер віддав би час
+   * без зони, і зміна закрилася б на три години раніше.
+   */
+  const toIso = (local: string): string | undefined =>
+    local ? new Date(local).toISOString() : undefined;
+
+  return (
+    <div className="rounded-lg p-3 space-y-3" style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}>
+      <p style={{ fontSize: 13, fontWeight: 700 }}>
+        {isOpen ? "Зміна досі відкрита" : "Звірити зміну"}
+      </p>
+      <p style={{ fontSize: 12, color: "#6B7280", lineHeight: 1.5 }}>
+        {isOpen
+          ? "Вкажіть, коли торговий насправді закінчив: кілометри після цього часу підуть у «дорогу додому», а не в роботу."
+          : "Якщо цифри збігаються з паперовим листом — просто підтвердьте. Якщо ні — впишіть справжній одометр на кінець роботи."}
+      </p>
+
+      <div className="flex flex-wrap gap-3 items-end">
+        <label style={{ fontSize: 12, color: "#374151" }}>
+          <span style={{ display: "block", marginBottom: 3 }}>Час закінчення</span>
+          <input
+            type="datetime-local"
+            value={endedAt}
+            onChange={(e) => onEndedAt(e.target.value)}
+            style={{
+              border: "1px solid #D1D5DB", borderRadius: 8, padding: "6px 8px",
+              fontSize: 13, background: "#fff",
+            }}
+          />
+        </label>
+
+        {!isOpen && (
+          <label style={{ fontSize: 12, color: "#374151" }}>
+            <span style={{ display: "block", marginBottom: 3 }}>
+              Одометр на кінець, км
+            </span>
+            <input
+              inputMode="numeric"
+              value={odometer}
+              onChange={(e) => onOdometer(e.target.value)}
+              placeholder={`більше за ${shift.startOdometer.toLocaleString("uk-UA")}`}
+              style={{
+                border: "1px solid #D1D5DB", borderRadius: 8, padding: "6px 8px",
+                fontSize: 13, width: 170, background: "#fff",
+              }}
+            />
+          </label>
+        )}
+
+        <button
+          type="button"
+          disabled={saving || (isOpen && !endedAt)}
+          onClick={() =>
+            onSubmit(
+              isOpen
+                ? { endedAt: toIso(endedAt) }
+                : {
+                    ...(hasOdometer ? { endOdometer: parsed } : {}),
+                    ...(endedAt ? { endedAt: toIso(endedAt) } : {}),
+                    confirm: true,
+                  }
+            )
+          }
+          style={{
+            padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+            border: "none", cursor: saving ? "default" : "pointer",
+            background: saving ? "#9CA3AF" : "#111827", color: "#fff",
+          }}
+        >
+          {saving
+            ? "Зберігаю…"
+            : isOpen
+              ? "Закрити зміну"
+              : hasOdometer
+                ? "Зберегти й підтвердити"
+                : "Підтвердити як є"}
+        </button>
+      </div>
+
+      {error && <p style={{ fontSize: 12, color: "#DC2626" }}>{error}</p>}
+    </div>
+  );
+}
+
 function Metric({
   label,
   value,

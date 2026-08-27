@@ -1,17 +1,22 @@
 /**
- * Компактна картка бренда — для списку брендів у каталозі.
+ * Компактна картка бренда — той самий банер, зменшений до половини екрана.
  *
- * Список був таблицею: три сотні однакових рядків, у кожному дрібний знак,
- * назва й число. Бренди в такому списку відрізняються тільки написом, і його
- * доводиться читати щоразу.
+ * Список брендів був таблицею: три сотні однакових рядків, у кожному дрібний
+ * знак, назва й число. Бренди в такому списку відрізняються лише написом, і
+ * його доводиться читати щоразу.
  *
- * Картка — той самий банер, тільки менший: фірмовий колір, назва, лічильник і
- * знімок товару. Другої барви тут немає навмисно — на 130 пікселях вона
- * перетворилася б на смужку, а не на фірмову пару.
+ * Тут те саме, що на великому банері: фірмовий колір із переходом, відблиск у
+ * куті, назва й знімок товару в білій плитці. Різниця лише в тому, що знімок
+ * один — на 118 пікселях висоти віяло з трьох перетворилося б на кашу.
+ *
+ * Другий тон у більшості брендів свій не заведений (він є у восьми з вітрини),
+ * тож для решти рахуємо його з першого — притемненням. Це гірше за справжню
+ * фірмову пару, але помітно краще за суцільну заливку.
  */
 
 import { View, Text, Pressable, StyleSheet, type DimensionValue } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { inkFor, colorFor, type BrandLike } from "@/components/BrandTile";
 import { colors, space, radius, formatPositions } from "@/theme";
 
@@ -21,6 +26,13 @@ export type GridBrand = BrandLike & {
   /** Знімок товару бренда. Є менш ніж у кожного восьмого — решта лишається кольором. */
   photo?: string | null;
 };
+
+/** Той самий колір, притемнений: другий тон градієнта, коли свого немає. */
+function shade(hex: string): string {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return hex;
+  const mix = (from: number, to: number) => Math.max(0, Math.round(parseInt(hex.slice(from, to), 16) * 0.66));
+  return `#${[mix(1, 3), mix(3, 5), mix(5, 7)].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
 
 export function BrandGridTile({
   brand: b,
@@ -33,6 +45,7 @@ export function BrandGridTile({
 }) {
   const bg = colorFor(b);
   const ink = inkFor(bg);
+  const light = ink !== "#FFFFFF";
 
   return (
     <Pressable
@@ -41,6 +54,20 @@ export function BrandGridTile({
       accessibilityRole="button"
       accessibilityLabel={`${b.name}, ${formatPositions(b.count)}`}
     >
+      <LinearGradient
+        colors={[bg, bg, shade(bg)]}
+        locations={[0, 0.25, 0.95]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={light ? ["rgba(255,255,255,0.5)", "rgba(255,255,255,0)"] : ["rgba(255,255,255,0.18)", "rgba(255,255,255,0)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.8, y: 0.9 }}
+        style={StyleSheet.absoluteFill}
+      />
+
       <View style={styles.body}>
         {b.logoUrl ? (
           <View style={styles.logoWrap}>
@@ -59,14 +86,16 @@ export function BrandGridTile({
           </Text>
         )}
 
-        <Text style={[styles.count, { color: ink }]}>{formatPositions(b.count)}</Text>
+        <View style={styles.countPill}>
+          <Text style={styles.countText}>{formatPositions(b.count)}</Text>
+        </View>
       </View>
 
       {b.photo ? (
-        <View style={styles.thumb}>
+        <View style={styles.tile}>
           <Image
             source={b.photo}
-            style={styles.thumbImage}
+            style={styles.tileImage}
             alt=""
             contentFit="contain"
             cachePolicy="memory-disk"
@@ -80,13 +109,13 @@ export function BrandGridTile({
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 118,
+    minHeight: 126,
     padding: space.md,
     borderRadius: radius.md,
     overflow: "hidden",
     justifyContent: "space-between",
   },
-  body: { gap: space.xs, paddingRight: 52 },
+  body: { gap: space.sm, paddingRight: 46 },
   logoWrap: {
     alignSelf: "flex-start",
     borderRadius: radius.sm,
@@ -96,20 +125,33 @@ const styles = StyleSheet.create({
   },
   logo: { width: 74, height: 20 },
   wordmark: { fontSize: 15, fontWeight: "900", letterSpacing: 0.2 },
-  count: { fontSize: 11, fontWeight: "700", opacity: 0.85 },
+  countPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.9)",
+  },
+  countText: { fontSize: 10, fontWeight: "800", color: colors.ink },
   /* Знімок у білій плитці — та сама, що на банерах: у RN немає blend-режимів,
      а фото каталогів зняті на білому без прозорості. */
-  thumb: {
+  tile: {
     position: "absolute",
     right: space.sm,
     bottom: space.sm,
-    width: 52,
-    height: 52,
+    width: 58,
+    height: 58,
     borderRadius: radius.sm,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    padding: 4,
+    padding: 5,
+    transform: [{ rotate: "-4deg" }],
+    shadowColor: "#000",
+    shadowOpacity: 0.24,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  thumbImage: { width: "100%", height: "100%" },
+  tileImage: { width: "100%", height: "100%" },
 });

@@ -1,15 +1,20 @@
 /**
- * Банер бренда — та сама вітрина, що на головній сайту.
+ * Банер бренда — той самий, що на головній сайту, лише менший.
  *
  * До цього бренди в застосунку були рядком дрібних знаків і списком рядків:
  * швидкий вхід для того, хто вже знає, чий інструмент бере, але про сам бренд
  * не сказано нічого. Банер показує фірмову пару кольорів, чим бренд є, скільки
  * в нього товару в наявності і як той товар виглядає.
  *
- * Знімок стоїть у білій плитці, а не врізаний у тло: фото каталогів зняті на
- * білому й без прозорості, а blend-режимів у React Native немає — на
- * кольоровому банері з нього стирчав би білий прямокутник. Та сама плитка, що
- * в банерах головної, тож екрани лишаються одним цілим.
+ * Спершу пара кольорів була двома площинами: суцільна заливка й прямокутник
+ * другого тону праворуч. Це читалося як два зшиті аркуші, а не як банер —
+ * фірмовий колір мусить перетікати. Тепер тут справжній градієнт по діагоналі
+ * (expo-linear-gradient є в Expo Go, нової збірки не потребує) і відблиск у
+ * лівому верхньому куті, як на сайті.
+ *
+ * Знімки стоять у білих плитках «віялом», а не врізані в тло: фото каталогів
+ * зняті на білому й без прозорості, а blend-режимів у React Native немає — на
+ * кольоровому банері з них стирчали б білі прямокутники.
  *
  * Компонент один на два місця: рейку на головній і список брендів у каталозі.
  * Різниця лише в ширині — вигляд бренда мусить бути однаковий скрізь, інакше
@@ -18,6 +23,7 @@
 
 import { View, Text, Pressable, StyleSheet, type DimensionValue } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { inkFor } from "@/components/BrandTile";
 import { colors, space, radius, formatPositions } from "@/theme";
@@ -29,8 +35,8 @@ export type ShowcaseBrand = {
   /** Фірмовий колір під написом. */
   accent: string;
   /**
-   * Другий фірмовий колір — під знімком. Старіші збірки сервера його не
-   * шлють, тоді картка лишається однотонною.
+   * Другий фірмовий колір — у правий нижній кут, під знімки. Старіші збірки
+   * сервера його не шлють, тоді банер лишається однотонним.
    */
   accentTo?: string | null;
   /** Колір назви, коли логотипа немає. Немає — беремо за контрастом. */
@@ -39,6 +45,9 @@ export type ShowcaseBrand = {
   count: number;
   photos: string[];
 };
+
+/** Нахил плиток у віялі. Три знімки — три кути, як на сайті. */
+const FAN_ANGLES = ["-7deg", "2deg", "9deg"];
 
 export function BrandBanner({
   brand: b,
@@ -50,7 +59,8 @@ export function BrandBanner({
   onPress: () => void;
 }) {
   const ink = inkFor(b.accent);
-  const photo = b.photos[0];
+  const light = ink !== "#FFFFFF";
+  const photos = b.photos.slice(0, 3);
 
   return (
     <Pressable
@@ -59,16 +69,24 @@ export function BrandBanner({
       accessibilityRole="button"
       accessibilityLabel={`${b.name}. ${b.tagline}. ${formatPositions(b.count)}`}
     >
-      {/*
-        Друга фірмова барва — смугою праворуч, під знімком.
+      {b.accentTo ? (
+        <LinearGradient
+          colors={[b.accent, b.accent, b.accentTo]}
+          locations={[0, 0.22, 0.92]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
 
-        У React Native немає градієнтів без окремого пакета, тож пара кольорів
-        бренда (у POLAX помаранч-чорний, у СИЛИ жовтий-чорний) показана
-        площинами: напис лежить на першій, знімок — на другій. Виглядає як
-        фірмовий блок, а не як залитий прямокутник, і не тягне в застосунок
-        нову залежність.
-      */}
-      {b.accentTo ? <View style={[styles.accentPanel, { backgroundColor: b.accentTo }]} /> : null}
+      {/* Відблиск: світлий на темних банерах, темний на світлих. Біле по білому
+          (APRO) не видно, а чорне по чорному (СИЛА, POLAX) з'їдало б кут. */}
+      <LinearGradient
+        colors={light ? ["rgba(255,255,255,0.55)", "rgba(255,255,255,0)"] : ["rgba(255,255,255,0.20)", "rgba(255,255,255,0)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.75, y: 0.85 }}
+        style={StyleSheet.absoluteFill}
+      />
 
       <View style={styles.body}>
         {b.logoUrl ? (
@@ -102,35 +120,45 @@ export function BrandBanner({
         </View>
       </View>
 
-      {photo ? (
-        <View style={styles.thumb}>
+      {/* Віяло знімків. Кожна наступна плитка трохи вище й повернута в інший
+          бік — стос карток, а не одна картинка збоку. */}
+      {photos.map((src, i) => (
+        <View
+          key={src}
+          style={[
+            styles.tile,
+            {
+              right: 10 + i * 22,
+              bottom: 14 + i * 10,
+              transform: [{ rotate: FAN_ANGLES[i] ?? "0deg" }],
+              zIndex: photos.length - i,
+            },
+          ]}
+        >
           <Image
-            source={photo}
-            style={styles.thumbImage}
+            source={src}
+            style={styles.tileImage}
             alt=""
             contentFit="contain"
             cachePolicy="memory-disk"
             transition={150}
           />
         </View>
-      ) : null}
+      ))}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
     padding: space.lg,
     borderRadius: radius.lg,
-    minHeight: 140,
+    minHeight: 150,
+    justifyContent: "center",
     overflow: "hidden",
   },
-  /** Смуга другого кольору: права третина картки, під знімком. */
-  accentPanel: { position: "absolute", right: 0, top: 0, bottom: 0, width: "38%" },
-  body: { flex: 1, gap: space.xs },
+  /** Текст займає ліві дві третини: праворуч лежить віяло. */
+  body: { gap: space.xs, width: "62%" },
   logoWrap: {
     alignSelf: "flex-start",
     borderRadius: radius.sm,
@@ -139,7 +167,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   logo: { width: 92, height: 26 },
-  wordmark: { fontSize: 20, fontWeight: "900", letterSpacing: 0.3 },
+  wordmark: { fontSize: 22, fontWeight: "900", letterSpacing: 0.3 },
   tagline: { fontSize: 12, lineHeight: 16, opacity: 0.85 },
   countPill: {
     marginTop: space.xs,
@@ -153,7 +181,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.9)",
   },
   countText: { fontSize: 11, fontWeight: "800", color: colors.ink },
-  thumb: {
+  tile: {
+    position: "absolute",
     width: 86,
     height: 86,
     borderRadius: radius.md,
@@ -161,6 +190,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 6,
+    // Тінь відділяє плитку від тла й від сусідніх плиток у стосі.
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  thumbImage: { width: "100%", height: "100%" },
+  tileImage: { width: "100%", height: "100%" },
 });

@@ -201,6 +201,29 @@ export type ShiftState = {
     shouldRemindToClose: boolean;
   } | null;
   previous: { endOdometer: number | null; endedAt: string | null; distanceKm: number | null } | null;
+  /**
+   * Зміна, яку закрив не сам торговий, — сервер або офіс.
+   *
+   * З'являється й тоді, коли нова зміна вже відкрита: саме ранкове фото
+   * одометра добиває вчорашній пробіг, і це єдиний момент, коли людина
+   * тримає в голові і вчорашній вечір, і сьогоднішнє число.
+   */
+  needsConfirmation: {
+    shiftId: string;
+    startedAt: string;
+    endedAt: string | null;
+    startOdometer: number;
+    endOdometer: number | null;
+    distanceKm: number | null;
+    gpsDistanceKm: number | null;
+    /** Кілометри після роботи — дорога додому й вечір, уже відділені */
+    afterWorkKm: number | null;
+    /** AUTO_GPS | AUTO_DEAD | AUTO_FORCED | GPS | MANUAL | OFFICE */
+    lateCloseSource: string | null;
+    closedAutomatically: boolean;
+    /** Чи можна ще повернути зміну в роботу (перші години після закриття) */
+    canReopen: boolean;
+  } | null;
 };
 
 export const staffApi = {
@@ -274,4 +297,19 @@ export const staffApi = {
 
   /** Гасить токен цього пристрою на сервері, а не лише в памʼяті телефона. */
   logout: () => staffRequest<{ ok: boolean }>("/api/device/logout", { method: "POST" }),
+
+  /* ---------- Звірка автоматично закритої зміни ---------- */
+
+  /**
+   * «Так було» або «ось справжній одометр».
+   *
+   * Порожнє тіло дорівнює згоді — найчастіша відповідь не має вимагати
+   * від застосунку зайвих полів.
+   */
+  shiftConfirm: (id: string, body: { ok?: boolean; endOdometer?: number; endedAt?: string } = {}) =>
+    staffRequest<unknown>(`/api/shift/${id}/confirm`, { method: "POST", body }),
+
+  /** «Я ще працював» — повернути зміну в роботу. Сервер дає на це кілька годин. */
+  shiftReopen: (id: string) =>
+    staffRequest<unknown>(`/api/shift/${id}/reopen`, { method: "POST", body: {} }),
 };

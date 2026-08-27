@@ -7,7 +7,16 @@
  */
 
 import { useCallback, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Alert } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+  Alert,
+  TextInput,
+} from "react-native";
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { staffApi, type ShiftState } from "@/api/staff";
 import { colors, space, radius } from "@/theme";
@@ -109,6 +118,20 @@ export default function ShiftScreen() {
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <Stack.Screen options={{ title: "Зміна" }} />
+
+      {/*
+        Звірка вчорашньої зміни — над усім іншим.
+        Зміну закрив сервер або офіс, і поки людина не сказала «так
+        було», кілометри в ній стоять на здогадці треку. Показуємо це
+        першим, бо саме ранкове фото одометра щойно дало число: якщо
+        картка буде третьою, її прогорнуть і не побачать.
+      */}
+      {state?.needsConfirmation && (
+        <ConfirmCard
+          data={state.needsConfirmation}
+          onDone={refresh}
+        />
+      )}
 
       {/* Відкладений запит видно окремо: людина мусить розуміти, що кнопку
           натиснуто, просто мережа ще не з'явилася. */}
@@ -213,6 +236,132 @@ export default function ShiftScreen() {
   );
 }
 
+/**
+ * Картка «підтвердіть учорашню зміну».
+ *
+ * Три відповіді, і всі три закривають питання: згода, справжній
+ * одометр, «я ще працював». Четвертої — промовчати — немає навмисно:
+ * поки людина не відповіла, зміна висить у черзі й у неї, і в офіса.
+ *
+ * Одометр питаємо числом, а не фото: машина вже не поруч, і на приладі
+ * давно інше значення. Вимога фото штовхала б вигадати кадр.
+ */
+function ConfirmCard({
+  data,
+  onDone,
+}: {
+  data: NonNullable<ShiftState["needsConfirmation"]>;
+  onDone: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+
+  const run = async (action: () => Promise<unknown>, failTitle: string) => {
+    setBusy(true);
+    try {
+      await action();
+      await onDone();
+    } catch (e) {
+      Alert.alert(failTitle, e instanceof Error ? e.message : "Спробуйте, коли буде зв’язок");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const when = data.endedAt ? formatTime(data.endedAt) : "невідомо коли";
+  const auto = data.closedAutomatically;
+
+  return (
+    <View style={[styles.card, styles.warn]}>
+      <Text style={styles.cardTitle}>
+        {auto ? `Зміну закрито автоматично о ${when}` : `Зміна закрита о ${when}`}
+      </Text>
+      <Text style={styles.muted}>
+        {data.lateCloseSource === "AUTO_DEAD"
+          ? "Маршрут перестав писатися, тому час узято з останньої точки. Перевірте його."
+          : data.lateCloseSource === "AUTO_FORCED"
+            ? "Машина ще рухалась, але зміна тривала надто довго — час закриття приблизний."
+            : "Час узято з треку: після нього машина стала й більше не рушила."}
+      </Text>
+
+      {data.distanceKm != null && (
+        <Row label="Пробіг за одометром" value={`${data.distanceKm} км`} />
+      )}
+      {data.gpsDistanceKm != null && <Row label="За GPS" value={`${data.gpsDistanceKm} км`} />}
+      {data.afterWorkKm != null && data.afterWorkKm > 0 && (
+        <Row label="Дорога додому (відняті)" value={`${data.afterWorkKm} км`} />
+      )}
+      {data.endOdometer == null && (
+        <Text style={[styles.muted, { marginTop: space.xs }]}>
+          Одометр на кінець роботи ще невідомий — він порахується з фото наступної зміни.
+        </Text>
+      )}
+
+      {editing ? (
+        <>
+          <TextInput
+            value={value}
+            onChangeText={setValue}
+            keyboardType="number-pad"
+            placeholder={`більше за ${data.startOdometer}`}
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+          />
+          <Pressable
+            style={styles.button}
+            disabled={busy}
+            onPress={() => {
+              const n = Number(value.replace(/\D/g, ""));
+              if (!Number.isInteger(n) || n < data.startOdometer) {
+                Alert.alert(
+                  "Перевірте показання",
+                  `Одометр на кінець не може бути меншим за стартовий (${data.startOdometer} км).`
+                );
+                return;
+              }
+              void run(() => staffApi.shiftConfirm(data.shiftId, { endOdometer: n }), "Не прийнято");
+            }}
+          >
+            <Text style={styles.buttonText}>{busy ? "Зберігаю…" : "Зберегти одометр"}</Text>
+          </Pressable>
+          <Pressable style={styles.link} onPress={() => setEditing(false)}>
+            <Text style={styles.linkText}>Скасувати</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <Pressable
+            style={styles.button}
+            disabled={busy}
+            onPress={() => void run(() => staffApi.shiftConfirm(data.shiftId, { ok: true }), "Не прийнято")}
+          >
+            <Text style={styles.buttonText}>{busy ? "Надсилаю…" : "Все вірно"}</Text>
+          </Pressable>
+
+          <Pressable style={styles.link} onPress={() => setEditing(true)}>
+            <Text style={styles.linkText}>Вказати одометр на кінець роботи</Text>
+          </Pressable>
+
+          {/* Повернення в роботу — лише поки сервер його приймає: це
+              виправлення свіжої помилки, а не спосіб переписати день. */}
+          {data.canReopen && (
+            <Pressable
+              style={styles.link}
+              disabled={busy}
+              onPress={() =>
+                void run(() => staffApi.shiftReopen(data.shiftId), "Не вдалося відновити")
+              }
+            >
+              <Text style={styles.linkText}>Я ще працював — відновити зміну</Text>
+            </Pressable>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
@@ -261,6 +410,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryText: { fontWeight: "600", color: colors.text, fontSize: 14 },
+  input: {
+    marginTop: space.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    // 16 px: менший шрифт змушує систему масштабувати поле під час вводу.
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.bg,
+  },
   link: { paddingVertical: space.sm, alignItems: "center" },
   linkText: { color: colors.textMuted, fontSize: 13, textDecorationLine: "underline" },
 });

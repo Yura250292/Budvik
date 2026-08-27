@@ -63,12 +63,21 @@ export async function flushPendingShift(): Promise<void> {
   };
 
   try {
+    const { cancelCloseReminders, scheduleCloseReminders } = await import("./reminder");
     if (pending.action === "open") {
       await staffApi.shiftOpen(body);
       await setShiftOpen(true);
+      /**
+       * Офлайнове відкриття доїхало лише зараз — можливо, вже під вечір.
+       * Нагадування все одно ставимо: `scheduleCloseReminders` сама
+       * пропускає години, що минули, тож пізній прогін не додасть нічого
+       * зайвого.
+       */
+      await scheduleCloseReminders();
     } else {
       await staffApi.shiftClose(body);
       await setShiftOpen(false);
+      await cancelCloseReminders();
     }
     await setPendingShift(null);
   } catch (e) {

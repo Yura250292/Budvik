@@ -30,6 +30,7 @@ import { colors, space, radius } from "@/theme";
 import { setPendingShift } from "@/track/pending-shift";
 import { setShiftOpen } from "@/track/state";
 import { endShiftTracking, startTracking, stopEverything } from "@/track/controller";
+import { cancelCloseReminders, scheduleCloseReminders } from "@/track/reminder";
 
 /** Фото звужуємо до 1280 px: сервер відхиляє завеликі, а більше й не потрібно. */
 const PHOTO_WIDTH = 1280;
@@ -120,6 +121,7 @@ export default function OdometerScreen() {
       if (isClosing) {
         await staffApi.shiftClose(body);
         await setShiftOpen(false);
+        await cancelCloseReminders();
         /**
          * Після закриття не глушимо все, а ставимо коло навколо місця фінішу:
          * поки машина стоїть — процес спить, а щойно вона поїхала, запис
@@ -130,6 +132,10 @@ export default function OdometerScreen() {
       } else {
         await staffApi.shiftOpen(body);
         await setShiftOpen(true);
+        // Нагадування ставимо на вечір цього ж дня: до 20:00, коли за
+        // зміну візьметься сервер, людина ще може закрити її сама — з
+        // фото й чесним одометром.
+        await scheduleCloseReminders();
         await startTracking("SHIFT");
       }
       router.back();
@@ -157,9 +163,13 @@ export default function OdometerScreen() {
       // щоб почати писати дорогу, немає жодного сенсу.
       if (isClosing) {
         await setShiftOpen(false);
+        await cancelCloseReminders();
         await endShiftTracking();
       } else {
         await setShiftOpen(true);
+        // Запит іще в черзі, але зміна для людини вже почалася —
+        // нагадування живе на пристрої й мережі не потребує.
+        await scheduleCloseReminders();
         await startTracking("SHIFT");
       }
       Alert.alert(

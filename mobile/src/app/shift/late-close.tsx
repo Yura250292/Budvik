@@ -21,6 +21,7 @@ import { staffApi, StaffApiError, type LateCloseSuggestion } from "@/api/staff";
 import { colors, space, radius } from "@/theme";
 import { setShiftOpen } from "@/track/state";
 import { stopEverything } from "@/track/controller";
+import { cancelCloseReminders } from "@/track/reminder";
 
 export default function LateCloseScreen() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function LateCloseScreen() {
     try {
       await staffApi.lateClose({ endedAt, source });
       await setShiftOpen(false);
+      await cancelCloseReminders();
       /**
        * Тут трек глушимо повністю, а не переводимо в режим «дорога додому»:
        * людина вже вдома, дописувати нічого.

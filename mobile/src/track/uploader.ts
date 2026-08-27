@@ -9,6 +9,7 @@ import { staffApi, StaffApiError, APP_VERSION } from "@/api/staff";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
 import { notifyNow } from "./notify";
+import { cancelCloseReminders } from "./reminder";
 import {
   bufferedCount,
   dropPoints,
@@ -177,6 +178,10 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
         if (role !== "DRIVER") {
           const { endShiftTracking } = await import("./controller");
           await endShiftTracking();
+          // Нагадування «зміна ще відкрита» тепер брехали б: її вже
+          // закрито, і о 19:30 людина отримала б спонукання зробити те,
+          // що зроблено.
+          await cancelCloseReminders();
           await notifyNow(
             "Зміну закрито",
             "Зміну закрито не з цього пристрою. Зранку сфотографуйте одометр — інакше пробіг порахується за GPS."

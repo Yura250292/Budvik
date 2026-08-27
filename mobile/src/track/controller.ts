@@ -130,6 +130,10 @@ export async function stopEverything(): Promise<void> {
  */
 export async function logoutAndStop(): Promise<void> {
   await stopEverything();
+  // Планшет передають з рук у руки: нагадування, поставлені попередньою
+  // людиною, не мають будити наступну.
+  const { cancelCloseReminders } = await import("./reminder");
+  await cancelCloseReminders();
   await flush().catch(() => {});
   await staffApi.logout().catch(() => {});
   await clearPoints().catch(() => {});

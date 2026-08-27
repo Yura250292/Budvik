@@ -18,6 +18,7 @@ import {
 } from "@/lib/auth-store";
 import { registerForPush, unregisterPush } from "@/lib/push";
 import { colors, space, radius, formatUAH } from "@/theme";
+import { onStaffLogin } from "@/track/controller";
 
 type Profile = Awaited<ReturnType<typeof api.me>>;
 
@@ -75,6 +76,12 @@ export default function AccountScreen() {
          * що застосунок зламався.
          */
         if (res.scope === "track") {
+          /**
+           * Трек і сторож вмикаються тут, а не на екрані кабінету: кабінет — це
+           * WebView, і якби запуск залежав від нього, водій, який не відкриває
+           * жодної сторінки, лишався б без запису маршруту.
+           */
+          await onStaffLogin(res.user?.role ?? null).catch(() => {});
           router.replace({ pathname: "/cabinet", params: { target: res.target ?? "/sales" } });
           return;
         }

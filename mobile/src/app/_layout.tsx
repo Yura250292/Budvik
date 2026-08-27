@@ -6,6 +6,17 @@
  * туди ж, а сканер — це модальне вікно з камерою, якому таб-бар лише заважає.
  */
 
+/**
+ * Оголошення фонових завдань — НАЙПЕРШИМ імпортом.
+ *
+ * Android піднімає процес заради самого завдання, без жодного інтерфейсу. Якщо
+ * на той момент defineTask ще не викликано, система вважає завдання неіснуючим
+ * і більше його не будить — тобто трек мовчки помирає до наступного ручного
+ * запуску застосунку. Тому цей рядок стоїть вище за все інше й не має
+ * переїжджати нижче.
+ */
+import "@/track/task";
+
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
@@ -199,6 +210,8 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="cabinet" options={{ title: "Кабінет" }} />
             <Stack.Screen name="scan" options={{ title: "Сканер", presentation: "modal" }} />
+            <Stack.Screen name="shift/index" options={{ title: "Зміна" }} />
+            <Stack.Screen name="shift/odometer" options={{ title: "Одометр" }} />
           </Stack>
         </LockGate>
       </PersistQueryClientProvider>

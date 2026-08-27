@@ -9,6 +9,8 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { getToken, clearToken } from "@/lib/auth-store";
+import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { STAFF_APP_HEADER } from "@/lib/app-version";
 import type {
   CardDto, CatalogPage, ProductDto, LookupResult, AppUser, AppConfig, LoginResult, SuggestResult,
 } from "./types";
@@ -73,6 +75,15 @@ async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
     method: opts.method ?? "GET",
     headers: {
+      /**
+       * Мітка робочої збірки — навіть на покупецьких роутах.
+       *
+       * По-перше, захист хостингу ріже клієнтів без JS, і правило пропуску
+       * навішене саме на цей заголовок. По-друге, вхід із ним гасить інші
+       * робочі токени людини, тобто зупиняє старий Kotlin-трекер — без нього
+       * два застосунки писали б трек одночасно й подвоїли пробіг.
+       */
+      ...(IS_STAFF_BUILD ? { "x-budvik-app": STAFF_APP_HEADER } : {}),
       ...(opts.body ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

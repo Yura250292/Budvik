@@ -85,6 +85,59 @@ export const getBrandTree = unstable_cache(
 );
 
 /**
+ * Дерево брендів по тому, що справді можна купити.
+ *
+ * getBrandTree вище рахує всі активні картки — це правильна відповідь на
+ * питання «що є в базі», і саме її показує зміст каталогу на сайті. Але
+ * покупцю в застосунку список брендів обіцяє видачу: він натискає «DNIPRO-M,
+ * 1 468 позицій» і бачить десять, бо решта без залишку. З 281 бренда товар у
+ * наявності є у 84 — решта відкривала порожні екрани.
+ *
+ * Умова тут та сама, що в buildWhere() каталогу: isActive + stock > 0 +
+ * price > 0. Бренд, у якого не лишилось нічого, зникає зі списку зовсім:
+ * порожня полиця гірша за її відсутність.
+ */
+export const getShoppableBrandTree = unstable_cache(
+  async (): Promise<BrandTree> => {
+    const shoppable = { isActive: true, stock: { gt: 0 }, price: { gt: 0 } } as const;
+
+    const [rows, unbranded, total] = await Promise.all([
+      prisma.$queryRaw<
+        { id: string; name: string; slug: string; color: string | null; logoUrl: string | null; cnt: number }[]
+      >`
+        SELECT b.id, b.name, b.slug, b.color, b."logoUrl", count(p.id)::int AS cnt
+        FROM "Brand" b
+        JOIN "Product" p ON p."brandId" = b.id AND p."isActive" AND p.stock > 0 AND p.price > 0
+        WHERE b."isActive"
+        GROUP BY b.id, b.name, b.slug, b.color, b."logoUrl"
+        HAVING count(p.id) > 0
+        ORDER BY count(p.id) DESC, b.name ASC
+      `,
+      prisma.product.count({ where: { ...shoppable, brandId: null } }),
+      prisma.product.count({ where: shoppable }),
+    ]);
+
+    const nodes: BrandNode[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      color: r.color,
+      logoUrl: r.logoUrl,
+      count: r.cnt,
+    }));
+
+    return {
+      main: nodes.filter((b) => b.count >= MAIN_MIN),
+      tail: nodes.filter((b) => b.count < MAIN_MIN),
+      unbranded,
+      total,
+    };
+  },
+  ["catalog-brand-tree-shoppable-v1"],
+  { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
+);
+
+/**
  * Група товару — другий рівень каталогу.
  *
  * Раніше вона виводилась тут-таки з назви правилом «зріж бренд, візьми перше

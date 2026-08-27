@@ -49,7 +49,7 @@ const PALETTE = [
  * Хеш, а не випадковість: бренд мусить мати той самий колір на головній, у
  * каталозі й у фільтрі, інакше знак перестає бути знаком.
  */
-function colorFor(brand: BrandLike): string {
+export function colorFor(brand: BrandLike): string {
   const own = brand.color?.toLowerCase();
   if (own && /^#[0-9a-f]{6}$/.test(own) && own !== DEFAULT_GREY) return own;
 

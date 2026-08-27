@@ -11,7 +11,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { getBrandTree, getBrandTypes } from "@/lib/catalog/brand-tree";
+import { getShoppableBrandTree, getBrandTypes } from "@/lib/catalog/brand-tree";
+import { getBrandShowcase, getBrandPhotos } from "@/lib/catalog/brand-showcase";
 
 /** Структура каталогу змінюється не частіше, ніж приїжджає обмін із 1С. */
 export const revalidate = 3600;
@@ -23,5 +24,31 @@ export async function GET(req: Request) {
     return NextResponse.json({ types: await getBrandTypes(brand) });
   }
 
-  return NextResponse.json(await getBrandTree());
+  const [tree, showcase, photos] = await Promise.all([
+    /*
+     * Лише те, що можна купити.
+     *
+     * Список брендів у застосунку — це обіцянка видачі: людина натискає бренд
+     * і одразу бачить товар. Із загальним підрахунком вона натискала
+     * «DNIPRO-M, 1 468 позицій» і бачила десять, а 197 брендів із 281 узагалі
+     * відкривали порожній екран. Зміст каталогу на сайті і далі рахує все
+     * активне — там це відповідь на інше питання.
+     */
+    getShoppableBrandTree(),
+    getBrandShowcase(),
+    getBrandPhotos(),
+  ]);
+
+  /*
+   * Дерево, плюс два поля для вигляду.
+   *
+   * showcase — ті самі вісім банерів, що на головній сайту й застосунку: у
+   * списку брендів вони йдуть першими, бо це фірми, за якими ми стоїмо, а не
+   * просто найдовші рядки в таблиці.
+   *
+   * photos — по знімку на бренд, для решти списку. Обидва поля додані, а не
+   * підмінили щось: установлену збірку не оновити примусово, і старий
+   * застосунок мусить і далі малювати свій список.
+   */
+  return NextResponse.json({ ...tree, showcase, photos });
 }

@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CARD_SELECT } from "@/lib/catalog/query";
 import { showableProductWhere } from "@/lib/catalog/showable";
-import { getBrandTree } from "@/lib/catalog/brand-tree";
+import { getShoppableBrandTree } from "@/lib/catalog/brand-tree";
 import { getBrandShowcase } from "@/lib/catalog/brand-showcase";
 import { getCatalogToc } from "@/lib/catalog/sections";
 import { serializeCard } from "@/lib/shop/api";
@@ -93,7 +93,9 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       take: SHELF,
     }),
-    getBrandTree(),
+    /* Лише бренди з наявним товаром: чипи ведуть у видачу, а не в порожній
+       екран. Те саме дерево, що й у /api/v1/brands. */
+    getShoppableBrandTree(),
     getBrandShowcase(),
     getCatalogToc(),
   ]);

@@ -311,6 +311,37 @@ const getShowcaseData = unstable_cache(
 );
 
 /**
+ * По одному знімку на бренд — для списку брендів у застосунку.
+ *
+ * Список із трьох сотень рядків, у кожному кольорова плитка з назвою, читається
+ * як таблиця: бренди в ньому відрізняються лише написом. Знімок товару відповідає
+ * на «що це за фірма» швидше за будь-який підпис.
+ *
+ * Наявність не вимагається — знімок тут ілюстрація бренда, а не пропозиція
+ * товару (те саме правило, що для банерів розділів). Але наявне все ж іде
+ * першим: якщо в бренда є що продати, обличчям стане саме воно.
+ *
+ * Знімок знаходиться менш ніж у кожного восьмого бренда: у більшості з 359 весь
+ * товар без фото. Решта лишається кольоровою плиткою з назвою — це не заглушка
+ * «поки не зробили», а єдине чесне, що можна показати.
+ */
+export const getBrandPhotos = unstable_cache(
+  async (): Promise<Record<string, string>> => {
+    const rows = await prisma.$queryRaw<{ slug: string; image: string }[]>`
+      SELECT DISTINCT ON (b.id) b.slug, p.image
+      FROM "Brand" b
+      JOIN "Product" p ON p."brandId" = b.id
+      WHERE b."isActive" AND p."isActive" AND p.price > 0
+        AND p.image LIKE ${`${OWN_IMAGE_PREFIX}%`}
+      ORDER BY b.id, (p.stock > 0) DESC, p.price DESC, p.id ASC
+    `;
+    return Object.fromEntries(rows.map((r) => [r.slug, r.image]));
+  },
+  ["brand-photos-v1"],
+  { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
+);
+
+/**
  * Бренди вітрини — склад, назви з бази, логотипи, лічильники й знімки.
  *
  * Звичайна функція поверх двох кешів, а не третій кеш: обгортати кеш кешем

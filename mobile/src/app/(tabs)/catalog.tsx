@@ -12,14 +12,15 @@
  */
 
 import { useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { RowSkeleton } from "@/components/Skeleton";
 import { Image } from "expo-image";
-import { BrandTile } from "@/components/BrandTile";
+import { BrandBanner, type ShowcaseBrand } from "@/components/BrandBanner";
+import { BrandGridTile } from "@/components/BrandGridTile";
 import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius, formatPositions } from "@/theme";
 
@@ -36,7 +37,15 @@ type TocSection = {
 type Toc = { sections: TocSection[]; other: TocLine[]; total: number };
 
 type Brand = { slug: string; name: string; count: number; color?: string | null; logoUrl?: string | null };
-type BrandTree = { main: Brand[]; tail: Brand[]; total: number };
+type BrandTree = {
+  main: Brand[];
+  tail: Brand[];
+  total: number;
+  /** Вісім банерних брендів. Старіші збірки сервера їх не шлють. */
+  showcase?: ShowcaseBrand[];
+  /** Знімок на бренд, за slug. Є менш ніж у кожного восьмого. */
+  photos?: Record<string, string>;
+};
 
 type Mode = "sections" | "brands";
 
@@ -44,6 +53,10 @@ export default function CatalogScreen() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("sections");
   const [openSection, setOpenSection] = useState<string | null>(null);
+
+  /* Дві колонки плиток: ширина екрана мінус поля й проміжок між ними. */
+  const { width } = useWindowDimensions();
+  const tileWidth = (width - space.md * 2 - space.sm) / 2;
 
   const toc = useQuery({
     queryKey: ["catalog", "toc"],
@@ -168,29 +181,56 @@ export default function CatalogScreen() {
           )}
         />
       ) : (
-        <FlatList
-          data={[...(brandTree.data?.main ?? []), ...(brandTree.data?.tail ?? [])]}
-          keyExtractor={(b) => b.slug}
-          contentContainerStyle={{ padding: space.md }}
-          ListHeaderComponent={
-            <Text style={styles.total}>Усього позицій: {brandTree.data?.total ?? 0}</Text>
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.brandRow}
-              onPress={() =>
-                router.push({ pathname: "/list", params: { brand: item.slug, title: item.name } })
+        (() => {
+          /*
+           * Спершу банери фірм, за якими ми стоїмо, потім усі інші плитками.
+           *
+           * Було три сотні однакових рядків: дрібний знак, назва, число. У
+           * такому списку бренди відрізняються лише написом, і покупець
+           * гортає його, як таблицю. Тепер порядок відповідає на питання «з
+           * ким ви працюєте» згори, а «а ще хто є» — нижче.
+           */
+          const showcase = brandTree.data?.showcase ?? [];
+          const banner = new Set(showcase.map((b) => b.slug));
+          const photos = brandTree.data?.photos ?? {};
+          const rest = [...(brandTree.data?.main ?? []), ...(brandTree.data?.tail ?? [])].filter(
+            (b) => !banner.has(b.slug)
+          );
+
+          const open = (slug: string, name: string) =>
+            router.push({ pathname: "/list", params: { brand: slug, title: name } });
+
+          return (
+            <FlatList
+              data={rest}
+              keyExtractor={(b) => b.slug}
+              numColumns={2}
+              columnWrapperStyle={{ gap: space.sm }}
+              contentContainerStyle={{ padding: space.md, gap: space.sm }}
+              ListHeaderComponent={
+                <View style={{ gap: space.sm }}>
+                  <Text style={styles.total}>Усього позицій: {brandTree.data?.total ?? 0}</Text>
+                  {showcase.map((b) => (
+                    <BrandBanner
+                      key={b.slug}
+                      brand={b}
+                      width="100%"
+                      onPress={() => open(b.slug, b.name)}
+                    />
+                  ))}
+                  {rest.length > 0 ? <Text style={styles.groupHead}>Інші бренди</Text> : null}
+                </View>
               }
-            >
-              <BrandTile brand={item} size={40} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                <Text style={styles.cardCount}>{formatPositions(item.count)}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </Pressable>
-          )}
-        />
+              renderItem={({ item }) => (
+                <BrandGridTile
+                  brand={{ ...item, photo: photos[item.slug] }}
+                  width={tileWidth}
+                  onPress={() => open(item.slug, item.name)}
+                />
+              )}
+            />
+          );
+        })()
       )}
     </View>
   );
@@ -217,7 +257,8 @@ const styles = StyleSheet.create({
   segmentText: { fontSize: 14, color: colors.text },
   segmentTextOn: { fontWeight: "700", color: colors.brand },
 
-  total: { marginBottom: space.md, fontSize: 13, color: colors.textMuted },
+  total: { fontSize: 13, color: colors.textMuted },
+  groupHead: { marginTop: space.sm, fontSize: 15, fontWeight: "700", color: colors.text },
 
   card: {
     marginBottom: space.sm,
@@ -243,15 +284,4 @@ const styles = StyleSheet.create({
   lineLabel: { fontSize: 14, color: colors.text },
   lineCount: { fontSize: 12, color: colors.textMuted },
 
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    minHeight: 72,
-    paddingHorizontal: space.md,
-    marginBottom: space.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
 });

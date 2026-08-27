@@ -125,7 +125,9 @@ export default function ClientPinPage() {
       const res = await fetch(`/api/admin/client-map/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: pos.lat, lng: pos.lng }),
+        // accuracyM їде разом із точкою: за ним у звіті видно, чи торговий
+        // стояв біля дверей («Я зараз тут»), чи посунув пін пальцем.
+        body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracyM: accuracy }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);

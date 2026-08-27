@@ -125,6 +125,14 @@ export async function PATCH(
   const body = await req.json().catch(() => null);
   const lat = Number(body?.lat);
   const lng = Number(body?.lng);
+  /**
+   * Точність GPS, якщо пін ставили кнопкою «Я зараз тут». Тягання пальцем
+   * по карті її не має — і це не пропуск даних, а сама відповідь: за
+   * порожнім полем видно, що людина уточнювала за пам'яттю, а не на місці.
+   */
+  const accuracyRaw = Number(body?.accuracyM);
+  const accuracyM =
+    Number.isFinite(accuracyRaw) && accuracyRaw > 0 ? Math.min(100000, Math.round(accuracyRaw)) : null;
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: "Потрібні координати lat і lng" }, { status: 400 });
@@ -133,12 +141,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Координати поза межами" }, { status: 400 });
   }
 
-  // Сирий SQL навмисно: оновлюємо рівно чотири колонки карти й не залежимо
-  // від решти полів моделі, які можуть бути попереду міграцій бази.
+  // Сирий SQL навмисно: оновлюємо рівно колонки карти й не залежимо від
+  // решти полів моделі, які можуть бути попереду міграцій бази.
+  //
+  // geoById/geoAt пишемо тут, а не лишаємо на geoAttemptedAt: той перезапише
+  // наступний прогін геокодера, і слід польової роботи зникне. Саме з цих
+  // двох колонок живе звіт «Польова робота» в аналітиці торгових.
   await prisma.$executeRaw`
     UPDATE "Counterparty"
     SET "deliveryLat" = ${lat}, "deliveryLng" = ${lng},
-        "geoSource" = 'MANUAL', "geoAttemptedAt" = NOW()
+        "geoSource" = 'MANUAL', "geoAttemptedAt" = NOW(),
+        "geoById" = ${session.user.id}, "geoAt" = NOW(), "geoAccuracyM" = ${accuracyM}
     WHERE id = ${counterpartyId}`;
 
   return NextResponse.json({ id: counterpartyId, lat, lng, geoSource: "MANUAL" });

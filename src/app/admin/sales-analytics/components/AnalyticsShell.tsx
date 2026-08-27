@@ -23,6 +23,7 @@ import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RepsTab } from "./RepsTab";
 import { ReturnsTab } from "./ReturnsTab";
+import { FieldWorkTab } from "./FieldWorkTab";
 import { AbcTab } from "./AbcTab";
 import { DiscountsTab } from "./DiscountsTab";
 import { ProfitTab } from "./ProfitTab";
@@ -100,6 +101,10 @@ const SUBTABS = {
     { key: "list", label: "Показники" },
     { key: "benchmark", label: "Порівняння" },
     { key: "returns", label: "Повернення" },
+    // Польова робота стоїть саме тут, а не в «Клієнтах»: міряє вона не
+    // стан бази, а те, що робить людина — уточнює точки, знімає магазини,
+    // лишає нотатки. Це такий самий показник торгового, як оборот.
+    { key: "field", label: "Польова робота" },
   ],
   kpi: [
     { key: "plans", label: "Плани" },
@@ -165,7 +170,7 @@ const MANAGER_ONLY: TabKey[] = ["money", "clients", "kpi", "logistics"];
  * торговому й так не віддасть (403), але показувати вкладку, яка завжди
  * помиляється, гірше, ніж не показувати зовсім.
  */
-const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark"];
+const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark", "field"];
 
 function subtabsOf(tab: TabKey): ReadonlyArray<{ key: ViewKey; label: string }> | null {
   return tab in SUBTABS ? SUBTABS[tab as keyof typeof SUBTABS] : null;
@@ -411,6 +416,7 @@ export function AnalyticsShell() {
         {tab === "reps" && view === "list" && <RepsTab period={period} />}
         {tab === "reps" && view === "benchmark" && <BenchmarkTab period={period} />}
         {tab === "reps" && view === "returns" && <ReturnsTab period={period} rep={rep} />}
+        {tab === "reps" && view === "field" && <FieldWorkTab period={period} />}
         {tab === "clients" && view === "payers" && <PayersTab />}
         {tab === "clients" && view === "cohorts" && <CohortsTab />}
         {tab === "clients" && view === "basket" && <BasketTab period={period} />}

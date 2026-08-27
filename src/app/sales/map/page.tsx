@@ -269,7 +269,12 @@ export default function SalesMapPage() {
 
   /** Зберігає пін і оновлює карту, не перезавантажуючи весь список. */
   const savePin = useCallback(
-    async (lat: number, lng: number) => {
+    /**
+     * accuracyM приходить лише зі шляху «Я зараз тут»: тап по карті точності
+     * не має за визначенням. Порожнє поле в базі — це і є відповідь на
+     * питання, чи людина була на місці.
+     */
+    async (lat: number, lng: number, accuracyM?: number | null) => {
       if (!pinFor) return;
       setPinBusy(true);
       setPinError(null);
@@ -277,7 +282,7 @@ export default function SalesMapPage() {
         const res = await fetch(`/api/admin/client-map/${pinFor.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lat, lng }),
+          body: JSON.stringify({ lat, lng, accuracyM: accuracyM ?? null }),
         });
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
@@ -327,7 +332,7 @@ export default function SalesMapPage() {
     setPinBusy(true);
     setPinError(null);
     navigator.geolocation.getCurrentPosition(
-      (p) => savePin(p.coords.latitude, p.coords.longitude),
+      (p) => savePin(p.coords.latitude, p.coords.longitude, Math.round(p.coords.accuracy)),
       () => {
         setPinBusy(false);
         setPinError("Не вдалося отримати ваше місце. Увімкніть геолокацію або тапніть по карті.");

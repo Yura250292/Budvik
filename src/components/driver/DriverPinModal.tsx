@@ -73,7 +73,9 @@ export function DriverPinModal({
       const res = await fetch(`/api/admin/client-map/${client.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: pos.lat, lng: pos.lng }),
+        // accuracy лишається лише поки пін стоїть там, куди його поставив
+        // GPS: ручне перетягування скидає його в null (див. PinPicker нижче).
+        body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracyM: accuracy }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
@@ -84,7 +86,7 @@ export function DriverPinModal({
     } finally {
       setSaving(false);
     }
-  }, [client.id, pos, onSaved, onClose]);
+  }, [client.id, pos, accuracy, onSaved, onClose]);
 
   const moved = pos.lat !== client.lat || pos.lng !== client.lng;
 

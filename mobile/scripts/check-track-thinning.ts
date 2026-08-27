@@ -15,6 +15,8 @@
  */
 
 import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
 const MOVE_M = 25;
 const IDLE_WRITE_MS = 60_000;
@@ -51,7 +53,8 @@ function shouldWrite(
 }
 
 // --- 1. Константи в коді збігаються з тими, що перевіряємо ---
-const src = readFileSync(new URL("../src/track/recorder.ts", import.meta.url), "utf8");
+const HERE = dirname(fileURLToPath(import.meta.url));
+const src = readFileSync(join(HERE, "../src/track/recorder.ts"), "utf8");
 for (const [name, value] of [
   ["MAX_ACCURACY_M", MAX_ACCURACY_M],
   ["MOVE_M", MOVE_M],

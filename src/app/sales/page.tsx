@@ -10,6 +10,7 @@ import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import {
@@ -195,6 +196,9 @@ function Home() {
       <SalesHeader title={name} subtitle="Мої показники" right={<HeaderActions />} />
 
       <div className="mx-auto max-w-lg px-4 pt-4">
+        {/* Перше, що бачить людина в кабінеті, поки вона ще на старому трекері. */}
+        <UpgradeBanner />
+
         <div className="-mx-4 mb-3 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
           <div className="w-max">
             <PeriodPicker value={period} onChange={onPeriodChange} />

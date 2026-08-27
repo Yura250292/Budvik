@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 import NotificationsBell from "@/components/admin/NotificationsBell";
+import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 
 const STOP_STATUS_LABELS: Record<string, string> = {
   PENDING: "Очікує", LOADED: "Завантажено", DELIVERED: "Доставлено", FAILED: "Не доставлено",
@@ -87,6 +88,9 @@ export default function DriverPage() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "24px" }}>
+        {/* Перше, що бачить водій, поки він ще на старому трекері. */}
+        <UpgradeBanner />
+
         {/* Головна дія дня — велика й перша. Список маршрутів нижче
             довідковий, а «Мій день» це те, з чим водій працює весь день:
             він показує точки, приймає відмітки і рахує касу. */}

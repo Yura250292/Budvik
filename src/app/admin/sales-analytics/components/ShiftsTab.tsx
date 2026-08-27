@@ -10,7 +10,7 @@
  * розмір.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { TableScroll } from "@/components/ui/TableScroll";
@@ -51,7 +51,20 @@ type ShiftRow = {
   } | null;
 };
 
+type OrderDot = {
+  counterpartyId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  number: string;
+  amount: number;
+  time: string;
+  draft: boolean;
+};
+
 type Detail = {
+  /** Клієнти, від яких цього дня є замовлення. */
+  orders: { dots: OrderDot[]; unmapped: number; total: number };
   shift: ShiftRow & { notes: string | null };
   user: { id: string; name: string };
   reads: Array<{
@@ -109,6 +122,8 @@ type Detail = {
   };
 };
 
+const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
+
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Триває",
   CLOSED: "Закрита",
@@ -142,6 +157,17 @@ export function ShiftsTab({ period }: { period: Period }) {
   } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  /** Клієнт, на якому тримають курсор у списку — його кільце на карті більшає. */
+  const [hoverOrder, setHoverOrder] = useState<string | null>(null);
+  /**
+   * Фото одометра — згорнуті.
+   *
+   * Досі картка починалася з двох великих квадратів, і в половини змін
+   * обидва були порожні («немає фото»): екран відкривався сірою
+   * пусткою, а карта, заради якої сюди й заходять, лишалась аж під нею.
+   */
+  const [showPhotos, setShowPhotos] = useState(false);
+  const detailRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [onlySuspicious, setOnlySuspicious] = useState(false);
 
@@ -173,7 +199,17 @@ export function ShiftsTab({ period }: { period: Period }) {
     (async () => {
       const res = await fetch(`/api/admin/shifts/${selected}`);
       const json = await res.json().catch(() => null);
-      if (alive && res.ok) setDetail(json);
+      if (!alive || !res.ok) return;
+      setDetail(json);
+      /**
+       * Картка живе під таблицею, а таблиця буває на два екрани. Досі
+       * клік по рядку виглядав так, ніби нічого не сталося: деталі
+       * відкривались там, куди ніхто не дивиться. Тепер екран сам
+       * доводить до них.
+       */
+      requestAnimationFrame(() =>
+        detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      );
     })();
     return () => {
       alive = false;
@@ -254,13 +290,31 @@ export function ShiftsTab({ period }: { period: Period }) {
                   <tr
                     key={s.id}
                     onClick={() => setSelected(mine ? null : s.id)}
+                    title="Клацніть, щоб побачити маршрут і замовлення цього дня"
+                    className={mine ? undefined : "hover:bg-g50"}
                     style={{
                       borderTop: "1px solid #F3F4F6",
                       cursor: "pointer",
                       background: mine ? "#F0F9FF" : s.odometerSuspicious ? "#FFFBEB" : undefined,
                     }}
                   >
-                    <td style={td}>{s.name}</td>
+                    <td style={td}>
+                      {/* Смужка ліворуч у вибраного: у таблиці на два екрани
+                          підсвітка тла зникає з очей, щойно доїдеш до картки. */}
+                      <span
+                        aria-hidden
+                        style={{
+                          display: "inline-block",
+                          width: 3,
+                          height: 15,
+                          borderRadius: 2,
+                          marginRight: 8,
+                          verticalAlign: "-2px",
+                          background: mine ? "#2563EB" : "transparent",
+                        }}
+                      />
+                      {s.name}
+                    </td>
                     <td style={td}>{time(s.startedAt)}</td>
                     <td style={td}>{s.endedAt ? time(s.endedAt) : "—"}</td>
                     <td style={tdR}>
@@ -317,15 +371,94 @@ export function ShiftsTab({ period }: { period: Period }) {
       )}
 
       {detail && (
-        <div className="rounded-xl p-4 space-y-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
+        <div
+          ref={detailRef}
+          className="rounded-xl p-4 space-y-4"
+          style={{ border: "1px solid #E5E7EB", background: "#fff", scrollMarginTop: 12 }}
+        >
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span style={{ fontSize: 15, fontWeight: 700 }}>{detail.user.name}</span>
+            <span style={{ fontSize: 16, fontWeight: 700 }}>{detail.user.name}</span>
             <span style={{ fontSize: 13, color: "#6B7280" }}>
               {time(detail.shift.startedAt)}
               {detail.shift.endedAt && ` — ${time(detail.shift.endedAt)}`}
               {detail.shift.durationMinutes != null &&
                 ` · ${Math.floor(detail.shift.durationMinutes / 60)} год ${detail.shift.durationMinutes % 60} хв`}
             </span>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              style={{
+                marginLeft: "auto",
+                fontSize: 13,
+                color: "#6B7280",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "2px 6px",
+              }}
+            >
+              Закрити ✕
+            </button>
+          </div>
+
+          {/*
+            Головні числа зміни — рядком, до всього іншого.
+            Раніше їх доводилось вишукувати: одометр під фотографіями,
+            GPS у таблиці вище, замовлень не було ніде.
+          */}
+          <div className="flex flex-wrap gap-2">
+            <Metric
+              label="Одометр"
+              value={
+                detail.shift.distanceKm != null ? `${detail.shift.distanceKm} км` : "—"
+              }
+              hint={
+                detail.shift.endOdometer != null
+                  ? `${detail.shift.startOdometer.toLocaleString("uk-UA")} → ${detail.shift.endOdometer.toLocaleString("uk-UA")}`
+                  : `з ${detail.shift.startOdometer.toLocaleString("uk-UA")}, кінця немає`
+              }
+            />
+            <Metric
+              label="За треком"
+              value={
+                detail.shift.gpsDistanceKm != null ? `${detail.shift.gpsDistanceKm} км` : "—"
+              }
+              hint={`${detail.track.shift.pointsCount} точок`}
+            />
+            <Metric
+              label="Одометр / трек"
+              value={
+                detail.shift.odometerToGpsRatio != null
+                  ? detail.shift.odometerToGpsRatio.toFixed(2)
+                  : "—"
+              }
+              hint={
+                detail.shift.odometerToGpsRatio == null
+                  ? "нема з чим порівняти"
+                  : detail.shift.odometerToGpsRatio < 1
+                    ? "одометр менший за трек — так не буває"
+                    : detail.shift.odometerToGpsRatio > 2.5
+                      ? "розрив завеликий"
+                      : "у межах норми"
+              }
+              color={
+                detail.shift.odometerToGpsRatio == null
+                  ? undefined
+                  : detail.shift.odometerToGpsRatio < 1 || detail.shift.odometerToGpsRatio > 2.5
+                    ? "#DC2626"
+                    : "#16A34A"
+              }
+            />
+            <Metric
+              label="Замовлень"
+              value={String(detail.orders.total)}
+              hint={
+                detail.orders.unmapped > 0
+                  ? `${detail.orders.unmapped} без координат`
+                  : "усі на карті"
+              }
+              color={detail.orders.total > 0 ? "#7C3AED" : undefined}
+            />
           </div>
 
           {detail.shift.closedAutomatically && (
@@ -338,109 +471,286 @@ export function ShiftsTab({ period }: { period: Period }) {
             </div>
           )}
 
-          {/* Фото одометра поруч: перше й останнє, що бачить перевіряльник */}
+          {detail.plan.route && <PlanVerdict plan={detail.plan} route={detail.plan.route} />}
+
+          {/*
+            Карта й список замовлень поруч: ліворуч куди їздив, праворуч
+            заради чого. Нарізно вони відповідають на пів питання кожен.
+          */}
           <div className="flex flex-wrap gap-4">
-            {(["start", "end"] as const).map((edge) => {
-              const url = edge === "start" ? detail.shift.startPhotoUrl : detail.shift.endPhotoUrl;
-              const value = edge === "start" ? detail.shift.startOdometer : detail.shift.endOdometer;
-              const src = edge === "start" ? detail.shift.startOdometerSource : detail.shift.endOdometerSource;
-              const tries = edge === "start" ? detail.attempts.start : detail.attempts.end;
-              return (
-                <div key={edge} style={{ minWidth: 200 }}>
-                  <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
-                    {edge === "start" ? "Початок зміни" : "Кінець зміни"}
-                  </p>
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={url}
-                        alt="Одометр"
-                        style={{ width: 200, height: 130, objectFit: "cover", borderRadius: 8, border: "1px solid #E5E7EB" }}
-                      />
-                    </a>
-                  ) : (
-                    <div
-                      style={{
-                        width: 200, height: 130, borderRadius: 8, background: "#F3F4F6",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 13, color: "#9CA3AF",
-                      }}
-                    >
-                      немає фото
-                    </div>
-                  )}
-                  <p style={{ fontSize: 15, fontWeight: 700, marginTop: 6 }}>
-                    {value != null ? value.toLocaleString("uk-UA") : "—"}
-                    {src && (
-                      <span style={{ fontSize: 12, fontWeight: 400, color: "#6B7280" }}>
-                        {" "}· {SOURCE_LABEL[src] ?? src}
+            <div style={{ flex: "1 1 460px", minWidth: 0 }}>
+              {detail.track.shift.pointsCount > 0 ||
+              detail.track.afterShift.pointsCount > 0 ||
+              detail.orders.dots.length > 0 ? (
+                <>
+                  <ShiftTrackMap
+                    shiftPath={detail.track.shift.path}
+                    afterShiftPath={detail.track.afterShift.path}
+                    planGeometry={detail.plan.route?.geometry ?? null}
+                    planStops={detail.plan.route?.stops ?? []}
+                    excursions={detail.plan.deviation?.excursions ?? []}
+                    orders={detail.orders.dots}
+                    focusOrderId={hoverOrder}
+                    base={detail.plan.base}
+                    height="480px"
+                  />
+                  <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: 13, marginTop: 8 }}>
+                    {detail.track.shift.pointsCount > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 22, height: 3, background: "#2563EB", verticalAlign: "middle", marginRight: 6 }} />
+                        Трек зміни ({detail.track.shift.pointsCount} точок)
                       </span>
                     )}
+                    {detail.track.afterShift.pointsCount > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 22, height: 3, background: "#DC2626", verticalAlign: "middle", marginRight: 6 }} />
+                        Після зміни ({detail.track.afterShift.pointsCount} точок)
+                      </span>
+                    )}
+                    {detail.orders.dots.length > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 11, height: 11, borderRadius: "50%", background: "#7C3AED", verticalAlign: "middle", marginRight: 6 }} />
+                        Замовлення ({detail.orders.dots.length})
+                      </span>
+                    )}
+                    {detail.plan.route && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 22, height: 5, background: "#16A34A", opacity: 0.45, verticalAlign: "middle", marginRight: 6 }} />
+                        Маршрут за планом
+                        {!detail.plan.planFromGeometry && " (прямі між пунктами)"}
+                      </span>
+                    )}
+                    {(detail.plan.deviation?.excursions.length ?? 0) > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px dashed #DC2626", verticalAlign: "middle", marginRight: 6 }} />
+                        Відхилення ({detail.plan.deviation!.excursions.length})
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div
+                  className="rounded-lg"
+                  style={{
+                    height: 200, background: "#F9FAFB", border: "1px dashed #E5E7EB",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    textAlign: "center", padding: 16,
+                  }}
+                >
+                  <p style={{ fontSize: 13, color: "#9CA3AF", lineHeight: 1.6 }}>
+                    Ні треку, ні замовлень за цей день.<br />
+                    Застосунок не надіслав точок — перевірте планшет у розділі «Аналітика водіїв».
                   </p>
-                  {tries > 1 && (
-                    <p style={{ fontSize: 12, color: "#D97706" }}>перезнято {tries} рази</p>
-                  )}
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            <OrdersList
+              orders={detail.orders}
+              hoverId={hoverOrder}
+              onHover={setHoverOrder}
+            />
           </div>
 
-          {/* План проти факту: вирок словами й цифрою, до того як дивитись на карту */}
-          {detail.plan.route ? (
-            <PlanVerdict plan={detail.plan} route={detail.plan.route} />
-          ) : (
-            <p style={{ fontSize: 13, color: "#9CA3AF" }}>
-              На {detail.plan.day} цьому торговому маршрут не призначений — накладати
-              нема чого. Призначення живуть у вкладці «Огляд».
-            </p>
-          )}
-
-          {detail.track.shift.pointsCount > 0 || detail.track.afterShift.pointsCount > 0 ? (
-            <>
-              <ShiftTrackMap
-                shiftPath={detail.track.shift.path}
-                afterShiftPath={detail.track.afterShift.path}
-                planGeometry={detail.plan.route?.geometry ?? null}
-                planStops={detail.plan.route?.stops ?? []}
-                excursions={detail.plan.deviation?.excursions ?? []}
-                base={detail.plan.base}
-                height="420px"
-              />
-              <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: 13 }}>
-                <span>
-                  <span style={{ display: "inline-block", width: 22, height: 3, background: "#2563EB", verticalAlign: "middle", marginRight: 6 }} />
-                  Трек зміни ({detail.track.shift.pointsCount} точок)
-                </span>
-                {detail.track.afterShift.pointsCount > 0 && (
-                  <span>
-                    <span style={{ display: "inline-block", width: 22, height: 3, background: "#DC2626", verticalAlign: "middle", marginRight: 6 }} />
-                    Після зміни ({detail.track.afterShift.pointsCount} точок)
-                  </span>
-                )}
-                {detail.plan.route && (
-                  <span>
-                    <span style={{ display: "inline-block", width: 22, height: 5, background: "#16A34A", opacity: 0.45, verticalAlign: "middle", marginRight: 6 }} />
-                    Маршрут за планом
-                    {!detail.plan.planFromGeometry && " (прямі між пунктами)"}
-                  </span>
-                )}
-                {(detail.plan.deviation?.excursions.length ?? 0) > 0 && (
-                  <span>
-                    <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px dashed #DC2626", verticalAlign: "middle", marginRight: 6 }} />
-                    Відхилення від маршруту ({detail.plan.deviation!.excursions.length})
-                  </span>
-                )}
+          {/*
+            Фото одометра — під згорткою.
+            Вони потрібні рівно тоді, коли число викликало сумнів, а це
+            рідкість; решту часу вони займали пів екрана.
+          */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowPhotos((v) => !v)}
+              style={{
+                fontSize: 13, color: "#2563EB", background: "none", border: "none",
+                cursor: "pointer", padding: 0,
+              }}
+            >
+              {showPhotos ? "Сховати фото одометра" : "Показати фото одометра"}
+            </button>
+            {showPhotos && (
+              <div className="flex flex-wrap gap-4" style={{ marginTop: 10 }}>
+                {(["start", "end"] as const).map((edge) => {
+                  const url = edge === "start" ? detail.shift.startPhotoUrl : detail.shift.endPhotoUrl;
+                  const value = edge === "start" ? detail.shift.startOdometer : detail.shift.endOdometer;
+                  const src = edge === "start" ? detail.shift.startOdometerSource : detail.shift.endOdometerSource;
+                  const tries = edge === "start" ? detail.attempts.start : detail.attempts.end;
+                  return (
+                    <div key={edge} style={{ minWidth: 200 }}>
+                      <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}>
+                        {edge === "start" ? "Початок зміни" : "Кінець зміни"}
+                      </p>
+                      {url ? (
+                        <a href={url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt="Одометр"
+                            style={{ width: 200, height: 130, objectFit: "cover", borderRadius: 8, border: "1px solid #E5E7EB" }}
+                          />
+                        </a>
+                      ) : (
+                        <div
+                          style={{
+                            width: 200, height: 130, borderRadius: 8, background: "#F3F4F6",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 13, color: "#9CA3AF",
+                          }}
+                        >
+                          немає фото
+                        </div>
+                      )}
+                      <p style={{ fontSize: 15, fontWeight: 700, marginTop: 6 }}>
+                        {value != null ? value.toLocaleString("uk-UA") : "—"}
+                        {src && (
+                          <span style={{ fontSize: 12, fontWeight: 400, color: "#6B7280" }}>
+                            {" "}· {SOURCE_LABEL[src] ?? src}
+                          </span>
+                        )}
+                      </p>
+                      {tries > 1 && (
+                        <p style={{ fontSize: 12, color: "#D97706" }}>перезнято {tries} рази</p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </>
-          ) : (
-            <p style={{ fontSize: 13, color: "#9CA3AF" }}>
-              Треку немає: застосунок не встиг надіслати точки або трекінг був вимкнений.
-            </p>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Одне число зміни з підписом і поясненням під ним.
+ *
+ * Пояснення тут не окраса: «1.85» саме по собі не каже нічого, а
+ * «у межах норми» під ним знімає питання, не змушуючи згадувати, який
+ * бік добрий. Кольором — лише те, що виходить за межі.
+ */
+function Metric({
+  label,
+  value,
+  hint,
+  color,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  color?: string;
+}) {
+  return (
+    <div
+      className="rounded-lg"
+      style={{ background: "#F9FAFB", border: "1px solid #F3F4F6", padding: "8px 12px", minWidth: 118 }}
+    >
+      <p style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 18, fontWeight: 700, color: color ?? "#0A0A0A", lineHeight: 1.2 }}>
+        {value}
+      </p>
+      {hint && <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 1 }}>{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Замовлення дня списком — поруч із картою, а не замість неї.
+ *
+ * Наведення на рядок збільшує відповідне кільце на карті. Без цього
+ * зв'язку список і карта лишалися б двома окремими правдами: у списку
+ * прізвище, на карті цятка, а зіставляти їх — очима, по тридцять разів.
+ *
+ * Час підписаний як «документ», і це принципово: у 1С він означає
+ * момент проведення документа, а не візиту. Офіс проводить пачками —
+ * вісім замовлень о 12:24 не означають, що торговий був у восьми місцях
+ * одночасно. Співставляти з треком можна МІСЦЕ, але не хвилини.
+ */
+function OrdersList({
+  orders,
+  hoverId,
+  onHover,
+}: {
+  orders: { dots: OrderDot[]; unmapped: number; total: number };
+  hoverId: string | null;
+  onHover: (id: string | null) => void;
+}) {
+  if (orders.total === 0) {
+    return (
+      <aside style={{ flex: "0 1 300px", minWidth: 240 }}>
+        <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Замовлення дня</p>
+        <div
+          className="rounded-lg"
+          style={{ border: "1px dashed #E5E7EB", background: "#F9FAFB", padding: 14 }}
+        >
+          <p style={{ fontSize: 13, color: "#9CA3AF", lineHeight: 1.6 }}>
+            За цей день замовлень від клієнтів цього торгового немає.
+            Кілометри є, результату — ні.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  const total = orders.dots.reduce((sum, o) => sum + o.amount, 0);
+
+  return (
+    <aside style={{ flex: "0 1 300px", minWidth: 240 }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 8 }}>
+        <p style={{ fontSize: 13, fontWeight: 700 }}>Замовлення дня · {orders.total}</p>
+        <span style={{ fontSize: 12, color: "#6B7280" }}>{money.format(total)} грн</span>
+      </div>
+
+      <div
+        className="rounded-lg"
+        style={{ border: "1px solid #E5E7EB", maxHeight: 430, overflowY: "auto" }}
+      >
+        {orders.dots.map((o) => {
+          const on = hoverId === o.counterpartyId;
+          return (
+            <div
+              key={`${o.number}-${o.counterpartyId}`}
+              onMouseEnter={() => onHover(o.counterpartyId)}
+              onMouseLeave={() => onHover(null)}
+              style={{
+                padding: "8px 10px",
+                borderBottom: "1px solid #F3F4F6",
+                background: on ? "#F5F3FF" : undefined,
+                cursor: "default",
+              }}
+            >
+              <div className="flex items-baseline gap-2">
+                <span
+                  aria-hidden
+                  style={{
+                    width: 9, height: 9, borderRadius: "50%", flex: "none",
+                    background: o.draft ? "#fff" : "#7C3AED",
+                    border: "2px solid #7C3AED",
+                  }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>{o.name}</span>
+              </div>
+              <div className="flex items-baseline justify-between" style={{ marginTop: 2, paddingLeft: 17 }}>
+                <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+                  документ {o.time}
+                  {o.draft && " · не проведене"}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{money.format(o.amount)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {orders.unmapped > 0 && (
+        <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 6, lineHeight: 1.5 }}>
+          Ще {orders.unmapped} замовлень у клієнтів без координат — на карту не лягли.
+        </p>
+      )}
+    </aside>
   );
 }
 

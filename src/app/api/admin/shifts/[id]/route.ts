@@ -16,6 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { kyivDate, kyivTime } from "@/lib/date/kyiv";
+import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { comparePlanWithTrack } from "@/lib/track/plan-vs-fact";
 import {
@@ -158,7 +159,18 @@ export async function GET(
    */
   const coverage = planned ? computeStopCoverage(planned.stops, shiftPoints) : null;
 
+  /**
+   * Кого торговий сьогодні опрацював.
+   *
+   * Питання «куди їздив» без цього має половину відповіді: лінія на
+   * карті показує дорогу, але не те, заради чого вона була. Замовлення
+   * дня лягають на ту саму карту, і зміна нарешті читається цілком —
+   * скільки кілометрів, до кого заїхав, що з того вийшло.
+   */
+  const orders = await ordersTodayForRep(shift.userId, planDay);
+
   return NextResponse.json({
+    orders,
     shift: {
       ...shift,
       user: undefined,

@@ -18,6 +18,14 @@ import "leaflet/dist/leaflet.css";
 import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
 
 /** Пункт призначеного маршруту. */
+/**
+ * Колір замовлення. Фіолетовий навмисно: синій зайнятий треком, червоний —
+ * відхиленнями й треком після зміни, зелений — планом.
+ */
+const ORDER_COLOR = "#7C3AED";
+
+const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
+
 export type PlanStop = {
   settlement: string;
   displayName?: string | null;
@@ -65,12 +73,25 @@ function planPin(seq: number): L.DivIcon {
   });
 }
 
+export type OrderDot = {
+  counterpartyId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  number: string;
+  amount: number;
+  time: string;
+  draft: boolean;
+};
+
 export default function ShiftTrackMap({
   shiftPath,
   afterShiftPath,
   planGeometry = null,
   planStops = [],
   excursions = [],
+  orders = [],
+  focusOrderId = null,
   base = null,
   height = "420px",
 }: {
@@ -80,6 +101,10 @@ export default function ShiftTrackMap({
   planGeometry?: { type?: string; coordinates?: [number, number][] } | null;
   planStops?: PlanStop[];
   excursions?: PlanExcursion[];
+  /** Клієнти, від яких цього дня є замовлення. */
+  orders?: OrderDot[];
+  /** Клієнт зі списку поруч, на якому зараз тримають курсор. */
+  focusOrderId?: string | null;
   /** База торгового — точка відліку подачі */
   base?: { lat: number; lng: number; address: string | null } | null;
   height?: string;
@@ -87,6 +112,8 @@ export default function ShiftTrackMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  /** Кільця замовлень за id клієнта — щоб список поруч міг їх підсвічувати. */
+  const orderMarkersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
@@ -109,6 +136,8 @@ export default function ShiftTrackMap({
     if (!map || !group) return;
 
     group.clearLayers();
+    // Шар перемальовано — старі посилання на кільця вже нічого не значать.
+    orderMarkersRef.current.clear();
     const bounds = L.latLngBounds([]);
 
     // --- Плановий шар ---
@@ -234,8 +263,55 @@ export default function ShiftTrackMap({
       bounds.extend([e.lat, e.lng]);
     });
 
+    /**
+     * Замовлення дня — поверх маршруту.
+     *
+     * Разом із треком вони й дають відповідь, заради якої зміну
+     * відкривають: лінія показує дорогу, кільця — заради чого вона була.
+     * Порожнє кільце означає документ, який офіс іще не провів: робота
+     * зроблена, грошей у звіті ще немає.
+     */
+    orders.forEach((o) => {
+      const marker = L.circleMarker([o.lat, o.lng], {
+        radius: 8,
+        color: ORDER_COLOR,
+        weight: 3,
+        fillColor: o.draft ? "#fff" : ORDER_COLOR,
+        fillOpacity: o.draft ? 1 : 0.85,
+      })
+        .bindTooltip(
+          `<b>${escapeHtml(o.name)}</b><br/>` +
+            `${money.format(o.amount)} грн${o.draft ? " · не проведене" : ""}<br/>` +
+            `<span style="color:#6B7280">№${escapeHtml(o.number)} · документ ${escapeHtml(o.time)}</span>`,
+          { direction: "top" }
+        )
+        .addTo(group);
+      bounds.extend([o.lat, o.lng]);
+      orderMarkersRef.current.set(o.counterpartyId, marker);
+    });
+
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [shiftPath, afterShiftPath, planGeometry, planStops, excursions, base]);
+  }, [shiftPath, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
+
+  /**
+   * Наведення на рядок у списку підсвічує його точку.
+   *
+   * Без цього список і карта живуть окремо: у списку прізвище, на карті
+   * кільце, і зіставляє їх людина очима. Тридцять замовлень у Львові
+   * так не зіставиш.
+   */
+  useEffect(() => {
+    orderMarkersRef.current.forEach((marker, id) => {
+      const on = id === focusOrderId;
+      marker.setStyle({ radius: on ? 13 : 8, weight: on ? 4 : 3 });
+      if (on) {
+        marker.bringToFront();
+        marker.openTooltip();
+      } else {
+        marker.closeTooltip();
+      }
+    });
+  }, [focusOrderId, orders]);
 
   useEffect(() => {
     return () => {

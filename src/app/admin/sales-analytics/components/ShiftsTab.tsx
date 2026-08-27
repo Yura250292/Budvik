@@ -156,6 +156,7 @@ const LATE_CLOSE_LABEL: Record<string, string> = {
   GPS: "за підказкою треку",
   MANUAL: "час вказано вручну",
   AUTO_GPS: "авто: машина стояла",
+  AUTO_GAP: "авто: трек із розривом, час приблизний",
   AUTO_DEAD: "авто: трек мовчав",
   AUTO_FORCED: "авто: за часом",
   OFFICE: "закрив офіс",

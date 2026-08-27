@@ -33,6 +33,17 @@ export type StopGuess = {
   minutes: number;
   lat: number;
   lng: number;
+  /**
+   * Скільки хвилин трек мовчав БЕЗПОСЕРЕДНЬО перед цією зупинкою.
+   *
+   * Питання, на яке відповідає це число: чи бачили ми, як машина
+   * ставала, — чи планшет ожив уже на місці. У другому випадку `at` не
+   * момент зупинки, а лише її ВЕРХНЯ МЕЖА: робота могла скінчитися
+   * будь-коли в тій дірі. Реальний випадок 27.08: трек мовчав з 09:13
+   * до 16:05, і «машина стоїть з 16:05» звучало як вимір, хоча було
+   * здогадкою на сім годин.
+   */
+  gapBeforeMin: number;
 };
 
 /**
@@ -83,6 +94,7 @@ export async function guessWorkEnd(
           minutes: Math.round(stoodMin),
           lat: points[anchorIdx].lat,
           lng: points[anchorIdx].lng,
+          gapBeforeMin: gapBefore(points, anchorIdx),
         };
       }
       anchorIdx = i;
@@ -100,10 +112,26 @@ export async function guessWorkEnd(
       minutes: Math.round(tailMin),
       lat: points[anchorIdx].lat,
       lng: points[anchorIdx].lng,
+      gapBeforeMin: gapBefore(points, anchorIdx),
     };
   }
 
   return best;
+}
+
+/**
+ * Скільки трек мовчав перед точкою з індексом `idx`.
+ *
+ * Дивимося саме на сусідню пару, а не на найбільший розрив за день:
+ * діра о десятій ранку нічого не каже про вечірню зупинку, якщо після
+ * неї трек чесно показав і рух, і зупинку. Значення має лише те, чи
+ * бачили ми, як машина ставала.
+ */
+function gapBefore(points: Array<{ recordedAt: Date }>, idx: number): number {
+  if (idx <= 0) return 0;
+  return Math.round(
+    (points[idx].recordedAt.getTime() - points[idx - 1].recordedAt.getTime()) / 60_000
+  );
 }
 
 /**

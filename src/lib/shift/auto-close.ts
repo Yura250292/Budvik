@@ -71,6 +71,22 @@ const ALIVE_MINUTES = 20;
  */
 const DEAD_TRACK_MINUTES = 60;
 
+/**
+ * Скільки хвилин тиші ПЕРЕД знайденою зупинкою роблять час ненадійним.
+ *
+ * Мовчання посеред дня саме собою нічого не псує: якщо після нього трек
+ * показав і рух, і зупинку, ми бачили, як машина ставала. Псує саме
+ * діра впритул до зупинки — тоді планшет ожив уже на місці, і момент
+ * «стала» ми не бачили.
+ *
+ * 45 хвилин: коротша тиша зсуває оцінку щонайбільше на три чверті
+ * години, і це прийнятна похибка для «коли скінчилась робота». Довша
+ * означає, що час — це верхня межа, а не вимір, і людині треба про це
+ * сказати. Реальний випадок 27.08: тиша 412 хв подавалася як
+ * «машина стоїть з 16:05».
+ */
+const GAP_BEFORE_STOP_MINUTES = 45;
+
 export type AutoCloseDecision = {
   shiftId: string;
   userId: string;
@@ -159,10 +175,22 @@ export async function decideForShift(
   // --- А. Планшет живий: питаємо трек, чи машина стоїть ЗАРАЗ ---
   const tail = await guessWorkEnd(shift.id, { tailOnly: true });
   if (tail && silentMin <= ALIVE_MINUTES) {
+    /**
+     * Свіжі точки ще не означають цілого треку.
+     *
+     * Планшет міг мовчати півдня й ожити вже на місці зупинки — тоді
+     * `tail.at` це момент, коли він озвався, а не коли людина
+     * закінчила. Числа однакові, а знання за ними різні, і видавати
+     * друге за перше не можна: у картці таке закриття читається як
+     * вимір, і людина підтвердить його не глядячи.
+     */
+    const gappy = tail.gapBeforeMin >= GAP_BEFORE_STOP_MINUTES;
     return {
       ...withPoint,
-      close: { endedAt: tail.at, source: "AUTO_GPS" },
-      reason: `стоїть ${tail.minutes} хв з ${kyivTime(tail.at)}`,
+      close: { endedAt: tail.at, source: gappy ? "AUTO_GAP" : "AUTO_GPS" },
+      reason: gappy
+        ? `трек мовчав ${tail.gapBeforeMin} хв і ожив о ${kyivTime(tail.at)} — час приблизний`
+        : `стоїть ${tail.minutes} хв з ${kyivTime(tail.at)}`,
     };
   }
 
@@ -248,6 +276,7 @@ async function notify(decision: AutoCloseDecision, gpsKm: number | null): Promis
 
   const label: Record<string, string> = {
     AUTO_GPS: "за зупинкою в треку",
+    AUTO_GAP: "час приблизний, трек із розривом",
     AUTO_DEAD: "трек мовчав",
     AUTO_FORCED: "за часом",
   };

@@ -297,6 +297,53 @@ async function main() {
     { source: "AUTO_FORCED" }
   );
 
+  // --- А2. Трек мовчав півдня й ожив уже на місці зупинки ---
+  //
+  // Реальний випадок 27.08: тиша з 09:13 до 16:05, після чого планшет
+  // писав до вечора з одного місця. Стара логіка закривала це як
+  // AUTO_GPS «машина стоїть з 16:05» — тобто видавала верхню межу за
+  // вимір.
+  await scenario(
+    "А2. розрив перед зупинкою → AUTO_GAP",
+    async (userId) => {
+      const shift = await p.shift.create({
+        data: {
+          userId,
+          status: "OPEN",
+          startedAt: kyivAt(0, 9, 0),
+          startOdometer: 260_000,
+          startOdometerSource: "AI",
+        },
+      });
+      // Ранок: кілька точок, далі тиша на сім годин.
+      await drawTrack(userId, shift.id, kyivAt(0, 9, 0), kyivAt(0, 9, 15), kyivAt(0, 9, 15));
+
+      // Планшет ожив о 16:05 уже на іншому місці й стоїть там до вечора.
+      const day = new Date(kyivAt(0, 16, 5));
+      day.setUTCHours(0, 0, 0, 0);
+      const session = await p.trackSession.upsert({
+        where: { userId_day: { userId, day } },
+        create: { userId, day, startedAt: kyivAt(0, 16, 5) },
+        update: {},
+      });
+      const revived: {
+        sessionId: string; userId: string; shiftId: string; lat: number; lng: number;
+        accuracyM: number; recordedAt: Date; phase: "SHIFT";
+      }[] = [];
+      for (let t = kyivAt(0, 16, 5).getTime(); t <= kyivAt(0, 20, 30).getTime(); t += 60_000) {
+        revived.push({
+          sessionId: session.id, userId, shiftId: shift.id,
+          lat: 49.95, lng: 24.2, accuracyM: 10,
+          recordedAt: new Date(t), phase: "SHIFT",
+        });
+      }
+      await p.trackPoint.createMany({ data: revived, skipDuplicates: true });
+      return { shiftId: shift.id };
+    },
+    kyivAt(0, 20, 30),
+    { source: "AUTO_GAP", endedAtHour: 16 }
+  );
+
   // --- Коротка вечірня зміна не закривається о 20:00 ---
   await scenario(
     "Г. відкрита о 19:30, зараз 20:30 — рано",

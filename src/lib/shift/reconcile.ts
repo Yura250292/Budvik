@@ -26,6 +26,11 @@ export type LateCloseSource =
   | "MANUAL"
   /** Воркер: машина стала надовго, час = момент зупинки */
   | "AUTO_GPS"
+  /**
+   * Воркер: зупинку знайдено, але трек мовчав перед нею — час є лише
+   * верхньою межею, а не виміром.
+   */
+  | "AUTO_GAP"
   /** Воркер: трек помер, час = остання відома точка */
   | "AUTO_DEAD"
   /** Воркер: машина ще їхала, але час вийшов — найменш надійне */
@@ -198,6 +203,11 @@ export function autoCloseNote(source: LateCloseSource, stoodSince: Date | null):
   switch (source) {
     case "AUTO_GPS":
       return `Закрито автоматично: машина стояла з ${stoodSince ? kyivTime(stoodSince) : "невідомо"}`;
+    case "AUTO_GAP":
+      return (
+        `Закрито автоматично о ${stoodSince ? kyivTime(stoodSince) : "невідомо"}, але трек ` +
+        `мовчав перед цим — робота могла скінчитися раніше`
+      );
     case "AUTO_DEAD":
       return `Закрито автоматично: трек обірвався${stoodSince ? ` о ${kyivTime(stoodSince)}` : ""}`;
     case "AUTO_FORCED":

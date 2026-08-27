@@ -21,6 +21,7 @@ import { API_BASE } from "@/api/client";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductGridSkeleton } from "@/components/Skeleton";
 import { BrandTile } from "@/components/BrandTile";
+import { BrandBannerRail, type ShowcaseBrand } from "@/components/BrandBannerRail";
 import { SectionTiles, type SectionTile } from "@/components/SectionTiles";
 import { addToCart } from "@/lib/cart";
 import type { CardDto } from "@/api/types";
@@ -46,6 +47,8 @@ type Home = {
   banners: Banner[];
   shelves: Shelf[];
   brands: { slug: string; name: string; count: number; color?: string | null; logoUrl?: string | null }[];
+  /** Вітрина брендів банерами. Старіші збірки сервера її не шлють. */
+  brandShowcase?: ShowcaseBrand[];
 };
 
 export default function HomeScreen() {
@@ -236,8 +239,27 @@ export default function HomeScreen() {
         </>
       ) : null}
 
-      {/* Бренди стрічкою: швидкий вхід для тих, хто вже знає, чий інструмент бере. */}
-      {data?.brands.length ? (
+      {/*
+        Бренди. Банерами, коли сервер їх присилає, — фірмовий колір, чим бренд
+        є і як виглядає його товар. Старий сервер вітрини не знає, тож
+        лишається запасний рядок дрібних знаків: застосунок оновлюється не в
+        той самий день, що сайт, і без цього екран просто втратив би бренди.
+      */}
+      {data?.brandShowcase?.length ? (
+        <>
+          <View style={styles.shelfHead}>
+            <Text style={styles.shelfTitle}>Бренди</Text>
+          </View>
+          <View style={{ paddingTop: space.sm }}>
+            <BrandBannerRail
+              brands={data.brandShowcase}
+              onOpen={(b) =>
+                router.push({ pathname: "/list", params: { brand: b.slug, title: b.name } })
+              }
+            />
+          </View>
+        </>
+      ) : data?.brands.length ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}

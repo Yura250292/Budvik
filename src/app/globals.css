@@ -811,6 +811,42 @@ input:focus, select:focus, textarea:focus {
   transform: translateY(0);
 }
 
+/*
+ * Банер бренда: картка підіймається, а віяло знімків розлітається.
+ *
+ * Окремі класи, а не утиліти, бо в картки й плиток різні тривалості й різні
+ * криві, а зсув плиток рахується від їхнього власного повороту (той стоїть
+ * інлайн і залежить від позиції в масиві) — утилітою це не задати.
+ *
+ * Ховати тут нічого не можна: рухаються тільки transform і тінь, тож
+ * загальний вимикач анімацій (@media prefers-reduced-motion нижче) лишає
+ * банер на місці й у повному вигляді, а не напівпрозорим.
+ */
+.brand-banner {
+  transition: transform var(--duration-base) var(--ease-out-expo),
+              box-shadow var(--duration-base) var(--ease-out-expo);
+}
+.brand-banner:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card-hover);
+}
+.brand-banner:active {
+  transform: translateY(-1px);
+}
+
+.brand-collage-tile {
+  transition: transform var(--duration-slow) var(--ease-out-expo),
+              box-shadow var(--duration-slow) var(--ease-out-expo);
+}
+/*
+ * translate до rotate — порядок множення матриць має значення: спершу
+ * піднімаємо плитку по своїй вертикалі, потім довертаємо. У зворотному
+ * порядку зсув пішов би по діагоналі повороту й віяло б «поїхало».
+ */
+.brand-banner:hover .brand-collage-tile {
+  transform: translateY(-8px) rotate(var(--tile-rotate, 0deg)) scale(1.04);
+}
+
 /* Кросфейд сітки каталогу при перемиканні grid/list/gallery */
 @keyframes view-switch-kf {
   from { opacity: 0; transform: scale(0.98); }

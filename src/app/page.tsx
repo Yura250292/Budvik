@@ -21,9 +21,8 @@ export const metadata = {
 };
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
-import BrandCard from "@/components/BrandCard";
-import { BRANDS } from "@/lib/brands";
-import { getBrandTree } from "@/lib/catalog/brand-tree";
+import BrandShowcase from "@/components/home/BrandShowcase";
+import { getBrandShowcase } from "@/lib/catalog/brand-showcase";
 import { getCatalogToc, getSectionTiles } from "@/lib/catalog/sections";
 import { formatCount, POSITIONS } from "@/lib/utils";
 import CategoryRail from "@/components/home/CategoryRail";
@@ -49,7 +48,7 @@ export default async function HomePage() {
   // Дві хвилі запитів замість чотирьох послідовних: сезонні промо і дерево
   // брендів ні від чого не залежать, тож їдуть разом із першою хвилею. На
   // кожному revalidate-місі це мінус два послідовні RTT до бази.
-  const [featuredProducts, topOrderedItems, seasonalPromos, brandTree, toc, sectionTiles] = await Promise.all([
+  const [featuredProducts, topOrderedItems, seasonalPromos, showcaseBrands, toc, sectionTiles] = await Promise.all([
     prisma.product.findMany({
       where: {
         ...excludeFilter,
@@ -79,12 +78,11 @@ export default async function HomePage() {
       },
       orderBy: { sortOrder: "asc" },
     }),
-    getBrandTree(),
+    getBrandShowcase(),
     getCatalogToc(),
     getSectionTiles(),
   ]);
 
-  let seasonalProducts: any[] = [];
   const seasonalKeywords = seasonalPromos.length > 0
     ? seasonalPromos.flatMap((p) => p.keywords)
     : DEFAULT_SEASONAL_KEYWORDS[season];
@@ -109,7 +107,12 @@ export default async function HomePage() {
   // Друга хвиля: сезонні товари і бестселери залежать від першої, але не
   // одне від одного — тож теж разом.
   const bestSellerIds = topOrderedItems.map((i) => i.productId);
-  const [seasonalFound, bestSellers] = await Promise.all([
+  const [seasonalProducts, bestSellers] = await Promise.all([
+    /*
+     * Сезонна добірка лишилась однією позицією: з неї банер бере знімок і
+     * дізнається, чи є взагалі що показувати. Сітку сезонних товарів на
+     * головній замінила вітрина брендів, тож решта вибірки нікуди не йшла.
+     */
     seasonalConditions.length > 0
       ? prisma.product.findMany({
           where: {
@@ -120,9 +123,9 @@ export default async function HomePage() {
             OR: seasonalConditions,
             NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
           },
-          include: { category: true, brand: { select: { name: true } } },
+          select: { image: true },
           orderBy: [{ priority: "desc" }, { stock: "desc" }],
-          take: 8,
+          take: 1,
         })
       : Promise.resolve([]),
     bestSellerIds.length > 0
@@ -132,7 +135,6 @@ export default async function HomePage() {
         })
       : Promise.resolve([]),
   ]);
-  seasonalProducts = seasonalFound;
 
   const seasonalTitle = seasonalPromos.length > 0
     ? seasonalPromos[0].title
@@ -151,26 +153,6 @@ export default async function HomePage() {
   const sortedBestSellers = bestSellerIds
     .map((id) => bestSellers.find((p) => p.id === id))
     .filter(Boolean) as typeof bestSellers;
-
-  // Кількість товарів по бренду беремо з brandId, а не з підрядка в назві.
-  // Пошук «GROSS» у назві ловив і Grösser, і «gross» усередині чужих слів,
-  // а товари, де бренд у назві не згаданий, не рахувались зовсім — до того ж
-  // рахунок ішов по вибірці з 500 назв, тож числа під логотипами були
-  // випадковими.
-  const countBySlug = new Map(
-    brandTree.main.concat(brandTree.tail).map((b) => [b.slug.toLowerCase(), b.count])
-  );
-
-  const brandCounts: Record<string, number> = {};
-  for (const b of BRANDS) {
-    const n = countBySlug.get(b.slug.toLowerCase());
-    if (n) brandCounts[b.slug] = n;
-  }
-
-  // Показуємо лише ті бренди з логотипами, у яких справді є товар
-  const activeBrands = BRANDS
-    .filter((b) => brandCounts[b.slug] > 0)
-    .sort((a, b) => (brandCounts[b.slug] || 0) - (brandCounts[a.slug] || 0));
 
   /*
    * Банери першого екрана. Складаються з того, що в магазині справді є, а не
@@ -279,27 +261,15 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Seasonal Products */}
-      {seasonalProducts.length > 0 && (
-        <section className="py-8 sm:py-10" style={{ background: `linear-gradient(135deg, ${activeSeasonColor}08, ${activeSeasonColor}15)` }}>
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="reveal flex items-center gap-3 mb-4 sm:mb-7">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{ background: `${activeSeasonColor}20` }}>
-                {seasonalPromos[0]?.icon || seasonIcon}
-              </div>
-              <div>
-                <h2 className="text-lg sm:text-2xl font-bold text-[#0A0A0A]">{seasonalTitle}</h2>
-                <p className="text-sm text-[#9E9E9E]">{seasonalDesc}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
-              {seasonalProducts.map((product: any) => (
-                <ProductCard key={product.id} {...product} category={product.category} />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+      {/*
+        Бренди — банерами з фотографіями фірмових каталогів.
+
+        На цьому місці була сезонна добірка товарів, але вона повторювала те,
+        що вже показують банери першого екрана й «Хіти продажу» нижче: ще одна
+        сітка карток між ними нічого не додавала. Бренд же — головний вимір
+        цього каталогу, і саме його на вітрині не було видно зовсім.
+      */}
+      <BrandShowcase brands={showcaseBrands} />
 
       {/* Best Sellers */}
       {sortedBestSellers.length > 0 && (
@@ -344,25 +314,6 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* Brands */}
-      {activeBrands.length > 0 && (
-        <section className="py-8 sm:py-10 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
-            <h2 className="reveal text-xl sm:text-3xl font-bold text-[#0A0A0A] mb-1 sm:mb-2 text-center">Бренди</h2>
-            <p className="reveal text-sm text-[#9E9E9E] text-center mb-5 sm:mb-8">Інструменти від провідних виробників</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
-              {activeBrands.map((brand) => (
-                <BrandCard
-                  key={brand.slug}
-                  brand={brand}
-                  count={brandCounts[brand.slug] || 0}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

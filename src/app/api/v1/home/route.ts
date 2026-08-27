@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { CARD_SELECT } from "@/lib/catalog/query";
 import { showableProductWhere } from "@/lib/catalog/showable";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
+import { getBrandShowcase } from "@/lib/catalog/brand-showcase";
 import { getCatalogToc } from "@/lib/catalog/sections";
 import { serializeCard } from "@/lib/shop/api";
 import {
@@ -68,7 +69,7 @@ export async function GET() {
     })),
   };
 
-  const [seasonal, promoProducts, newest, brands, topOrdered, toc] = await Promise.all([
+  const [seasonal, promoProducts, newest, brands, showcase, topOrdered, toc] = await Promise.all([
     prisma.product.findMany({
       where: seasonalWhere,
       select: CARD_SELECT,
@@ -93,6 +94,7 @@ export async function GET() {
       take: SHELF,
     }),
     getBrandTree(),
+    getBrandShowcase(),
     /** Найкупованіше — те саме джерело, що й полиця «Хіти продажу» на сайті. */
     prisma.orderItem.groupBy({
       by: ["productId"],
@@ -191,6 +193,28 @@ export async function GET() {
       count: b.count,
       color: b.color,
       logoUrl: b.logoUrl,
+    })),
+    /*
+     * Вітрина брендів — та сама, що на головній сайту (див.
+     * lib/catalog/brand-showcase.ts): фірмовий колір, слоган, лічильник і
+     * знімки товарів із каталогу бренда.
+     *
+     * Окремим полем, а не всередині brands: там інший набір (топ-10 за
+     * кількістю) і інший вигляд у застосунку — дрібні чипи. Зв'язати їх
+     * означало б, що зміна складу вітрини мовчки міняє і рядок чипів.
+     * Старі збірки незнайомого ключа просто не бачать.
+     *
+     * Знімків беремо два: віяло з чотирьох — це для широкого банера сайту, на
+     * телефоні стільки не влазить.
+     */
+    brandShowcase: showcase.map((b) => ({
+      slug: b.slug,
+      name: b.name,
+      tagline: b.tagline,
+      accent: b.accent,
+      logoUrl: b.logoUrl,
+      count: b.count,
+      photos: b.photos.slice(0, 2),
     })),
   });
 }

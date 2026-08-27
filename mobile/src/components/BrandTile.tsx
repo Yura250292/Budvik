@@ -68,7 +68,7 @@ function colorFor(brand: BrandLike): string {
  * а на #FFD600 — ні. Без цього половина плиток була б нечитабельна саме на
  * найпомітніших брендах.
  */
-function inkFor(hex: string): string {
+export function inkFor(hex: string): string {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return "#FFFFFF";
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);

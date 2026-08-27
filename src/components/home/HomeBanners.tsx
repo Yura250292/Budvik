@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { isLight, shade } from "@/lib/color";
 
 export interface HomeBanner {
   id: string;
@@ -209,34 +210,4 @@ function Arrow({
       </svg>
     </button>
   );
-}
-
-/**
- * Чи світлий колір банера — за сприйнятою яскравістю.
- *
- * Око значно чутливіше до зеленого, ніж до синього, тож середнє арифметичне
- * каналів тут бреше: #FFD600 воно вважає удвічі темнішим, ніж він є.
- */
-function isLight(hex: string): boolean {
-  if (!/^#[0-9a-f]{6}$/i.test(hex)) return true;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55;
-}
-
-/**
- * Другий тон градієнта — той самий колір, притемнений.
- *
- * Рахуємо, а не тримаємо пару кольорів у базі: адміністратор заводить акцію
- * одним полем color, і вимагати від нього ще й «колір-компаньйон» означало б
- * отримати або порожнє поле, або випадкове поєднання.
- */
-function shade(hex: string): string {
-  if (!/^#[0-9a-f]{6}$/i.test(hex)) return hex;
-  const mix = (c: number) => Math.max(0, Math.round(c * 0.78));
-  const r = mix(parseInt(hex.slice(1, 3), 16));
-  const g = mix(parseInt(hex.slice(3, 5), 16));
-  const b = mix(parseInt(hex.slice(5, 7), 16));
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 }

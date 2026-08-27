@@ -95,9 +95,16 @@ for (const fn of ["openShift", "logout", "shiftStateJson", "appVersion", "appVer
 console.log("\n— Свідомі відмінності (не прогалини) —");
 const known: Array<[string, boolean, string]> = [
   [
-    "BootReceiver: у Expo немає, страхує сторож WorkManager",
-    app("src/track/watchdog.ts").includes("registerTaskAsync"),
-    "після ребуту трек підніме сторож протягом ~15 хв",
+    "BootReceiver: у Expo немає — страхує перевірка при відкритті застосунку",
+    app("src/track/use-track-health.ts").includes("AppState"),
+    "після ребуту запис підніметься, коли людина відкриє застосунок",
+  ],
+  [
+    "Сторож офлайн: Kotlin піднімав службу без мережі, Expo — НІ",
+    app("src/track/health.ts").includes("ensureFreshFixes"),
+    "expo-background-task жорстко ставить NetworkType.CONNECTED; часткова заміна — " +
+      "перепідписка з health.ts, поки процес живий. Повний паритет вимагає власного " +
+      "нативного модуля з WorkManager без обмеження мережі",
   ],
   [
     "CrashReporter: причина падіння їде полем lastError у пульсі",

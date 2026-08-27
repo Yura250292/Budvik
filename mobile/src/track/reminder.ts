@@ -63,7 +63,16 @@ export async function scheduleCloseReminders(now: Date = new Date()): Promise<vo
         content: {
           title: "Зміна ще відкрита",
           body,
-          data: { tag: TAG, url: "budvik27://shift" },
+          /**
+           * Куди вести — назвою екрана, а не адресою зі схемою.
+           *
+           * Тут була схема `budvik27://` — а це схема МАГАЗИННОЇ збірки;
+           * у робочої вона `budvik27staff://` (різні навмисно, бо обидві
+           * можуть стояти на одному планшеті). Сповіщення все одно
+           * обробляється всередині застосунку, тож схема тут не потрібна
+           * зовсім, а неправильна — це майбутній перехід не туди.
+           */
+          data: { tag: TAG, screen: "/shift" },
           ...(Platform.OS === "android" ? { channelId: SHIFT_CHANNEL } : {}),
         },
         trigger: {

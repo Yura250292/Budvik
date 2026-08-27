@@ -14,7 +14,7 @@
  * код зарано — спершу треба місяць реальних даних.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 // Пороги епізоду — з того самого модуля, що й рахує: підпис під
 // відхиленнями не має розходитися з логікою.
@@ -61,6 +61,8 @@ type Person = {
     appVersion: string | null;
     lastError: string | null;
   } | null;
+  /** Скільки клієнтів цієї людини сьогодні замовили. */
+  ordersToday: number;
   /** Готова фраза «чому не пишеться» або null, якщо все гаразд. */
   problem: string | null;
 };
@@ -128,6 +130,22 @@ type DayDetail = {
     markedAt: string;
     counterparty: { name: string };
   }>;
+  /** Клієнти, від яких сьогодні є замовлення. */
+  orders: {
+    dots: Array<{
+      counterpartyId: string;
+      name: string;
+      lat: number;
+      lng: number;
+      number: string;
+      amount: number;
+      time: string;
+      draft: boolean;
+    }>;
+    /** Замовлення, у клієнтів яких немає координат: на карту не лягли. */
+    unmapped: number;
+    total: number;
+  };
   sheet1C: {
     number: string;
     distanceKm: number;
@@ -160,6 +178,13 @@ export function LiveTrackTab() {
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<DayDetail | null>(null);
+  /**
+   * Деталі показуємо лише тоді, коли вони про того, кого зараз обрано.
+   *
+   * Поки відповідь на нову людину в дорозі, у стані ще лежить попередня —
+   * і без цієї перевірки на карті пів секунди світився б чужий маршрут.
+   */
+  const shown = detail && detail.user.id === selected ? detail : null;
   const [error, setError] = useState<string | null>(null);
 
   const loadLive = useCallback(async () => {
@@ -185,24 +210,48 @@ export function LiveTrackTab() {
     return () => window.clearInterval(id);
   }, [day, loadLive]);
 
-  useEffect(() => {
-    if (!selected) {
-      setDetail(null);
-      return;
+  /**
+   * Порядковий номер запиту деталей.
+   *
+   * Відповіді приходять не в тому порядку, в якому пішли: клацнув одного,
+   * одразу іншого — і повільніша відповідь першого лягла б поверх
+   * другого. Приймаємо лише найсвіжішу.
+   */
+  const detailReq = useRef(0);
+
+  const loadDetail = useCallback(async () => {
+    if (!selected) return;
+    const token = ++detailReq.current;
+    try {
+      const res = await fetch(`/api/admin/track/${selected}/day?day=${day}`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      if (token === detailReq.current) setDetail(json as DayDetail);
+    } catch (e) {
+      if (token === detailReq.current) {
+        setError(e instanceof Error ? e.message : "Не вдалося завантажити день");
+      }
     }
-    let alive = true;
-    fetch(`/api/admin/track/${selected}/day?day=${day}`)
-      .then(async (r) => {
-        const j = await r.json().catch(() => null);
-        if (!r.ok) throw new Error(j?.error ?? `Помилка ${r.status}`);
-        return j as DayDetail;
-      })
-      .then((j) => alive && setDetail(j))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "Не вдалося завантажити день"));
-    return () => {
-      alive = false;
-    };
   }, [selected, day]);
+
+  useEffect(() => {
+    void loadDetail();
+  }, [loadDetail]);
+
+  /**
+   * Маршрут теж оновлюється сам, а не лише при виборі людини.
+   *
+   * Досі лінію дня тягнули один раз — коли на людину клацнули. Точка на
+   * карті рухалася кожні пів хвилини, а слід за нею стояв на місці, і
+   * виглядало це рівно як «трек завис і перестав малюватись»; варто було
+   * переклацнути людину — і лінія доганяла. Тепер її оновлює той самий
+   * цикл, що й позиції.
+   */
+  useEffect(() => {
+    if (!selected || day !== kyivToday()) return;
+    const id = window.setInterval(() => void loadDetail(), POLL_MS);
+    return () => window.clearInterval(id);
+  }, [selected, day, loadDetail]);
 
   const isToday = day === kyivToday();
 
@@ -269,13 +318,14 @@ export function LiveTrackTab() {
               people={onMap}
               selectedId={selected}
               detail={
-                detail
+                shown
                   ? {
-                      points: detail.track.points,
-                      path: detail.track.path,
-                      stops: detail.route.stops,
-                      plan: detail.plan,
-                      excursions: detail.deviation?.excursions ?? [],
+                      points: shown.track.points,
+                      path: shown.track.path,
+                      stops: shown.route.stops,
+                      plan: shown.plan,
+                      excursions: shown.deviation?.excursions ?? [],
+                      orders: shown.orders?.dots ?? [],
                     }
                   : null
               }
@@ -283,10 +333,30 @@ export function LiveTrackTab() {
             />
           </div>
 
-          {detail && detail.track.hiddenPoints > 0 && (
+          {shown && shown.orders && shown.orders.total > 0 && (
+            <p style={{ fontSize: "12px", color: "#6B7280", lineHeight: 1.5 }}>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: "9px",
+                  height: "9px",
+                  borderRadius: "50%",
+                  background: "#7C3AED",
+                  marginRight: "6px",
+                }}
+              />
+              Фіолетовим — {shown.orders.total} замовлень цього дня
+              {shown.orders.unmapped > 0 &&
+                `, з них ${shown.orders.unmapped} без координат клієнта`}
+              . Порожнє кільце — документ ще не проведений в 1С; час у підказці —
+              час документа, а не візиту.
+            </p>
+          )}
+
+          {shown && shown.track.hiddenPoints > 0 && (
             <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.5 }}>
-              На карті лише робочі години ({detail.track.workHours}). Ще{" "}
-              {detail.track.hiddenPoints} точок цього дня записано поза вікном —
+              На карті лише робочі години ({shown.track.workHours}). Ще{" "}
+              {shown.track.hiddenPoints} точок цього дня записано поза вікном —
               вони збережені, але не показані.
             </p>
           )}
@@ -296,16 +366,16 @@ export function LiveTrackTab() {
               рівно, чи половину дня спав. */}
           {selected && <TrackHealthCard userId={selected} day={day} />}
 
-          {detail?.plan && (
+          {shown?.plan && (
             <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" style={{ marginBottom: "10px" }}>
                 <span style={{ fontSize: "14px", fontWeight: 700 }}>
-                  План: {detail.plan.name}
+                  План: {shown.plan.name}
                 </span>
                 <span style={{ fontSize: "12px", color: "#6B7280" }}>
-                  {detail.plan.source === "DATE" ? "разове призначення" : "постійний розклад"}
-                  {detail.plan.totalDistanceKm != null && ` · ${detail.plan.totalDistanceKm} км`}
-                  {` · ${detail.plan.stops.length} пунктів`}
+                  {shown.plan.source === "DATE" ? "разове призначення" : "постійний розклад"}
+                  {shown.plan.totalDistanceKm != null && ` · ${shown.plan.totalDistanceKm} км`}
+                  {` · ${shown.plan.stops.length} пунктів`}
                 </span>
               </div>
 
@@ -316,39 +386,39 @@ export function LiveTrackTab() {
                   <b
                     style={{
                       color:
-                        detail.deviation?.onRouteRatio == null
+                        shown.deviation?.onRouteRatio == null
                           ? "#6B7280"
-                          : detail.deviation.onRouteRatio < 0.6
+                          : shown.deviation.onRouteRatio < 0.6
                             ? "#DC2626"
                             : "#16A34A",
                     }}
                   >
-                    {detail.deviation?.onRouteRatio == null
+                    {shown.deviation?.onRouteRatio == null
                       ? "—"
-                      : `${Math.round(detail.deviation.onRouteRatio * 100)}%`}
+                      : `${Math.round(shown.deviation.onRouteRatio * 100)}%`}
                   </b>
                 </span>
                 <span>
                   Поза маршрутом:{" "}
-                  <b style={{ color: (detail.deviation?.offRouteKm ?? 0) > 0 ? "#DC2626" : "#16A34A" }}>
-                    {detail.deviation?.offRouteKm ?? 0} км
+                  <b style={{ color: (shown.deviation?.offRouteKm ?? 0) > 0 ? "#DC2626" : "#16A34A" }}>
+                    {shown.deviation?.offRouteKm ?? 0} км
                   </b>
                 </span>
                 <span style={{ color: "#6B7280" }}>
-                  Коридор: {Math.round(detail.corridorM / 100) / 10} км
+                  Коридор: {Math.round(shown.corridorM / 100) / 10} км
                 </span>
               </div>
 
-              {detail.deviation && detail.deviation.excursions.length > 0 && (
+              {shown.deviation && shown.deviation.excursions.length > 0 && (
                 <div
                   className="rounded-lg p-3"
                   style={{ background: "#FEF2F2", border: "1px solid #FECACA", marginTop: "12px" }}
                 >
                   <p style={{ fontSize: "13px", fontWeight: 700, color: "#991B1B", marginBottom: "6px" }}>
-                    Виїзди за межі маршруту: {detail.deviation.excursions.length}
+                    Виїзди за межі маршруту: {shown.deviation.excursions.length}
                   </p>
                   <div className="space-y-1">
-                    {detail.deviation.excursions.map((e, i) => (
+                    {shown.deviation.excursions.map((e, i) => (
                       <p key={i} style={{ fontSize: "13px", color: "#7F1D1D" }}>
                         {kyivClock(e.from)}—{kyivClock(e.to)} · {e.minutes} хв · {e.km} км ·
                         найдалі {Math.round(e.maxDistanceM / 100) / 10} км від маршруту
@@ -364,7 +434,7 @@ export function LiveTrackTab() {
                 </div>
               )}
 
-              {!detail.planFromGeometry && (
+              {!shown.planFromGeometry && (
                 <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", lineHeight: 1.5 }}>
                   У цього напрямку немає збереженої геометрії доріг, тому план —
                   прямі між пунктами, а коридор розширено вдвічі. Відхилення на
@@ -384,13 +454,14 @@ export function LiveTrackTab() {
                   <th style={thR}>1С, км</th>
                   <th style={thR}>Відхилення</th>
                   <th style={thR}>Зібрано</th>
+                  <th style={thR}>Замовлень</th>
                   <th style={thR}>Точки</th>
                 </tr>
               </thead>
               <tbody>
                 {people.map((p) => {
                   const mine = selected === p.userId;
-                  const sheet = mine ? detail?.sheet1C : null;
+                  const sheet = mine ? shown?.sheet1C : null;
                   // Трек по прямій завжди коротший за дорогу, тому
                   // від'ємне відхилення — норма, а додатне питання.
                   const deviation =
@@ -485,6 +556,11 @@ export function LiveTrackTab() {
                       <td style={tdR}>
                         {sheet ? `${money.format(sheet.collected)} / ${money.format(sheet.debtsTotal)}` : "—"}
                       </td>
+                      {/* Сто кілометрів і жодного замовлення — теж результат,
+                          і побачити його треба поруч із пробігом. */}
+                      <td style={{ ...tdR, fontWeight: p.ordersToday > 0 ? 700 : 400 }}>
+                        {p.ordersToday || "—"}
+                      </td>
                       <td style={tdR}>{p.pointsCount}</td>
                     </tr>
                   );
@@ -493,13 +569,13 @@ export function LiveTrackTab() {
             </table>
           </TableScroll>
 
-          {detail && detail.visits.length > 0 && (
+          {shown && shown.visits.length > 0 && (
             <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
               <p style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>
-                Відмітки: {detail.user.name}
+                Відмітки: {shown.user.name}
               </p>
               <div className="space-y-1.5">
-                {detail.visits.map((v) => (
+                {shown.visits.map((v) => (
                   <div key={v.id} className="flex flex-wrap items-baseline gap-2" style={{ fontSize: "13px" }}>
                     <span style={{ color: v.status === "DONE" ? "#16A34A" : "#DC2626", fontWeight: 700 }}>
                       {v.status === "DONE" ? "✓" : "×"}

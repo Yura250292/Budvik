@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, TrackPhase } from "@prisma/client";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { preparePoints, MAX_ACCURACY_M, type RawPoint } from "@/lib/track/geo";
 import { findGaps, resolveGaps } from "@/lib/track/gaps";
@@ -28,6 +28,21 @@ const ALLOWED_ROLES = TRACK_ROLES;
 
 /** Стеля на пачку: більше — це вже не буфер, а спроба залити історію. */
 const MAX_BATCH = 500;
+
+/**
+ * Скільки останніх точок дня читаємо як опору для нової пачки.
+ *
+ * Достатньо, щоб накрити типовий відрізок між надійними фіксами (при
+ * точці раз на 20 секунд це понад пів години суцільно слабкого
+ * приймання), і мало, щоб не тягати день цілком на кожній пачці.
+ */
+const TAIL_POINTS = 120;
+
+/**
+ * Запас на межах зміни: годинник планшета зсунутий на кілька хвилин, і
+ * без нього точки на початку дня падали б «перед зміною».
+ */
+const SHIFT_GRACE_MS = 15 * 60_000;
 
 export async function POST(req: NextRequest) {
   /**
@@ -70,22 +85,92 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Доба визначається за часом ПРИЙОМУ, а не за recordedAt точок: пачка,
-  // надіслана о 00:05 після офлайну, все одно належить робочому дню, який
-  // щойно закінчився... але планшет о 00:05 уже не в машині. Тому беремо
-  // добу першої точки пачки — вона завжди з правильного дня.
-  //
-  // Час першої точки перевіряємо окремо: без цього крива пачка (null
-  // замість об'єкта, сміття в recordedAt) валила б upsert по ключу
-  // userId_day і поверталася б як 500 замість зрозумілого 400.
-  const firstAt = new Date(raw[0]?.recordedAt ?? NaN);
-  if (Number.isNaN(firstAt.getTime())) {
+  /**
+   * Пачка може перетинати київську північ.
+   *
+   * Планшет, що простояв ніч без зв'язку, віддає буфер уранці одним
+   * шматком — і в ньому кінець учорашнього дня та початок сьогоднішнього.
+   * Доба бралася з ПЕРШОЇ точки, тож увесь ранок лягав у вчорашню сесію
+   * і на сьогоднішній карті не з'являвся зовсім. Тому ділимо пачку по
+   * добах і кожну частину пишемо у свою сесію.
+   */
+  const byDay = new Map<string, RawPoint[]>();
+  let malformedAtTop = 0;
+
+  for (const point of raw) {
+    const at = new Date(point?.recordedAt ?? NaN);
+    if (Number.isNaN(at.getTime())) {
+      // Точку без часу нікуди віднести: у відповіді вона піде як
+      // malformed, рівно як її порахував би preparePoints.
+      malformedAtTop++;
+      continue;
+    }
+    const key = kyivDate(at);
+    const bucket = byDay.get(key);
+    if (bucket) bucket.push(point);
+    else byDay.set(key, [point]);
+  }
+
+  if (byDay.size === 0) {
     return NextResponse.json(
-      { error: "Перша точка пачки без коректного recordedAt" },
+      { error: "Жодної точки з коректним recordedAt" },
       { status: 400 }
     );
   }
-  const day = kyivDate(firstAt);
+
+  const wantsAfterShift = String(body.phase ?? "").toUpperCase() === "AFTER_SHIFT";
+
+  const totals = {
+    accepted: 0,
+    untrusted: 0,
+    rejected: { accuracy: 0, stale: 0, malformed: malformedAtTop },
+  };
+  let latest: { day: string; distanceKm: number; pointsCount: number } | null = null;
+
+  // Доби йдуть по порядку: сесія молодшого дня має бачити опори старшого
+  // вже записаними, інакше пробіг ранку рахувався б від порожнечі.
+  for (const day of [...byDay.keys()].sort()) {
+    const result = await ingestDay(userId, day, byDay.get(day)!, wantsAfterShift);
+    totals.accepted += result.accepted;
+    totals.untrusted += result.untrusted;
+    totals.rejected.accuracy += result.rejected.accuracy;
+    totals.rejected.stale += result.rejected.stale;
+    totals.rejected.malformed += result.rejected.malformed;
+    // Планшет показує пробіг поточного дня — віддаємо найсвіжіший.
+    if (!latest || day > latest.day) {
+      latest = { day, distanceKm: result.distanceKm, pointsCount: result.pointsCount };
+    }
+  }
+
+  return NextResponse.json({
+    accepted: totals.accepted,
+    // Скільки з прийнятих — «на віру»: планшет показує це в сповіщенні,
+    // і саме за цим числом видно, що фікс поплив, а не що трек перервався.
+    untrusted: totals.untrusted,
+    rejected: totals.rejected,
+    sessionDistanceKm: Math.round((latest?.distanceKm ?? 0) * 10) / 10,
+    pointsCount: latest?.pointsCount ?? 0,
+  });
+}
+
+/**
+ * Запис однієї київської доби з пачки.
+ *
+ * Винесено з обробника, бо пачка після нічного офлайну містить дві доби,
+ * а кожна доба — це своя сесія, свої опори і свій пробіг.
+ */
+async function ingestDay(
+  userId: string,
+  day: string,
+  raw: RawPoint[],
+  wantsAfterShift: boolean
+): Promise<{
+  accepted: number;
+  untrusted: number;
+  rejected: { accuracy: number; stale: number; malformed: number };
+  distanceKm: number;
+  pointsCount: number;
+}> {
   const dayStart = kyivDayStart(day);
 
   const sessionRow = await prisma.trackSession.upsert({
@@ -96,79 +181,66 @@ export async function POST(req: NextRequest) {
   });
 
   /**
-   * До якої зміни належить пачка.
+   * Хвіст уже записаного дня: з нього виходять усі три опори.
    *
-   * Визначаємо на сервері, а не віримо пристрою: застосунок міг не
-   * знати, що зміну закрив адмін, і клеїв би точки до закритої.
-   * Пристрій лише каже, у якому режимі він їх зібрав.
+   * `last` — остання точка будь-якої якості: від неї рахується
+   * metersFromPrev і ловляться повтори пачки. `lastTrusted` — остання
+   * точка з доброю похибкою: від неї росте пробіг. А слабкі фікси, що
+   * лягли ПІСЛЯ неї, — це чернетка дороги, якою поведе OSRM.
    *
-   * AFTER_SHIFT чіпляється до ОСТАННЬОЇ закритої зміни — так «чи не
-   * таксував після роботи» видно поруч із самою зміною, а не окремим
-   * безхазяйним треком.
+   * Одним запитом, а не трьома: хвіст усе одно доводиться читати, і
+   * ділити його на кілька походів у базу на кожній пачці — марно.
    */
-  const wantsAfterShift = String(body.phase ?? "").toUpperCase() === "AFTER_SHIFT";
+  const tail = await prisma.trackPoint.findMany({
+    where: { sessionId: sessionRow.id },
+    orderBy: { recordedAt: "desc" },
+    take: TAIL_POINTS,
+    select: { lat: true, lng: true, recordedAt: true, accuracyM: true },
+  });
 
-  const openShift = wantsAfterShift
-    ? null
-    : await prisma.shift.findFirst({
-        where: { userId, status: "OPEN" },
-        orderBy: { startedAt: "desc" },
-        select: { id: true },
-      });
+  const isTrusted = (p: { accuracyM: number | null }) =>
+    p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M;
 
-  const afterShift = wantsAfterShift
-    ? await prisma.shift.findFirst({
-        where: { userId, status: { in: ["CLOSED", "ABANDONED"] } },
-        orderBy: { startedAt: "desc" },
-        select: { id: true },
-      })
-    : null;
-
-  const shiftId = openShift?.id ?? afterShift?.id ?? null;
-  // Фаза лише там, де зміна відома: старий трек водіїв про зміни нічого
-  // не знає, і мітити його не можна.
-  const phase = shiftId ? (openShift ? "SHIFT" : "AFTER_SHIFT") : null;
+  const last = tail[0] ?? null;
+  const trustedIdx = tail.findIndex(isTrusted);
 
   /**
-   * Дві точки відліку з бази, і обидві потрібні.
-   *
-   * `last` — остання точка дня взагалі: від неї рахується metersFromPrev
-   * і ловляться повтори пачки. Без неї кожна пачка починалася б «з нуля».
-   *
-   * `lastTrusted` — остання точка з доброю похибкою: від неї росте пробіг.
-   * Відколи слабкі фікси теж зберігаються (див. MAX_ACCURACY_M), без цієї
-   * опори кілометри рахувалися б від тремтіння вежі.
+   * Опора могла лишитися за межами хвоста: при поганому прийманні
+   * слабкими бувають сотні точок поспіль. Тоді доводиться сходити по
+   * неї окремо — інакше пробіг рахувався б від тремтіння вежі.
    */
-  const [last, lastTrusted] = await Promise.all([
-    prisma.trackPoint.findFirst({
-      where: { sessionId: sessionRow.id },
-      orderBy: { recordedAt: "desc" },
-      select: { lat: true, lng: true, recordedAt: true },
-    }),
-    prisma.trackPoint.findFirst({
-      where: {
-        sessionId: sessionRow.id,
-        OR: [{ accuracyM: null }, { accuracyM: { lte: MAX_ACCURACY_M } }],
-      },
-      orderBy: { recordedAt: "desc" },
-      select: { lat: true, lng: true, recordedAt: true },
-    }),
-  ]);
+  const lastTrusted =
+    trustedIdx >= 0
+      ? tail[trustedIdx]
+      : await prisma.trackPoint.findFirst({
+          where: {
+            sessionId: sessionRow.id,
+            OR: [{ accuracyM: null }, { accuracyM: { lte: MAX_ACCURACY_M } }],
+          },
+          orderBy: { recordedAt: "desc" },
+          select: { lat: true, lng: true, recordedAt: true },
+        });
 
-  const prepared = preparePoints(raw, last, lastTrusted);
+  // Хвіст іде з бази від новіших до старіших — розвертаємо, бо дорога
+  // прокладається в порядку руху.
+  const sinceTrusted = (trustedIdx >= 0 ? tail.slice(0, trustedIdx) : tail)
+    .filter((p) => !isTrusted(p))
+    .map((p) => ({ lat: p.lat, lng: p.lng }))
+    .reverse();
+
+  const prepared = preparePoints(raw, last, lastTrusted, sinceTrusted);
 
   if (prepared.points.length === 0) {
-    return NextResponse.json({
+    return {
       accepted: 0,
       untrusted: 0,
       rejected: prepared.rejected,
-      // Округлення таке саме, як у гілці з прийнятими точками: інакше
-      // цифра на планшеті стрибала б між 5.3 і 5.307576 залежно від того,
-      // чи прийнялася остання пачка.
-      sessionDistanceKm: Math.round(sessionRow.distanceKm * 10) / 10,
+      distanceKm: sessionRow.distanceKm,
       pointsCount: sessionRow.pointsCount,
-    });
+    };
   }
+
+  const resolveShift = await shiftResolver(userId, prepared, wantsAfterShift);
 
   /**
    * Розриви (планшет був офлайн) добираємо реальною дорогою: пряма між
@@ -188,27 +260,30 @@ export async function POST(req: NextRequest) {
 
   const [, updated] = await prisma.$transaction([
     prisma.trackPoint.createMany({
-      data: prepared.points.map((p, i) => ({
-        sessionId: sessionRow.id,
-        userId,
-        shiftId,
-        phase,
-        lat: p.lat,
-        lng: p.lng,
-        accuracyM: p.accuracyM,
-        speedKmh: p.speedKmh,
-        headingDeg: p.headingDeg,
-        recordedAt: p.recordedAt,
-        metersFromPrev: p.metersFromPrev,
-        minutesFromPrev: p.minutesFromPrev,
-        roadMetersFromPrev:
-          byIndex.get(i)?.roadM != null ? Math.round(byIndex.get(i)!.roadM!) : null,
-        // Тип GeoJSON не збігається з InputJsonValue Prisma (немає індексної
-        // сигнатури), хоча по суті це той самий об'єкт.
-        gapGeometry: (byIndex.get(i)?.geometry ?? undefined) as
-          | Prisma.InputJsonValue
-          | undefined,
-      })),
+      data: prepared.points.map((p, i) => {
+        const shift = resolveShift(p.recordedAt);
+        return {
+          sessionId: sessionRow.id,
+          userId,
+          shiftId: shift.shiftId,
+          phase: shift.phase,
+          lat: p.lat,
+          lng: p.lng,
+          accuracyM: p.accuracyM,
+          speedKmh: p.speedKmh,
+          headingDeg: p.headingDeg,
+          recordedAt: p.recordedAt,
+          metersFromPrev: p.metersFromPrev,
+          minutesFromPrev: p.minutesFromPrev,
+          roadMetersFromPrev:
+            byIndex.get(i)?.roadM != null ? Math.round(byIndex.get(i)!.roadM!) : null,
+          // Тип GeoJSON не збігається з InputJsonValue Prisma (немає індексної
+          // сигнатури), хоча по суті це той самий об'єкт.
+          gapGeometry: (byIndex.get(i)?.geometry ?? undefined) as
+            | Prisma.InputJsonValue
+            | undefined,
+        };
+      }),
     }),
     prisma.trackSession.update({
       where: { id: sessionRow.id },
@@ -224,13 +299,83 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({
+  return {
     accepted: prepared.points.length,
-    // Скільки з прийнятих — «на віру»: планшет показує це в сповіщенні,
-    // і саме за цим числом видно, що фікс поплив, а не що трек перервався.
     untrusted: prepared.untrusted,
     rejected: prepared.rejected,
-    sessionDistanceKm: Math.round(updated.distanceKm * 10) / 10,
+    distanceKm: updated.distanceKm,
     pointsCount: updated.pointsCount,
+  };
+}
+
+/**
+ * До якої зміни належить кожна точка.
+ *
+ * Визначаємо на сервері, а не віримо пристрою: застосунок міг не знати,
+ * що зміну закрив адмін, і клеїв би точки до закритої.
+ *
+ * Але головне тут інше — зміну шукаємо за ЧАСОМ ТОЧКИ, а не за тим, яка
+ * зміна відкрита в момент прийому. Досі буфер, що доїхав після закриття
+ * зміни (планшет був офлайн, торговий закрив день і аж тоді зловив
+ * зв'язок), не отримував зміни зовсім: `shiftId` лишався порожній, і ці
+ * кілометри не потрапляли в звірку з одометром — саме той хвіст дороги,
+ * якого в ній і бракувало.
+ *
+ * AFTER_SHIFT чіпляється до ОСТАННЬОЇ закритої зміни — так «чи не
+ * таксував після роботи» видно поруч із самою зміною, а не окремим
+ * безхазяйним треком.
+ */
+async function shiftResolver(
+  userId: string,
+  prepared: { points: Array<{ recordedAt: Date }> },
+  wantsAfterShift: boolean
+): Promise<(at: Date) => { shiftId: string | null; phase: TrackPhase | null }> {
+  const times = prepared.points.map((p) => p.recordedAt.getTime());
+  const from = new Date(Math.min(...times) - SHIFT_GRACE_MS);
+  const to = new Date(Math.max(...times) + SHIFT_GRACE_MS);
+
+  const shifts = await prisma.shift.findMany({
+    where: {
+      userId,
+      startedAt: { lte: to },
+      OR: [{ endedAt: null }, { endedAt: { gte: from } }],
+    },
+    orderBy: { startedAt: "desc" },
+    select: { id: true, startedAt: true, endedAt: true, status: true },
   });
+
+  const openShift = shifts.find((s) => s.status === "OPEN") ?? null;
+  const lastClosed = shifts.find((s) => s.status !== "OPEN") ?? null;
+
+  return (at: Date) => {
+    if (wantsAfterShift) {
+      // Пристрій каже, що це вже не робота. Тоді точка чіпляється до
+      // зміни, яка щойно закінчилась, — і тільки як AFTER_SHIFT.
+      return lastClosed
+        ? { shiftId: lastClosed.id, phase: "AFTER_SHIFT" }
+        : { shiftId: null, phase: null };
+    }
+
+    /**
+     * Запас на межах зміни — через годинник планшета.
+     *
+     * Час точки ставить сам пристрій, і він буває зсунутий на кілька
+     * хвилин. Без запасу перші точки дня опинялися б «перед зміною» і
+     * випадали з пробігу так само, як досі випадав хвіст.
+     */
+    const inside = shifts.find(
+      (s) =>
+        at.getTime() >= s.startedAt.getTime() - SHIFT_GRACE_MS &&
+        (s.endedAt == null || at.getTime() <= s.endedAt.getTime() + SHIFT_GRACE_MS)
+    );
+    if (inside) return { shiftId: inside.id, phase: "SHIFT" };
+
+    // Точка поза всіма змінами: за відкритої зміни лишаємо давню
+    // поведінку (це просто ранок перед відкриттям), інакше — нічия.
+    // Фаза лише там, де зміна відома: старий трек водіїв про зміни
+    // нічого не знає, і мітити його не можна.
+    return openShift
+      ? { shiftId: openShift.id, phase: "SHIFT" }
+      : { shiftId: null, phase: null };
+  };
 }

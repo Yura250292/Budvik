@@ -81,6 +81,21 @@ export const MIN_MOVE_M = 15;
  */
 export const GAP_M = 800;
 
+/**
+ * Скільки слабких фіксів віддаємо OSRM як проміжні точки розриву.
+ *
+ * Відрізок між надійними опорами буває заповнений фіксами по вежі: шлях
+ * ними засвідчений, але з похибкою в сотні метрів. Прокласти дорогу
+ * просто «від опори до опори» означало б випрямити її по найкоротшому
+ * маршруту — а торговий міг заїхати до клієнта вбік і повернутися.
+ *
+ * Тому кілька слабких точок ідуть у запит проміжними: OSRM притягує їх
+ * до найближчих доріг і веде маршрут ЧЕРЕЗ них. Три — компроміс:
+ * достатньо, щоб упіймати гак, і мало, щоб похибка кожної не заплутала
+ * маршрут між паралельними вулицями.
+ */
+export const MAX_GAP_VIA = 3;
+
 const EARTH_R = 6_371_000;
 
 /** Відстань по прямій між двома точками, метри. */
@@ -131,6 +146,11 @@ export type PreparedPoint = {
    * на іншому відрізку, ніж позначено.
    */
   gapFrom: { lat: number; lng: number } | null;
+  /**
+   * Слабкі фікси, що лягли всередині розриву — щоб дорога пройшла через
+   * них, а не в обхід. Порожній масив означає, що пристрій справді мовчав.
+   */
+  gapVia: Array<{ lat: number; lng: number }>;
 };
 
 export type PrepareResult = {
@@ -144,6 +164,25 @@ export type PrepareResult = {
   /** Час останньої прийнятої точки */
   lastAt: Date | null;
 };
+
+/**
+ * Кілька точок із проміжку — рівномірно, а не поспіль.
+ *
+ * Беремо не перші три, а розкидані по всій довжині: три сусідні фікси на
+ * початку відрізка не сказали б про дорогу нічого, чого не видно з самої
+ * опори.
+ */
+function pickVia(
+  between: Array<{ lat: number; lng: number }>
+): Array<{ lat: number; lng: number }> {
+  if (between.length <= MAX_GAP_VIA) return [...between];
+  const step = (between.length - 1) / (MAX_GAP_VIA + 1);
+  const out: Array<{ lat: number; lng: number }> = [];
+  for (let i = 1; i <= MAX_GAP_VIA; i++) {
+    out.push(between[Math.round(step * i)]);
+  }
+  return out;
+}
 
 /**
  * Готує пачку точок від планшета до вставки.
@@ -166,7 +205,16 @@ export function preparePoints(
    * За замовчуванням — та сама точка: виклик, який про якість нічого не
    * знає (тести, перерахунок дня), поводиться рівно як раніше.
    */
-  prevTrusted: { lat: number; lng: number; recordedAt: Date } | null = prev
+  prevTrusted: { lat: number; lng: number; recordedAt: Date } | null = prev,
+  /**
+   * Слабкі фікси, які вже лежать у базі після останньої надійної опори.
+   *
+   * Відрізок між опорами майже завжди довший за одну пачку: планшет шле
+   * буфер раз на дві хвилини, а поганий фікс тримається десятками
+   * хвилин. Без цього списку дорога прокладалася б лише через ту
+   * дрібку проміжку, що втрапила в останню пачку.
+   */
+  prevSinceAnchor: Array<{ lat: number; lng: number }> = []
 ): PrepareResult {
   const rejected = { accuracy: 0, stale: 0, malformed: 0 };
   const points: PreparedPoint[] = [];
@@ -185,16 +233,18 @@ export function preparePoints(
   /** Остання точка, від якої чесно міряти кілометри. */
   let anchor = prevTrusted;
   /**
-   * Чи лягло щось у трек між опорою і поточною точкою.
+   * Слабкі фікси, що лягли після останньої надійної опори.
    *
-   * Від цього залежить, чи вважати довгий відрізок розривом. Розрив —
-   * це коли пристрій МОВЧАВ; якщо ж проміжок заповнений слабкими
-   * фіксами, шлях уже засвідчений, і прокладати його дорогою через
-   * OSRM і зайве, і дорого: на трасі такий випадок тепер трапляється
-   * щокілька хвилин у кожного, і кожен коштував би зовнішнього запиту
-   * прямо в дорозі прийому пачки.
+   * Спершу вони лише вимикали добір дороги: мовляв, шлях уже засвідчено,
+   * нехай лишається хордою. На даних 27.08 стало видно, чого це коштує.
+   * У планшета з поганим приймачем 305 точок із 387 — слабкі, і саме на
+   * них припадає 79 із 85 кілометрів дня. Усі вони йшли прямими: пробіг
+   * занижений, а на карті замість вулиць — павутина через квартали.
+   *
+   * Тепер такий відрізок теж добирається дорогою, а ці точки йдуть у
+   * запит проміжними — щоб дорога пройшла там, де людина справді їхала.
    */
-  let storedSinceAnchor = 0;
+  let sinceAnchor: Array<{ lat: number; lng: number }> = [...prevSinceAnchor];
 
   for (const p of sorted) {
     const at = new Date(p.recordedAt);
@@ -266,6 +316,7 @@ export function preparePoints(
     let countsToDistance = false;
     let isGap = false;
     let gapFrom: { lat: number; lng: number } | null = null;
+    let gapVia: Array<{ lat: number; lng: number }> = [];
 
     if (trusted && anchor) {
       const meters = haversineM(anchor.lat, anchor.lng, p.lat, p.lng);
@@ -273,11 +324,14 @@ export function preparePoints(
       const kmh = minutes > 0 ? meters / 1000 / (minutes / 60) : Infinity;
 
       countsToDistance = meters >= MIN_MOVE_M && kmh <= MAX_PLAUSIBLE_KMH;
-      // Розрив — це мовчання пристрою, а не просто довгий відрізок.
-      // Заповнений слабкими точками проміжок лишаємо хордою: вона
-      // занижує пробіг, зате не вигадує дорогу там, де вже є сліди.
-      isGap = countsToDistance && meters >= GAP_M && storedSinceAnchor === 0;
-      if (isGap) gapFrom = { lat: anchor.lat, lng: anchor.lng };
+      // Довгий відрізок між опорами — завжди привід прокласти дорогу,
+      // мовчав пристрій чи слав слабкі фікси. Різниця лише в тому, чи
+      // є через що вести маршрут (див. gapVia).
+      isGap = countsToDistance && meters >= GAP_M;
+      if (isGap) {
+        gapFrom = { lat: anchor.lat, lng: anchor.lng };
+        gapVia = pickVia(sinceAnchor);
+      }
       if (countsToDistance) addedM += meters;
     }
 
@@ -295,14 +349,15 @@ export function preparePoints(
       countsToDistance,
       isGap,
       gapFrom,
+      gapVia,
     });
 
     cursor = { lat: p.lat, lng: p.lng, recordedAt: at };
     if (trusted) {
       anchor = cursor;
-      storedSinceAnchor = 0;
+      sinceAnchor = [];
     } else {
-      storedSinceAnchor++;
+      sinceAnchor.push({ lat: p.lat, lng: p.lng });
     }
   }
 

@@ -34,11 +34,27 @@ export const MAX_GAPS_PER_RUN = 8;
 /** Довший за це маршрут OSRM — ознака, що він об'їхав щось дивне. */
 const SANITY_FACTOR = 4;
 
+/**
+ * Стеля кроку, з яким слабкі фікси лягають у лінію на карті.
+ *
+ * Похибка фікса по вежі буває 500–900 м, і якщо вимагати від точки
+ * зсуву «більше за власну похибку», з кілометрового шматка дороги на
+ * карту потрапить одна вершина. 200 м — крок, на якому вулиця лишається
+ * вулицею, а тремтіння на стоянці все ще відсіюється.
+ */
+const WEAK_DRAW_STEP_M = 200;
+
 export type GapSegment = {
   /** Індекс точки-кінця розриву в масиві треку */
   index: number;
   from: { lat: number; lng: number };
   to: { lat: number; lng: number };
+  /**
+   * Слабкі фікси всередині розриву: дорога має пройти через них.
+   *
+   * Порожньо — пристрій мовчав, і єдине, що ми знаємо, це два кінці.
+   */
+  via: Array<{ lat: number; lng: number }>;
   /** Пряма між точками, метри */
   straightM: number;
 };
@@ -65,6 +81,7 @@ export async function resolveGaps(gaps: GapSegment[]): Promise<ResolvedGap[]> {
       try {
         const route = await getRoute([
           [g.from.lng, g.from.lat],
+          ...g.via.map((v): [number, number] => [v.lng, v.lat]),
           [g.to.lng, g.to.lat],
         ]);
         const roadM = route.totalDistanceKm * 1000;
@@ -72,6 +89,10 @@ export async function resolveGaps(gaps: GapSegment[]): Promise<ResolvedGap[]> {
         // Дорога не буває коротшою за пряму, а вчетверо довша — ознака, що
         // OSRM повів через міст за 20 км або не знайшов з'їзду. Краще
         // лишити чесну пряму, ніж записати водієві зайві кілометри.
+        //
+        // Поріг стосується і маршруту через проміжні точки: гак до
+        // клієнта в нього вкладається, а от слабкий фікс, що впав на
+        // сусідню автостраду й потягнув маршрут на розв'язку, — ні.
         if (roadM < g.straightM || roadM > g.straightM * SANITY_FACTOR) {
           return { ...g, roadM: null, geometry: null };
         }
@@ -100,8 +121,33 @@ export function buildTrackPath(
   }>
 ): Array<[number, number]> {
   const out: Array<[number, number]> = [];
+  /**
+   * Скільки вершин у хвості масиву прийшли зі слабких фіксів.
+   *
+   * Потрібне для склейки з дорогою: коли для відрізка приходить
+   * геометрія OSRM, вона описує рівно той шлях, який слабкі точки
+   * намалювали від руки. Лишити обидва означало б повести лінію
+   * спершу павутиною, а потім назад до опори й по дорозі.
+   */
+  let weakTail = 0;
 
   for (const p of points) {
+    const weak = p.accuracyM != null && p.accuracyM > MAX_ACCURACY_M;
+
+    const line = asLineString(p.gapGeometry);
+    if (line) {
+      // Дорога заміняє собою чернетку зі слабких фіксів усередині розриву.
+      if (weakTail > 0) out.splice(out.length - weakTail, weakTail);
+      weakTail = 0;
+      // Геометрія OSRM іде в [lng, lat] і включає обидва кінці. Перший
+      // кінець — це попередня точка, вона вже в масиві: пропускаємо, щоб
+      // не задвоїти вершину.
+      for (const [lng, lat] of line.coordinates.slice(1)) {
+        out.push([lat, lng]);
+      }
+      continue;
+    }
+
     /**
      * Слабкий фікс малюємо лише тоді, коли він щось каже.
      *
@@ -111,25 +157,19 @@ export function buildTrackPath(
      * дають «стрибки» на пів кварталу туди-сюди — лінія починає
      * тремтіти там, де людина година не рухалась.
      *
-     * Правило просте й чесне: зсув менший за власну похибку точки — це
-     * шум, а не рух. Довша дорога лишається, тремтіння зникає.
+     * Правило: зсув менший за похибку — це шум, а не рух. Але саму
+     * похибку обмежуємо стелею: фікс по вежі заявляє 800 м, і брати їх
+     * буквально означало б ставити вершину раз на кілометр — саме так
+     * заміська дорога перетворювалась на пряму через поля.
      */
-    if (p.accuracyM != null && p.accuracyM > MAX_ACCURACY_M && out.length > 0) {
+    if (weak && out.length > 0) {
       const [prevLat, prevLng] = out[out.length - 1];
-      if (haversineM(prevLat, prevLng, p.lat, p.lng) < p.accuracyM) continue;
+      const threshold = Math.min(p.accuracyM!, WEAK_DRAW_STEP_M);
+      if (haversineM(prevLat, prevLng, p.lat, p.lng) < threshold) continue;
     }
 
-    const line = asLineString(p.gapGeometry);
-    if (line) {
-      // Геометрія OSRM іде в [lng, lat] і включає обидва кінці. Перший
-      // кінець — це попередня точка, вона вже в масиві: пропускаємо, щоб
-      // не задвоїти вершину.
-      for (const [lng, lat] of line.coordinates.slice(1)) {
-        out.push([lat, lng]);
-      }
-      continue;
-    }
     out.push([p.lat, p.lng]);
+    weakTail = weak ? weakTail + 1 : 0;
   }
 
   return out;
@@ -158,6 +198,7 @@ export function findGaps(
     lng: number;
     isGap: boolean;
     gapFrom?: { lat: number; lng: number } | null;
+    gapVia?: Array<{ lat: number; lng: number }> | null;
   }>,
   prev?: { lat: number; lng: number } | null
 ): GapSegment[] {
@@ -174,6 +215,7 @@ export function findGaps(
       index: i,
       from: { lat: from.lat, lng: from.lng },
       to: { lat: p.lat, lng: p.lng },
+      via: p.gapVia ?? [],
       straightM: haversineM(from.lat, from.lng, p.lat, p.lng),
     });
   });

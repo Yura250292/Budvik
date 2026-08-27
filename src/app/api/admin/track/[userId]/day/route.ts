@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
+import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
 import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
 
@@ -38,7 +39,7 @@ export async function GET(
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const dayStart = kyivDayStart(day);
 
-  const [user, trackSession, points, visits, route] = await Promise.all([
+  const [user, trackSession, points, visits, route, orders] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, role: true, color: true },
@@ -65,6 +66,7 @@ export async function GET(
       include: { counterparty: { select: { name: true, deliveryLat: true, deliveryLng: true } } },
     }),
     resolveDriverDay(userId, day),
+    ordersTodayForRep(userId, day),
   ]);
 
   if (!user) {
@@ -129,6 +131,11 @@ export async function GET(
     corridorM: planVsFact.corridorM,
     planFromGeometry: planVsFact.planFromGeometry,
     visits,
+    /**
+     * Клієнти, від яких сьогодні є замовлення. Шар поверх маршруту:
+     * поруч видно, куди людина доїхала і що з того вийшло.
+     */
+    orders,
     sheet1C: sheet
       ? {
           number: sheet.number,

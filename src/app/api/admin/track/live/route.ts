@@ -22,6 +22,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 // Висновок «чому не пишеться» спільний із сповіщеннями в Telegram:
 // дві різні відповіді на одне питання гірші за жодної.
+import { orderCountsByRep } from "@/lib/track/orders-today";
 import { diagnose, HEARTBEAT_WINDOW_MIN } from "@/lib/track/diagnosis";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +124,7 @@ export async function GET(req: NextRequest) {
 
   if (userIds.length === 0) return NextResponse.json({ day, people: [] });
 
-  const [users, devices] = await Promise.all([
+  const [users, devices, orderCounts] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, name: true, role: true, color: true },
@@ -134,6 +135,8 @@ export async function GET(req: NextRequest) {
       where: { userId: { in: userIds }, scope: "track", revokedAt: null },
       select: { userId: true, lastUsedAt: true },
     }),
+    // Скільки клієнтів у кожного сьогодні замовили — колонка в таблиці.
+    orderCountsByRep(day),
   ]);
 
   const pointBy = new Map(points.map((p) => [p.userId, p]));
@@ -197,6 +200,14 @@ export async function GET(req: NextRequest) {
       online: minutesAgo != null && minutesAgo <= ONLINE_WINDOW_MIN,
       distanceKm: Math.round((sess?.distanceKm ?? 0) * 10) / 10,
       pointsCount: sess?.pointsCount ?? 0,
+      /**
+       * Скільки замовлень сьогодні від клієнтів цієї людини.
+       *
+       * Поруч із пробігом це найкоротша відповідь на «як пройшов день»:
+       * сто кілометрів і жодного замовлення — теж результат, просто
+       * інший, і побачити його треба одразу, а не в іншому розділі.
+       */
+      ordersToday: orderCounts.get(u.id) ?? 0,
       shift: shift
         ? {
             status: shift.status,

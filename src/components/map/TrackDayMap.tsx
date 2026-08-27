@@ -50,6 +50,23 @@ export type TrackDetail = {
     geometry: unknown;
     stops: Array<{ settlement: string; displayName: string | null; lat: number; lng: number; seq: number }>;
   } | null;
+  /**
+   * Клієнти, від яких сьогодні є замовлення.
+   *
+   * Не те саме, що stops: там план і відмітки візитів, а тут факт із 1С.
+   * Разом вони й дають відповідь, заради якої карту відкривають, — куди
+   * доїхав і що з того вийшло.
+   */
+  orders?: Array<{
+    counterpartyId: string;
+    name: string;
+    lat: number;
+    lng: number;
+    number: string;
+    amount: number;
+    time: string;
+    draft: boolean;
+  }>;
   /** Епізоди виходу за коридор маршруту. */
   excursions?: Array<{
     from: string;
@@ -64,6 +81,14 @@ export type TrackDetail = {
 
 /** Колір планової лінії за замовчуванням — той самий, що на вкладці торгових. */
 const PLAN_COLOR = "#FFB800";
+
+/**
+ * Колір замовлення. Фіолетовий навмисно: зелений і червоний на цій карті
+ * уже зайняті статусами візитів, синій — треком, жовтий — планом.
+ */
+const ORDER_COLOR = "#7C3AED";
+
+const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
 /** Час епізоду в «14:05» за Києвом: сервер віддає ISO. */
 function kyivClock(iso: string): string {
@@ -106,6 +131,15 @@ export default function TrackDayMap({
   const peopleLayerRef = useRef<L.LayerGroup | null>(null);
   const detailLayerRef = useRef<L.LayerGroup | null>(null);
   const fittedRef = useRef(false);
+  /**
+   * Кому вже підганяли масштаб під маршрут.
+   *
+   * Деталі дня тепер перепитуються кожні пів хвилини, щоб слід ріс сам.
+   * Якби на кожну відповідь карта знову робила fitBounds, вона щоразу
+   * відстрибувала б до загального плану — і роздивитися щось було б
+   * неможливо. Тому масштаб підганяємо один раз на вибрану людину.
+   */
+  const fittedDetailRef = useRef<string | null>(null);
   const { wheelActive, onWheelChange } = useWheelGate();
   // Колбек у ref: інакше кожен новий рендер батька перемальовував би
   // маркери лише через те, що onSelect — нова функція.
@@ -189,7 +223,11 @@ export default function TrackDayMap({
     if (!map || !group) return;
 
     group.clearLayers();
-    if (!detail) return;
+    if (!detail) {
+      // Вибір знято: наступного разу масштаб підганяємо заново.
+      fittedDetailRef.current = null;
+      return;
+    }
 
     const bounds = L.latLngBounds([]);
 
@@ -276,6 +314,35 @@ export default function TrackDayMap({
     });
 
     /**
+     * Замовлення — поверх маршруту, останнім шаром перед відхиленнями.
+     *
+     * Свідомо іншою формою, ніж зупинки плану: там кружок із заливкою,
+     * тут кільце з підписом суми. Дві однакові цятки різного змісту на
+     * одній карті читаються гірше, ніж жодної.
+     *
+     * Порожнє кільце — непроведений документ: замовлення торговий уже
+     * набрав, але офіс іще не підтвердив. Так на сьогоднішньому дні
+     * видно роботу, яка інакше з'явилась би аж завтра.
+     */
+    (detail.orders ?? []).forEach((o) => {
+      L.circleMarker([o.lat, o.lng], {
+        radius: 8,
+        color: ORDER_COLOR,
+        weight: 3,
+        fillColor: o.draft ? "#fff" : ORDER_COLOR,
+        fillOpacity: o.draft ? 1 : 0.85,
+      })
+        .bindTooltip(
+          `<b>${escapeHtml(o.name)}</b><br/>` +
+            `${money.format(o.amount)} грн${o.draft ? " · не проведене" : ""}<br/>` +
+            `<span style="color:#6B7280">№${escapeHtml(o.number)} · документ ${escapeHtml(o.time)}</span>`,
+          { direction: "top" }
+        )
+        .addTo(group);
+      bounds.extend([o.lat, o.lng]);
+    });
+
+    /**
      * Відхилення — колом, а не маркером: епізод це область і тривалість,
      * а не одна точка. Малюємо останніми, поверх усього, бо саме заради
      * них керівник і відкриває цей день.
@@ -304,8 +371,11 @@ export default function TrackDayMap({
       bounds.extend([e.lat, e.lng]);
     });
 
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [detail]);
+    if (bounds.isValid() && fittedDetailRef.current !== selectedId) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      fittedDetailRef.current = selectedId;
+    }
+  }, [detail, selectedId]);
 
   useEffect(() => {
     return () => {

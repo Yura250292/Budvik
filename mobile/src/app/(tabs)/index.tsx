@@ -5,10 +5,10 @@
  * означали б, що екран збирається шматками, і на слабкому звʼязку це секунди
  * блимання.
  *
- * Сканера тут немає навмисно. Він потрібен людині, яка стоїть у магазині з
- * коробкою в руках, а не тій, що гортає каталог із дивана; його місце — поруч
- * із полем пошуку, де він і лишився. На головній він займав третину смуги дій,
- * відповідаючи на питання, якого в цей момент ніхто не ставить.
+ * Пошук і сканер живуть у шапці (AppHeader) — вона одна на весь екран і не
+ * гортається разом із ним. Сканер стоїть саме поруч із пошуком: він потрібен
+ * людині, яка тримає коробку в руках, а не тій, що гортає каталог із дивана,
+ * тож окремої кнопки на пів смуги він не вартий.
  */
 
 import { useRef, useState } from "react";
@@ -22,6 +22,8 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductGridSkeleton } from "@/components/Skeleton";
 import { BrandTile } from "@/components/BrandTile";
 import { BrandBannerRail, type ShowcaseBrand } from "@/components/BrandBannerRail";
+import { AppHeader } from "@/components/AppHeader";
+import { useCartCount } from "@/lib/useCartCount";
 import { SectionTiles, type SectionTile } from "@/components/SectionTiles";
 import { addToCart } from "@/lib/cart";
 import type { CardDto } from "@/api/types";
@@ -53,6 +55,7 @@ type Home = {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const cartCount = useCartCount();
 
   /* Банер на всю ширину екрана мінус поля. Ширину беремо в системи, а не
      зашиваємо: 390 px це лише один із розмірів, а на планшеті в горизонталі
@@ -108,40 +111,17 @@ export default function HomeScreen() {
   });
 
   return (
+    <View style={styles.screen}>
+      {/* Шапка поза списком: вона лишається на місці, коли сторінка
+          гортається, — пошук потрібен і на третьому екрані прокрутки. */}
+      <AppHeader
+        onSearch={() => router.push("/search")}
+        onScan={() => router.push("/scan")}
+        onWishlist={() => router.push("/wishlist")}
+        onCart={() => router.push("/cart")}
+        cartCount={cartCount}
+      />
     <ScrollView ref={scrollRef} style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl }}>
-      {/*
-        Замість чорного банера з гаслом — рядок пошуку.
-
-        Гасло «БУДВІК27 — ваш світ інструментів» займало третину екрана й не
-        повідомляло людині нічого, чого вона не знає: вона щойно відкрила саме
-        цей застосунок. Поруч стояли дві великі кнопки, і одна з них вела в
-        «Каталог», який і так є в нижній навігації. Ті самі пікселі тепер
-        відповідають на питання, з яким сюди заходять, — «де шукати».
-
-        Не поле вводу, а кнопка, схожа на поле: клавіатура, що вискакує на
-        головній, ховає половину вітрини. Натиск веде на екран пошуку, де
-        введення і є сенсом екрана.
-      */}
-      <View style={styles.searchRow}>
-        <Pressable
-          style={styles.searchBox}
-          onPress={() => router.push("/search")}
-          accessibilityRole="search"
-          accessibilityLabel="Пошук товарів"
-        >
-          <Ionicons name="search" size={18} color={colors.textMuted} />
-          <Text style={styles.searchText}>Назва або артикул…</Text>
-        </Pressable>
-        <Pressable
-          style={styles.scanButton}
-          onPress={() => router.push("/scan")}
-          accessibilityRole="button"
-          accessibilityLabel="Сканувати штрихкод"
-        >
-          <Ionicons name="barcode-outline" size={22} color={colors.ink} />
-        </Pressable>
-      </View>
-
       {/*
         Банери на всю ширину, з крапками під ними.
 
@@ -305,34 +285,12 @@ export default function HomeScreen() {
         ))
       )}
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  searchRow: { flexDirection: "row", gap: space.sm, padding: space.md },
-  searchBox: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    minHeight: 48,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  searchText: { fontSize: 14, color: colors.textMuted },
-  scanButton: {
-    width: 48,
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    backgroundColor: colors.brand,
-  },
-
   bannerRow: { paddingHorizontal: space.md, gap: space.md, paddingBottom: space.md },
   banner: {
     flexDirection: "row",

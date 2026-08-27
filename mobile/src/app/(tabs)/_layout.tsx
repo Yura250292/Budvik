@@ -11,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { getScope } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
-import { BrandHeader } from "@/components/BrandHeader";
 import { colors } from "@/theme";
 
 export default function TabsLayout() {
@@ -38,9 +37,16 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        /*
+         * Шапка решти вкладок: та сама чорна, але без сірої лінії знизу й із
+         * помітнішим заголовком. Тонка світла риска під чорним на чорному
+         * читалася як шов, а не як межа, і додавала екрану вигляд заготовки.
+         */
         headerStyle: { backgroundColor: colors.ink },
+        headerShadowVisible: false,
         headerTintColor: colors.brand,
-        headerTitleStyle: { color: "#FFFFFF", fontWeight: "700" },
+        headerTitleStyle: { color: "#FFFFFF", fontWeight: "800", fontSize: 19, letterSpacing: 0.2 },
+        headerTitleAlign: "left",
         tabBarActiveTintColor: colors.ink,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: { backgroundColor: colors.bg, borderTopColor: colors.border },
@@ -50,10 +56,12 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Головна",
-          /* Знак замість слова «Головна»: підпис вкладки внизу вже каже, де
-             людина, а шапка має сказати, чий це застосунок. */
-          headerTitle: () => <BrandHeader />,
-          headerTitleAlign: "left",
+          /*
+           * Шапку тут малює сам екран (AppHeader): знак, дії й пошук в одному
+           * блоці. Смуга навігатора над ним була б третьою поспіль — логотип,
+           * заголовок, пошук, — і з'їдала б чверть екрана, не роблячи нічого.
+           */
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
         }}
       />

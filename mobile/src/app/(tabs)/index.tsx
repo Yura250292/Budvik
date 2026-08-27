@@ -22,8 +22,6 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductGridSkeleton } from "@/components/Skeleton";
 import { BrandTile } from "@/components/BrandTile";
 import { BrandBannerRail, type ShowcaseBrand } from "@/components/BrandBannerRail";
-import { AppHeader } from "@/components/AppHeader";
-import { useCartCount } from "@/lib/useCartCount";
 import { SectionTiles, type SectionTile } from "@/components/SectionTiles";
 import { addToCart } from "@/lib/cart";
 import type { CardDto } from "@/api/types";
@@ -55,7 +53,6 @@ type Home = {
 
 export default function HomeScreen() {
   const router = useRouter();
-  const cartCount = useCartCount();
 
   /* Банер на всю ширину екрана мінус поля. Ширину беремо в системи, а не
      зашиваємо: 390 px це лише один із розмірів, а на планшеті в горизонталі
@@ -111,16 +108,6 @@ export default function HomeScreen() {
   });
 
   return (
-    <View style={styles.screen}>
-      {/* Шапка поза списком: вона лишається на місці, коли сторінка
-          гортається, — пошук потрібен і на третьому екрані прокрутки. */}
-      <AppHeader
-        onSearch={() => router.push("/search")}
-        onScan={() => router.push("/scan")}
-        onWishlist={() => router.push("/wishlist")}
-        onCart={() => router.push("/cart")}
-        cartCount={cartCount}
-      />
     <ScrollView ref={scrollRef} style={styles.screen} contentContainerStyle={{ paddingBottom: space.xl }}>
       {/*
         Банери на всю ширину, з крапками під ними.
@@ -285,7 +272,6 @@ export default function HomeScreen() {
         ))
       )}
     </ScrollView>
-    </View>
   );
 }
 

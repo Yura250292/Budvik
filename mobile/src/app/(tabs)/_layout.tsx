@@ -6,11 +6,12 @@
  */
 
 import { useEffect, useState } from "react";
-import { Tabs, Redirect } from "expo-router";
+import { Tabs, Redirect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getScope } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { AppHeader } from "@/components/AppHeader";
 import { colors } from "@/theme";
 
 export default function TabsLayout() {
@@ -24,6 +25,7 @@ export default function TabsLayout() {
    * Куди саме вести — вирішує сервер за роллю (lib/app/role-target.ts), тож
    * адресу тут не передаємо: одне правило на всі входи.
    */
+  const router = useRouter();
   const cartCount = useCartCount();
   const [scope, setScope] = useState<"shop" | "track" | null | undefined>(undefined);
 
@@ -33,6 +35,29 @@ export default function TabsLayout() {
 
   if (scope === undefined) return null;
   if (scope === "track" && IS_STAFF_BUILD) return <Redirect href="/cabinet" />;
+
+  /*
+   * Шапка одна на всі вкладки — і малює її навігатор, а не кожен екран.
+   *
+   * Спершу вона стояла в тілі головної, і на решті вкладок лишався голий
+   * заголовок: людина, яка з каталогу згадала артикул, мусила вертатися на
+   * головну, щоб дістатися пошуку. Тут вона задається один раз, тож не може
+   * розійтися між екранами.
+   *
+   * На екранах, куди провалюються з вкладки (картка товару, список, обране),
+   * лишається звичайна шапка навігатора: там потрібна кнопка «назад», а не
+   * знак магазину.
+   */
+  const brandHeader = (showSearch = true) => () => (
+    <AppHeader
+      showSearch={showSearch}
+      onSearch={() => router.push("/search")}
+      onScan={() => router.push("/scan")}
+      onWishlist={() => router.push("/wishlist")}
+      onCart={() => router.push("/cart")}
+      cartCount={cartCount}
+    />
+  );
 
   return (
     <Tabs
@@ -56,18 +81,14 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Головна",
-          /*
-           * Шапку тут малює сам екран (AppHeader): знак, дії й пошук в одному
-           * блоці. Смуга навігатора над ним була б третьою поспіль — логотип,
-           * заголовок, пошук, — і з'їдала б чверть екрана, не роблячи нічого.
-           */
-          headerShown: false,
+          header: brandHeader(),
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="catalog"
         options={{
+          header: brandHeader(),
           title: "Каталог",
           tabBarIcon: ({ color, size }) => <Ionicons name="grid-outline" color={color} size={size} />,
         }}
@@ -75,6 +96,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="search"
         options={{
+          header: brandHeader(false),
           title: "Пошук",
           tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" color={color} size={size} />,
         }}
@@ -82,6 +104,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="cart"
         options={{
+          header: brandHeader(),
           title: "Кошик",
           // Бейдж — єдине підтвердження, що «У кошик» спрацювало: окремого
           // повідомлення після дотику немає навмисно, воно перекривало б
@@ -94,6 +117,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="account"
         options={{
+          header: brandHeader(),
           title: "Кабінет",
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" color={color} size={size} />,
         }}

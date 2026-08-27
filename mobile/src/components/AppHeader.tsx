@@ -27,12 +27,18 @@ export function AppHeader({
   onWishlist,
   cartCount = 0,
   onCart,
+  showSearch = true,
 }: {
   onSearch: () => void;
   onScan: () => void;
   onWishlist?: () => void;
   cartCount?: number;
   onCart?: () => void;
+  /**
+   * Поле пошуку. Ховається на екрані пошуку — там уже є справжнє поле з
+   * клавіатурою, і кнопка, схожа на поле, поруч із ним виглядала б як помилка.
+   */
+  showSearch?: boolean;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -94,6 +100,7 @@ export function AppHeader({
         головній, ховає половину вітрини. Натиск веде на екран пошуку, де
         введення і є сенсом екрана.
       */}
+      {showSearch ? (
       <View style={styles.searchRow}>
         <Pressable
           style={styles.searchBox}
@@ -114,6 +121,7 @@ export function AppHeader({
           <Ionicons name="barcode-outline" size={22} color={colors.ink} />
         </Pressable>
       </View>
+      ) : null}
     </View>
   );
 }

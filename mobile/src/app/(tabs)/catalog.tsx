@@ -119,6 +119,17 @@ export default function CatalogScreen() {
         />
       ) : mode === "sections" ? (
         <FlatList
+          /*
+           * key на обох списках обов'язковий.
+           *
+           * Розділи йдуть однією колонкою, бренди — двома, а React бачить на
+           * цьому місці той самий FlatList і намагається перемкнути йому
+           * numColumns на льоту. Так не можна: список падає з «Changing
+           * numColumns on the fly is not supported» просто в руках у покупця,
+           * щойно він торкнеться другого сегмента. Різні ключі змушують React
+           * зібрати новий список замість перебудови старого.
+           */
+          key="sections"
           data={toc.data?.sections ?? []}
           keyExtractor={(s) => s.id}
           contentContainerStyle={{ padding: space.md }}
@@ -202,6 +213,8 @@ export default function CatalogScreen() {
 
           return (
             <FlatList
+              /* Див. коментар біля списку розділів: інший ключ — інший список. */
+              key="brands"
               data={rest}
               keyExtractor={(b) => b.slug}
               numColumns={2}

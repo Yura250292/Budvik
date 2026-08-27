@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useMapExpand, useWheelGate } from "./MapFrame";
 
 export type TrackPerson = {
   userId: string;
@@ -118,7 +118,8 @@ export default function TrackDayMap({
   selectedId,
   detail,
   onSelect,
-  height = "460px",
+  /** За замовчуванням тягнеться на всю обгортку: висоту задає сторінка. */
+  height = "100%",
 }: {
   people: TrackPerson[];
   selectedId: string | null;
@@ -141,6 +142,7 @@ export default function TrackDayMap({
    */
   const fittedDetailRef = useRef<string | null>(null);
   const { wheelActive, onWheelChange } = useWheelGate();
+  const { expanded, toggle } = useMapExpand(mapRef);
   // Колбек у ref: інакше кожен новий рендер батька перемальовував би
   // маркери лише через те, що onSelect — нова функція.
   const onSelectRef = useRef(onSelect);
@@ -387,7 +389,12 @@ export default function TrackDayMap({
   }, []);
 
   return (
-    <MapFrame height={height} wheelActive={wheelActive}>
+    <MapFrame
+      height={height}
+      wheelActive={wheelActive}
+      expanded={expanded}
+      onToggleExpand={toggle}
+    >
       <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
     </MapFrame>
   );

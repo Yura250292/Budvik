@@ -8,6 +8,11 @@
  * маршрутний лист 1С каже, скільки кілометрів і боргів планували, трек
  * каже, скільки проїхали насправді, відмітки — скільки грошей забрали.
  *
+ * Карта і список стоять поруч, а не одне під одним: вибір людини — це
+ * головна дія екрана, і заради неї не має бути прокрутки. Усе, що
+ * стосується вже обраної людини, зібрано в деталі під ними
+ * (LivePersonDetail); тут лишилися дані, полінг і розкладка.
+ *
  * Пробіг по треку рахується по прямій між точками, тому він завжди
  * НИЖЧИЙ за дорогу. Відсоток показуємо, але висновок лишаємо людині:
  * поріг «скільки це нормально» залежить від маршруту, і вписувати його в
@@ -16,18 +21,20 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
-// Пороги епізоду — з того самого модуля, що й рахує: підпис під
-// відхиленнями не має розходитися з логікою.
-import { EXCURSION_MIN_MINUTES, EXCURSION_MIN_KM } from "@/lib/sales/deviation";
-import { TrackHealthCard } from "./TrackHealthCard";
-import { TableScroll } from "@/components/ui/TableScroll";
+import { Card, EmptyState } from "@/components/ui/Card";
+import { ErrorBox } from "@/components/ui/ErrorBox";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { LivePeopleList } from "./LivePeopleList";
+import { LivePersonDetail } from "./LivePersonDetail";
 
 const TrackDayMap = dynamic(() => import("@/components/map/TrackDayMap"), {
   ssr: false,
-  loading: () => <div style={{ height: "460px", background: "#EEE", borderRadius: "12px" }} />,
+  // Висоту тримає обгортка, тому плейсхолдер просто заповнює її: інакше
+  // при зміні розкладки довелося б правити ще й це число.
+  loading: () => <div className="h-full w-full animate-pulse rounded-[var(--radius-card)] bg-g100" />,
 });
 
-type Person = {
+export type Person = {
   userId: string;
   name: string;
   role: string;
@@ -69,7 +76,7 @@ type Person = {
   problem: string | null;
 };
 
-type DayDetail = {
+export type DayDetail = {
   user: { id: string; name: string; role: string };
   track: {
     distanceKm: number;
@@ -157,45 +164,11 @@ type DayDetail = {
   } | null;
 };
 
-const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
-
-/**
- * Найсвіжіше з того, що ми знаємо про збірку на планшеті.
- *
- * Пульс надійніший: його шле сама служба, і він приходить щохвилини. Але
- * шлють його лише збірки від 1.3 — а найцікавіші якраз старіші, і про
- * них розповідає User-Agent кабінету, збережений при відкритті.
- */
-function appVersion(p: Person): string | null {
-  return p.device?.appVersion ?? p.installedVersion;
-}
-
-/**
- * Поточна збірка. Свідомо рядком, а не звіркою з /api/app/version:
- * зайвий запит заради кольору однієї підказки не вартий того, а
- * розходження після релізу помітно одразу — уся колонка стає
- * помаранчевою, поки планшети не оновляться.
- */
-const CURRENT_BUILD = "1.5";
-
-function isCurrentBuild(v: string | null): boolean {
-  return v === CURRENT_BUILD;
-}
-
 /** Як часто перепитуємо, хто де. Частіше немає сенсу: планшет шле пачку раз на 25 с. */
 const POLL_MS = 30_000;
 
 function kyivToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
-}
-
-/** Час епізоду в «14:05» за Києвом. */
-function kyivClock(iso: string): string {
-  return new Intl.DateTimeFormat("uk-UA", {
-    timeZone: "Europe/Kyiv",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso));
 }
 
 export function LiveTrackTab() {
@@ -300,371 +273,84 @@ export function LiveTrackTab() {
             setDay(e.target.value);
             setSelected(null);
           }}
-          className="rounded-lg px-3 py-2"
-          style={{ border: "1px solid #E5E7EB", fontSize: "14px" }}
+          className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-2 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
         />
-        {isToday && (
-          <span style={{ fontSize: "13px", color: "#6B7280" }}>
-            Оновлюється кожні 30 с · {people.filter((p) => p.online).length} на маршруті
-            {troubled.length > 0 && (
-              <b style={{ color: "#DC2626" }}> · {troubled.length} з проблемою</b>
-            )}
-          </span>
-        )}
+        {isToday && <span className="text-[13px] text-g500">Оновлюється кожні 30 с</span>}
       </div>
 
-      {error && (
-        <div className="rounded-xl p-3" style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}>
-          <p style={{ fontSize: "13px", color: "#B91C1C" }}>{error}</p>
-        </div>
-      )}
+      {error && <ErrorBox message={error} />}
 
       {people.length === 0 ? (
-        <div
-          className="rounded-xl p-6 text-center"
-          style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}
-        >
-          <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-            {isToday ? "Сьогодні ще ніхто не виїхав" : "Цього дня треків немає"}
-          </p>
-          <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-            Трек пишеться, коли водій відкриває «Карту дня» на планшеті.
-          </p>
-        </div>
+        <Card>
+          <EmptyState
+            title={isToday ? "Сьогодні ще ніхто не виїхав" : "Цього дня треків немає"}
+            hint="Трек пишеться, коли водій відкриває «Карту дня» на планшеті."
+          />
+        </Card>
       ) : (
         <>
-          {/* Рамку й скруглення тримає сама карта (MapFrame) — другий
-              контейнер із overflow тут лише подвоював би заокруглення. */}
-          <div style={{ border: "1px solid #E5E7EB", borderRadius: "12px" }}>
-            <TrackDayMap
-              /* На карту йдуть лише ті, у кого сьогодні була хоч одна
-                 точка. Решта лишається в таблиці — саме там видно, що
-                 планшет мовчить, і саме це треба помітити. */
-              people={onMap}
-              selectedId={selected}
-              detail={
-                shown
-                  ? {
-                      points: shown.track.points,
-                      path: shown.track.path,
-                      stops: shown.route.stops,
-                      plan: shown.plan,
-                      excursions: shown.deviation?.excursions ?? [],
-                      orders: shown.orders?.dots ?? [],
-                    }
-                  : null
-              }
-              onSelect={setSelected}
-            />
+          {/*
+            Висоту задають ОБИДВІ клітинки однаковим класом. Якби вона
+            стояла лише на карті, довгий список розтягнув би рядок сітки —
+            а з ним і карту, заради компактності якої все й робилося.
+          */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+            {/* Рамку й скруглення тримає сама карта (MapFrame) — другий
+                контейнер із overflow тут лише подвоював би заокруглення. */}
+            <div className="h-[280px] rounded-[var(--radius-card)] border border-g200 lg:h-[clamp(340px,48vh,460px)]">
+              <TrackDayMap
+                /* На карту йдуть лише ті, у кого сьогодні була хоч одна
+                   точка. Решта лишається в списку — саме там видно, що
+                   планшет мовчить, і саме це треба помітити. */
+                people={onMap}
+                selectedId={selected}
+                detail={
+                  shown
+                    ? {
+                        points: shown.track.points,
+                        path: shown.track.path,
+                        stops: shown.route.stops,
+                        plan: shown.plan,
+                        excursions: shown.deviation?.excursions ?? [],
+                        orders: shown.orders?.dots ?? [],
+                      }
+                    : null
+                }
+                onSelect={setSelected}
+                height="100%"
+              />
+            </div>
+
+            <div className="overflow-hidden rounded-[var(--radius-card)] border border-g200 bg-white lg:h-[clamp(340px,48vh,460px)] lg:overflow-y-auto lg:overscroll-contain">
+              <LivePeopleList
+                people={people}
+                selectedId={selected}
+                onSelect={setSelected}
+                troubledCount={troubled.length}
+              />
+            </div>
           </div>
 
-          {shown && shown.orders && shown.orders.total > 0 && (
-            <p style={{ fontSize: "12px", color: "#6B7280", lineHeight: 1.5 }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "9px",
-                  height: "9px",
-                  borderRadius: "50%",
-                  background: "#7C3AED",
-                  marginRight: "6px",
-                }}
-              />
-              Фіолетовим — {shown.orders.total} замовлень цього дня
-              {shown.orders.unmapped > 0 &&
-                `, з них ${shown.orders.unmapped} без координат клієнта`}
-              . Порожнє кільце — документ ще не проведений в 1С; час у підказці —
-              час документа, а не візиту.
+          {selected && !shown && (
+            <Card>
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="mt-3 h-8 w-full" />
+              <Skeleton className="mt-2 h-8 w-2/3" />
+            </Card>
+          )}
+
+          {shown && (
+            <LivePersonDetail detail={shown} day={day} onClose={() => setSelected(null)} />
+          )}
+
+          {!selected && (
+            <p className="text-xs text-g400">
+              Оберіть людину в списку — з&apos;являться її трек на карті, звірка з
+              маршрутним листом і відмітки дня.
             </p>
           )}
-
-          {shown && shown.track.hiddenPoints > 0 && (
-            <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.5 }}>
-              На карті лише робочі години ({shown.track.workHours}). Ще{" "}
-              {shown.track.hiddenPoints} точок цього дня записано поза вікном —
-              вони збережені, але не показані.
-            </p>
-          )}
-
-          {/* Самоперевірка треку — згорнута, поки не знадобиться. На час
-              обкатки застосунку це головна діагностика: чи писав пристрій
-              рівно, чи половину дня спав. */}
-          {selected && <TrackHealthCard userId={selected} day={day} />}
-
-          {shown?.plan && (
-            <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" style={{ marginBottom: "10px" }}>
-                <span style={{ fontSize: "14px", fontWeight: 700 }}>
-                  План: {shown.plan.name}
-                </span>
-                <span style={{ fontSize: "12px", color: "#6B7280" }}>
-                  {shown.plan.source === "DATE" ? "разове призначення" : "постійний розклад"}
-                  {shown.plan.totalDistanceKm != null && ` · ${shown.plan.totalDistanceKm} км`}
-                  {` · ${shown.plan.stops.length} пунктів`}
-                </span>
-              </div>
-
-              {/* Три цифри, які й відповідають на питання «чи їздив за планом» */}
-              <div className="flex flex-wrap gap-x-6 gap-y-2" style={{ fontSize: "13px" }}>
-                <span>
-                  У коридорі:{" "}
-                  <b
-                    style={{
-                      color:
-                        shown.deviation?.onRouteRatio == null
-                          ? "#6B7280"
-                          : shown.deviation.onRouteRatio < 0.6
-                            ? "#DC2626"
-                            : "#16A34A",
-                    }}
-                  >
-                    {shown.deviation?.onRouteRatio == null
-                      ? "—"
-                      : `${Math.round(shown.deviation.onRouteRatio * 100)}%`}
-                  </b>
-                </span>
-                <span>
-                  Поза маршрутом:{" "}
-                  <b style={{ color: (shown.deviation?.offRouteKm ?? 0) > 0 ? "#DC2626" : "#16A34A" }}>
-                    {shown.deviation?.offRouteKm ?? 0} км
-                  </b>
-                </span>
-                <span style={{ color: "#6B7280" }}>
-                  Коридор: {Math.round(shown.corridorM / 100) / 10} км
-                </span>
-              </div>
-
-              {shown.deviation && shown.deviation.excursions.length > 0 && (
-                <div
-                  className="rounded-lg p-3"
-                  style={{ background: "#FEF2F2", border: "1px solid #FECACA", marginTop: "12px" }}
-                >
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: "#991B1B", marginBottom: "6px" }}>
-                    Виїзди за межі маршруту: {shown.deviation.excursions.length}
-                  </p>
-                  <div className="space-y-1">
-                    {shown.deviation.excursions.map((e, i) => (
-                      <p key={i} style={{ fontSize: "13px", color: "#7F1D1D" }}>
-                        {kyivClock(e.from)}—{kyivClock(e.to)} · {e.minutes} хв · {e.km} км ·
-                        найдалі {Math.round(e.maxDistanceM / 100) / 10} км від маршруту
-                      </p>
-                    ))}
-                  </div>
-                  {/* Дисклеймер обов'язковий: цифри — привід спитати, а не доказ */}
-                  <p style={{ fontSize: "12px", color: "#9F1239", marginTop: "8px", lineHeight: 1.5 }}>
-                    Корки й короткі об&apos;їзди сюди не потрапляють: епізод рахується
-                    від {EXCURSION_MIN_MINUTES} хв і {EXCURSION_MIN_KM} км поза коридором.
-                    Це привід уточнити в торгового, а не готовий висновок.
-                  </p>
-                </div>
-              )}
-
-              {!shown.planFromGeometry && (
-                <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", lineHeight: 1.5 }}>
-                  У цього напрямку немає збереженої геометрії доріг, тому план —
-                  прямі між пунктами, а коридор розширено вдвічі. Відхилення на
-                  вигинах траси тут не рахуються.
-                </p>
-              )}
-            </div>
-          )}
-
-          <TableScroll stickyHeader className="rounded-xl border border-g200">
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-              <thead>
-                <tr style={{ background: "#F9FAFB" }}>
-                  <th style={th}>Хто</th>
-                  <th style={th}>Стан</th>
-                  <th style={thR}>Трек, км</th>
-                  <th style={thR}>1С, км</th>
-                  <th style={thR}>Відхилення</th>
-                  <th style={thR}>Зібрано</th>
-                  <th style={thR}>Замовлень</th>
-                  <th style={thR}>Точки</th>
-                </tr>
-              </thead>
-              <tbody>
-                {people.map((p) => {
-                  const mine = selected === p.userId;
-                  const sheet = mine ? shown?.sheet1C : null;
-                  // Трек по прямій завжди коротший за дорогу, тому
-                  // від'ємне відхилення — норма, а додатне питання.
-                  const deviation =
-                    sheet && sheet.distanceKm > 0
-                      ? Math.round(((p.distanceKm - sheet.distanceKm) / sheet.distanceKm) * 100)
-                      : null;
-                  return (
-                    <tr
-                      key={p.userId}
-                      onClick={() => setSelected(mine ? null : p.userId)}
-                      style={{
-                        borderTop: "1px solid #F3F4F6",
-                        cursor: "pointer",
-                        background: mine ? "#F0F9FF" : "#fff",
-                      }}
-                    >
-                      <td style={td}>
-                        <span style={{ fontWeight: 600 }}>{p.name}</span>
-                        <span style={{ color: "#9CA3AF", marginLeft: "6px", fontSize: "12px" }}>
-                          {p.role === "DRIVER" ? "водій" : "торговий"}
-                        </span>
-                        {/*
-                          Збірка застосунку — поруч з іменем, дрібним.
-                          Половина розборів «чому немає треку» починається
-                          саме з цього питання, а відповідь досі лежала в
-                          іншому місці: у пульсі, якого старі збірки не
-                          шлють. Помаранчевим — усе, що старіше за поточну:
-                          там немає сторожа, який піднімає вбиту службу.
-                        */}
-                        {appVersion(p) && (
-                          <span
-                            title={
-                              isCurrentBuild(appVersion(p))
-                                ? "Актуальна збірка"
-                                : "Стара збірка — оновити застосунок"
-                            }
-                            style={{
-                              marginLeft: "6px",
-                              fontSize: "11px",
-                              color: isCurrentBuild(appVersion(p)) ? "#9CA3AF" : "#B45309",
-                            }}
-                          >
-                            v{appVersion(p)}
-                          </span>
-                        )}
-                      </td>
-                      <td style={td}>
-                        {/* Три рівні, зверху вниз: де людина, що не так із
-                            планшетом, і дрібниці для розбору. Проблема
-                            навмисно окремим рядком — її не можна пропустити
-                            в потоці цифр. */}
-                        <span
-                          className="inline-flex items-center gap-1.5"
-                          style={{
-                            fontSize: "13px",
-                            color: p.online ? "#16A34A" : p.problem ? "#DC2626" : "#9CA3AF",
-                          }}
-                        >
-                          <span
-                            aria-hidden
-                            style={{
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background: p.online
-                                ? "#16A34A"
-                                : p.problem
-                                  ? "#DC2626"
-                                  : "#D1D5DB",
-                            }}
-                          />
-                          {p.online
-                            ? p.speedKmh != null && p.speedKmh > 5
-                              ? `їде ${p.speedKmh} км/год`
-                              : "на місці"
-                            : p.minutesAgo != null
-                              ? `${p.minutesAgo} хв тому`
-                              : p.shift?.silentSinceStartMin != null
-                                ? `жодної точки за ${p.shift.silentSinceStartMin} хв зміни`
-                                : "точок немає"}
-                        </span>
-                        {p.problem && (
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: "12px",
-                              color: "#B91C1C",
-                              marginTop: "3px",
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {p.problem}
-                          </span>
-                        )}
-                        {p.device && (
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: "11px",
-                              color: "#9CA3AF",
-                              marginTop: "2px",
-                            }}
-                          >
-                            пульс {p.device.minutesAgo} хв тому
-                            {p.device.buffered > 0 && ` · у буфері ${p.device.buffered}`}
-                            {p.device.batteryPct != null && ` · батарея ${p.device.batteryPct}%`}
-                          </span>
-                        )}
-                      </td>
-                      <td style={tdR}>{p.distanceKm}</td>
-                      <td style={tdR}>{sheet ? sheet.distanceKm : "—"}</td>
-                      <td style={{ ...tdR, color: deviation != null && deviation > 0 ? "#DC2626" : "#6B7280" }}>
-                        {deviation != null ? `${deviation > 0 ? "+" : ""}${deviation}%` : "—"}
-                      </td>
-                      <td style={tdR}>
-                        {sheet ? `${money.format(sheet.collected)} / ${money.format(sheet.debtsTotal)}` : "—"}
-                      </td>
-                      {/* Сто кілометрів і жодного замовлення — теж результат,
-                          і побачити його треба поруч із пробігом. */}
-                      <td style={{ ...tdR, fontWeight: p.ordersToday > 0 ? 700 : 400 }}>
-                        {p.ordersToday || "—"}
-                      </td>
-                      <td style={tdR}>{p.pointsCount}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </TableScroll>
-
-          {shown && shown.visits.length > 0 && (
-            <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
-              <p style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>
-                Відмітки: {shown.user.name}
-              </p>
-              <div className="space-y-1.5">
-                {shown.visits.map((v) => (
-                  <div key={v.id} className="flex flex-wrap items-baseline gap-2" style={{ fontSize: "13px" }}>
-                    <span style={{ color: v.status === "DONE" ? "#16A34A" : "#DC2626", fontWeight: 700 }}>
-                      {v.status === "DONE" ? "✓" : "×"}
-                    </span>
-                    <span style={{ fontWeight: 600 }}>{v.counterparty.name}</span>
-                    {v.collectedAmount != null && v.collectedAmount > 0 && (
-                      <span style={{ color: "#16A34A" }}>{money.format(v.collectedAmount)} грн</span>
-                    )}
-                    {v.comment && <span style={{ color: "#6B7280" }}>— {v.comment}</span>}
-                    <span style={{ color: "#9CA3AF", marginLeft: "auto", fontSize: "12px" }}>
-                      {new Intl.DateTimeFormat("uk-UA", {
-                        timeZone: "Europe/Kyiv",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }).format(new Date(v.markedAt))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.5 }}>
-            Пробіг по треку рахується по прямій між точками, тому він завжди менший
-            за реальну дорогу — від&apos;ємне відхилення від 1С нормальне. Питання
-            викликає додатне: кілометри, яких немає в маршрутному листі.
-          </p>
         </>
       )}
     </div>
   );
 }
-
-const th: React.CSSProperties = {
-  padding: "10px 12px",
-  textAlign: "left",
-  fontSize: "12px",
-  fontWeight: 600,
-  color: "#6B7280",
-  whiteSpace: "nowrap",
-};
-const thR: React.CSSProperties = { ...th, textAlign: "right" };
-const td: React.CSSProperties = { padding: "10px 12px", whiteSpace: "nowrap" };
-const tdR: React.CSSProperties = { ...td, textAlign: "right" };

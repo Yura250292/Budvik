@@ -18,6 +18,7 @@ import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { money } from "@/components/ui/Stat";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
+import { STATUS } from "@/lib/analytics/colors";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { TableScroll } from "@/components/ui/TableScroll";
@@ -117,6 +118,8 @@ export function CashTab({ period }: { period: Period }) {
         <CardHeader
           title="Чекають прийому"
           hint="Водій заявив здачу — гроші ще не проведені через касу"
+          // Скільки рядків чекає — видно з шапки, не читаючи таблицю.
+          action={pending.length > 0 ? <Badge status="warn" dot>{pending.length}</Badge> : undefined}
         />
         {pending.length === 0 ? (
           <EmptyState title="Немає непідтверджених здач за цей період" />
@@ -158,11 +161,18 @@ function SumCard({
   value: number;
   tone?: "ok" | "warn";
 }) {
-  const color = tone === "ok" ? "text-green-700" : tone === "warn" ? "text-amber-700" : "text-bk";
+  // Кольори — зі спільної шкали статусів: «прийнято» тут має бути тим
+  // самим зеленим, що й «прийнято» в бейджі поруч.
+  const color = tone === "ok" ? STATUS.good.fg : tone === "warn" ? STATUS.warn.fg : undefined;
   return (
     <div className="rounded-[var(--radius-card)] border border-g200 bg-white px-4 py-3">
       <p className="text-xs text-g500">{label}</p>
-      <p className={`mt-0.5 text-lg font-bold tabular-nums ${color}`}>{money(value)}</p>
+      <p
+        className={`mt-0.5 text-lg font-bold tabular-nums ${color ? "" : "text-bk"}`}
+        style={color ? { color } : undefined}
+      >
+        {money(value)}
+      </p>
     </div>
   );
 }

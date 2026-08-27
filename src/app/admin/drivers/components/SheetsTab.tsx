@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { kyivToday, shiftDay, type Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
@@ -275,10 +275,22 @@ export function SheetsTab({ period }: { period: Period }) {
 
       <Card padded={false}>
         <div className="p-4 sm:p-5">
+          {/* Довгі правила розрахунку — під «Як рахується»: щодня потрібне
+              лише перше речення, решту читають раз при знайомстві. */}
           <CardHeader
             title="Маршрутні листи"
-            hint="Головне джерело — маршрути сайту; «1С» — запасні листи з обміну. Листи на найближчі дні показуються наперед — з них можна одразу зробити маршрут. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» — плановий, поки адмін не ввів фактичний у деталі."
+            hint="Головне джерело — маршрути сайту; «1С» — запасні листи з обміну."
           />
+          <details className="-mt-3 text-xs text-g500">
+            <summary className="cursor-pointer text-g500 transition-colors hover:text-bk">
+              Як рахується
+            </summary>
+            <p className="mt-1.5 leading-relaxed">
+              Листи на найближчі дні показуються наперед — з них можна одразу зробити
+              маршрут. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» —
+              плановий, поки адмін не ввів фактичний у деталі.
+            </p>
+          </details>
         </div>
 
         <TableScroll stickyHeader minWidth={880}>
@@ -296,9 +308,8 @@ export function SheetsTab({ period }: { period: Period }) {
             </thead>
             <tbody className="divide-y divide-g100">
               {data.rows.map((r) => (
-                <>
+                <Fragment key={r.id}>
                   <tr
-                    key={r.id}
                     className="cursor-pointer hover:bg-g50"
                     onClick={() => setOpen(open === r.id ? null : r.id)}
                   >
@@ -359,7 +370,7 @@ export function SheetsTab({ period }: { period: Period }) {
                   </tr>
 
                   {open === r.id && (
-                    <tr key={`${r.id}-detail`}>
+                    <tr>
                       <td colSpan={7} className="bg-g50 px-4 py-3">
                         <div className="space-y-3">
                           {r.source === "SITE" && data.canEdit && (
@@ -394,8 +405,10 @@ export function SheetsTab({ period }: { period: Period }) {
                                       <span className="mr-1.5 text-g400">{s.sequence || "·"}</span>
                                       {s.title ?? s.counterpartyName ?? "—"}
                                       {s.kind !== "DELIVERY" && (
-                                        <span className="ml-1.5 rounded-[var(--radius-badge)] bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
-                                          {s.kind === "PICKUP" ? "забрати" : "доручення"}
+                                        <span className="ml-1.5 inline-block align-middle">
+                                          <Badge status="warn">
+                                            {s.kind === "PICKUP" ? "забрати" : "доручення"}
+                                          </Badge>
                                         </span>
                                       )}
                                       {s.address && <span className="ml-1.5 text-g400">{s.address}</span>}
@@ -408,9 +421,7 @@ export function SheetsTab({ period }: { period: Period }) {
                                           точки нічого не вирішує — показувати її означало б
                                           збивати з пантелику. */}
                                       {s.payOverride != null ? (
-                                        <span className="rounded-[var(--radius-badge)] bg-[#FEF3C7] px-1.5 py-0.5 text-[11px] font-semibold text-[#92400E]">
-                                          оплата вручну
-                                        </span>
+                                        <Badge status="warn">оплата вручну</Badge>
                                       ) : (
                                         <span className="text-g500">
                                           {s.zone === "CITY" ? "місто" : "область"}
@@ -460,7 +471,7 @@ export function SheetsTab({ period }: { period: Period }) {
                                     type="button"
                                     disabled={busy}
                                     onClick={() => removeRoute(r.id, r.number, r.stopsCount)}
-                                    className="cursor-pointer rounded-[var(--radius-badge)] border border-[#FCA5A5] px-2.5 py-1 text-xs font-medium text-[#B91C1C] transition-colors hover:bg-[#FEF2F2] disabled:opacity-50"
+                                    className="cursor-pointer rounded-[var(--radius-badge)] border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
                                   >
                                     {busy ? "Видаляю…" : "Видалити маршрут"}
                                   </button>
@@ -539,7 +550,7 @@ export function SheetsTab({ period }: { period: Period }) {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

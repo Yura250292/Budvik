@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import DynamicDeliveryMap from "@/components/map/DynamicMap";
 import type { GeoPoint } from "@/components/map/DeliveryMap";
+import { Card } from "@/components/ui/Card";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 interface AddressEntry {
   id: string;
@@ -143,6 +145,8 @@ function RoutePlannerContent() {
   // Delivery route sync
   const [linkedDeliveryRoute, setLinkedDeliveryRoute] = useState<any>(null);
   const [savingToDelivery, setSavingToDelivery] = useState(false);
+  /** Підсумок збереження в маршрут — показуємо в сторінці, а не alert(). */
+  const [saveNotice, setSaveNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   // Share
   const [copiedLink, setCopiedLink] = useState(false);
@@ -520,6 +524,7 @@ function RoutePlannerContent() {
   const handleSaveToDeliveryRoute = useCallback(async () => {
     if (!linkedDeliveryRoute || !result) return;
     setSavingToDelivery(true);
+    setSaveNotice(null);
     try {
       // Map optimized addresses back to stop IDs by address matching
       const optimized = result.optimizedAddresses.filter((a) => a.type === "stop");
@@ -548,13 +553,16 @@ function RoutePlannerContent() {
         }),
       });
       if (res.ok) {
-        alert(`Маршрут ${linkedDeliveryRoute.number} оновлено!\nПорядок зупинок та відстань збережено.`);
+        setSaveNotice({
+          kind: "ok",
+          text: `Маршрут ${linkedDeliveryRoute.number} оновлено — порядок зупинок і відстань збережено.`,
+        });
       } else {
         const d = await res.json();
-        alert(d.error || "Помилка збереження");
+        setSaveNotice({ kind: "err", text: d.error || "Помилка збереження" });
       }
     } catch {
-      alert("Мережева помилка");
+      setSaveNotice({ kind: "err", text: "Мережева помилка" });
     }
     setSavingToDelivery(false);
   }, [linkedDeliveryRoute, result, vehicle]);
@@ -629,37 +637,43 @@ function RoutePlannerContent() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href={linkedDeliveryRoute ? "/manager/routes" : "/admin/erp/delivery-routes"}
-              className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#FFD600" }}>
-              <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </Link>
-            <div>
-              <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A" }}>Планувальник маршрутів</h1>
-              <p style={{ fontSize: "14px", color: "#6B7280" }}>
-                {linkedDeliveryRoute
-                  ? `Маршрут ${linkedDeliveryRoute.number} · ${linkedDeliveryRoute.driver?.name || "без водія"} · ${linkedDeliveryRoute._count?.stops || 0} зупинок`
-                  : "Введіть адреси — AI оптимізує маршрут"}
-              </p>
-            </div>
+    // Хедер сторінки — звичайний блок у потоці: шапку й прокрутку дає
+    // AdminShell, а власна липка смуга лише дублювала його й забирала
+    // висоту в карти.
+    <div>
+      <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            {/* Повернення потрібне лише тому, хто прийшов із конкретного
+                маршруту менеджера: решта має бічне меню. */}
+            {linkedDeliveryRoute && (
+              <Link
+                href="/manager/routes"
+                className="mb-0.5 inline-flex items-center gap-1 text-[13px] text-g500 transition-colors hover:text-bk"
+              >
+                ← До маршрутів менеджера
+              </Link>
+            )}
+            <h1 className="text-xl font-bold text-bk sm:text-2xl">Планувальник маршрутів</h1>
+            <p className="mt-0.5 text-sm text-g500">
+              {linkedDeliveryRoute
+                ? `Маршрут ${linkedDeliveryRoute.number} · ${linkedDeliveryRoute.driver?.name || "без водія"} · ${linkedDeliveryRoute._count?.stops || 0} зупинок`
+                : "Введіть адреси — AI оптимізує маршрут"}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Дзеркало перемикача зі «Списку». Ховаємо, коли планувальник
                 відкритий під конкретний маршрут — там свій контекст і своя
                 кнопка «назад». */}
             {!linkedDeliveryRoute && (
-              <div className="flex gap-1 mr-1" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
-                <Link href="/admin/erp/delivery-routes"
-                  style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, color: "#6B7280", textDecoration: "none" }}>
+              <div className="mr-1 flex gap-1 rounded-[var(--radius-btn)] bg-g100 p-0.5">
+                <Link
+                  href="/admin/erp/delivery-routes"
+                  className="rounded-[8px] px-3.5 py-1.5 text-[13px] font-medium text-g500 transition-colors hover:text-bk"
+                >
                   Список
                 </Link>
-                <span style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 600, background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
+                <span className="rounded-[8px] bg-white px-3.5 py-1.5 text-[13px] font-semibold text-bk shadow-sm">
                   Карта
                 </span>
               </div>
@@ -667,16 +681,12 @@ function RoutePlannerContent() {
             {/* Save to delivery route button */}
             {linkedDeliveryRoute && result && (
               <button
+                type="button"
                 onClick={handleSaveToDeliveryRoute}
                 disabled={savingToDelivery}
-                style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: 700,
-                  background: "linear-gradient(135deg, #16A34A, #15803D)", color: "white", border: "none",
-                  opacity: savingToDelivery ? 0.6 : 1,
-                }}
+                className="flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-btn)] bg-green-600 px-4 py-2 text-[13px] font-bold text-white transition-colors hover:bg-green-700 disabled:opacity-60"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 {savingToDelivery ? "Збереження..." : `Зберегти в ${linkedDeliveryRoute.number}`}
@@ -684,14 +694,11 @@ function RoutePlannerContent() {
             )}
             {/* Saved routes button */}
             <button
+              type="button"
               onClick={() => setShowSavedRoutes(!showSavedRoutes)}
-              style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                background: "#F9FAFB", color: "#374151", border: "1px solid #E5E7EB",
-              }}
+              className="flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-white px-3.5 py-2 text-[13px] font-semibold text-g600 transition-colors hover:bg-g50 hover:text-bk"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
               </svg>
               Маршрути
@@ -699,20 +706,19 @@ function RoutePlannerContent() {
             {/* Save current route */}
             {addresses.length > 0 && startGeo && (
               <button
+                type="button"
                 onClick={() => {
                   if (activeRouteId) { setRouteName(""); handleSaveRoute(); }
                   else setShowSaveDialog(true);
                 }}
                 disabled={savingRoute}
-                style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "8px 14px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-                  background: activeRouteId ? "#F0FDF4" : "#FFD600",
-                  color: activeRouteId ? "#16A34A" : "#0A0A0A",
-                  border: activeRouteId ? "1px solid #BBF7D0" : "none",
-                }}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-btn)] px-3.5 py-2 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+                  activeRouteId
+                    ? "border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                    : "bg-primary text-bk hover:bg-primary-hover"
+                }`}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                 </svg>
                 {savingRoute ? "..." : activeRouteId ? "Оновити" : "Зберегти"}
@@ -720,7 +726,21 @@ function RoutePlannerContent() {
             )}
           </div>
         </div>
-      </header>
+
+        {/* Підсумок збереження в маршрут — тут, а не системним вікном:
+            alert() доводилося закривати, щоб побачити сам маршрут. */}
+        {saveNotice && (
+          <div className="mt-3">
+            {saveNotice.kind === "err" ? (
+              <ErrorBox message={saveNotice.text} />
+            ) : (
+              <div className="rounded-[var(--radius-card)] border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800">
+                {saveNotice.text}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Save dialog modal */}
       {showSaveDialog && (
@@ -796,12 +816,12 @@ function RoutePlannerContent() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "24px", paddingBottom: "40px" }}>
+      <div className="mx-auto max-w-7xl px-4 pb-10 pt-4 sm:px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left panel */}
           <div className="space-y-4">
             {/* Start address + warehouse picker */}
-            <div className="bg-white rounded-xl p-5" style={{ border: pickingStart ? "2px solid #FFD600" : "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+            <Card className={pickingStart ? "ring-2 ring-primary" : ""}>
               <div className="flex items-center justify-between mb-2">
                 <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>
                   Початкова точка (склад)
@@ -907,10 +927,10 @@ function RoutePlannerContent() {
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
 
             {/* Add address */}
-            <div className="bg-white rounded-xl p-5" style={{ border: pickingNewStop ? "2px solid #FFD600" : "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+            <Card className={pickingNewStop ? "ring-2 ring-primary" : ""}>
               <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "6px" }}>
                 Додати адресу доставки
               </label>
@@ -951,11 +971,11 @@ function RoutePlannerContent() {
                 </svg>
                 {pickingNewStop ? "Натисніть на карту..." : "Вказати точку на карті"}
               </button>
-            </div>
+            </Card>
 
             {/* Address list */}
             {addresses.length > 0 && (
-              <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+              <Card padded={false} className="overflow-hidden">
                 <div style={{ padding: "12px 16px", borderBottom: "1px solid #F3F4F6" }}>
                   <span style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>
                     Зупинки ({addresses.length})
@@ -1015,7 +1035,7 @@ function RoutePlannerContent() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </Card>
             )}
 
             {/* Vehicle & fuel settings */}
@@ -1026,7 +1046,7 @@ function RoutePlannerContent() {
               const fuelUsed = fuelBase * bufferMultiplier;
               const totalCost = fuelUsed * vehicle.pricePerUnit;
               return (
-              <div className="bg-white rounded-xl p-5" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
+              <Card>
                 <label style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "8px" }}>
                   Транспорт та витрати
                 </label>
@@ -1136,7 +1156,7 @@ function RoutePlannerContent() {
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
               );
             })()}
 
@@ -1157,15 +1177,11 @@ function RoutePlannerContent() {
             )}
 
             {/* Error */}
-            {error && (
-              <div style={{ padding: "12px 16px", borderRadius: "8px", background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626", fontSize: "14px" }}>
-                {error}
-              </div>
-            )}
+            {error && <ErrorBox message={error} />}
 
             {/* Result summary — optimized route details */}
             {result && (
-              <div className="bg-white rounded-xl p-5" style={{ border: "2px solid #8B5CF6", boxShadow: "0 4px 12px rgba(139,92,246,0.1)" }}>
+              <Card className="ring-1 ring-g300">
                 <h3 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px", color: "#0A0A0A" }}>
                   Оптимальний маршрут
                 </h3>
@@ -1365,24 +1381,20 @@ function RoutePlannerContent() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </Card>
             )}
           </div>
 
           {/* Right panel: map */}
-          <div className="lg:sticky lg:top-[80px] lg:self-start">
-            <div style={{
-              background: "white",
-              borderRadius: "16px",
-              border: isPicking ? "2px solid #FFD600" : "1px solid #EFEFEF",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-              overflow: "hidden",
-            }}>
+          {/* top-4, а не 80px: липне до верху скрол-області AdminShell —
+              власного хедера, який ті 80px компенсували, більше немає. */}
+          <div className="lg:sticky lg:top-4 lg:self-start">
+            <Card
+              padded={false}
+              className={`overflow-hidden ${isPicking ? "ring-2 ring-primary" : ""}`}
+            >
               {isPicking && (
-                <div style={{
-                  padding: "8px 16px", fontSize: "13px", fontWeight: 600,
-                  background: "#FFD600", color: "#0A0A0A", textAlign: "center",
-                }}>
+                <div className="bg-primary px-4 py-2 text-center text-[13px] font-semibold text-bk">
                   {pickingStart ? "Натисніть на карту щоб вказати початкову точку" :
                    pickingStopId ? "Натисніть на карту щоб вказати зупинку" :
                    "Натисніть на карту щоб додати нову зупинку"}
@@ -1391,11 +1403,11 @@ function RoutePlannerContent() {
               <DynamicDeliveryMap
                 stops={mapStops}
                 routeGeometry={routeGeometry}
-                height="min(60vh, 500px)"
+                height="clamp(300px, 45vh, 420px)"
                 onMapClick={handleMapClick}
                 pickingMode={isPicking}
               />
-            </div>
+            </Card>
           </div>
         </div>
       </div>

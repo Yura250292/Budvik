@@ -46,15 +46,41 @@ type RatesResponse = {
 
 type RatesForm = Record<keyof RatesResponse["rates"], string>;
 
-const RATE_FIELDS: Array<{ key: keyof RatesResponse["rates"]; label: string; hint?: string }> = [
-  { key: "kmTier1Max", label: "Межа першого тіру, км", hint: "менше цього — перша ставка" },
-  { key: "kmTier1Rate", label: "Ставка до межі, ₴" },
-  { key: "kmTier2Max", label: "Межа другого тіру, км", hint: "включно" },
-  { key: "kmTier2Rate", label: "Ставка середнього тіру, ₴" },
-  { key: "kmTier3Rate", label: "Ставка понад другу межу, ₴" },
-  { key: "cityPointRate", label: "Точка в місті, ₴" },
-  { key: "oblastPointRate", label: "Точка в області, ₴" },
-  { key: "turnoverPercent", label: "Відсоток від суми в листі, %" },
+/**
+ * Вісім полів ставок, зібрані в три групи.
+ *
+ * Плоскою сіткою вони читалися як один довгий список чисел, де «Межа
+ * другого тіру» і «Точка в області» стоять поруч без жодного зв'язку.
+ * Групи повторюють формулу нарахування: спершу пробіг, потім точки,
+ * наприкінці відсоток від суми.
+ */
+type RateField = { key: keyof RatesResponse["rates"]; label: string; hint?: string };
+
+const RATE_GROUPS: Array<{ id: string; legend: string; fields: RateField[] }> = [
+  {
+    id: "km",
+    legend: "Пробіг за тірами",
+    fields: [
+      { key: "kmTier1Max", label: "Межа першого тіру, км", hint: "менше цього — перша ставка" },
+      { key: "kmTier1Rate", label: "Ставка до межі, ₴" },
+      { key: "kmTier2Max", label: "Межа другого тіру, км", hint: "включно" },
+      { key: "kmTier2Rate", label: "Ставка середнього тіру, ₴" },
+      { key: "kmTier3Rate", label: "Ставка понад другу межу, ₴" },
+    ],
+  },
+  {
+    id: "points",
+    legend: "Точки",
+    fields: [
+      { key: "cityPointRate", label: "Точка в місті, ₴" },
+      { key: "oblastPointRate", label: "Точка в області, ₴" },
+    ],
+  },
+  {
+    id: "percent",
+    legend: "Відсоток від суми",
+    fields: [{ key: "turnoverPercent", label: "Відсоток від суми в листі, %" }],
+  },
 ];
 
 export function SettingsTab() {
@@ -160,8 +186,16 @@ export function SettingsTab() {
     <div className="space-y-4">
       {message && <ErrorBox message={message} />}
       {note && (
-        <div className="rounded-[var(--radius-card)] border border-green-200 bg-green-50 p-3">
+        <div className="flex items-start justify-between gap-3 rounded-[var(--radius-card)] border border-green-200 bg-green-50 p-3">
           <p className="text-sm text-green-800">{note}</p>
+          <button
+            type="button"
+            onClick={() => setNote(null)}
+            aria-label="Закрити повідомлення"
+            className="cursor-pointer text-green-700 transition-colors hover:text-green-900"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -283,21 +317,32 @@ export function SettingsTab() {
           <TableSkeleton rows={3} cols={2} />
         ) : (
           <>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {RATE_FIELDS.map((f) => (
-                <label key={f.key} className="block">
-                  <span className="text-xs font-medium text-g600">{f.label}</span>
-                  <input
-                    type="number"
-                    step={f.key === "turnoverPercent" ? 0.1 : 5}
-                    min={0}
-                    value={form[f.key]}
-                    disabled={!canEdit}
-                    onChange={(e) => setForm((prev) => (prev ? { ...prev, [f.key]: e.target.value } : prev))}
-                    className="mt-1 w-full rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1.5 text-sm tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark disabled:bg-g50"
-                  />
-                  {f.hint && <span className="mt-0.5 block text-[11px] text-g400">{f.hint}</span>}
-                </label>
+            <div className="mt-4 space-y-4">
+              {RATE_GROUPS.map((g) => (
+                <fieldset key={g.id} className="min-w-0">
+                  <legend className="mb-2 text-xs font-semibold text-g600">{g.legend}</legend>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {g.fields.map((f) => (
+                      <label key={f.key} className="block">
+                        <span className="text-xs font-medium text-g600">{f.label}</span>
+                        <input
+                          type="number"
+                          step={f.key === "turnoverPercent" ? 0.1 : 5}
+                          min={0}
+                          value={form[f.key]}
+                          disabled={!canEdit}
+                          onChange={(e) =>
+                            setForm((prev) => (prev ? { ...prev, [f.key]: e.target.value } : prev))
+                          }
+                          className="mt-1 w-full rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1.5 text-sm tabular-nums text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark disabled:bg-g50"
+                        />
+                        {f.hint && (
+                          <span className="mt-0.5 block text-[11px] text-g400">{f.hint}</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               ))}
             </div>
 

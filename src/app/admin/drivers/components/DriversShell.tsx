@@ -59,6 +59,14 @@ export function DriversShell() {
     return from && to ? { from, to } : defaultPeriod();
   });
 
+  /**
+   * Водій із посилання «AI-аналізу»: там пропонують подивитися конкретну
+   * людину, і без цього рядка клік приводив на загальну таблицю, де її ще
+   * треба знайти очима. Читаємо один раз при монтуванні — далі рядок
+   * розгортає сам користувач.
+   */
+  const [initialDriver] = useState(() => searchParams.get("driver"));
+
   // Стан у querystring, щоб посилання на «серпень по листах» можна було
   // переслати. replace, а не push: інакше кожна зміна фільтра лягала б
   // в історію і «Назад» гортало б власні кліки.
@@ -93,8 +101,10 @@ export function DriversShell() {
             type="button"
             onClick={() => setTab(t.key)}
             aria-current={tab === t.key ? "page" : undefined}
-            className={`-mb-px shrink-0 cursor-pointer border-b-2 px-0.5 pb-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
-              tab === t.key ? "border-bk text-bk" : "border-transparent text-g500 hover:text-bk"
+            className={`-mb-px shrink-0 cursor-pointer whitespace-nowrap border-b-2 px-0.5 pb-2.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
+              tab === t.key
+                ? "border-bk font-semibold text-bk"
+                : "border-transparent font-medium text-g500 hover:text-bk"
             }`}
           >
             {t.label}
@@ -102,12 +112,14 @@ export function DriversShell() {
         ))}
 
         {/* Посилання, а не вкладки: ведуть на власні сторінки. Стрілка
-            попереджає про перехід, щоб клік не виглядав зламаною вкладкою. */}
+            попереджає про перехід, щоб клік не виглядав зламаною вкладкою,
+            а риска перед ними відділяє їх від вкладок, які лишаються тут. */}
+        <span aria-hidden className="ml-1 h-4 shrink-0 self-center border-l border-g200" />
         {LINKS.map((l) => (
           <Link
             key={l.href}
             href={l.href}
-            className="-mb-px flex shrink-0 cursor-pointer items-center gap-1 border-b-2 border-transparent px-0.5 pb-2 text-[13px] font-medium text-g500 transition-colors hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
+            className="-mb-px flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap border-b-2 border-transparent px-0.5 pb-2.5 text-[13px] font-medium text-g500 transition-colors hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
           >
             {l.label}
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -120,7 +132,11 @@ export function DriversShell() {
       {showPeriod && <PeriodPicker value={period} onChange={onPeriodChange} />}
 
       {tab === "payroll" && (
-        <PayrollTab period={period} onOpenSettings={() => setTab("settings")} />
+        <PayrollTab
+          period={period}
+          initialDriver={initialDriver}
+          onOpenSettings={() => setTab("settings")}
+        />
       )}
       {tab === "live" && <LiveTrackTab />}
       {tab === "cash" && <CashTab period={period} />}

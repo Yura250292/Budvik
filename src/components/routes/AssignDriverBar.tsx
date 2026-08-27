@@ -113,7 +113,7 @@ export default function AssignDriverBar({
       }}
     >
       {error && (
-        <p style={{ fontSize: "13px", color: "#B91C1C", marginBottom: "8px" }}>{error}</p>
+        <p className="mb-2 text-[13px] text-red-700">{error}</p>
       )}
 
       {running ? (
@@ -130,10 +130,10 @@ export default function AssignDriverBar({
             })}` : ""}
           </p>
           <div className="flex gap-2">
-            <button onClick={() => setEditing(true)} disabled={busy} style={ghostBtn}>
+            <button onClick={() => setEditing(true)} disabled={busy} className={GHOST}>
               Змінити водія
             </button>
-            <button onClick={unassign} disabled={busy} style={ghostBtn}>
+            <button onClick={unassign} disabled={busy} className={GHOST}>
               Відкликати
             </button>
           </div>
@@ -141,11 +141,11 @@ export default function AssignDriverBar({
       ) : (
         <div className="flex items-end gap-3 flex-wrap">
           <div>
-            <label style={labelStyle}>Водій</label>
+            <label className={LABEL}>Водій</label>
             <select
               value={pickDriver}
               onChange={(e) => setPickDriver(e.target.value)}
-              style={{ ...fieldStyle, minWidth: "180px" }}
+              className={`${FIELD} min-w-[180px]`}
             >
               <option value="">Оберіть водія</option>
               {drivers.map((d) => (
@@ -156,32 +156,23 @@ export default function AssignDriverBar({
             </select>
           </div>
           <div>
-            <label style={labelStyle}>Дата</label>
+            <label className={LABEL}>Дата</label>
             <input
               type="date"
               value={pickDate}
               onChange={(e) => setPickDate(e.target.value)}
-              style={fieldStyle}
+              className={FIELD}
             />
           </div>
           <button
             onClick={() => assign(false)}
             disabled={busy || !pickDriver || stopsCount === 0}
-            style={{
-              background: "#FFD600",
-              color: "#0A0A0A",
-              padding: "10px 20px",
-              borderRadius: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              border: "none",
-              opacity: busy || !pickDriver || stopsCount === 0 ? 0.45 : 1,
-            }}
+            className="cursor-pointer rounded-[var(--radius-btn)] bg-primary px-5 py-2.5 text-sm font-bold text-bk transition-colors hover:bg-primary-hover disabled:opacity-45"
           >
             {busy ? "Передаю..." : assigned ? "Зберегти" : "Передати водію"}
           </button>
           {editing && (
-            <button onClick={() => setEditing(false)} disabled={busy} style={ghostBtn}>
+            <button onClick={() => setEditing(false)} disabled={busy} className={GHOST}>
               Скасувати
             </button>
           )}
@@ -198,27 +189,10 @@ export default function AssignDriverBar({
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#6B7280",
-  display: "block",
-  marginBottom: "4px",
-};
+const LABEL = "mb-1 block text-xs text-g500";
 
-const fieldStyle: React.CSSProperties = {
-  padding: "9px 12px",
-  borderRadius: "8px",
-  border: "1px solid #E5E7EB",
-  fontSize: "14px",
-  background: "white",
-};
+const FIELD =
+  "rounded-[var(--radius-btn)] border border-g200 bg-white px-3 py-2.5 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark";
 
-const ghostBtn: React.CSSProperties = {
-  padding: "9px 16px",
-  borderRadius: "8px",
-  fontSize: "13px",
-  fontWeight: 600,
-  border: "1px solid #E5E7EB",
-  background: "white",
-  color: "#0A0A0A",
-};
+const GHOST =
+  "cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-4 py-2.5 text-[13px] font-semibold text-bk transition-colors hover:bg-g50 disabled:opacity-50";

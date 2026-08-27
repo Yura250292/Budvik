@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
+import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useMapExpand, useWheelGate } from "./MapFrame";
 
 export interface GeoPoint {
   lat: number;
@@ -59,6 +59,7 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
   onRemoveStopRef.current = onRemoveStop;
   const hasRemove = !!onRemoveStop;
   const { wheelActive, onWheelChange } = useWheelGate();
+  const { expanded, toggle } = useMapExpand(mapInstanceRef);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -177,7 +178,14 @@ export default function DeliveryMap({ stops, routeGeometry, height = "500px", on
   return (
     // Під час вибору точки підказку не показуємо: там уже свій режим кліку,
     // і два повідомлення про клік поспіль тільки збивають.
-    <MapFrame height={height} wheelActive={wheelActive} hint={!pickingMode} rounded="14px">
+    <MapFrame
+      height={height}
+      wheelActive={wheelActive}
+      hint={!pickingMode}
+      rounded="14px"
+      expanded={expanded}
+      onToggleExpand={toggle}
+    >
       <div ref={mapRef} style={{ height: "100%", width: "100%" }} />
     </MapFrame>
   );

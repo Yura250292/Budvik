@@ -6,23 +6,29 @@ import Link from "next/link";
 import { formatPrice, formatDate } from "@/lib/utils";
 import RoutePlanPanel from "@/components/routes/RoutePlanPanel";
 import AssignDriverBar from "@/components/routes/AssignDriverBar";
+import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { TableSkeleton } from "@/components/ui/Skeleton";
+import { ErrorBox } from "@/components/ui/ErrorBox";
+import type { StatusKey } from "@/lib/analytics/colors";
 
 // PLANNED — чернетка логіста, водій її НЕ бачить; ASSIGNED — передано.
 const ROUTE_STATUS_LABELS: Record<string, string> = {
   PLANNED: "Чернетка", ASSIGNED: "Передано водію", IN_PROGRESS: "В дорозі",
   COMPLETED: "Завершений", CANCELLED: "Скасований",
 };
-const ROUTE_STATUS_COLOR: Record<string, string> = {
-  PLANNED: "#6B7280", ASSIGNED: "#2563EB", IN_PROGRESS: "#D97706",
-  COMPLETED: "#16A34A", CANCELLED: "#DC2626",
-};
-const ROUTE_STATUS_BG: Record<string, string> = {
-  PLANNED: "#F3F4F6", ASSIGNED: "#EFF6FF", IN_PROGRESS: "#FFFBEB",
-  COMPLETED: "#F0FDF4", CANCELLED: "#FEF2F2",
+/** Стани лягають на спільну шкалу бейджів адмінки, без власних кольорів. */
+const ROUTE_STATUS_BADGE: Record<string, StatusKey> = {
+  PLANNED: "neutral", ASSIGNED: "info", IN_PROGRESS: "warn",
+  COMPLETED: "good", CANCELLED: "bad",
 };
 
 /** Точки можна правити, поки водій не поїхав (дзеркало lib/routes/editable.ts) */
 const EDITABLE = ["PLANNED", "ASSIGNED"];
+
+/** Спільний вигляд полів форми — щоб не повторювати рядок вісім разів. */
+const FIELD =
+  "w-full rounded-[var(--radius-btn)] border border-g200 px-3 py-2 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark";
 
 export default function DeliveryRoutesPage() {
   const { data: session } = useSession();
@@ -32,6 +38,9 @@ export default function DeliveryRoutesPage() {
   const [confirmedOrders, setConfirmedOrders] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  // Помилка створення — у самій формі, а не системним alert(): вікно
+  // браузера доводилося закривати, перш ніж побачити, що саме не так.
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Create form
   const [formDriverId, setFormDriverId] = useState("");
@@ -83,7 +92,8 @@ export default function DeliveryRoutesPage() {
   };
 
   const handleCreate = async () => {
-    if (selectedOrderIds.length === 0) { alert("Оберіть замовлення"); return; }
+    setFormError(null);
+    if (selectedOrderIds.length === 0) { setFormError("Оберіть замовлення"); return; }
     setActionLoading(true);
     try {
       const res = await fetch("/api/erp/delivery-routes", {
@@ -100,14 +110,14 @@ export default function DeliveryRoutesPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error || "Помилка"); }
+      if (!res.ok) { setFormError(data.error || "Помилка"); }
       else {
         setShowCreate(false);
         setSelectedOrderIds([]);
         setFormDriverId(""); setFormVehicle(""); setFormNotes("");
         fetchData();
       }
-    } catch { alert("Мережева помилка"); }
+    } catch { setFormError("Мережева помилка"); }
     setActionLoading(false);
   };
 
@@ -116,159 +126,159 @@ export default function DeliveryRoutesPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
-      <header className="sticky top-0 z-50 bg-white" style={{ borderBottom: "1px solid #EFEFEF", padding: "16px 24px" }}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/admin" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#FFD600" }}>
-              <svg className="w-5 h-5 text-[#0A0A0A]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </Link>
-            <div>
-              <h1 style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A" }}>Маршрути доставки</h1>
-              <p style={{ fontSize: "14px", color: "#6B7280" }}>Шляхові листи для водіїв</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Список / Карта — два режими роботи з тими самими маршрутами.
-                «Карта» веде в планувальник: він лишається за своїм URL, бо на
-                нього є глибокі посилання з /manager/routes. */}
-            <div className="flex gap-1" style={{ background: "#F3F4F6", borderRadius: "8px", padding: "2px" }}>
-              <span style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 600, background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-                Список
-              </span>
-              <Link href="/admin/erp/route-planner"
-                style={{ padding: "6px 16px", borderRadius: "6px", fontSize: "14px", fontWeight: 500, color: "#6B7280", textDecoration: "none" }}>
-                Карта
-              </Link>
-            </div>
-            <button onClick={() => setShowCreate(true)}
-              style={{ background: "#FFD600", color: "#0A0A0A", padding: "10px 20px", borderRadius: "8px", fontWeight: 600, fontSize: "14px", border: "none" }}>
-              + Новий маршрут
-            </button>
-          </div>
+    // Власного хедера тут немає: шапку, бічне меню й прокрутку дає
+    // AdminShell, а другий рядок із назвою лише з'їдав перший екран.
+    <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-bk sm:text-2xl">Маршрути доставки</h1>
+          <p className="mt-0.5 text-sm text-g500">Шляхові листи для водіїв</p>
         </div>
-      </header>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Список / Карта — два режими роботи з тими самими маршрутами.
+              «Карта» веде в планувальник: він лишається за своїм URL, бо на
+              нього є глибокі посилання з /manager/routes. */}
+          <div className="flex gap-1 rounded-[var(--radius-btn)] bg-g100 p-0.5">
+            <span className="rounded-[8px] bg-white px-3.5 py-1.5 text-[13px] font-semibold text-bk shadow-sm">
+              Список
+            </span>
+            <Link
+              href="/admin/erp/route-planner"
+              className="rounded-[8px] px-3.5 py-1.5 text-[13px] font-medium text-g500 transition-colors hover:text-bk"
+            >
+              Карта
+            </Link>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="cursor-pointer rounded-[var(--radius-btn)] bg-primary px-4 py-2 text-sm font-semibold text-bk transition-colors hover:bg-primary-hover"
+          >
+            + Новий маршрут
+          </button>
+        </div>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "24px", paddingBottom: "40px" }}>
+      <div>
         {loading ? (
-          <div className="text-center py-12" style={{ color: "#9CA3AF" }}>Завантаження...</div>
+          <TableSkeleton rows={5} cols={4} />
         ) : routes.length === 0 && !showCreate ? (
-          <div className="text-center py-12"><p style={{ color: "#9CA3AF" }}>Маршрутів ще немає</p></div>
+          <Card>
+            <EmptyState
+              title="Маршрутів ще немає"
+              hint="Натисніть «Новий маршрут», щоб зібрати перший шляховий лист із підтверджених замовлень."
+            />
+          </Card>
         ) : null}
 
         {/* Create form */}
         {showCreate && (
-          <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
-            <h2 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "16px" }}>Новий маршрут</h2>
+          <Card className="mb-6">
+            <CardHeader title="Новий маршрут" />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Дата</label>
+                <label className="mb-1 block text-[13px] text-g500">Дата</label>
                 <input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)}
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                  className={FIELD} />
               </div>
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Водій</label>
+                <label className="mb-1 block text-[13px] text-g500">Водій</label>
                 <select value={formDriverId} onChange={(e) => setFormDriverId(e.target.value)}
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}>
+                  className={`${FIELD} cursor-pointer`}>
                   <option value="">Не призначений</option>
                   {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Транспорт</label>
+                <label className="mb-1 block text-[13px] text-g500">Транспорт</label>
                 <input value={formVehicle} onChange={(e) => setFormVehicle(e.target.value)} placeholder="Напр: Renault Kangoo"
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                  className={FIELD} />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Витрата (л/100км)</label>
+                <label className="mb-1 block text-[13px] text-g500">Витрата (л/100км)</label>
                 <input type="number" step="0.1" value={formFuelConsumption} onChange={(e) => setFormFuelConsumption(e.target.value)}
-                  placeholder="8.5"
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                  placeholder="8.5" className={FIELD} />
               </div>
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Ціна палива (грн/л)</label>
+                <label className="mb-1 block text-[13px] text-g500">Ціна палива (грн/л)</label>
                 <input type="number" step="0.01" value={formFuelPrice} onChange={(e) => setFormFuelPrice(e.target.value)}
-                  placeholder="54.90"
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                  placeholder="54.90" className={FIELD} />
               </div>
               <div>
-                <label style={{ fontSize: "13px", color: "#6B7280", display: "block", marginBottom: "4px" }}>Примітка</label>
-                <input value={formNotes} onChange={(e) => setFormNotes(e.target.value)}
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }} />
+                <label className="mb-1 block text-[13px] text-g500">Примітка</label>
+                <input value={formNotes} onChange={(e) => setFormNotes(e.target.value)} className={FIELD} />
               </div>
             </div>
 
             {/* Select orders */}
-            <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px", color: "#6B7280" }}>
+            <h3 className="mb-2 text-sm font-semibold text-g500">
               Підтверджені замовлення ({freeOrders.length})
             </h3>
             {freeOrders.length === 0 ? (
-              <p style={{ fontSize: "13px", color: "#9CA3AF", padding: "12px 0" }}>Немає замовлень для маршруту</p>
+              <p className="py-3 text-[13px] text-g400">Немає замовлень для маршруту</p>
             ) : (
-              <div className="space-y-2 mb-4 max-h-60 overflow-auto" style={{ border: "1px solid #E5E7EB", borderRadius: "8px", padding: "8px" }}>
+              <div className="mb-4 max-h-60 space-y-2 overflow-auto rounded-[var(--radius-btn)] border border-g200 p-2">
                 {freeOrders.map((o) => (
-                  <label key={o.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <label key={o.id} className="flex cursor-pointer items-center gap-3 rounded-[var(--radius-btn)] p-2 transition-colors hover:bg-g50">
                     <input type="checkbox" checked={selectedOrderIds.includes(o.id)}
                       onChange={() => toggleOrder(o.id)}
-                      style={{ width: "18px", height: "18px", accentColor: "#FFD600" }} />
+                      className="h-[18px] w-[18px] cursor-pointer accent-primary" />
                     <div className="flex-1">
-                      <span style={{ fontSize: "14px", fontWeight: 600 }}>{o.number}</span>
-                      <span style={{ fontSize: "13px", color: "#6B7280", marginLeft: "8px" }}>
+                      <span className="text-sm font-semibold text-bk">{o.number}</span>
+                      <span className="ml-2 text-[13px] text-g500">
                         {o.counterparty?.name || "—"}
                       </span>
                     </div>
-                    <span style={{ fontSize: "14px", fontWeight: 600 }}>{formatPrice(o.totalAmount)}</span>
+                    <span className="text-sm font-semibold tabular-nums text-bk">{formatPrice(o.totalAmount)}</span>
                   </label>
                 ))}
               </div>
             )}
 
-            <div className="flex gap-3">
-              <button onClick={handleCreate} disabled={actionLoading || selectedOrderIds.length === 0}
-                style={{
-                  background: "#FFD600", color: "#0A0A0A", padding: "12px 24px", borderRadius: "8px",
-                  fontWeight: 700, fontSize: "15px", border: "none", opacity: actionLoading ? 0.5 : 1,
-                }}>
+            {formError && (
+              <div className="mb-3">
+                <ErrorBox message={formError} />
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={handleCreate} disabled={actionLoading || selectedOrderIds.length === 0}
+                className="cursor-pointer rounded-[var(--radius-btn)] bg-primary px-6 py-3 text-[15px] font-bold text-bk transition-colors hover:bg-primary-hover disabled:opacity-50">
                 {actionLoading ? "Створюю..." : `Створити маршрут (${selectedOrderIds.length} зам.)`}
               </button>
-              <button onClick={() => setShowCreate(false)}
-                style={{ padding: "12px 24px", borderRadius: "8px", fontSize: "15px", border: "1px solid #E5E7EB", background: "white" }}>
+              <button type="button" onClick={() => { setShowCreate(false); setFormError(null); }}
+                className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white px-6 py-3 text-[15px] text-g600 transition-colors hover:bg-g50">
                 Скасувати
               </button>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Routes list */}
         {routes.length > 0 && (
           <div className="space-y-4">
             {routes.map((r) => (
-              <div key={r.id} className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #EFEFEF", boxShadow: "0 4px 12px rgba(0,0,0,0.04)" }}>
-                <div className="flex items-center justify-between" style={{ padding: "16px 20px", borderBottom: "1px solid #F3F4F6" }}>
+              <Card key={r.id} padded={false} className="overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-g100 px-5 py-4">
                   <div className="flex items-center gap-3">
-                    <span style={{ fontSize: "16px", fontWeight: 700 }}>{r.number}</span>
-                    <span style={{
-                      fontSize: "12px", fontWeight: 600, padding: "3px 10px", borderRadius: "6px",
-                      background: ROUTE_STATUS_BG[r.status], color: ROUTE_STATUS_COLOR[r.status],
-                    }}>
+                    <span className="text-[15px] font-bold text-bk">{r.number}</span>
+                    <Badge status={ROUTE_STATUS_BADGE[r.status] ?? "neutral"} dot={r.status === "IN_PROGRESS"}>
                       {ROUTE_STATUS_LABELS[r.status]}
-                    </span>
+                    </Badge>
                   </div>
                   <div className="text-right">
-                    <p style={{ fontSize: "14px", fontWeight: 600 }}>{formatDate(r.date)}</p>
-                    <p style={{ fontSize: "13px", color: "#6B7280" }}>
+                    <p className="text-sm font-semibold text-bk">{formatDate(r.date)}</p>
+                    <p className="text-[13px] text-g500">
                       Водій: {r.driver?.name || "—"} | {r._count?.stops || 0} зупинок
                     </p>
                   </div>
                 </div>
                 {r.vehicleInfo && (
-                  <div style={{ padding: "8px 20px", fontSize: "13px", color: "#6B7280", background: "#FAFAFA" }}>
+                  <div className="bg-g50 px-5 py-2 text-[13px] text-g500">
                     Авто: {r.vehicleInfo}
                     {r.fuelConsumption && ` | ${r.fuelConsumption} л/100км`}
                     {r.totalDistanceKm && ` | ${r.totalDistanceKm} км`}
@@ -297,7 +307,7 @@ export default function DeliveryRoutesPage() {
                   availableOrders={freeOrders}
                   onChanged={fetchData}
                 />
-              </div>
+              </Card>
             ))}
           </div>
         )}

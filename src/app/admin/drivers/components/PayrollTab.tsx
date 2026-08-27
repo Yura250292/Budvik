@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { StatCard, money, num } from "@/components/ui/Stat";
@@ -81,20 +81,54 @@ type PayrollResponse = {
 
 export function PayrollTab({
   period,
+  initialDriver = null,
   onOpenSettings,
 }: {
   period: Period;
+  /** Водій із посилання (AI-аналіз): розгорнути й показати його рядок. */
+  initialDriver?: string | null;
   onOpenSettings: () => void;
 }) {
   const { data, loading, error, reload } = useApi<PayrollResponse>(
     `/api/admin/drivers/payroll?from=${period.from}&to=${period.to}`
   );
 
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(initialDriver);
   const [bonusFor, setBonusFor] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState({ day: period.to, amount: "", reason: "" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  /**
+   * Підсвітка рядка, на який привело посилання.
+   *
+   * Гасне сама через дві секунди: довше вона вже не підказує, а заважає
+   * читати таблицю. Один раз на життя компонента — інакше кожне оновлення
+   * даних знову смикало б прокрутку.
+   */
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  const jumpedRef = useRef(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (jumpedRef.current || !initialDriver || !data) return;
+    if (!data.rows.some((r) => r.driverId === initialDriver)) return;
+    jumpedRef.current = true;
+    rowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlighted(initialDriver);
+    const timer = window.setTimeout(() => setHighlighted(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [initialDriver, data]);
+
+  // Модалку надбавки закриває Escape — як і решту модалок адмінки.
+  useEffect(() => {
+    if (!bonusFor) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBonusFor(null);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [bonusFor]);
 
   async function saveBonus() {
     if (!bonusFor) return;
@@ -148,7 +182,13 @@ export function PayrollTab({
         <StatCard label="Маршрутних листів" value={num(data.totals.sheetsCount)} accent={CATEGORICAL[1]} />
         <StatCard label="Пробіг" value={num(data.totals.totalKm)} unit="км" accent={CATEGORICAL[2]} />
         <StatCard label="Надбавки" value={money(data.totals.bonusesTotal)} unit="грн" hint="вручну" />
-        <StatCard label="До виплати" value={money(data.totals.total)} unit="грн" accent={CATEGORICAL[0]} />
+        <StatCard
+          label="До виплати"
+          value={money(data.totals.total)}
+          unit="грн"
+          hint="листи + надбавки"
+          accent={CATEGORICAL[0]}
+        />
       </div>
 
       {data.unmappedSheets > 0 && (
@@ -202,11 +242,16 @@ export function PayrollTab({
               </thead>
               <tbody className="divide-y divide-g100">
                 {data.rows.map((r) => (
-                  <>
+                  <Fragment key={r.driverId}>
                     <tr
-                      key={r.driverId}
-                      className="cursor-pointer hover:bg-g50"
-                      onClick={() => setExpanded(expanded === r.driverId ? null : r.driverId)}
+                      ref={r.driverId === initialDriver ? rowRef : undefined}
+                      className={`cursor-pointer transition-colors ${
+                        highlighted === r.driverId ? "bg-primary/10" : "hover:bg-g50"
+                      }`}
+                      onClick={() => {
+                        setHighlighted(null);
+                        setExpanded(expanded === r.driverId ? null : r.driverId);
+                      }}
                     >
                       <td className="px-4 py-3 font-medium text-bk">
                         <span className="mr-1.5 inline-block text-g400">
@@ -248,7 +293,7 @@ export function PayrollTab({
                     </tr>
 
                     {expanded === r.driverId && (
-                      <tr key={`${r.driverId}-detail`}>
+                      <tr>
                         <td colSpan={data.canEdit ? 9 : 8} className="bg-g50 px-4 py-3">
                           <div className="space-y-3">
                             {r.sheets.map((s) => (
@@ -345,7 +390,7 @@ export function PayrollTab({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -354,7 +399,16 @@ export function PayrollTab({
       )}
 
       {bonusFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Надбавка: ${bonusFor.name}`}
+          // Клік повз вікно закриває його — очікувана дія для модалки.
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setBonusFor(null);
+          }}
+        >
           <div className="w-full max-w-md rounded-[var(--radius-card)] bg-white p-5 shadow-xl">
             <h3 className="text-base font-semibold text-bk">Надбавка: {bonusFor.name}</h3>
             <p className="mt-1 text-xs text-g500">

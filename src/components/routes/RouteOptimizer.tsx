@@ -229,24 +229,14 @@ export default function RouteOptimizer({
   );
 
   return (
-    <div style={{ padding: "12px 20px", background: "#FAFAFA", borderTop: "1px solid #F3F4F6" }}>
+    <div className="border-t border-g100 bg-g50 px-5 py-3">
       {!plan ? (
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => build(direction)}
             disabled={loading}
-            className="cursor-pointer transition-colors duration-200"
-            style={{
-              minHeight: "40px",
-              padding: "9px 18px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: 600,
-              background: loading ? "#E5E7EB" : "#2563EB",
-              color: loading ? "#6B7280" : "#fff",
-              border: "none",
-            }}
+            className="min-h-10 cursor-pointer rounded-[var(--radius-btn)] bg-blue-600 px-[18px] py-2.5 text-[13px] font-semibold text-white transition-colors duration-200 hover:bg-blue-700 disabled:bg-g200 disabled:text-g500"
           >
             {loading ? "Рахую маршрут…" : "Прокласти маршрут"}
           </button>
@@ -378,11 +368,11 @@ export default function RouteOptimizer({
                     пін — і точка стане в маршрут.
                   </p>
                 )}
-                <div style={{ borderRadius: "10px", overflow: "hidden", border: "1px solid #E5E7EB" }}>
+                <div className="overflow-hidden rounded-[var(--radius-card)] border border-g200">
                   <DynamicDeliveryMap
                     stops={mapStops}
                     routeGeometry={(variant.geometry as GeoJSON.LineString | null) ?? null}
-                    height="420px"
+                    height="clamp(300px, 45vh, 420px)"
                     onRemoveStop={removeStop}
                   />
                 </div>

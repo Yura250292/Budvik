@@ -14,6 +14,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { STATUS, type StatusKey } from "@/lib/analytics/colors";
+import { Card } from "@/components/ui/Card";
 
 type Health = {
   day: string;
@@ -88,24 +90,30 @@ function dateTime(iso: string): string {
   }).format(new Date(iso));
 }
 
-/** Оцінка одним словом — щоб не читати всі цифри, коли все добре. */
-function verdict(s: Health["summary"]): { text: string; color: string; hint: string } {
+/**
+ * Оцінка одним словом — щоб не читати всі цифри, коли все добре.
+ *
+ * Колір беремо не власним hex, а зі спільної палітри статусів: та сама
+ * шкала фарбує бейджі й показники в решті адмінки, і «жовтий» тут має
+ * означати рівно те саме, що там.
+ */
+function verdict(s: Health["summary"]): { text: string; status: StatusKey; hint: string } {
   if (s.coverage == null) {
-    return { text: "Немає даних", color: "#6B7280", hint: "точок замало для висновку" };
+    return { text: "Немає даних", status: "neutral", hint: "точок замало для висновку" };
   }
   if (s.coverage >= 95) {
-    return { text: "Трек рівний", color: "#16A34A", hint: "пристрій писав без відчутних пауз" };
+    return { text: "Трек рівний", status: "good", hint: "пристрій писав без відчутних пауз" };
   }
   if (s.coverage >= 80) {
     return {
       text: "Є паузи",
-      color: "#D97706",
+      status: "warn",
       hint: "невеликі дірки — імовірно, зв'язок або тунелі",
     };
   }
   return {
     text: "Трек рваний",
-    color: "#DC2626",
+    status: "bad",
     hint: "перевірте економію батареї й дозвіл «Завжди»",
   };
 }
@@ -134,16 +142,9 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
   if (!open) {
     return (
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        style={{
-          fontSize: "13px",
-          color: "#2563EB",
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          textDecoration: "underline",
-        }}
+        className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2.5 py-1 text-xs font-medium text-g600 transition-colors hover:bg-g50 hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
       >
         Перевірити якість треку
       </button>
@@ -152,17 +153,17 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
 
   if (error) {
     return (
-      <div className="rounded-xl p-4" style={{ border: "1px solid #FECACA", background: "#FEF2F2" }}>
-        <p style={{ fontSize: "13px", color: "#991B1B" }}>{error}</p>
+      <div className="rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-4">
+        <p className="text-[13px] text-red-800">{error}</p>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
-        <p style={{ fontSize: "13px", color: "#6B7280" }}>Рахую…</p>
-      </div>
+      <Card>
+        <p className="text-[13px] text-g500">Рахую…</p>
+      </Card>
     );
   }
 
@@ -170,21 +171,13 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
   const v = verdict(s);
 
   return (
-    <div className="rounded-xl p-4" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2" style={{ marginBottom: "12px" }}>
-        <span style={{ fontSize: "14px", fontWeight: 700 }}>
-          Якість треку: {data.user.name}
-        </span>
+    <Card>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-bold text-bk">Якість треку: {data.user.name}</span>
         <button
+          type="button"
           onClick={() => setOpen(false)}
-          style={{
-            fontSize: "12px",
-            color: "#6B7280",
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-          }}
+          className="cursor-pointer text-xs text-g500 transition-colors hover:text-bk"
         >
           Згорнути
         </button>
@@ -192,19 +185,17 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
 
       {!data.hasTrack ? (
         <div>
-          <p style={{ fontSize: "14px", fontWeight: 600, color: "#DC2626", marginBottom: "8px" }}>
-            Цього дня точок немає
-          </p>
+          <p className="mb-2 text-sm font-semibold text-red-600">Цього дня точок немає</p>
           {data.devices.length === 0 ? (
-            <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+            <p className="text-[13px] leading-relaxed text-g500">
               У цієї людини немає жодного пристрою — застосунок ще не встановлений
               або вхід не виконано.
             </p>
           ) : (
-            <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.6 }}>
-              <p style={{ marginBottom: "6px" }}>Пристрої є, отже вхід виконувався:</p>
+            <div className="text-[13px] leading-relaxed text-g600">
+              <p className="mb-1.5">Пристрої є, отже вхід виконувався:</p>
               {data.devices.map((d, i) => (
-                <p key={i} style={{ color: d.revoked ? "#9CA3AF" : "#374151" }}>
+                <p key={i} className={d.revoked ? "text-g400" : "text-g600"}>
                   • {d.deviceName ?? "без назви"}
                   {d.revoked && " (відкликаний)"}
                   {d.lastUsedAt
@@ -212,7 +203,7 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
                     : " — жодного разу не слав точок"}
                 </p>
               ))}
-              <p style={{ marginTop: "8px", color: "#6B7280" }}>
+              <p className="mt-2 text-g500">
                 Якщо пристрій давно мовчить — найімовірніша причина в економії
                 батареї або дозволі «Дозволяти завжди».
               </p>
@@ -221,27 +212,24 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
         </div>
       ) : (
         <>
-          <div
-            className="rounded-lg p-3"
-            style={{ background: "#F9FAFB", marginBottom: "12px" }}
-          >
+          <div className="mb-3 rounded-[var(--radius-btn)] bg-g50 p-3">
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <span style={{ fontSize: "17px", fontWeight: 700, color: v.color }}>
+              <span
+                className="text-[17px] font-bold"
+                style={{ color: STATUS[v.status].fg }}
+              >
                 {v.text}
               </span>
               {s.coverage != null && (
-                <span style={{ fontSize: "15px", fontWeight: 600 }}>
+                <span className="text-[15px] font-semibold text-bk">
                   покриття {s.coverage}%
                 </span>
               )}
-              <span style={{ fontSize: "12px", color: "#6B7280" }}>{v.hint}</span>
+              <span className="text-xs text-g500">{v.hint}</span>
             </div>
           </div>
 
-          <div
-            className="grid gap-x-6 gap-y-2"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", fontSize: "13px" }}
-          >
+          <div className="grid gap-x-6 gap-y-2 text-[13px] [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
             <Row label="Точок за день" value={String(s.pointsCount)} />
             <Row
               label="Проміжок між точками"
@@ -290,15 +278,13 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
           </div>
 
           {data.gaps.length > 0 && (
-            <div style={{ marginTop: "12px" }}>
-              <p style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
-                Найдовші паузи
-              </p>
+            <div className="mt-3">
+              <p className="mb-1.5 text-[13px] font-semibold text-bk">Найдовші паузи</p>
               <div className="space-y-1">
                 {data.gaps.map((g, i) => (
-                  <p key={i} style={{ fontSize: "13px", color: "#374151" }}>
+                  <p key={i} className="text-[13px] text-g600">
                     {clock(g.from)} — {clock(g.to)}{" "}
-                    <span style={{ color: g.minutes >= 30 ? "#DC2626" : "#6B7280" }}>
+                    <span className={g.minutes >= 30 ? "text-red-600" : "text-g500"}>
                       ({g.minutes} хв)
                     </span>
                   </p>
@@ -311,35 +297,27 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
               пульсу означає, що служби не було, і саме воно пояснює
               дірки в треку. Без цього блоку «немає точок» лишалось
               питанням без відповіді. */}
-          <div
-            className="rounded-lg p-3"
-            style={{ marginTop: "12px", background: "#F9FAFB", border: "1px solid #E5E7EB" }}
-          >
-            <p style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
-              Що казав застосунок
-            </p>
+          <div className="mt-3 rounded-[var(--radius-btn)] border border-g200 bg-g50 p-3">
+            <p className="mb-1.5 text-[13px] font-semibold text-bk">Що казав застосунок</p>
             {data.heartbeat.count === 0 ? (
-              <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.6 }}>
+              <p className="text-[13px] leading-relaxed text-g500">
                 Пульсу цього дня не було. Або на планшеті стара збірка
                 застосунку (пульс з&apos;явився у версії 1.3), або він не
                 запускався взагалі.
               </p>
             ) : (
-              <div style={{ fontSize: "13px", color: "#374151", lineHeight: 1.7 }}>
+              <div className="text-[13px] leading-relaxed text-g600">
                 <p>
                   Озвався {data.heartbeat.count} раз
                   {data.heartbeat.firstAt && data.heartbeat.lastAt
                     ? ` (з ${clock(data.heartbeat.firstAt)} до ${clock(data.heartbeat.lastAt)})`
                     : ""}
                   {data.heartbeat.silentMinutes > 0 && (
-                    <b style={{ color: "#DC2626" }}>
-                      {" "}
-                      · мовчав {data.heartbeat.silentMinutes} хв
-                    </b>
+                    <b className="text-red-600"> · мовчав {data.heartbeat.silentMinutes} хв</b>
                   )}
                 </p>
                 {data.device && (
-                  <p style={{ color: "#6B7280" }}>
+                  <p className="text-g500">
                     {data.device.deviceName ?? "планшет"}
                     {data.device.appVersion && ` · v${data.device.appVersion}`}
                     {` · запис ${data.device.tracking ? "увімкнено" : "ВИМКНЕНО"}`}
@@ -357,10 +335,10 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
                   </p>
                 )}
                 {data.device?.lastError && (
-                  <p style={{ color: "#B91C1C" }}>Помилка: {data.device.lastError}</p>
+                  <p className="text-red-700">Помилка: {data.device.lastError}</p>
                 )}
                 {data.heartbeat.gaps.length > 0 && (
-                  <p style={{ color: "#6B7280" }}>
+                  <p className="text-g500">
                     Застосунок не працював:{" "}
                     {data.heartbeat.gaps
                       .map((g) => `${clock(g.from)}—${clock(g.to)} (${g.minutes} хв)`)
@@ -371,7 +349,7 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
             )}
           </div>
 
-          <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "12px", lineHeight: 1.5 }}>
+          <p className="mt-3 text-xs leading-relaxed text-g400">
             Рахуємо лише робочі години ({data.workHours}).
             {data.hiddenPoints > 0 &&
               ` Ще ${data.hiddenPoints} точок записано поза цим вікном — вони збережені, але в статистику й на карту не йдуть.`}{" "}
@@ -381,15 +359,15 @@ export function TrackHealthCard({ userId, day }: { userId: string; day: string }
           </p>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
 function Row({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-2">
-      <span style={{ color: "#6B7280" }}>{label}</span>
-      <span style={{ fontWeight: 600, color: warn ? "#DC2626" : "#111827", textAlign: "right" }}>
+      <span className="text-g500">{label}</span>
+      <span className={`text-right font-semibold ${warn ? "text-red-600" : "text-bk"}`}>
         {value}
       </span>
     </div>

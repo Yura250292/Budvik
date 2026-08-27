@@ -14,7 +14,7 @@
  * і не розходилася з рештою при наступній правці.
  */
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode, type RefObject } from "react";
 import type L from "leaflet";
 
 /** Опції L.map, спільні для всіх карт: зум кнопками, колесо — лише після кліку. */
@@ -93,6 +93,9 @@ export function closeWheelGateOn(map: L.Map, onWheelChange?: (active: boolean) =
   const container = map.getContainer();
 
   const close = () => {
+    // На весь екран сторінки позаду немає: ні її скрол, ні вихід курсора
+    // за край не мають відбирати колесо. Атрибут ставить сама рамка.
+    if (container.closest("[data-map-fullscreen]")) return;
     map.scrollWheelZoom.disable();
     onWheelChange?.(false);
   };
@@ -123,12 +126,24 @@ export function closeWheelGateOn(map: L.Map, onWheelChange?: (active: boolean) =
  * посередині він з'їдає прокрутку: браузер перестає рахувати вміст під
  * картою, і до всього, що нижче неї, вже не догортати. Стековий контекст
  * від isolate вирішує ту саму задачу і без цієї ціни.
+ *
+ * Режим «на весь екран» — це той самий вузол, якому міняють класи, а НЕ
+ * портал у body. Портал перемістив би DOM-вузол, React перемонтував би
+ * контейнер, і жива L.Map лишилася б без нього — карта відкривалася б
+ * заново, з нульовим зумом і втраченим вибором. Перекрити шелл вистачає
+ * звичайного fixed: ні шапка, ні смужка вкладок, ні нижня навігація не
+ * мають власного z-index (їхні z-50/z-70 — лише тимчасові меню), а
+ * прецедент уже в коді — модалка надбавки в PayrollTab. Якщо шапка колись
+ * стане липкою зі своїм z-index, це припущення зламається: тоді доведеться
+ * платити порталом і перестворенням карти.
  */
 export function MapFrame({
   height,
   wheelActive,
   hint = true,
   rounded = "12px",
+  expanded = false,
+  onToggleExpand,
   children,
 }: {
   height: string;
@@ -137,15 +152,43 @@ export function MapFrame({
   /** Показувати підказку про клік. Вимикається там, де карта не для миші */
   hint?: boolean;
   rounded?: string;
+  /** Розгорнута на весь екран — стан із useMapExpand */
+  expanded?: boolean;
+  /** Не передано — кнопки немає, рамка поводиться як раніше */
+  onToggleExpand?: () => void;
   children: ReactNode;
 }) {
   return (
     <div
-      className="relative isolate overflow-hidden"
-      style={{ height, width: "100%", borderRadius: rounded }}
+      className={
+        expanded
+          ? "fixed inset-0 z-[1200] isolate overflow-hidden bg-white"
+          : "relative isolate overflow-hidden"
+      }
+      style={expanded ? undefined : { height, width: "100%", borderRadius: rounded }}
+      data-map-fullscreen={expanded ? "" : undefined}
     >
       {children}
-      {hint && !wheelActive && (
+      {onToggleExpand && (
+        // z-1001: панелі Leaflet усередині доходять до 1000, кнопка має
+        // лишатися над ними — і над зумом у лівому верхньому куті.
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-label={expanded ? "Згорнути карту (Esc)" : "Розгорнути карту на весь екран"}
+          title={expanded ? "Згорнути (Esc)" : "На весь екран"}
+          className="absolute right-2.5 top-[max(0.625rem,env(safe-area-inset-top,0px))] z-[1001] cursor-pointer rounded-[var(--radius-btn)] border border-g200 bg-white/95 p-2 text-g600 shadow-[var(--shadow-card)] transition-colors hover:bg-g50 hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            {expanded ? (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+            )}
+          </svg>
+        </button>
+      )}
+      {hint && !wheelActive && !expanded && (
         <div className="pointer-events-none absolute bottom-2 left-1/2 z-[400] -translate-x-1/2 rounded-full bg-white/90 px-2.5 py-1 text-[11px] text-gr shadow">
           Клікніть на карту, щоб масштабувати колесом
         </div>
@@ -165,4 +208,61 @@ export function useWheelGate() {
   const [wheelActive, setWheelActive] = useState(false);
   const onWheelChange = useCallback((active: boolean) => setWheelActive(active), []);
   return { wheelActive, onWheelChange };
+}
+
+/**
+ * Стан «карта на весь екран» разом із усім, що до нього додається.
+ *
+ * Головне тут — invalidateSize. Leaflet рахує розмір полотна один раз і
+ * запам'ятовує; коли контейнер розтягується без зміни розміру вікна,
+ * карта цього не помічає і домальовує тайли за старою сіткою — половина
+ * екрана лишається сірою. rAF чекає на перерахунок розмітки, а повтор
+ * через 150 мс ловить пізній випадок (шрифти, поява/зникнення смуги
+ * прокрутки).
+ *
+ * Заразом на весь екран знімаємо ворота колеса: гортати позаду нічого, і
+ * вимагати клік заради зуму тут немає сенсу. При згортанні правило
+ * повертається.
+ */
+export function useMapExpand(mapRef: RefObject<L.Map | null>) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((v) => !v), []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const raf = requestAnimationFrame(() => map.invalidateSize());
+    const timer = window.setTimeout(() => map.invalidateSize(), 150);
+
+    if (expanded) map.scrollWheelZoom.enable();
+    else map.scrollWheelZoom.disable();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [expanded, mapRef]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    document.addEventListener("keydown", onEsc);
+
+    // Сторінка під картою не має гортатися: інакше після згортання
+    // повертаєшся зовсім не туди, звідки відкривав.
+    const scroller = document.querySelector<HTMLElement>("[data-admin-scroll]");
+    const prevOverflow = scroller?.style.overflow ?? null;
+    if (scroller) scroller.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onEsc);
+      if (scroller) scroller.style.overflow = prevOverflow ?? "";
+    };
+  }, [expanded]);
+
+  return { expanded, toggle };
 }

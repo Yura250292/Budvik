@@ -11,8 +11,8 @@
  */
 
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ActivityIndicator, RefreshControl } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
+import { View, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from "react-native";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { staffApi, type ShiftHistory, type ShiftRow } from "@/api/staff";
 import { c, sp } from "@/ui/tokens";
 import {
@@ -27,8 +27,10 @@ import {
   StatTile,
   TileRow,
 } from "@/ui/kit";
+import { Icon } from "@/ui/Icon";
 
 export default function ShiftHistoryScreen() {
+  const router = useRouter();
   const [data, setData] = useState<ShiftHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,7 +120,9 @@ export default function ShiftHistoryScreen() {
           </Card>
         )}
 
-        {data?.shifts.map((sh) => <ShiftCard key={sh.id} shift={sh} />)}
+        {data?.shifts.map((sh) => (
+          <ShiftCard key={sh.id} shift={sh} onOpen={() => router.push(`/shift/${sh.id}`)} />
+        ))}
 
         {data?.shifts.length === 0 && (
           <Card>
@@ -131,16 +135,23 @@ export default function ShiftHistoryScreen() {
   );
 }
 
-function ShiftCard({ shift }: { shift: ShiftRow }) {
+function ShiftCard({ shift, onOpen }: { shift: ShiftRow; onOpen: () => void }) {
   const open = shift.status === "OPEN";
   return (
     <Card gap={sp.xs}>
-      <View style={s.head}>
-        <CardTitle>{formatDay(shift.startedAt)}</CardTitle>
-        {open && <Pill tone="good" dot={false} label="відкрита" />}
-        {shift.closedAutomatically && <Pill tone="bad" dot={false} label="закрилася сама" />}
-        {shift.odometerSuspicious && <Pill tone="warn" dot={false} label="одометр під питанням" />}
-      </View>
+      {/* Уся картка — вхід у деталі: там фото приладу й схема треку, тобто
+          відповідь на «звідки взявся цей пробіг». */}
+      <Pressable style={({ pressed }) => [s.head, pressed && { opacity: 0.6 }]} onPress={onOpen}>
+        <View style={s.headLeft}>
+          <CardTitle>{formatDay(shift.startedAt)}</CardTitle>
+          {open && <Pill tone="good" dot={false} label="відкрита" />}
+          {shift.closedAutomatically && <Pill tone="bad" dot={false} label="закрилася сама" />}
+          {shift.odometerSuspicious && (
+            <Pill tone="warn" dot={false} label="одометр під питанням" />
+          )}
+        </View>
+        <Icon name="chevron-right" size={18} color={c.text3} />
+      </Pressable>
 
       <Row
         label="Час"
@@ -198,5 +209,6 @@ function formatDec(n: number): string {
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
-  head: { flexDirection: "row", alignItems: "center", gap: sp.sm, flexWrap: "wrap" },
+  head: { flexDirection: "row", alignItems: "center", gap: sp.sm },
+  headLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: sp.sm, flexWrap: "wrap" },
 });

@@ -148,7 +148,7 @@ export default function DayScreen() {
         ? {
             stopKey: stop.key,
             kind: "errand",
-            errandStopId: stop.key.slice(3),
+            errandStopId: stop.deliveryStopId ?? stop.key.slice(3),
             errandStatus: status === "DONE" ? "DELIVERED" : "FAILED",
             comment: extra?.comment,
             createdAt: Date.now(),
@@ -163,8 +163,8 @@ export default function DayScreen() {
               debtAmount: stop.debtAmount,
               collectedAmount: extra?.collectedAmount ?? null,
               comment: extra?.comment ?? null,
-              routeSheetStopId: stop.key.startsWith("rs:") ? stop.key.slice(3) : null,
-              deliveryStopId: stop.key.startsWith("ds:") ? stop.key.slice(3) : null,
+              routeSheetStopId: stop.routeSheetStopId,
+              deliveryStopId: stop.deliveryStopId,
               // Де стояв планшет у мить відмітки — доказ присутності.
               lat: pos?.lat ?? null,
               lng: pos?.lng ?? null,
@@ -491,6 +491,15 @@ function StopRow({
               </Text>
             )}
             {!queued && missed && <Text style={s.metaBad}>не застав</Text>}
+            {/*
+              Пін, знайдений геокодером лише до міста, гірший за відсутність
+              піна: виглядає точним, а веде «десь у той бік». Водій має знати
+              це до того, як довіриться навігатору. Те саме підписано й на
+              сайті — /driver/tablet.
+            */}
+            {stop.geoSource !== "MANUAL" && stop.lat != null && (
+              <Text style={s.metaWarn}>точка приблизна</Text>
+            )}
           </View>
         </View>
 

@@ -232,6 +232,7 @@ export default function RootLayout() {
             <Stack.Screen name="shift/index" options={{ title: "Зміна", headerShown: false }} />
             <Stack.Screen name="shift/odometer" options={{ title: "Одометр", headerShown: false }} />
             <Stack.Screen name="shift/history" options={{ title: "Історія змін", headerShown: false }} />
+            <Stack.Screen name="shift/[id]" options={{ title: "Деталі зміни", headerShown: false }} />
             <Stack.Screen
               name="shift/late-close"
               options={{ title: "Забув закрити зміну", headerShown: false }}

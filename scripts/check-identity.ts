@@ -136,6 +136,34 @@ async function main() {
   const foreignCookieIds = Array.isArray(foreignCookie.body) ? (foreignCookie.body as { id: string }[]).map((d) => d.id) : [];
   check("…і через кукі теж", !foreignCookieIds.includes(doc.id), { count: foreignCookieIds.length });
 
+  // --- 4б. Деталі зміни: тільки своя ---
+  /**
+   * Роут `/api/shift/[id]` віддає фото одометра, пробіг і трек. Він рахує
+   * зарплату, тож питання «чия це зміна» тут не про зручність: id — cuid,
+   * але вгадувати його не треба, досить побачити чужий у будь-якому списку.
+   * Чужа зміна мусить давати 404, а не 403: існування чужої зміни теж не
+   * стосується того, хто питає.
+   */
+  const ownShift = await p.shift.create({
+    data: { userId: sales.id, startOdometer: 100000, startOdometerSource: "MANUAL", notes: MARK },
+  });
+  const foreignShift = await p.shift.create({
+    data: { userId: otherRep.id, startOdometer: 200000, startOdometerSource: "MANUAL", notes: MARK },
+  });
+
+  const mine = await req(`/api/shift/${ownShift.id}`, bearer(salesToken));
+  check("Своя зміна через токен → 200", mine.status === 200, mine.status);
+  const mineBody = (mine.body ?? {}) as { shift?: { id?: string }; track?: { pointsCount?: number } };
+  check("…і це справді вона", mineBody.shift?.id === ownShift.id, mineBody.shift?.id);
+  check("…з лічильником точок", typeof mineBody.track?.pointsCount === "number", mineBody.track);
+
+  const alien = await req(`/api/shift/${foreignShift.id}`, bearer(salesToken));
+  check("Чужа зміна → 404", alien.status === 404, alien.status);
+  const alienCookie = await req(`/api/shift/${foreignShift.id}`, salesCookie);
+  check("…і через кукі теж 404", alienCookie.status === 404, alienCookie.status);
+  const shiftNoAuth = await req(`/api/shift/${ownShift.id}`, {});
+  check("Деталі зміни без авторизації → 401", shiftNoAuth.status === 401, shiftNoAuth.status);
+
   // --- 5. Створення документа: чужий торговий і нестача складу ---
   const category = await p.category.create({ data: { name: `${MARK} Категорія`, slug: `${MARK}-cat` } });
   const product = await p.product.create({

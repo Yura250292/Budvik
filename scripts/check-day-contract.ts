@@ -37,9 +37,25 @@ const PROGRESS_FIELDS = ["total", "done", "missed", "left", "collected", "debtPl
 const TRACK_FIELDS = ["distanceKm", "pointsCount", "lastPointAt"];
 const CASH_FIELDS = ["collected", "handed", "onHands", "handovers"];
 const STOP_FIELDS = [
-  "key", "counterpartyId", "name", "address", "lat", "lng",
+  "key", "counterpartyId", "name", "address", "lat", "lng", "geoSource",
   "sequence", "amount", "debtAmount", "kind", "notes", "visit",
+  "routeSheetStopId", "deliveryStopId",
 ];
+
+/**
+ * Поля, які сервер шле, а застосунок свідомо не читає.
+ *
+ * Список потрібен, щоб «не читаємо» було рішенням, а не недоглядом: усе, чого
+ * немає ні тут, ні в STOP_FIELDS, звірка завалює. Саме так знайшовся geoSource
+ * — він їхав із сервера з першого дня, а водій не бачив підпису «точка
+ * приблизна» й довіряв піну, який означав лише «десь у цьому місті».
+ */
+const SERVER_ONLY_STOP_FIELDS: Record<string, string> = {
+  mergedKeys:
+    "кілька рядків листа з тією самою адресою злиті в одну точку; відмітка йде за клієнтом, і сервер робить upsert по (користувач, день, клієнт) — окремі ключі клієнту не потрібні",
+  ownVisit:
+    "внутрішнє поле збирача: у visit уже підставлений результат (ownVisit ?? візит клієнта)",
+};
 
 async function cleanup() {
   const users = await p.user.findMany({ where: { email: { startsWith: MARK } }, select: { id: true } });
@@ -138,6 +154,32 @@ async function main() {
       ["DELIVERY", "PICKUP", "ERRAND"].includes(String(stop.kind)),
       stop.kind
     );
+
+    /**
+     * Зворотний бік звірки, без якого вона пропустила справжню розбіжність.
+     *
+     * Досі перевірялося лише «чи є на сервері те, що читає екран». Поле, яке
+     * сервер ШЛЕ, а застосунок про нього не знає, проходило мовчки — саме так
+     * `geoSource` віддавався з першого дня, а водій не бачив підпису «точка
+     * приблизна» і їхав за піном, який означав лише «десь у цьому місті».
+     *
+     * Нове поле в точці дня — це не помилка, але воно мусить бути ЗГАДАНЕ тут
+     * свідомо: або застосунок його показує, або хтось написав, чому ні.
+     */
+    const KNOWN = new Set(STOP_FIELDS);
+    for (const f of Object.keys(stop)) {
+      const skipReason = SERVER_ONLY_STOP_FIELDS[f];
+      if (skipReason) {
+        console.log(`· stop.${f} — свідомо не читаємо: ${skipReason}`);
+        continue;
+      }
+      check(`stop.${f} відоме застосунку`, KNOWN.has(f), {
+        поле: f,
+        значення: stop[f],
+        що_робити:
+          "додати в DayStop у mobile/src/api/staff.ts і сюди — або в SERVER_ONLY_STOP_FIELDS із поясненням",
+      });
+    }
   }
 
   await cleanup();

@@ -130,12 +130,27 @@ export type DayStop = {
   address: string | null;
   lat: number | null;
   lng: number | null;
+  /**
+   * Звідки взялася координата: MANUAL — поставлена рукою, GEOCODED/CITY —
+   * знайдена за адресою. CITY гірший за відсутність піна: виглядає точним, а
+   * каже лише «десь у цьому місті», тому на екрані такі точки підписані
+   * «приблизна» — водій має знати, що останні метри доведеться шукати.
+   */
+  geoSource: string | null;
   sequence: number;
   amount: number;
   debtAmount: number;
   /** PICKUP/ERRAND — бонусна поїздка: без товару й без інкасації. */
   kind: "DELIVERY" | "PICKUP" | "ERRAND";
   notes: string | null;
+  /**
+   * Id рядка, з якого точка зібрана. Беремо саме їх, а не ріжемо префікс із
+   * `key`: у гроші й у зарплату йде те, що сервер назвав сам, а не те, що
+   * клієнт вивів із рядка. Одне з двох завжди null — точка приходить або з
+   * маршрутного листа 1С, або з маршруту сайту.
+   */
+  routeSheetStopId: string | null;
+  deliveryStopId: string | null;
   visit: { status: string; money: string; collectedAmount: number | null } | null;
 };
 
@@ -238,6 +253,8 @@ export type ShiftState = {
     startedAt: string;
     startOdometer: number | null;
     gpsDistanceKm: number | null;
+    /** Скільки точок записано за зміну — за цим числом видно, що трек живий. */
+    pointsCount: number | null;
     hoursOpen: number | null;
     shouldRemindToClose: boolean;
   } | null;
@@ -267,8 +284,57 @@ export type ShiftState = {
   } | null;
 };
 
+/* ---------- Деталі однієї зміни ---------- */
+
+/**
+ * Одна закрита зміна повністю. Форма — з src/app/api/shift/[id]/route.ts.
+ *
+ * Питання, на яке відповідає екран, одне: звідки взялося число, за яке
+ * платять. Тому тут і обидва фото одометра, і пробіг двома способами, і те,
+ * хто зміну закрив.
+ */
+export type ShiftDetail = {
+  shift: {
+    id: string;
+    status: string;
+    startedAt: string;
+    endedAt: string | null;
+    startOdometer: number;
+    endOdometer: number | null;
+    startPhotoUrl: string | null;
+    endPhotoUrl: string | null;
+    distanceKm: number | null;
+    durationMinutes: number | null;
+    gpsDistanceKm: number | null;
+    odometerToGpsRatio: number | null;
+    personalKm: number | null;
+    afterWorkKm: number | null;
+    odometerSuspicious: boolean;
+    closedAutomatically: boolean;
+    closedLate: boolean;
+    lateCloseSource: string | null;
+    confirmedAt: string | null;
+    /** REP — підтвердив торговий, OFFICE — офіс. */
+    confirmSource: string | null;
+    /**
+     * Коли фінішного фото немає, кінцеве показання порахувалося з ранкового
+     * фото наступної зміни — ось її початок.
+     */
+    endOdometerFromNextShiftAt: string | null;
+    notes: string | null;
+  };
+  track: {
+    pointsCount: number;
+    afterPointsCount: number;
+    /** Лінія маршруту, проріджена до ~160 вершин: це схема, не карта. */
+    path: Array<[number, number]>;
+  };
+};
+
 export const staffApi = {
   shiftCurrent: () => staffRequest<ShiftState>("/api/shift/current"),
+
+  shiftDetail: (id: string) => staffRequest<ShiftDetail>(`/api/shift/${id}`),
 
   shiftOpen: (body: Record<string, unknown>) =>
     staffRequest<unknown>("/api/shift/open", { method: "POST", body }),

@@ -60,6 +60,17 @@ export async function GET(req: NextRequest) {
   });
 
   const gpsKm = open ? await gpsDistanceForShift(open.id) : null;
+  /**
+   * Скільки точок уже записано за зміну.
+   *
+   * Не технічна дрібниця: це єдине число, за яким людина в машині бачить,
+   * що трек ЖИВИЙ. Кілометри за GPS ростуть і тоді, коли запис уривався
+   * годину тому, а «0 точок» о другій годині дня — привід перевірити
+   * дозволи, поки день ще можна врятувати.
+   */
+  const pointsCount = open
+    ? await prisma.trackPoint.count({ where: { shiftId: open.id, phase: "SHIFT" } })
+    : null;
   const hoursOpen = open
     ? Math.round(((Date.now() - open.startedAt.getTime()) / 3_600_000) * 10) / 10
     : null;
@@ -72,6 +83,7 @@ export async function GET(req: NextRequest) {
       ? {
           ...summarize(open),
           gpsDistanceKm: gpsKm,
+          pointsCount,
           hoursOpen,
           // Підказка застосунку: час нагадати про закриття, поки зміну
           // не визнали забутою.

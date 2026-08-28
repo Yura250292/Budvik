@@ -209,10 +209,10 @@ export default function ShiftScreen() {
           {shift && (
             <>
               {/*
-                Дві плитки, а не три як у макеті: третьої («Точок») чесно
-                немає чим наповнити. Буфер знає лише НЕнадіслані точки, і
-                підписати їх словом «Точок» означало б показати 0 на добре
-                працюючому планшеті — тобто збрехати навпаки.
+                «Точок» рахує сервер, а не буфер на пристрої: буфер знає лише
+                НЕнадіслані точки, і на добре працюючому планшеті показував би
+                нуль. А питання тут рівно протилежне — чи трек взагалі живий.
+                Нуль о другій годині дня означає, що день ще можна врятувати.
               */}
               <TileRow>
                 <StatTile
@@ -224,6 +224,11 @@ export default function ShiftScreen() {
                   label="Триває"
                   value={shift.hoursOpen != null ? formatNumber(shift.hoursOpen) : "—"}
                   unit="год"
+                />
+                <StatTile
+                  label="Точок"
+                  value={shift.pointsCount != null ? formatKm(shift.pointsCount) : "—"}
+                  tone={shift.pointsCount === 0 ? "bad" : undefined}
                 />
               </TileRow>
               <Row

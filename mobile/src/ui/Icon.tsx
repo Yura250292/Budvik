@@ -45,6 +45,9 @@ const FEATHER = {
   bell: "bell",
   clock: "clock",
   "map-pin": "map-pin",
+  "layout-dashboard": "grid",
+  "file-text": "file-text",
+  "book-open": "book-open",
 } satisfies Record<string, FeatherName>;
 
 const MDI = {
@@ -58,6 +61,7 @@ const MDI = {
   "map-pin-check": "map-marker-check",
   "route-off": "map-marker-off",
   gauge: "gauge",
+  store: "storefront",
 } satisfies Record<string, MdiName>;
 
 /**

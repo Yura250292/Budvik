@@ -31,6 +31,7 @@ import { getLastFix, getLastHeartbeatAt, getMode, setShiftOpen, type TrackMode }
 import { registerWatchdog } from "@/track/watchdog";
 import { within, PROBE_MS } from "@/lib/within";
 import { c, sp } from "@/ui/tokens";
+import { SalesTabBar } from "@/ui/SalesTabBar";
 import {
   Body,
   BigInput,
@@ -185,7 +186,12 @@ export default function ShiftScreen() {
   const pulseFresh = pulseAt > 0 && now - pulseAt < PULSE_STALE_MS;
 
   return (
-    <>
+    /*
+      Нижнє меню тут таке саме, як у кабінеті. Без нього тап по «Зміні»
+      відкривав нативний екран — і навігація зникала зовсім: назад вела лише
+      стрілка в шапці. Виглядало це так, ніби застосунок кудись провалився.
+    */
+    <View style={s.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <Header title="Зміна" eyebrow={formatToday()} />
 
@@ -423,7 +429,9 @@ export default function ShiftScreen() {
           )}
         </LinkList>
       </Screen>
-    </>
+
+      <SalesTabBar />
+    </View>
   );
 }
 
@@ -653,6 +661,7 @@ function formatKm(n: number): string {
 }
 
 const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
   since: { fontSize: 13, color: c.text3 },
   sourceBadge: {

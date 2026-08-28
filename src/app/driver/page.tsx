@@ -14,12 +14,19 @@ const STOP_STATUS_COLOR: Record<string, string> = {
   PENDING: "#6B7280", LOADED: "#2563EB", DELIVERED: "#16A34A", FAILED: "#DC2626",
 };
 
+/** Текст помилки з відповіді сервера — або код, якщо тіла немає. */
+async function errorText(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  return body?.error ?? `Сервер відповів ${res.status}`;
+}
+
 export default function DriverPage() {
   const { data: session } = useSession();
   const [routes, setRoutes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const role = (session?.user as any)?.role;
 
@@ -40,14 +47,29 @@ export default function DriverPage() {
 
   const handleDeliverStop = async (stopId: string, salesDocId: string) => {
     setActionLoading(stopId);
+    setActionError(null);
     try {
-      // Mark stop as delivered
-      await fetch(`/api/erp/delivery-routes/stop/${stopId}/deliver`, { method: "POST" });
-      // Mark order as delivered
-      await fetch(`/api/erp/sales/${salesDocId}/deliver`, { method: "POST" });
-      fetchRoutes();
-    } catch { alert("Помилка"); }
-    setActionLoading(null);
+      /**
+       * Перевіряємо res.ok обидва рази.
+       *
+       * fetch кидає виняток лише на обриві мережі: відмова сервера (403, 500)
+       * приходить звичайною відповіддю. Без цієї перевірки невдале відвантаження
+       * мовчки рахувалося б успішним — сторінка перемальовувалась би, точка
+       * лишалася невідміченою, і водій дізнався б про це аж від офісу.
+       */
+      const stopRes = await fetch(`/api/erp/delivery-routes/stop/${stopId}/deliver`, { method: "POST" });
+      if (!stopRes.ok) throw new Error(await errorText(stopRes));
+
+      const docRes = await fetch(`/api/erp/sales/${salesDocId}/deliver`, { method: "POST" });
+      if (!docRes.ok) throw new Error(await errorText(docRes));
+
+      await fetchRoutes();
+    } catch (e) {
+      // Замість alert(«Помилка») — текст на місці, який каже, що саме сталося.
+      setActionError(e instanceof Error ? e.message : "Не вдалося відмітити доставку");
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Перевірку ролі робить DriverGate у layout секції — з урахуванням
@@ -90,6 +112,23 @@ export default function DriverPage() {
       <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "24px" }}>
         {/* Перше, що бачить водій, поки він ще на старому трекері. */}
         <UpgradeBanner />
+
+        {actionError && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: "1px solid #DC2626",
+              borderRadius: "12px",
+              padding: "12px 14px",
+              marginBottom: "12px",
+            }}
+          >
+            <p style={{ fontSize: "14px", fontWeight: 600, color: "#DC2626" }}>{actionError}</p>
+            <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+              Доставку не відмічено. Спробуйте ще раз або скажіть в офіс.
+            </p>
+          </div>
+        )}
 
         {/* Головна дія дня — велика й перша. Список маршрутів нижче
             довідковий, а «Мій день» це те, з чим водій працює весь день:

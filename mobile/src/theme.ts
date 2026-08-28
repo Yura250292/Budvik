@@ -34,12 +34,32 @@ export const radius = { sm: 8, md: 12, lg: 16 } as const;
  * Та сама логіка, що у formatUAH на сайті (src/lib/seo/site.ts): підсумок у
  * кошику застосунку не має відрізнятися від того, що людина бачила в браузері.
  */
+/**
+ * Гроші — тим самим правилом, що й на сайті (src/lib/utils.ts formatPrice).
+ *
+ * Раніше тут було своє: `toLocaleString` із двома знаками завжди. Різниця
+ * вилазила рівно на половинних сумах — 1234,5 сайт показував як «1 234,5 ₴», а
+ * застосунок як «1 234,50 ₴». Той самий борг того самого клієнта виглядав
+ * по-різному на двох екранах, які людина відкриває один за одним, і це
+ * читається як розбіжність у даних, а не у форматі.
+ *
+ * Правило: копійки показуємо лише коли вони є, кінцевий нуль прибираємо,
+ * тисячі відділяємо нерозривним пробілом, символ гривні теж через нерозривний
+ * — інакше він переноситься на новий рядок окремо від числа.
+ */
 export function formatUAH(value: number): string {
-  const n = Number.isInteger(value)
-    ? value.toLocaleString("uk-UA")
-    : value.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${n} ₴`;
+  const NBSP = "\u00A0";
+  const v = Number.isFinite(value) ? value : 0;
+  const cents = Math.round(Math.abs(v) * 100);
+
+  const whole = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  const frac = cents % 100;
+  // 0 → без дробової частини, 50 → «,5», 7 → «,07»
+  const tail = frac === 0 ? "" : `,${String(frac).padStart(2, "0").replace(/0$/, "")}`;
+
+  return `${v < 0 && cents > 0 ? "-" : ""}${whole}${tail}${NBSP}\u20B4`;
 }
+
 
 /**
  * «1 532 позиції», а не «1532 позицій».

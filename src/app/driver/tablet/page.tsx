@@ -12,6 +12,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatPrice } from "@/lib/utils";
+import {
+  flushPendingVisits,
+  listPendingVisits,
+  queueVisit,
+} from "@/lib/track/pending-visits";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
@@ -58,8 +64,6 @@ type DayResp = {
   };
 };
 
-const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
-
 /** «1 точка / 3 точки / 10 точок» — на кнопці неправильна форма ріже око. */
 function pointsLabel(n: number): string {
   const last = n % 10;
@@ -83,6 +87,7 @@ export default function DriverDayPage() {
   const [error, setError] = useState<string | null>(null);
   const [openStop, setOpenStop] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [queued, setQueued] = useState<string[]>([]);
 
   const isApp = useIsNativeApp();
   /**
@@ -105,9 +110,31 @@ export default function DriverDayPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
+  /**
+   * Чергу віддаємо ПЕРЕД завантаженням дня.
+   *
+   * Інакше сервер поверне день без щойно зроблених відміток, і вони «зникнуть»
+   * з екрана — людина вирішить, що натиснула не туди, і тисне ще раз.
+   */
+  const loadWithQueue = useCallback(async () => {
+    await flushPendingVisits().catch(() => {});
+    setQueued(listPendingVisits().map((v) => v.stopKey));
+    await load();
   }, [load]);
+
+  useEffect(() => {
+    void loadWithQueue();
+  }, [loadWithQueue]);
+
+  /**
+   * Повернення мережі — найкращий момент дожати чергу: браузер каже про це
+   * сам, і чекати наступного оновлення сторінки не треба.
+   */
+  useEffect(() => {
+    const onOnline = () => void loadWithQueue();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [loadWithQueue]);
 
   const mark = useCallback(
     async (
@@ -120,44 +147,64 @@ export default function DriverDayPage() {
       // (@@unique [userId, day, counterpartyId]) — для неї станом служить
       // сам DeliveryStop.
       const isErrandStop = stop.kind !== "DELIVERY";
-      if (!isErrandStop && !stop.counterpartyId) return;
+      /**
+       * Точка доставки без клієнта — це не помилка водія, а недороблений
+       * маршрут: візит без контрагента неможливий (@@unique за ним).
+       * Раніше кнопка тут просто нічого не робила, і людина тиснула її знову й
+       * знову, вважаючи, що зламався планшет.
+       */
+      if (!isErrandStop && !stop.counterpartyId) {
+        setError(
+          `«${stop.name}» не прив'язана до клієнта — відмітити не вийде. Скажіть логісту, він допише її в маршрут.`
+        );
+        return;
+      }
+
+      const url = isErrandStop
+        ? `/api/erp/delivery-routes/stop/${stop.key.slice(3)}/mark`
+        : "/api/visits";
+      const body = isErrandStop
+        ? { status: status === "DONE" ? "DELIVERED" : "FAILED", comment: extra?.comment }
+        : {
+            counterpartyId: stop.counterpartyId,
+            status,
+            money: money_,
+            debtAmount: stop.debtAmount,
+            collectedAmount: extra?.collectedAmount,
+            comment: extra?.comment,
+            routeSheetStopId: stop.key.startsWith("rs:") ? stop.key.slice(3) : null,
+            deliveryStopId: stop.key.startsWith("ds:") ? stop.key.slice(3) : null,
+            // Де стоїть планшет у мить відмітки — доказ присутності
+            lat: track.position?.lat ?? null,
+            lng: track.position?.lng ?? null,
+          };
+
+      /**
+       * Спершу в чергу, потім спроба надіслати.
+       *
+       * Такий порядок означає, що відмітка не губиться навіть тоді, коли
+       * сторінку закриють одразу після натискання або зв'язок обірветься
+       * посеред запиту. Те саме правило, що в застосунку.
+       */
+      queueVisit({
+        stopKey: stop.key,
+        kind: isErrandStop ? "errand" : "visit",
+        url,
+        body,
+        label: stop.name,
+        createdAt: Date.now(),
+      });
+      setQueued(listPendingVisits().map((v) => v.stopKey));
+      setOpenStop(null);
+      setError(null);
 
       setSaving(stop.key);
       try {
-        const res = isErrandStop
-          ? await fetch(`/api/erp/delivery-routes/stop/${stop.key.slice(3)}/mark`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                status: status === "DONE" ? "DELIVERED" : "FAILED",
-                comment: extra?.comment,
-              }),
-            })
-          : await fetch("/api/visits", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                counterpartyId: stop.counterpartyId,
-                status,
-                money: money_,
-                debtAmount: stop.debtAmount,
-                collectedAmount: extra?.collectedAmount,
-                comment: extra?.comment,
-                routeSheetStopId: stop.key.startsWith("rs:") ? stop.key.slice(3) : null,
-                deliveryStopId: stop.key.startsWith("ds:") ? stop.key.slice(3) : null,
-                // Де стоїть планшет у мить відмітки — доказ присутності
-                lat: track.position?.lat ?? null,
-                lng: track.position?.lng ?? null,
-              }),
-            });
-        if (!res.ok) {
-          const j = await res.json().catch(() => null);
-          throw new Error(j?.error ?? "Не вдалося зберегти");
-        }
+        await flushPendingVisits();
+        setQueued(listPendingVisits().map((v) => v.stopKey));
         await load();
-        setOpenStop(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Не вдалося зберегти відмітку");
+      } catch {
+        // Не помилка: відмітка вже в черзі й піде, щойно з'явиться мережа.
       } finally {
         setSaving(null);
       }
@@ -177,13 +224,13 @@ export default function DriverDayPage() {
    */
   const mapLinks = useMemo(() => {
     const pending = stops
-      .filter((s) => !s.visit && s.lat != null && s.lng != null)
+      .filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null)
       .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
     if (pending.length === 0) return [];
 
     const from = track.position ? [{ lat: track.position.lat, lng: track.position.lng }] : [];
     return googleMapsLinks([...from, ...pending]);
-  }, [stops, track.position]);
+  }, [stops, track.position, queued]);
 
   return (
     <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
@@ -212,10 +259,10 @@ export default function DriverDayPage() {
                   <>
                     {" · "}
                     <span style={{ color: "#4ADE80" }}>
-                      {money.format(data.progress.collected)}
+                      {formatPrice(data.progress.collected)}
                     </span>
                     {" / "}
-                    {money.format(data.progress.debtPlanned)} ₴
+                    {formatPrice(data.progress.debtPlanned)}
                   </>
                 )}
               </p>
@@ -302,6 +349,17 @@ export default function DriverDayPage() {
         >
           Вийшло оновлення — натисніть, щоб перезавантажити
         </button>
+      )}
+
+      {queued.length > 0 && (
+        <div className="px-4 py-2.5" style={{ background: "#FEF3C7", borderBottom: "1px solid #FDE68A" }}>
+          <p style={{ fontSize: "13.5px", fontWeight: 600, color: "#92400E" }}>
+            Чекає на мережу: {queued.length}
+          </p>
+          <p style={{ fontSize: "12.5px", color: "#92400E", marginTop: "2px" }}>
+            Відмітки збережено на планшеті. Надішлемо самі — тикати ще раз не треба.
+          </p>
+        </div>
       )}
 
       {error && (
@@ -400,6 +458,7 @@ export default function DriverDayPage() {
                 stop={s}
                 open={openStop === s.key}
                 saving={saving === s.key}
+                pending={queued.includes(s.key)}
                 onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
                 onMark={mark}
               />
@@ -501,17 +560,17 @@ function CashPanel({
 
       <div className="mt-2 flex items-baseline gap-3">
         <span style={{ fontSize: "13px", color: "#374151" }}>
-          Зібрано {money.format(cash.collected)} ₴
+          Зібрано {formatPrice(cash.collected)}
         </span>
         {cash.handed > 0 && (
           <span style={{ fontSize: "13px", color: "#6B7280" }}>
-            здано {money.format(cash.handed)} ₴
+            здано {formatPrice(cash.handed)}
           </span>
         )}
       </div>
 
       <p style={{ fontSize: "26px", fontWeight: 700, color: "#0A0A0A", marginTop: "2px" }}>
-        На руках: {money.format(cash.onHands)} ₴
+        На руках: {formatPrice(cash.onHands)}
       </p>
 
       {cash.handovers.length > 0 && (
@@ -524,7 +583,7 @@ function CashPanel({
             >
               <span className="min-w-0 flex-1">
                 <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
-                  {money.format(h.amount)} ₴
+                  {formatPrice(h.amount)}
                 </span>
                 <span style={{ fontSize: "12px", color: "#6B7280", marginLeft: "8px" }}>
                   о{" "}
@@ -545,7 +604,7 @@ function CashPanel({
                   {h.confirmedAt
                     ? `Прийнято${
                         h.confirmedAmount != null && h.confirmedAmount !== h.amount
-                          ? ` ${money.format(h.confirmedAmount)} ₴`
+                          ? ` ${formatPrice(h.confirmedAmount)}`
                           : ""
                       }`
                     : "Очікує підтвердження офісу"}
@@ -595,7 +654,7 @@ function CashPanel({
           }}
         >
           {cash.onHands > 0
-            ? `Здаю касу ${money.format(cash.onHands)} ₴`
+            ? `Здаю касу ${formatPrice(cash.onHands)}`
             : cash.handed > 0
               ? "Усе здано"
               : "Поки нема чого здавати"}
@@ -687,12 +746,15 @@ function StopRow({
   stop,
   open,
   saving,
+  pending,
   onToggle,
   onMark,
 }: {
   stop: DayStop;
   open: boolean;
   saving: boolean;
+  /** Відмітка збережена на пристрої, але ще не доїхала на сервер. */
+  pending: boolean;
   onToggle: () => void;
   onMark: (
     stop: DayStop,
@@ -781,17 +843,17 @@ function StopRow({
             )}
             {!isErrand && stop.amount > 0 && (
               <span style={{ fontSize: "12px", color: "#374151" }}>
-                {money.format(stop.amount)} грн
+                {formatPrice(stop.amount)}
               </span>
             )}
             {hasDebt && (
               <span style={{ fontSize: "12px", color: "#DC2626", fontWeight: 600 }}>
-                борг {money.format(stop.debtAmount)}
+                борг {formatPrice(stop.debtAmount)}
               </span>
             )}
             {stop.visit?.collectedAmount != null && stop.visit.collectedAmount > 0 && (
               <span style={{ fontSize: "12px", color: "#16A34A", fontWeight: 600 }}>
-                забрано {money.format(stop.visit.collectedAmount)}
+                забрано {formatPrice(stop.visit.collectedAmount)}
               </span>
             )}
             {stop.geoSource !== "MANUAL" && stop.lat != null && (
@@ -826,7 +888,7 @@ function StopRow({
               }}
             >
               {hasDebt
-                ? `Приїхав, забрав ${money.format(stop.debtAmount)}`
+                ? `Приїхав, забрав ${formatPrice(stop.debtAmount)}`
                 : isErrand
                   ? "Зробив"
                   : "Приїхав"}
@@ -926,10 +988,16 @@ function StopRow({
             }}
           />
 
-          {stop.visit?.status && (
-            <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
-              Відмічено. Натисніть іншу кнопку, щоб виправити.
+          {pending ? (
+            <p style={{ fontSize: "12px", color: "#B45309", marginTop: "8px" }}>
+              Збережено на пристрої — надішлемо, щойно з’явиться мережа. Тиснути ще раз не треба.
             </p>
+          ) : (
+            stop.visit?.status && (
+              <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px" }}>
+                Відмічено. Натисніть іншу кнопку, щоб виправити.
+              </p>
+            )
           )}
 
           {stop.lat != null && stop.lng != null && (

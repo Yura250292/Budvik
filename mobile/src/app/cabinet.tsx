@@ -53,6 +53,15 @@ export default function CabinetScreen() {
    * застосунок мовчки не пише нічого.
    */
   const [perms, setPerms] = useState<PermissionState | null>(null);
+  /**
+   * Хід завантаження нової збірки, 0..1, або null — коли не качаємо.
+   *
+   * Без цього кнопка «Оновити застосунок» виглядала зламаною: 115 МБ їдуть
+   * кілька хвилин, і весь цей час на екрані не змінювалося НІЧОГО. Людина
+   * тиснула ще раз, потім ще — і йшла казати, що оновлення не працює.
+   */
+  const [updating, setUpdating] = useState<number | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [bridge, setBridge] = useState<BridgeState>({
     shiftOpen: false,
     pending: 0,
@@ -114,6 +123,25 @@ export default function CabinetScreen() {
     }, [])
   );
 
+  /**
+   * Завантаження й установка нової збірки — з поступом і помилкою на екрані.
+   *
+   * Помилку показуємо, а не ковтаємо: раніше тут стояв `.catch(() => {})`, і
+   * будь-який збій — немає місця на диску, обірвана мережа, відмова
+   * встановлювача — виглядав однаково: нічого не сталося.
+   */
+  const startDownload = useCallback(() => {
+    if (updating !== null) return; // друге натискання не починає другу качку
+    setUpdateError(null);
+    setUpdating(0);
+    downloadAndInstallApk((fraction) => setUpdating(fraction))
+      .then(() => setUpdating(null))
+      .catch((e) => {
+        setUpdating(null);
+        setUpdateError(e instanceof Error ? e.message : "Не вдалося завантажити збірку");
+      });
+  }, [updating]);
+
   /** Команди із сайту: кнопка зміни, вихід, оновлення застосунку. */
   const handleBridgeMessage = useCallback(
     (raw: string) => {
@@ -124,7 +152,7 @@ export default function CabinetScreen() {
         return;
       }
       if (msg.type === "downloadUpdate") {
-        downloadAndInstallApk().catch(() => {});
+        startDownload();
         return;
       }
       /**
@@ -136,7 +164,7 @@ export default function CabinetScreen() {
         .catch(() => {})
         .finally(() => router.replace("/(tabs)/account"));
     },
-    [router]
+    [router, startDownload]
   );
 
   /**
@@ -207,6 +235,29 @@ export default function CabinetScreen() {
       {/* Кабінет — єдиний екран, який торговий відкриває щодня, тож саме тут
           оновлення й має пропонувати себе. */}
       <UpdateBar />
+
+      {updating !== null && (
+        <View style={styles.dlStrip}>
+          <Text style={styles.dlText}>
+            Завантажую нову збірку… {Math.round(updating * 100)}%
+          </Text>
+          <View style={styles.dlTrack}>
+            <View style={[styles.dlFill, { flex: Math.max(0.01, updating) }]} />
+            <View style={{ flex: Math.max(0.01, 1 - updating) }} />
+          </View>
+          <Text style={styles.dlHint}>
+            Це кілька хвилин. Не закривайте застосунок — коли завантажиться, Android сам запитає
+            про встановлення.
+          </Text>
+        </View>
+      )}
+
+      {!!updateError && (
+        <Pressable style={styles.dlError} onPress={() => setUpdateError(null)}>
+          <Text style={styles.dlErrorTitle}>Не вдалося завантажити оновлення</Text>
+          <Text style={styles.dlErrorText}>{updateError}</Text>
+        </Pressable>
+      )}
 
       {/*
         Найдорожча тиша в застосунку — та, про яку ніхто не знає.
@@ -303,6 +354,19 @@ export default function CabinetScreen() {
          * чужа сторінка не має опинятися у вікні, де вже стоїть кукі кабінету.
          */
         onShouldStartLoadWithRequest={(req) => {
+          /**
+           * Посилання на APK перехоплюємо й качаємо самі.
+           *
+           * У react-native-webview на Android немає обробника завантажень:
+           * перехід на файл просто нічого не робить. Кнопка «Завантажити APK»
+           * на /sales/app і /driver/app усередині застосунку була глухою — і
+           * це виглядало точно так само, як зламане оновлення.
+           */
+          if (/\/api\/app\/(staff\/)?download(\?|$)/.test(req.url)) {
+            startDownload();
+            return false;
+          }
+
           const native = nativeRouteFor(req.url);
           if (native) {
             router.push(native);
@@ -319,6 +383,14 @@ export default function CabinetScreen() {
 }
 
 const styles = StyleSheet.create({
+  dlStrip: { backgroundColor: "#0A0A0A", paddingVertical: 10, paddingHorizontal: space.lg, gap: 6 },
+  dlText: { color: "#FFD600", fontSize: 14, fontWeight: "700" },
+  dlTrack: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden", backgroundColor: "#1F2937" },
+  dlFill: { backgroundColor: "#FFD600" },
+  dlHint: { color: "#9CA3AF", fontSize: 12, lineHeight: 16 },
+  dlError: { backgroundColor: "#FEF2F2", borderBottomWidth: 1, borderBottomColor: "#FECACA", paddingVertical: 10, paddingHorizontal: space.lg, gap: 2 },
+  dlErrorTitle: { color: "#B91C1C", fontSize: 14, fontWeight: "700" },
+  dlErrorText: { color: "#5B6068", fontSize: 12, lineHeight: 16 },
   permStrip: { backgroundColor: "#DC2626", paddingVertical: 10, paddingHorizontal: space.lg, gap: 2 },
   permStripWarn: { backgroundColor: "#FFFBEB", borderBottomWidth: 1, borderBottomColor: "#FDE68A" },
   permTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },

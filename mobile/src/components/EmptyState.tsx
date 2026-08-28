@@ -11,7 +11,7 @@
  */
 
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { colors, space, radius } from "@/theme";
 
 export function EmptyState({

@@ -65,11 +65,18 @@ for (const fn of ["queueVisit", "flushPendingVisits", "listPendingVisits"]) {
  * Найтонше: чергу треба віддавати ДО завантаження дня. Інакше сервер поверне
  * день без щойно зроблених відміток, і вони «зникнуть» з екрана.
  */
-const appDay = readFileSync(join(HERE, "../src/app/day.tsx"), "utf8");
+/*
+ * У застосунку день читається через кеш запитів, тож обидва виклики стоять
+ * поруч у queryFn (src/api/staff-queries.ts), а не на екрані. Перевіряємо саме
+ * там — правило те саме, змінилося лише місце.
+ */
+const appDay = readFileSync(join(HERE, "../src/api/staff-queries.ts"), "utf8");
 const webDay = readFileSync(join(HERE, "../../src/app/driver/tablet/page.tsx"), "utf8");
 check(
   "Чергу віддаємо перед завантаженням дня (застосунок)",
-  appDay.indexOf("flushPendingVisits") < appDay.indexOf("staffApi.day()"),
+  appDay.indexOf("flushPendingVisits") >= 0 &&
+    appDay.indexOf("staffApi.day()") >= 0 &&
+    appDay.indexOf("flushPendingVisits") < appDay.indexOf("staffApi.day()"),
   { flush: appDay.indexOf("flushPendingVisits"), day: appDay.indexOf("staffApi.day()") }
 );
 check(

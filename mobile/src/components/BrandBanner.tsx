@@ -24,7 +24,7 @@
 import { View, Text, Pressable, StyleSheet, type DimensionValue } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { inkFor } from "@/components/BrandTile";
 import { colors, space, radius, formatPositions } from "@/theme";
 

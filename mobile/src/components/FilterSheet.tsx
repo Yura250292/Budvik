@@ -14,7 +14,7 @@ import { useState } from "react";
 import {
   Modal, View, Text, Pressable, ScrollView, TextInput, Switch, StyleSheet, ActivityIndicator,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { colors, space, radius, formatUAH } from "@/theme";

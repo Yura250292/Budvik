@@ -18,13 +18,14 @@
  * точки видно кольором смуги ще до того, як прочитано назву.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  FlatList,
   Linking,
   RefreshControl,
 } from "react-native";
@@ -32,6 +33,7 @@ import { Stack, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { staffApi, type DayResponse, type DayStop } from "@/api/staff";
+import { useDay, refetchIfStale } from "@/api/staff-queries";
 import { formatUAH } from "@/theme";
 import { c, r, sp } from "@/ui/tokens";
 import { Icon } from "@/ui/Icon";
@@ -46,75 +48,87 @@ import {
   Field,
   GoldLine,
   Note,
-  Screen,
 } from "@/ui/kit";
 import { DriverTabBar } from "@/ui/DriverTabBar";
 import { UpdateBar } from "@/ui/UpdateBar";
 import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
-import {
-  flushPendingVisits,
-  listPendingVisits,
-  queueVisit,
-  type PendingVisit,
-} from "@/track/pending-visits";
+import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
 import { googleMapsLinks, pointUrl } from "@/lib/google-links";
 import { within, PROBE_MS } from "@/lib/within";
+import { formatTime } from "@/lib/format-date";
 
 type Money = "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE";
 
 /** Стільки НЕнадісланих точок уже означає не паузу між пачками, а тишу мережі. */
 const OFFLINE_POINTS = 20;
 
-/** Скільки чекаємо на віддачу черги, перш ніж малювати день без неї. */
-const FLUSH_MS = 8_000;
-
 export default function DayScreen() {
-  const [data, setData] = useState<DayResponse | null>(null);
+  const insets = useSafeAreaInsets();
+  /**
+   * День — з кеша запитів; черга, трек і буфер — завжди з пристрою.
+   *
+   * Водій відкриває цей екран десятки разів на добу, і щоразу він читався
+   * наново. Тепер маршрут малюється миттєво з відомого, а сервер підтверджує
+   * його під уже намальованим списком. Віддача черги лишилася в самому запиті —
+   * порядок «спершу черга, потім день» від цього не змінився.
+   */
+  const query = useDay();
+  const data = query.data ?? null;
+  const error = query.isError;
+
+  // Свіжий стан запиту для ефекту фокуса — читаємо його вже після рендера.
+  const queryRef = useRef(query);
+  useEffect(() => {
+    queryRef.current = query;
+  });
+
   const [queued, setQueued] = useState<PendingVisit[]>([]);
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
   const [buffered, setBuffered] = useState(0);
+  /** Локальні проби ще жодного разу не відповідали. */
+  const [probed, setProbed] = useState(false);
 
-  const load = useCallback(async () => {
-    /**
-     * Спершу віддати те, що лежить у черзі: інакше сервер поверне день без
-     * відміток, які водій уже зробив, і вони «зникнуть» з екрана.
-     *
-     * З межею очікування: у fetch немає власного тайм-ауту, і в мертвій мережі
-     * (є Wi-Fi заправки, але інтернету за ним немає) запит висить хвилинами.
-     * Без межі екран дня не з'явився б узагалі — а він потрібен саме там, де
-     * зв'язку немає. Невіддана черга від цього не губиться: точки з неї далі
-     * показані виконаними, і наступне відкриття спробує ще раз.
-     */
-    await within(flushPendingVisits(), FLUSH_MS, 0);
-    // Кожна проба з межею очікування: збій чи затримка SQLite або служби
-    // локації не має лишати водія на вертушці — день читається з мережі й від
-    // них не залежить.
+  /**
+   * Стан пристрою: що лишилося в черзі, чи пишеться трек, скільки точок у
+   * буфері. Кожна проба з межею очікування — збій чи затримка SQLite або служби
+   * локації не має лишати водія на вертушці.
+   */
+  const refreshLocal = useCallback(async () => {
     setQueued(await within(listPendingVisits(), PROBE_MS, [] as PendingVisit[]));
     setTracking(await within(isTracking(), PROBE_MS, false));
     setBuffered(await within(bufferedCount(), PROBE_MS, 0));
-    try {
-      setData(await staffApi.day());
-      setError(null);
-    } catch (e) {
-      // Немає зв'язку — не помилка, а звичайний стан на маршруті.
-      setError(e instanceof Error ? e.message : "Немає зв’язку");
-    }
-    setLoading(false);
+    setProbed(true);
   }, []);
+
+  /**
+   * Оновити все: спершу день, потім стан пристрою.
+   *
+   * Порядок тут не косметичний. Запит віддає чергу серверу перед тим, як
+   * спитати день, тож читати чергу до його завершення означає показати
+   * пісочний годинник поверх відмітки, яка вже поїхала.
+   */
+  const load = useCallback(async () => {
+    await queryRef.current.refetch();
+    await refreshLocal();
+  }, [refreshLocal]);
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      let alive = true;
+      void (async () => {
+        await refetchIfStale(queryRef.current);
+        if (alive) await refreshLocal();
+      })();
       Location.getLastKnownPositionAsync()
         .then((p) => p && setPos({ lat: p.coords.latitude, lng: p.coords.longitude }))
         .catch(() => {});
-    }, [load])
+      return () => {
+        alive = false;
+      };
+    }, [refreshLocal])
   );
 
   const stops = useMemo(() => data?.route?.stops ?? [], [data?.route?.stops]);
@@ -186,7 +200,7 @@ export default function DayScreen() {
     [pos, load]
   );
 
-  if (loading) {
+  if (query.isPending) {
     return (
       <View style={s.center}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -199,6 +213,89 @@ export default function DayScreen() {
   const cash = data?.cash;
   const offline = buffered >= OFFLINE_POINTS;
 
+  /**
+   * Усе, що стоїть над списком точок. Тримається окремо, бо список тепер
+   * віртуалізований: за довгий день у ньому шість десятків рядків, і малювати
+   * їх усі одразу — це секунда чорного екрана на планшеті водія.
+   */
+  const header = (
+    <>
+      {queued.length > 0 && (
+        <View style={[s.section, s.headBlock]}>
+          <Card tone="brand" style={s.queueCard} gap={sp.xxs}>
+            <View style={s.queueRow}>
+              <Icon name="cloud-off" size={22} color={c.warn} />
+              <View style={s.queueText}>
+                <CardTitle>Чекає на мережу: {queued.length}</CardTitle>
+                <Note>
+                  Відмітки збережено на пристрої й показано як виконані. Надішлемо самі — тикати
+                  ще раз не треба.
+                  {buffered > 0 ? ` Трек теж у буфері: ${buffered} точок.` : ""}
+                </Note>
+              </View>
+            </View>
+          </Card>
+        </View>
+      )}
+
+      {error && !data && (
+        <View style={[s.section, s.headBlock]}>
+          <Card tone="warn">
+            <CardTitle>Немає зв’язку</CardTitle>
+            <Body>
+              День не завантажився. Маршрут і трек від цього не залежать — запис іде далі.
+            </Body>
+          </Card>
+        </View>
+      )}
+
+      {mapLinks.length > 0 && (
+        <View style={[s.block, s.headBlock]}>
+          <Eyebrow>Дорога в Google Maps</Eyebrow>
+          <View style={s.mapLinks}>
+            {mapLinks.map((l, i) => (
+              <Pressable
+                key={i}
+                style={[s.mapLink, i === 0 ? s.mapLinkPrimary : s.mapLinkSecondary]}
+                onPress={() => Linking.openURL(l.url)}
+              >
+                <Icon name="navigation" size={16} color={i === 0 ? c.onDark : c.infoFg} />
+                <Text style={[s.mapLinkLabel, { color: i === 0 ? c.onDark : c.infoFg }]}>
+                  {mapLinks.length > 1 ? `Частина ${i + 1} · ${l.points} точок` : "Прокласти дорогу"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Note>
+            Google веде щонайбільше 10 точок за раз. Доїхали до кінця першої частини —
+            відкривайте наступну, вона починається там само. Відмічені точки в дорогу не входять.
+          </Note>
+        </View>
+      )}
+    </>
+  );
+
+  const footer = (
+    <>
+      {stops.length === 0 && !error && (
+        <View style={[s.section, s.footBlock]}>
+          <Card>
+            <CardTitle>На сьогодні точок немає</CardTitle>
+            <Body>
+              Маршрут складає логіст в адмінці. Якщо ви вже в дорозі — зателефонуйте в офіс.
+            </Body>
+          </Card>
+        </View>
+      )}
+
+      {cash && (
+        <View style={s.footBlock}>
+          <CashSection cash={cash} day={data?.day} onDone={load} />
+        </View>
+      )}
+    </>
+  );
+
   return (
     <View style={s.root}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -210,104 +307,47 @@ export default function DayScreen() {
         tracking={tracking}
         buffered={buffered}
         offline={offline}
+        probed={probed}
       />
 
       <UpdateBar />
 
-      <Screen
-        padded={false}
+      {/*
+        Список, а не прокрутка з усіма рядками одразу: у довгий день точок
+        шість десятків, кожна з кнопками й полями, і планшет промальовував їх
+        усі ще до того, як водій побачив першу.
+
+        Проміжку між елементами тут навмисно немає: рядки точок стикуються
+        впритул і розділені власною лінією — відступ розірвав би список на
+        окремі картки. Тому поля мають самі шапка й підвал.
+      */}
+      <FlatList
+        data={stops}
+        keyExtractor={(st) => st.key}
+        extraData={`${openKey ?? ""}|${queued.length}`}
+        renderItem={({ item }) => (
+          <StopRow
+            stop={item}
+            queued={queuedKeys.has(item.key)}
+            expanded={openKey === item.key}
+            onToggle={() => setOpenKey(openKey === item.key ? null : item.key)}
+            onMark={mark}
+          />
+        )}
+        ListHeaderComponent={header}
+        ListFooterComponent={footer}
+        contentContainerStyle={[s.list, { paddingBottom: 24 + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={12}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await load();
-              setRefreshing(false);
+            refreshing={query.isRefetching}
+            onRefresh={() => {
+              load();
             }}
           />
         }
-      >
-        {queued.length > 0 && (
-          <View style={s.section}>
-            <Card tone="brand" style={s.queueCard} gap={sp.xxs}>
-              <View style={s.queueRow}>
-                <Icon name="cloud-off" size={22} color={c.warn} />
-                <View style={s.queueText}>
-                  <CardTitle>Чекає на мережу: {queued.length}</CardTitle>
-                  <Note>
-                    Відмітки збережено на пристрої й показано як виконані. Надішлемо самі — тикати
-                    ще раз не треба.
-                    {buffered > 0 ? ` Трек теж у буфері: ${buffered} точок.` : ""}
-                  </Note>
-                </View>
-              </View>
-            </Card>
-          </View>
-        )}
-
-        {error && !data && (
-          <View style={s.section}>
-            <Card tone="warn">
-              <CardTitle>Немає зв’язку</CardTitle>
-              <Body>
-                День не завантажився. Маршрут і трек від цього не залежать — запис іде далі.
-              </Body>
-            </Card>
-          </View>
-        )}
-
-        {mapLinks.length > 0 && (
-          <View style={s.block}>
-            <Eyebrow>Дорога в Google Maps</Eyebrow>
-            <View style={s.mapLinks}>
-              {mapLinks.map((l, i) => (
-                <Pressable
-                  key={i}
-                  style={[s.mapLink, i === 0 ? s.mapLinkPrimary : s.mapLinkSecondary]}
-                  onPress={() => Linking.openURL(l.url)}
-                >
-                  <Icon name="navigation" size={16} color={i === 0 ? c.onDark : c.infoFg} />
-                  <Text style={[s.mapLinkLabel, { color: i === 0 ? c.onDark : c.infoFg }]}>
-                    {mapLinks.length > 1 ? `Частина ${i + 1} · ${l.points} точок` : "Прокласти дорогу"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Note>
-              Google веде щонайбільше 10 точок за раз. Доїхали до кінця першої частини —
-              відкривайте наступну, вона починається там само. Відмічені точки в дорогу не входять.
-            </Note>
-          </View>
-        )}
-
-        {stops.length > 0 && (
-          <View style={s.stops}>
-            {stops.map((st) => (
-              <StopRow
-                key={st.key}
-                stop={st}
-                queued={queuedKeys.has(st.key)}
-                expanded={openKey === st.key}
-                onToggle={() => setOpenKey(openKey === st.key ? null : st.key)}
-                onMark={mark}
-              />
-            ))}
-          </View>
-        )}
-
-        {stops.length === 0 && !error && (
-          <View style={s.section}>
-            <Card>
-              <CardTitle>На сьогодні точок немає</CardTitle>
-              <Body>
-                Маршрут складає логіст в адмінці. Якщо ви вже в дорозі — зателефонуйте в офіс.
-              </Body>
-            </Card>
-          </View>
-        )}
-
-        {cash && <CashSection cash={cash} day={data?.day} onDone={load} />}
-      </Screen>
+      />
 
       <DriverTabBar active="today" />
     </View>
@@ -331,6 +371,7 @@ function DayHeader({
   tracking,
   buffered,
   offline,
+  probed,
 }: {
   route: string | null;
   progress: DayResponse["progress"] | undefined;
@@ -338,14 +379,29 @@ function DayHeader({
   tracking: boolean;
   buffered: number;
   offline: boolean;
+  /** Чи встиг пристрій відповісти про трек — до того нічого не стверджуємо. */
+  probed: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const done = progress?.done ?? 0;
   const missed = progress?.missed ?? 0;
   const total = progress?.total ?? 0;
 
-  const dot = !tracking ? c.bad : offline ? c.warn : c.good;
-  const status = !tracking ? "Трек не йде" : offline ? "Немає звʼязку" : "Трек іде";
+  /**
+   * Поки пристрій не відповів — сірий «перевіряю», а не червоне «Трек не йде».
+   *
+   * День тепер малюється з кеша ще до того, як служба локації скаже своє, і
+   * тривога за замовчуванням спрацьовувала б на кожному відкритті екрана —
+   * саме на тому написі, за яким водій судить, чи рахується йому день.
+   */
+  const dot = !probed ? c.text3 : !tracking ? c.bad : offline ? c.warn : c.good;
+  const status = !probed
+    ? "перевіряю…"
+    : !tracking
+      ? "Трек не йде"
+      : offline
+        ? "Немає звʼязку"
+        : "Трек іде";
 
   return (
     <View style={s.header}>
@@ -717,18 +773,6 @@ function CashSection({
   );
 }
 
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
@@ -772,6 +816,13 @@ const s = StyleSheet.create({
 
   section: { paddingHorizontal: sp.pad },
   block: { backgroundColor: c.surface, paddingVertical: 14, paddingHorizontal: sp.pad, gap: 10 },
+  /**
+   * Полотно списку. Відступ між блоками шапки й підвалу ставиться самими
+   * блоками, а не полотном: спільний проміжок роз'єднав би рядки точок.
+   */
+  list: { paddingTop: sp.sm, backgroundColor: c.bg, flexGrow: 1 },
+  headBlock: { marginBottom: sp.sm },
+  footBlock: { marginTop: sp.sm },
 
   queueCard: { padding: sp.gap },
   queueRow: { flexDirection: "row", gap: sp.gap },
@@ -791,7 +842,6 @@ const s = StyleSheet.create({
   mapLinkSecondary: { backgroundColor: c.infoBg },
   mapLinkLabel: { fontSize: 14, fontWeight: "700" },
 
-  stops: { backgroundColor: c.surface },
   stop: { borderBottomWidth: 1, borderBottomColor: "#F1F1EF", paddingVertical: sp.gap, paddingHorizontal: sp.pad, gap: 10 },
   stopHead: { flexDirection: "row", gap: sp.gap, alignItems: "flex-start" },
   badge: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },

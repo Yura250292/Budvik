@@ -55,10 +55,19 @@ export async function flush(): Promise<void> {
   flushing = true;
   try {
     for (;;) {
-      const batch = await oldestPoints(MAX_BATCH);
-      if (batch.length === 0) break;
+      const slice = await oldestPoints(MAX_BATCH);
+      if (slice.length === 0) break;
 
-      const phase = batch[0]?.phase ?? undefined;
+      /**
+       * Фаза їде одна на пачку, а буфер може містити межу закриття зміни:
+       * робочі точки і дорога додому лежать поруч. Тому ріжемо пачку на першій
+       * зміні фази — інакше вечірні кілометри лягли б у робочий пробіг, і
+       * рахунок дня розійшовся б із одометром. Хвіст забере наступний оберт.
+       */
+      const phase = slice[0]?.phase ?? undefined;
+      const cut = slice.findIndex((p: BufferedPoint) => (p.phase ?? undefined) !== phase);
+      const batch = cut === -1 ? slice : slice.slice(0, cut);
+
       try {
         await staffApi.trackPoints({
           points: batch.map((p: BufferedPoint) => ({

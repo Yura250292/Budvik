@@ -10,7 +10,7 @@ import { useCallback, useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { getCart, updateQty, cartTotal, type CartItem } from "@/lib/cart";
 import { EmptyState } from "@/components/EmptyState";
 import { colors, space, radius, formatUAH } from "@/theme";

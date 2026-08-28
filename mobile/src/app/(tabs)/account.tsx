@@ -11,7 +11,7 @@ import {
   ScrollView, View, Text, TextInput, Pressable, StyleSheet, Alert, Switch, ActivityIndicator,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { api, ApiError } from "@/api/client";
 import {
   getToken, setToken, clearToken, setScope, isBiometricEnabled, isBiometricAvailable, setBiometric,

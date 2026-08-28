@@ -7,26 +7,29 @@
 
 import { useEffect, useState } from "react";
 import { Tabs, Redirect, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { getScope } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { AppHeader } from "@/components/AppHeader";
 import { colors } from "@/theme";
 
+/**
+ * Розвилка входу: вітрина чи кабінет.
+ *
+ * Працівник не має бачити вітрину на холодному старті. Область токена вирішена
+ * ще при вході й лежить поруч із ним. Перевіряємо її тут, до відмальовки
+ * вкладок: інакше торговий на секунду бачив би магазин, а потім екран стрибав
+ * би в кабінет.
+ *
+ * Куди саме вести — вирішує сервер за роллю (lib/app/role-target.ts), тож
+ * адресу тут не передаємо: одне правило на всі входи.
+ *
+ * Самі вкладки живуть у ShopTabs — окремим компонентом навмисно. Поки вони
+ * стояли тут, кожен запуск робочої збірки читав кошик зі сховища й підписувався
+ * на його зміни, щоб за мить піти в кабінет, де кошика немає взагалі.
+ */
 export default function TabsLayout() {
-  /**
-   * Працівник не має бачити вітрину на холодному старті.
-   *
-   * Область токена вирішена ще при вході й лежить поруч із ним. Перевіряємо її
-   * тут, до відмальовки вкладок: інакше торговий на секунду бачив би магазин,
-   * а потім екран стрибав би в кабінет.
-   *
-   * Куди саме вести — вирішує сервер за роллю (lib/app/role-target.ts), тож
-   * адресу тут не передаємо: одне правило на всі входи.
-   */
-  const router = useRouter();
-  const cartCount = useCartCount();
   const [scope, setScope] = useState<"shop" | "track" | null | undefined>(undefined);
 
   useEffect(() => {
@@ -35,6 +38,12 @@ export default function TabsLayout() {
 
   if (scope === undefined) return null;
   if (scope === "track" && IS_STAFF_BUILD) return <Redirect href="/cabinet" />;
+  return <ShopTabs />;
+}
+
+function ShopTabs() {
+  const router = useRouter();
+  const cartCount = useCartCount();
 
   /*
    * Шапка одна на всі вкладки — і малює її навігатор, а не кожен екран.

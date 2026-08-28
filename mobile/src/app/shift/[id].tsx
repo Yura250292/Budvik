@@ -12,11 +12,13 @@
  * виправляє на головному екрані — підтвердженням або одометром.
  */
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
-import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
-import { staffApi, type ShiftDetail } from "@/api/staff";
+import { type ShiftDetail } from "@/api/staff";
+import { useShiftDetail, useRefetchOnFocus } from "@/api/staff-queries";
+import { formatTime, formatDayShort, formatDayMonth } from "@/lib/format-date";
 import { c, r, sp } from "@/ui/tokens";
 import {
   Body,
@@ -31,27 +33,17 @@ import {
 
 export default function ShiftDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [data, setData] = useState<ShiftDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const query = useShiftDetail(id ? String(id) : undefined);
+  useRefetchOnFocus(query);
 
-  const load = useCallback(async () => {
-    try {
-      setData(await staffApi.shiftDetail(String(id)));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Немає зв’язку");
-    }
-    setLoading(false);
-  }, [id]);
+  const data = query.data ?? null;
+  const error = query.isError
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Немає зв’язку"
+    : null;
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
-
-  if (loading) {
+  if (query.isPending) {
     return (
       <View style={s.center}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -66,7 +58,7 @@ export default function ShiftDetailScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <Header
-        title={sh ? formatDay(sh.startedAt) : "Зміна"}
+        title={sh ? formatDayMonth(sh.startedAt) : "Зміна"}
         eyebrow={sh ? shiftKind(sh) : "Зміна"}
       />
 
@@ -381,41 +373,6 @@ function formatCount(n: number): string {
   return `${km(n)} ${form}`;
 }
 
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function formatDay(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      day: "numeric",
-      month: "long",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function formatDayShort(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      day: "2-digit",
-      month: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },

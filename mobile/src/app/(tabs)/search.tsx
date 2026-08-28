@@ -21,7 +21,7 @@ import {
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { api, API_BASE } from "@/api/client";
 import { RowSkeleton } from "@/components/Skeleton";

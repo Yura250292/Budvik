@@ -15,7 +15,7 @@ import { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import { Link } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { colors, space, radius, formatUAH } from "@/theme";
 import type { CardDto } from "@/api/types";
 

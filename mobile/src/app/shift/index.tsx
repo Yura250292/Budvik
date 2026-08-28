@@ -16,6 +16,7 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { staffApi, type ShiftState } from "@/api/staff";
+import { useShiftCurrent, useRefetchOnFocus } from "@/api/staff-queries";
 import { bufferedCount } from "@/track/db";
 import { isTracking, startTracking, stopEverything } from "@/track/controller";
 import { getPendingShift, type PendingShift } from "@/track/pending-shift";
@@ -27,9 +28,10 @@ import {
 } from "@/track/permissions";
 import { flush } from "@/track/uploader";
 import { readDeviceState, type DeviceState } from "@/track/device-state";
-import { getLastFix, getLastHeartbeatAt, getMode, setShiftOpen, type TrackMode } from "@/track/state";
+import { getLastFix, getLastHeartbeatAt, getMode, type TrackMode } from "@/track/state";
 import { registerWatchdog } from "@/track/watchdog";
 import { within, PROBE_MS } from "@/lib/within";
+import { formatTime, formatDayShort, formatToday } from "@/lib/format-date";
 import { c, sp } from "@/ui/tokens";
 import { SalesTabBar } from "@/ui/SalesTabBar";
 import {
@@ -56,7 +58,20 @@ const PULSE_STALE_MS = 30 * 60_000;
 
 export default function ShiftScreen() {
   const router = useRouter();
-  const [state, setState] = useState<ShiftState | null>(null);
+  /**
+   * Зміна — з кеша запитів, решта — з пристрою.
+   *
+   * Так повернення з одометра малює екран одразу, а не через вертушку: дані про
+   * зміну вже є, сервер лише підтверджує їх у фоні.
+   */
+  const shiftQuery = useShiftCurrent();
+  useRefetchOnFocus(shiftQuery);
+  /**
+   * Обірваний звʼязок показуємо як «нічого не знаємо», а не як стару копію:
+   * на маршруті мережі немає постійно, і зміна з учорашньої відповіді ввела б
+   * людину в оману сильніше за чесний прочерк. Трек від мережі не залежить.
+   */
+  const state: ShiftState | null = shiftQuery.isError ? null : (shiftQuery.data ?? null);
   const [pending, setPending] = useState<PendingShift | null>(null);
   const [perms, setPerms] = useState<PermissionState | null>(null);
   const [tracking, setTracking] = useState(false);
@@ -71,7 +86,8 @@ export default function ShiftScreen() {
    */
   const [now, setNow] = useState(0);
   const [device, setDevice] = useState<DeviceState | null>(null);
-  const [loading, setLoading] = useState(true);
+  /** Локальні проби ще жодного разу не відповідали — малювати нема чого. */
+  const [probed, setProbed] = useState(false);
   const [busy, setBusy] = useState(false);
   /**
    * Чим скінчився похід у налаштування батареї.
@@ -83,13 +99,20 @@ export default function ShiftScreen() {
    */
   const [batteryResult, setBatteryResult] = useState<"ok" | "still" | null>(null);
 
-  const refresh = useCallback(async () => {
+  /**
+   * Стан самого пристрою: трек, буфер, дозволи, батарея.
+   *
+   * Читається на кожен фокус і НІКОЛИ не береться з кеша — саме тут ціна
+   * застарілого показника найвища: «трек пишеться» замість «не пишеться» коштує
+   * людині цілого дня маршруту.
+   */
+  const refreshLocal = useCallback(async () => {
     /**
      * Кожна проба з власною межею очікування, а не голий Promise.all.
      *
      * Досить одній з них кинути виняток або просто задуматися — а всі вони
      * ходять у системні служби (SQLite, батарея, дозволи) — і рендер лишався б
-     * на вертушці назавжди: setLoading(false) стоїть після цього рядка. Людина
+     * на вертушці назавжди: setProbed(true) стоїть після цього рядка. Людина
      * в машині бачила б порожній екран і не змогла б ані відкрити зміну, ані
      * закрити її.
      */
@@ -112,31 +135,19 @@ export default function ShiftScreen() {
     setLastFix(fix);
     setPulseAt(pulse);
     setNow(Date.now());
-
-    try {
-      const s = await staffApi.shiftCurrent();
-      setState(s);
-      /**
-       * Локальний прапорець потрібен фоновій службі, а не цьому екрану: вона
-       * читає його в новому процесі, де пам'яті вже немає. Пишемо з межею
-       * очікування — застрягла база не має тримати рендер маршруту.
-       */
-      await within(setShiftOpen(!!s.shift), PROBE_MS, undefined);
-    } catch {
-      /**
-       * Немає зв'язку — це нормальний стан на маршруті, а не помилка.
-       * Показуємо те, що знаємо локально: трек від мережі не залежить.
-       */
-      setState(null);
-    }
-    setLoading(false);
+    setProbed(true);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      refresh();
-    }, [refresh])
+      refreshLocal();
+    }, [refreshLocal])
   );
+
+  /** Оновити все: і пристрій, і зміну на сервері. */
+  const refresh = useCallback(async () => {
+    await Promise.all([refreshLocal(), shiftQuery.refetch()]);
+  }, [refreshLocal, shiftQuery]);
 
   const open = async () => {
     const granted = perms?.foreground ? perms : await requestTrackingPermissions();
@@ -172,7 +183,13 @@ export default function ShiftScreen() {
     setBusy(false);
   };
 
-  if (loading) {
+  /**
+   * Вертушка — лише поки нема ЧОГО малювати.
+   *
+   * Дані про зміну з кеша зʼявляються миттєво, тож затримує екран лише перше
+   * читання пристрою; далі оновлення йде фоном, під уже намальованою карткою.
+   */
+  if (!probed && !state) {
     return (
       <View style={s.center}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -271,7 +288,7 @@ export default function ShiftScreen() {
           {!shift && state?.previous?.endedAt && (
             <Row
               label="Минула зміна"
-              value={`${formatDay(state.previous.endedAt)} · до ${formatTime(state.previous.endedAt)}${
+              value={`${formatDayShort(state.previous.endedAt)} · до ${formatTime(state.previous.endedAt)}${
                 state.previous.distanceKm != null ? ` · ${state.previous.distanceKm} км` : ""
               }`}
             />
@@ -285,7 +302,10 @@ export default function ShiftScreen() {
         </Card>
 
         <Card>
-          <CardHead title="Маршрут" right={<TrackPill tracking={tracking} mode={mode} />} />
+          <CardHead
+            title="Маршрут"
+            right={<TrackPill tracking={tracking} mode={mode} probed={probed} />}
+          />
 
           {lastFix && (
             <Row
@@ -296,22 +316,29 @@ export default function ShiftScreen() {
               tone={now - lastFix.at > 15 * 60_000 ? "warn" : undefined}
             />
           )}
-          <Row
-            label="Не надіслано точок"
-            value={String(buffered)}
-            tone={buffered > 0 ? "warn" : undefined}
-          />
-          <Row
-            label="Мережа"
-            value={
-              pulseAt === 0
-                ? "пульсу ще не було"
-                : pulseFresh
-                  ? `є, пульс ${formatTime(new Date(pulseAt).toISOString())}`
-                  : `немає з ${formatTime(new Date(pulseAt).toISOString())}`
-            }
-            tone={pulseAt > 0 && !pulseFresh ? "bad" : undefined}
-          />
+          {/* Числа пристрою — лише коли він відповів: нулі до першої проби
+              читаються як «усе надіслано» і як «пульсу не було», тобто рівно
+              навпаки до того, що буде за мить. */}
+          {probed && (
+            <>
+              <Row
+                label="Не надіслано точок"
+                value={String(buffered)}
+                tone={buffered > 0 ? "warn" : undefined}
+              />
+              <Row
+                label="Мережа"
+                value={
+                  pulseAt === 0
+                    ? "пульсу ще не було"
+                    : pulseFresh
+                      ? `є, пульс ${formatTime(new Date(pulseAt).toISOString())}`
+                      : `немає з ${formatTime(new Date(pulseAt).toISOString())}`
+                }
+                tone={pulseAt > 0 && !pulseFresh ? "bad" : undefined}
+              />
+            </>
+          )}
 
           {buffered > 0 && (
             <Button
@@ -412,7 +439,10 @@ export default function ShiftScreen() {
             label="Не обмежувати батарею для застосунку"
             onPress={openBatterySettings}
           />
-          {tracking && !shiftOpen && (
+          {/* Керування записом — теж лише після проби: інакше «увімкнути
+              запис» блимає перед тим, хто вже пише маршрут, і одне зайве
+              натискання перезапускає живу службу. */}
+          {probed && tracking && !shiftOpen && (
             <LinkRow
               icon="square"
               tone="bad"
@@ -420,7 +450,7 @@ export default function ShiftScreen() {
               onPress={() => stopEverything().then(refresh)}
             />
           )}
-          {!tracking && shiftOpen && (
+          {probed && !tracking && shiftOpen && (
             <LinkRow
               icon="play"
               label="Увімкнути запис маршруту"
@@ -436,7 +466,24 @@ export default function ShiftScreen() {
 }
 
 /** Стан запису одним словом: він відповідає на «а чи пишеться взагалі?». */
-function TrackPill({ tracking, mode }: { tracking: boolean; mode: TrackMode | null }) {
+function TrackPill({
+  tracking,
+  mode,
+  probed,
+}: {
+  tracking: boolean;
+  mode: TrackMode | null;
+  probed: boolean;
+}) {
+  /**
+   * Поки пристрій не відповів — мовчимо.
+   *
+   * Картка зміни тепер малюється з кеша ще до того, як приймач і база скажуть
+   * своє, а «запис не йде» за замовчуванням означало б червону тривогу на
+   * кожному відкритті екрана. Саме цей напис люди сприймають буквально й
+   * кидаються перезапускати трек, який насправді пишеться.
+   */
+  if (!probed) return <Pill tone="neutral" dot={false} label="перевіряю…" />;
   if (!tracking) return <Pill tone="bad" label="запис не йде" />;
   if (mode === "AFTER_SHIFT") return <Pill tone="info" label="дорога додому · геозона 1 км" />;
   return <Pill tone="good" label="запис іде" />;
@@ -602,44 +649,6 @@ const SOURCE_LABEL: Record<string, string> = {
   GPS: "GPS · час за зупинкою в треку",
   OFFICE: "OFFICE · закрив офіс",
 };
-
-/** «ЧЕТВЕР, 28 СЕРПНЯ» — надзаголовок шапки. */
-function formatToday(): string {
-  try {
-    return new Date().toLocaleDateString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-    });
-  } catch {
-    return "Зміна";
-  }
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function formatDay(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      day: "2-digit",
-      month: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
 
 /** «2 хв тому» — час у хвилинах читається швидше за годинник. */
 function formatAgo(at: number, now: number): string {

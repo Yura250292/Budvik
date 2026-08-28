@@ -21,16 +21,29 @@ import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { isBiometricEnabled, unlock, clearToken } from "@/lib/auth-store";
+import { isBiometricEnabled, unlock, clearToken, getScope } from "@/lib/auth-store";
 import { useNotificationTaps } from "@/track/notification-taps";
 import { useTrackHealth } from "@/track/use-track-health";
 import { colors, space, radius } from "@/theme";
+
+/**
+ * Область токена читається наперед, поки замок питає про біометрію.
+ *
+ * Ці два звернення до сховища йшли одне за одним: спершу замок, і лише потім,
+ * уже після першого кадру, розвилка «вітрина чи кабінет» — а до її відповіді
+ * екран порожній. Тепер вони йдуть паралельно, і робоча збірка потрапляє в
+ * кабінет помітно раніше.
+ *
+ * Токен так само НЕ прогріваємо: він може лежати під requireAuthentication, і
+ * читання підняло б запит відбитка ще до замка — тобто двічі за один запуск.
+ */
+void getScope();
 
 const queryClient = new QueryClient({
   defaultOptions: {

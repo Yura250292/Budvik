@@ -49,38 +49,59 @@ type Options = {
   form?: FormData;
   /** Вхід і реєстрація йдуть без токена. */
   anonymous?: boolean;
+  /** Межа очікування; довші за замовчування запити ставлять її самі. */
+  timeoutMs?: number;
 };
+
+/**
+ * Скільки чекаємо на сервер, поки не визнаємо запит мертвим.
+ *
+ * Мережа в селі не «є» або «немає»: вона буває живою, але повільною, і сама
+ * ніколи не обриває зʼєднання. Без межі відправка на Wi-Fi без інтернету висить
+ * до смерті процесу — а разом із нею стоїть замок `flushing` в uploader.ts, і
+ * буфер не їде вже й тоді, коли звʼязок повернувся.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export async function staffRequest<T>(path: string, opts: Options = {}): Promise<T> {
   const token = opts.anonymous ? null : await getToken();
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: opts.method ?? (opts.body || opts.form ? "POST" : "GET"),
-    headers: {
-      "x-budvik-app": APP_HEADER,
-      ...(opts.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: opts.form ?? (opts.body ? JSON.stringify(opts.body) : undefined),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
-  if (res.status === 401 && !opts.anonymous) {
-    /**
-     * 401 означає рівно одне: токен мертвий. Сервер навмисно розрізняє його і
-     * 403 («увійшов, але сюди не можна») — інакше застосунок викидав би людину
-     * з акаунта на кожній забороні.
-     */
-    await clearToken();
-    await onUnauthorized?.();
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: opts.method ?? (opts.body || opts.form ? "POST" : "GET"),
+      headers: {
+        "x-budvik-app": APP_HEADER,
+        ...(opts.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: opts.form ?? (opts.body ? JSON.stringify(opts.body) : undefined),
+      signal: controller.signal,
+    });
+
+    if (res.status === 401 && !opts.anonymous) {
+      /**
+       * 401 означає рівно одне: токен мертвий. Сервер навмисно розрізняє його і
+       * 403 («увійшов, але сюди не можна») — інакше застосунок викидав би людину
+       * з акаунта на кожній забороні.
+       */
+      await clearToken();
+      await onUnauthorized?.();
+    }
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new StaffApiError(body?.error ?? `Сервер відповів ${res.status}`, res.status);
+    }
+
+    // 204 і порожнє тіло теж бувають — не падаємо на порожньому JSON.
+    return (await res.json().catch(() => null)) as T;
+  } finally {
+    // Таймер гасимо аж тут: заголовки могли прийти швидко, а тіло — застрягти.
+    clearTimeout(timer);
   }
-
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new StaffApiError(body?.error ?? `Сервер відповів ${res.status}`, res.status);
-  }
-
-  // 204 і порожнє тіло теж бувають — не падаємо на порожньому JSON.
-  return (await res.json().catch(() => null)) as T;
 }
 
 /* ---------- Історія та пізнє закриття ---------- */
@@ -337,10 +358,10 @@ export const staffApi = {
   shiftDetail: (id: string) => staffRequest<ShiftDetail>(`/api/shift/${id}`),
 
   shiftOpen: (body: Record<string, unknown>) =>
-    staffRequest<unknown>("/api/shift/open", { method: "POST", body }),
+    staffRequest<unknown>("/api/shift/open", { method: "POST", body, timeoutMs: 60_000 }),
 
   shiftClose: (body: Record<string, unknown>) =>
-    staffRequest<unknown>("/api/shift/close", { method: "POST", body }),
+    staffRequest<unknown>("/api/shift/close", { method: "POST", body, timeoutMs: 60_000 }),
 
   shiftHistory: () => staffRequest<ShiftHistory>("/api/shift/history"),
 
@@ -350,16 +371,32 @@ export const staffApi = {
   lateClose: (body: { endedAt: string; source: "GPS" | "MANUAL" }) =>
     staffRequest<unknown>("/api/shift/close-late", { method: "POST", body }),
 
-  /** Розпізнавання одометра: фото йде multipart, бо це файл, а не JSON. */
+  /**
+   * Розпізнавання одометра: фото йде multipart, бо це файл, а не JSON.
+   *
+   * Найдовший запит застосунку: спершу вивантаження знімка, потім розпізнавання
+   * на сервері. Людина стоїть перед машиною й чекає — обірвати це загальною
+   * межею означало б не пустити її в зміну.
+   */
   odometerRecognize: (form: FormData) =>
-    staffRequest<OdometerRecognized>("/api/shift/odometer/recognize", { method: "POST", form }),
+    staffRequest<OdometerRecognized>("/api/shift/odometer/recognize", {
+      method: "POST",
+      form,
+      timeoutMs: 120_000,
+    }),
 
   /* ---------- Трек ---------- */
 
+  /**
+   * Пачка на 200 точок — це десятки кілобайт; на сільському EDGE вони чесно
+   * їдуть десятки секунд. Межа має відсікати лише мертве зʼєднання, тому вона
+   * і втричі більша за загальну.
+   */
   trackPoints: (body: { points: unknown[]; phase?: string }) =>
     staffRequest<{ accepted: number; sessionDistanceKm: number }>("/api/track/points", {
       method: "POST",
       body,
+      timeoutMs: 90_000,
     }),
 
   heartbeat: (body: Record<string, unknown>) =>

@@ -10,10 +10,19 @@
  * вони пояснюють, чому в тій зміні пробіг інший, ніж людина пам'ятає.
  */
 
-import { useCallback, useState } from "react";
-import { View, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from "react-native";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { staffApi, type ShiftHistory, type ShiftRow } from "@/api/staff";
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+} from "react-native";
+import { Stack, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { type ShiftRow } from "@/api/staff";
+import { useShiftHistory, useRefetchOnFocus } from "@/api/staff-queries";
+import { formatTime, formatDayMonthPadded } from "@/lib/format-date";
 import { c, sp } from "@/ui/tokens";
 import {
   Body,
@@ -23,7 +32,6 @@ import {
   Note,
   Pill,
   Row,
-  Screen,
   StatTile,
   TileRow,
 } from "@/ui/kit";
@@ -31,28 +39,18 @@ import { Icon } from "@/ui/Icon";
 
 export default function ShiftHistoryScreen() {
   const router = useRouter();
-  const [data, setData] = useState<ShiftHistory | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
+  const query = useShiftHistory();
+  useRefetchOnFocus(query);
 
-  const load = useCallback(async () => {
-    try {
-      setData(await staffApi.shiftHistory());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Немає зв’язку");
-    }
-    setLoading(false);
-  }, []);
+  const data = query.data ?? null;
+  const error = query.isError
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Немає зв’язку"
+    : null;
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
-
-  if (loading) {
+  if (query.isPending) {
     return (
       <View style={s.center}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -68,69 +66,78 @@ export default function ShiftHistoryScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Header title="Історія змін" eyebrow="Останні 30 днів" />
 
-      <Screen
+      {/* Список, а не суцільна прокрутка: за місяць тут набирається до
+          тридцяти карток, і малювати їх усі заради першого екрана марно. */}
+      <FlatList
+        data={data?.shifts ?? []}
+        keyExtractor={(sh) => sh.id}
+        renderItem={({ item }) => (
+          <ShiftCard shift={item} onOpen={() => router.push(`/shift/${item.id}`)} />
+        )}
+        ItemSeparatorComponent={() => <View style={s.gap} />}
+        contentContainerStyle={[s.list, { paddingBottom: 24 + insets.bottom }]}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await load();
-              setRefreshing(false);
+            refreshing={query.isRefetching}
+            onRefresh={() => {
+              query.refetch();
             }}
           />
         }
-      >
-        {sum && (
-          <Card gap={10}>
-            <CardTitle>За останні 30 днів</CardTitle>
-            {/*
-              Три плитки, а не чотири як у макеті: на 390 px четверта лишає під
-              число 67 px, і «2 640 км» зрізається до «2 …». Число, яке не
-              вміщається, гірше за число рядком — тому «закрились самі» стоїть
-              нижче звичайним рядком. Це й чесніше: це не показник роботи, а
-              попередження.
-            */}
-            <TileRow>
-              <StatTile label="Змін" value={String(sum.count)} />
-              <StatTile label="Пробіг" value={formatKm(sum.totalKm)} unit="км" />
-              <StatTile
-                label="За кермом"
-                value={String(Math.round(sum.totalMinutes / 60))}
-                unit="год"
-              />
-            </TileRow>
-            {sum.autoClosed > 0 && (
-              <Row label="Закрились самі" value={String(sum.autoClosed)} tone="bad" />
+        ListHeaderComponent={
+          <>
+            {sum && (
+              <Card gap={10}>
+                <CardTitle>За останні 30 днів</CardTitle>
+                {/*
+                  Три плитки, а не чотири як у макеті: на 390 px четверта лишає під
+                  число 67 px, і «2 640 км» зрізається до «2 …». Число, яке не
+                  вміщається, гірше за число рядком — тому «закрились самі» стоїть
+                  нижче звичайним рядком. Це й чесніше: це не показник роботи, а
+                  попередження.
+                */}
+                <TileRow>
+                  <StatTile label="Змін" value={String(sum.count)} />
+                  <StatTile label="Пробіг" value={formatKm(sum.totalKm)} unit="км" />
+                  <StatTile
+                    label="За кермом"
+                    value={String(Math.round(sum.totalMinutes / 60))}
+                    unit="год"
+                  />
+                </TileRow>
+                {sum.autoClosed > 0 && (
+                  <Row label="Закрились самі" value={String(sum.autoClosed)} tone="bad" />
+                )}
+                {sum.autoClosed > 0 && (
+                  // Це не докір, а попередження: забуту зміну система закриває
+                  // сама, і пробіг у ній рахується не за одометром.
+                  <Note>
+                    Забуту зміну система закриває сама, і пробіг у ній рахується за GPS, а не за
+                    одометром. Закривайте зміну самі — так у розрахунку менше похибки.
+                  </Note>
+                )}
+              </Card>
             )}
-            {sum.autoClosed > 0 && (
-              // Це не докір, а попередження: забуту зміну система закриває
-              // сама, і пробіг у ній рахується не за одометром.
-              <Note>
-                Забуту зміну система закриває сама, і пробіг у ній рахується за GPS, а не за
-                одометром. Закривайте зміну самі — так у розрахунку менше похибки.
-              </Note>
+
+            {error && !data && (
+              <Card tone="warn">
+                <CardTitle>Немає зв’язку</CardTitle>
+                <Body>Історія завантажиться, щойно з’явиться мережа.</Body>
+              </Card>
             )}
-          </Card>
-        )}
 
-        {error && !data && (
-          <Card tone="warn">
-            <CardTitle>Немає зв’язку</CardTitle>
-            <Body>Історія завантажиться, щойно з’явиться мережа.</Body>
-          </Card>
-        )}
-
-        {data?.shifts.map((sh) => (
-          <ShiftCard key={sh.id} shift={sh} onOpen={() => router.push(`/shift/${sh.id}`)} />
-        ))}
-
-        {data?.shifts.length === 0 && (
-          <Card>
-            <CardTitle>Змін ще не було</CardTitle>
-            <Body>Тут з’являться закриті зміни з пробігом і часом.</Body>
-          </Card>
-        )}
-      </Screen>
+            {(sum || (error && !data)) && <View style={s.gap} />}
+          </>
+        }
+        ListEmptyComponent={
+          data?.shifts.length === 0 ? (
+            <Card>
+              <CardTitle>Змін ще не було</CardTitle>
+              <Body>Тут з’являться закриті зміни з пробігом і часом.</Body>
+            </Card>
+          ) : null
+        }
+      />
     </>
   );
 }
@@ -143,7 +150,7 @@ function ShiftCard({ shift, onOpen }: { shift: ShiftRow; onOpen: () => void }) {
           відповідь на «звідки взявся цей пробіг». */}
       <Pressable style={({ pressed }) => [s.head, pressed && { opacity: 0.6 }]} onPress={onOpen}>
         <View style={s.headLeft}>
-          <CardTitle>{formatDay(shift.startedAt)}</CardTitle>
+          <CardTitle>{formatDayMonthPadded(shift.startedAt)}</CardTitle>
           {open && <Pill tone="good" dot={false} label="відкрита" />}
           {shift.closedAutomatically && <Pill tone="bad" dot={false} label="закрилася сама" />}
           {shift.odometerSuspicious && (
@@ -174,31 +181,6 @@ function ShiftCard({ shift, onOpen }: { shift: ShiftRow; onOpen: () => void }) {
   );
 }
 
-/** Київський час: сервер віддає UTC, а людина живе за своїм годинником. */
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function formatDay(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      day: "2-digit",
-      month: "long",
-    });
-  } catch {
-    return "—";
-  }
-}
-
 function formatKm(n: number): string {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
@@ -209,6 +191,9 @@ function formatDec(n: number): string {
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
+  /** Ті самі поля й проміжки, що дає Screen: список їх не успадковує. */
+  list: { padding: sp.pad, backgroundColor: c.bg, flexGrow: 1 },
+  gap: { height: sp.gap },
   head: { flexDirection: "row", alignItems: "center", gap: sp.sm },
   headLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: sp.sm, flexWrap: "wrap" },
 });

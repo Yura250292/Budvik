@@ -11,7 +11,7 @@ import { ScrollView, View, Text, Pressable, StyleSheet, ActivityIndicator } from
 import { Image } from "expo-image";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { api } from "@/api/client";
 import { getToken } from "@/lib/auth-store";
 import { ProductCard } from "@/components/ProductCard";

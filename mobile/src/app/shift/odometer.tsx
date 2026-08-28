@@ -27,7 +27,10 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
+import { useQueryClient } from "@tanstack/react-query";
 import { staffApi, StaffApiError, type OdometerRecognized, type ShiftState } from "@/api/staff";
+import { staffKeys } from "@/api/staff-queries";
+import { formatTime } from "@/lib/format-date";
 import { c, r } from "@/ui/tokens";
 import {
   Body,
@@ -53,6 +56,18 @@ const PHOTO_QUALITY = 0.7;
 
 export default function OdometerScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  /**
+   * Зміна щойно змінилася — кеш екранів, які її показують, більше не дійсний.
+   *
+   * Без цього людина повертається з одометра на екран зміни й бачить там стан
+   * до відкриття: картка каже «зміну не відкрито», хоча трек уже пишеться.
+   */
+  const invalidateShift = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: staffKeys.shiftCurrent });
+    queryClient.invalidateQueries({ queryKey: staffKeys.day });
+  }, [queryClient]);
   const { phase } = useLocalSearchParams<{ phase?: string }>();
   const isClosing = phase === "END";
 
@@ -180,6 +195,7 @@ export default function OdometerScreen() {
         await scheduleCloseReminders();
         await startTracking("SHIFT");
       }
+      invalidateShift();
       router.back();
     } catch (e) {
       const status = e instanceof StaffApiError ? e.status : 0;
@@ -218,11 +234,12 @@ export default function OdometerScreen() {
         "Немає зв’язку",
         "Показання збережено на пристрої — надішлемо самі, щойно з’явиться мережа. Маршрут уже пишеться."
       );
+      invalidateShift();
       router.back();
     } finally {
       setBusy(false);
     }
-  }, [value, readId, manual, isClosing, router]);
+  }, [value, readId, manual, isClosing, router, invalidateShift]);
 
   const title = isClosing ? "Одометр: кінець зміни" : "Одометр: початок зміни";
   const eyebrow = isClosing
@@ -464,17 +481,6 @@ function ClosingSummary({
   );
 }
 
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },

@@ -102,9 +102,22 @@ export default function CabinetScreen() {
   useFocusEffect(
     useCallback(() => {
       let alive = true;
+      /**
+       * Повернення на екран інжектує завжди, тік таймера — лише коли є що
+       * оновити: за пів хвилини простою стан здебільшого той самий, а кожна
+       * ін'єкція будить JS сторінки посеред роботи людини.
+       */
+      let forced = true;
+      let last: { shiftOpen: boolean; pending: number } | null = null;
+
       const refresh = async () => {
         const [shiftOpen, pending] = await Promise.all([isShiftOpen(), bufferedCount()]);
         if (!alive) return;
+        const changed = !last || last.shiftOpen !== shiftOpen || last.pending !== pending;
+        last = { shiftOpen, pending };
+        if (!forced && !changed) return;
+        forced = false;
+
         const next: BridgeState = {
           shiftOpen,
           pending,

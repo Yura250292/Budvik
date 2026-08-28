@@ -66,12 +66,29 @@ export async function isBiometricAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * Копія області в памʼяті — дзеркало кеша токена вище.
+ *
+ * Область питають на кожному холодному старті, і саме на ній стоїть розвилка
+ * «вітрина чи кабінет»: доки вона не прочитана, екран порожній. Друге й третє
+ * читання Keychain у цьому місці — це затримка рівно там, де людина дивиться на
+ * білий екран. На відміну від токена, область пишеться без requireAuthentication,
+ * тож її прогрів нічим не загрожує.
+ */
+let scopeCached: "shop" | "track" | null = null;
+let scopeLoaded = false;
+
 export async function getScope(): Promise<"shop" | "track" | null> {
+  if (scopeLoaded) return scopeCached;
   const v = await readSecure(SCOPE_KEY);
-  return v === "shop" || v === "track" ? v : null;
+  scopeCached = v === "shop" || v === "track" ? v : null;
+  scopeLoaded = true;
+  return scopeCached;
 }
 
 export async function setScope(scope: "shop" | "track"): Promise<void> {
+  scopeCached = scope;
+  scopeLoaded = true;
   await SecureStore.setItemAsync(SCOPE_KEY, scope).catch(() => {});
 }
 
@@ -106,6 +123,10 @@ export async function getToken(): Promise<string | null> {
 export async function clearToken(): Promise<void> {
   cached = null;
   loaded = true;
+  // Копію області теж на нуль: інакше після виходу застосунок і далі вів би
+  // людину в кабінет за областю, якої у сховищі вже немає.
+  scopeCached = null;
+  scopeLoaded = true;
   await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
   await SecureStore.deleteItemAsync(SCOPE_KEY).catch(() => {});
 }

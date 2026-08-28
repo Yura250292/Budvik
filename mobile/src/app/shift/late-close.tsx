@@ -18,6 +18,7 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { staffApi, StaffApiError, type LateCloseSuggestion } from "@/api/staff";
+import { formatTime, formatWhen } from "@/lib/format-date";
 import { c, sp } from "@/ui/tokens";
 import {
   Body,
@@ -236,31 +237,6 @@ function Timeline({ startedAt, endedAt, now }: { startedAt: string; endedAt: str
   );
 }
 
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("uk-UA", {
-      timeZone: "Europe/Kyiv",
-      day: "2-digit",
-      month: "long",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
 
 function formatKm(n: number): string {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");

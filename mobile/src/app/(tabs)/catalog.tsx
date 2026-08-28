@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/api/client";
 import { RowSkeleton } from "@/components/Skeleton";

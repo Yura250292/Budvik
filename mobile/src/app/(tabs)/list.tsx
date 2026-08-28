@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { ProductCard } from "@/components/ProductCard";

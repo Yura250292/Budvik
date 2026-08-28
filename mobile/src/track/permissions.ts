@@ -69,10 +69,9 @@ export async function requestTrackingPermissions(): Promise<PermissionState> {
  * тицяла його щодня, поверталася — і бачила те саме попередження. Перевірено
  * на живому планшеті: прапорець `batteryOptimized` після цього лишався true.
  *
- * Екран самого застосунку надійніший: у ньому пункт «Батарея» → «Без
- * обмежень» — радіокнопка, яка застосовується одразу і на стоковому Android,
- * і на оболонках. Загальний список лишається запасним шляхом, якщо цього
- * екрана на пристрої немає.
+ * Тому шляхів три, від найкращого до найгіршого: системний діалог на один
+ * дотик (з 1.3.0), екран самого застосунку («Батарея» → «Без обмежень»), і аж
+ * тоді загальний список.
  *
  * Повертає стан ПІСЛЯ повернення з налаштувань — щоб застосунок міг сказати,
  * спрацювало чи ні, а не лишати людину гадати.
@@ -81,18 +80,41 @@ export async function askIgnoreBatteryOptimizations(): Promise<boolean | null> {
   if (Platform.OS !== "android") return null;
 
   const pkg = Application.applicationId;
-  const opened = pkg
-    ? await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
-        data: `package:${pkg}`,
-      })
+
+  /**
+   * Перший шлях — системний діалог на один дотик: «Дозволити застосунку
+   * працювати у фоні?» з кнопками «Дозволити / Відхилити». Він застосовує
+   * виняток одразу, без жодних блукань по налаштуваннях, і саме тому в
+   * маніфесті з 1.3.0 стоїть REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. До 1.3.0
+   * цього дозволу не було, і виклик кинув би SecurityException — тож обидва
+   * запасні шляхи нижче лишаються назавжди, а не «поки що».
+   */
+  const asked = pkg
+    ? await IntentLauncher.startActivityAsync(
+        "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        { data: `package:${pkg}` }
+      )
         .then(() => true)
         .catch(() => false)
     : false;
 
-  if (!opened) {
-    await IntentLauncher.startActivityAsync(
-      "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"
-    ).catch(() => {});
+  if (!asked) {
+    // Другий шлях — екран самого застосунку: «Батарея» → «Без обмежень».
+    const opened = pkg
+      ? await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
+          data: `package:${pkg}`,
+        })
+          .then(() => true)
+          .catch(() => false)
+      : false;
+
+    // Третій — загальний список. Найгірший: на оболонці Lenovo перемикач у
+    // ньому рухається, але нічого не змінює.
+    if (!opened) {
+      await IntentLauncher.startActivityAsync(
+        "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"
+      ).catch(() => {});
+    }
   }
 
   // Питаємо систему, а не віримо на слово: полярність та сама, що в Kotlin —

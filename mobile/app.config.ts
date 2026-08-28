@@ -33,7 +33,7 @@ const isStaff = FLAVOR === "staff";
  * збільшене число назад у динамічний app.config.ts, тож лічильник мовчки
  * стояв би на місці.
  */
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const versionCode = (() => {
   const [major, minor, patch] = VERSION.split(".").map(Number);
   return major * 10000 + minor * 100 + patch;
@@ -120,6 +120,21 @@ const config: ExpoConfig = {
           "android.permission.RECEIVE_BOOT_COMPLETED",
           /** Робоча збірка ставить собі оновлення сама — файлом із сайту. */
           "android.permission.REQUEST_INSTALL_PACKAGES",
+          /**
+           * Дозволяє показати системний діалог «дозволити працювати у фоні?»
+           * одним дотиком, замість блукань по налаштуваннях.
+           *
+           * Це не косметика. Без нього людина йде в налаштування батареї сама,
+           * а на оболонці Lenovo перемикач у загальному списку оптимізації
+           * рухається й НІЧОГО не змінює: планшет далі присипляє службу, трек
+           * рветься на години, і виглядає це як «людина припинила працювати».
+           * Перевірено на живому пристрої: після того перемикача прапорець
+           * batteryOptimized лишався true.
+           *
+           * У Play такий дозвіл вимагає окремого обґрунтування, але робоча
+           * збірка в Play і не публікується — вона роздається файлом із сайту.
+           */
+          "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         ]
       : ["android.permission.CAMERA"],
     /**

@@ -169,7 +169,8 @@ export function StatCard({
   label: string;
   value: ReactNode;
   unit?: string;
-  hint?: string;
+  /** Пояснення під числом. Вузлом, а не рядком: під «Зібрано» тут стоїть смужка. */
+  hint?: ReactNode;
   dot?: string;
   href?: string;
 }) {
@@ -186,7 +187,11 @@ export function StatCard({
         <span className="text-2xl font-semibold leading-tight tracking-tight text-bk">{value}</span>
         {!!unit && <span className="pb-0.5 text-sm font-medium text-cab-t3">{unit}</span>}
       </div>
-      {!!hint && <p className="text-xs leading-snug text-cab-t3">{hint}</p>}
+      {typeof hint === "string" ? (
+        <p className="text-xs leading-snug text-cab-t3">{hint}</p>
+      ) : (
+        hint
+      )}
     </>
   );
 
@@ -435,6 +440,7 @@ export function ListRow({
   title,
   subtitle,
   lead,
+  leadColor,
   value,
   badge,
   href,
@@ -444,6 +450,8 @@ export function ListRow({
   title: ReactNode;
   subtitle?: ReactNode;
   lead?: ReactNode;
+  /** Колір кружка ліворуч: у списку клієнтів він розводить сусідні рядки. */
+  leadColor?: string;
   value?: ReactNode;
   badge?: ReactNode;
   href?: string;
@@ -453,13 +461,23 @@ export function ListRow({
   const inner = (
     <>
       {!!lead && (
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cab-bg text-[13px] font-bold text-cab-t2">
+        <span
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[15px] font-bold"
+          style={
+            leadColor
+              ? { background: `${leadColor}1F`, color: leadColor }
+              : { background: "#F4F4F2", color: "#5B6068" }
+          }
+        >
           {lead}
         </span>
       )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-semibold text-bk">{title}</span>
-        {!!subtitle && <span className="mt-0.5 block truncate text-xs text-cab-t3">{subtitle}</span>}
+        {/* Два рядки, а не один: у реальних назвах контрагента з 1С уже є
+            і місто в дужках, і код, і телефон — з truncate підпис
+            обривався на «точк…», і мітка про неуточнену точку не читалась. */}
+        {!!subtitle && <span className="mt-0.5 line-clamp-2 block text-xs text-cab-t3">{subtitle}</span>}
       </span>
       {(value || badge) && (
         <span className="flex shrink-0 flex-col items-end gap-1">

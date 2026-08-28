@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { Card, EmptyState } from "@/components/ui/Card";
+import { Page } from "@/components/cabinet/ui";
 import { Skeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
 import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -12,6 +13,7 @@ import { SalesHeader } from "@/components/sales/SalesHeader";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
+import { OverdueAlert } from "./analytics/components/OverdueAlert";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import {
   monthLabel,
@@ -192,14 +194,14 @@ function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <SalesHeader title={name} subtitle="Мої показники" right={<HeaderActions />} />
 
-      <div className="mx-auto max-w-lg px-4 pt-4">
+      <Page>
         {/* Перше, що бачить людина в кабінеті, поки вона ще на старому трекері. */}
         <UpgradeBanner />
 
-        <div className="-mx-4 mb-3 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
+        <div className="-mx-4 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
           <div className="w-max">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
@@ -210,7 +212,7 @@ function Home() {
           виглядають суперечливо: оборот за 10 днів поруч із планом за
           весь місяць і боргом «станом на зараз» читається як помилка.
         */}
-        <p className="mb-3 text-[11px] leading-relaxed text-g500">
+        <p className="-mt-1 text-[11px] leading-relaxed text-cab-t3">
           Оборот, паливо і зібране — за обраний період. План —
           {data?.month ? ` за весь ${monthLabel(data.month)}` : " за календарний місяць"}. Дебіторка —
           борг станом на зараз, від періоду не залежить.
@@ -236,16 +238,21 @@ function Home() {
               month={data.month}
               planHref={row.plan.target > 0 ? withPeriod("/sales/analytics/plan", period) : null}
             />
+
+            {/* Прострочка — одразу під планом: це не показник, а борг, який
+                щодня дорожчає. Наприкінці екрана її просто не гортали. */}
+            <OverdueAlert row={row} href={withPeriod("/sales/analytics/money", period)} />
+
             <MetricGrid row={row} moneyHref={withPeriod("/sales/analytics/money", period)} />
 
-            <p className="mt-4 px-1 text-[11px] leading-relaxed text-g500">
+            <p className="px-1 text-[11px] leading-relaxed text-cab-t3">
               «Чистий результат» — прибуток по ваших продажах за період мінус пальне. «Заробіток»
               рахується зі зібраних коштів, а не з обороту: продаж без оплати не приносить нічого.
             </p>
           </>
         )}
-      </div>
-    </div>
+      </Page>
+    </>
   );
 }
 

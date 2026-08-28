@@ -4,9 +4,11 @@ import { Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import useSWR from "swr";
-import { formatPrice, formatDate, formatDocDate } from "@/lib/utils";
+import { formatPrice, formatDate, formatDocDate, formatCount, POSITIONS } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { Chip, Page } from "@/components/cabinet/ui";
+import { FileText } from "lucide-react";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -170,35 +172,23 @@ function Orders() {
   const periodLabel = PERIOD_FILTERS.find((p) => p.key === period)?.label ?? "";
 
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <SalesHeader title="Мої документи" backTo="/sales" sticky />
 
-      <div className="mx-auto max-w-lg px-4 pt-3">
+      <Page>
         {/* Період */}
-        <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide">
-          {PERIOD_FILTERS.map((f) => {
-            const active = period === f.key;
-            return (
-              <button
-                key={f.key}
-                onClick={() => setFilter({ period: f.key })}
-                aria-pressed={active}
-                style={{
-                  padding: "8px 16px", borderRadius: "12px", fontSize: "13px", fontWeight: 600,
-                  whiteSpace: "nowrap", border: "none", minHeight: "40px",
-                  background: active ? "linear-gradient(135deg, #FFD600, #FFA000)" : "white",
-                  color: active ? "#0A0A0A" : "#6B7280",
-                  boxShadow: active ? "0 2px 8px rgba(255,214,0,0.35)" : "0 1px 3px rgba(0,0,0,0.06)",
-                }}
-              >
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
+          {PERIOD_FILTERS.map((f) => (
+            <span key={f.key} className="shrink-0">
+              <Chip active={period === f.key} onClick={() => setFilter({ period: f.key })}>
                 {f.label}
-              </button>
-            );
-          })}
+              </Chip>
+            </span>
+          ))}
         </div>
 
-        {/* Статус */}
-        <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide">
+        {/* Статус: дрібніші таблетки — це уточнення до періоду, а не рівний йому вибір */}
+        <div className="-mx-4 -mt-1 flex gap-1.5 overflow-x-auto px-4 pb-0.5 scrollbar-hide">
           {STATUS_FILTERS.map((f) => {
             const active = status === f.key;
             return (
@@ -206,13 +196,9 @@ function Orders() {
                 key={f.key}
                 onClick={() => setFilter({ status: f.key })}
                 aria-pressed={active}
-                style={{
-                  padding: "7px 14px", borderRadius: "10px", fontSize: "12px", fontWeight: 600,
-                  whiteSpace: "nowrap", minHeight: "36px",
-                  background: active ? "#0A0A0A" : "transparent",
-                  color: active ? "#FFD600" : "#9CA3AF",
-                  border: active ? "1px solid #0A0A0A" : "1px solid #E5E7EB",
-                }}
+                className={`min-h-9 shrink-0 whitespace-nowrap rounded-full border px-3 text-xs font-medium ${
+                  active ? "border-bk bg-bk text-primary" : "border-cab-line bg-white text-cab-t2"
+                }`}
               >
                 {f.label}
               </button>
@@ -223,19 +209,18 @@ function Orders() {
         {/* Підсумок за обраний період */}
         {!loading && orders.length > 0 && (
           <div
-            className="mb-3 flex items-center justify-between rounded-2xl px-4 py-3"
-            style={{ background: "linear-gradient(135deg, #0A0A0A 0%, #1A1A1A 100%)" }}
+            className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5"
+            style={{ background: "linear-gradient(135deg, #0A0A0A 0%, #1C1C1C 100%)" }}
           >
-            <div>
-              <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "1px" }}>
-                {periodLabel}
-              </p>
-              <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-white/40">{periodLabel}</p>
+              <p className="text-sm text-white">
                 {counted.length} док.
                 {counted.length < orders.length && ` + ${orders.length - counted.length} не проведено`}
               </p>
+              <p className="text-[11px] text-white/40">без скасованих і не проведених</p>
             </div>
-            <p className="tabular-nums" style={{ fontSize: "22px", fontWeight: 700, color: "#FFD600" }}>
+            <p className="shrink-0 text-[22px] font-bold tabular-nums text-primary">
               {formatPrice(total)}
             </p>
           </div>
@@ -244,56 +229,42 @@ function Orders() {
         {loading ? (
           <OrdersSkeleton />
         ) : orders.length === 0 ? (
-          <div className="py-12 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "#F3F4F6" }}>
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
-            </div>
-            <p style={{ color: "#6B7280", fontSize: "15px" }}>
+          <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <FileText size={32} className="text-cab-t3" />
+            <p className="text-[15px] font-semibold text-bk">
               {period === "today" ? "Сьогодні документів ще немає" : "Документів за цей період немає"}
             </p>
             {period === "today" && (
               <button
                 onClick={() => setFilter({ period: "month" })}
-                className="mt-3 text-sm font-semibold"
-                style={{ color: "#6B7280", textDecoration: "underline" }}
+                className="text-sm font-semibold text-cab-t2 underline"
               >
                 Подивитись за місяць
               </button>
             )}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {orders.map((o) => (
               <Link
                 key={o.id}
                 href={`/sales/orders/${o.id}`}
-                className="block rounded-2xl bg-white p-4"
-                style={{
-                  border: "1px solid #EFEFEF",
-                  borderLeftWidth: "3px",
-                  borderLeftColor: STATUS_COLOR[o.status] || "#E5E7EB",
-                  textDecoration: "none",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                }}
+                className="block rounded-2xl border border-cab-line bg-white px-3.5 py-3 active:opacity-70"
+                // Кольорова смуга ліворуч — статус, який видно ще до читання:
+                // у списку з тридцяти документів очі шукають саме її.
+                style={{ borderLeftWidth: "3px", borderLeftColor: STATUS_COLOR[o.status] || "#E5E7EB" }}
               >
-                <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="shrink-0" style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>
-                      {o.number}
-                    </span>
+                    <span className="shrink-0 text-[15px] font-bold text-bk">{o.number}</span>
                     <span
-                      className="shrink-0"
-                      style={{
-                        fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px",
-                        background: STATUS_BG[o.status], color: STATUS_COLOR[o.status],
-                      }}
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      style={{ background: STATUS_BG[o.status], color: STATUS_COLOR[o.status] }}
                     >
                       {statusLabel(o)}
                     </span>
                   </div>
-                  <p className="shrink-0" style={{ fontSize: "11px", color: "#9CA3AF" }}>
+                  <p className="shrink-0 text-[11px] text-cab-t3">
                     {o.externalId ? formatDocDate(o.createdAt) : formatDate(o.createdAt)}
                   </p>
                 </div>
@@ -303,28 +274,26 @@ function Orders() {
                   «ТОВ «Будівельні матеріали Захід»» і шестизначна сума в
                   одному флексі тиснули одне одного до нечитабельного.
                 */}
-                <p className="truncate" style={{ fontSize: "14px", color: "#6B7280" }}>
+                <p className="mt-1.5 truncate text-sm text-cab-t2">
                   {o.counterparty?.name || "Без клієнта"}
                 </p>
                 {/* Чернетка, яку офіс провів своїм документом. Без цього рядка
                     дві картки на одну поставку читаються як задвоєння. */}
-                {o.replacedBy && (
-                  <p className="truncate" style={{ fontSize: "12px", color: "#C2410C", marginTop: "2px" }}>
+                {!!o.replacedBy && (
+                  <p className="mt-0.5 truncate text-xs font-medium text-[#C2410C]">
                     Замінено №{o.replacedBy.number} · {formatPrice(o.replacedBy.totalAmount)}
                   </p>
                 )}
-                <div className="mt-1 flex items-baseline justify-between gap-2">
-                  <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{o._count?.items || 0} позицій</p>
-                  <p className="tabular-nums" style={{ fontSize: "20px", fontWeight: 700, color: "#0A0A0A" }}>
-                    {formatPrice(o.totalAmount)}
-                  </p>
+                <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                  <p className="text-[11px] text-cab-t3">{formatCount(o._count?.items || 0, POSITIONS)}</p>
+                  <p className="text-xl font-bold tabular-nums text-bk">{formatPrice(o.totalAmount)}</p>
                 </div>
               </Link>
             ))}
           </div>
         )}
-      </div>
-    </div>
+      </Page>
+    </>
   );
 }
 

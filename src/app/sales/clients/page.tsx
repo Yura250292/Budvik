@@ -1,11 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import Link from "next/link";
 import useSWR from "swr";
+import { Search, Users } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { ListRow, Note, Page, Pill } from "@/components/cabinet/ui";
 
 const AVATAR_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#22C55E", "#EF4444", "#06B6D4"];
 
@@ -138,7 +139,7 @@ export default function ClientsPage() {
   const getColor = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <SalesHeader
         title="Клієнти"
         backTo="/sales"
@@ -150,10 +151,10 @@ export default function ClientsPage() {
         }
       />
 
-      <div className="mx-auto max-w-lg px-4 pt-3">
+      <Page>
         {/* Чий список. Той самий поділ, що на карті: «мої» — робочий
             портфель, «всі» — база компанії для пошуку чужого клієнта. */}
-        <div className="mb-3 flex gap-1 rounded-full p-1" style={{ background: "#F3F4F6" }}>
+        <div className="flex gap-1 rounded-full bg-[#E9E9E6] p-1">
           {(
             [
               { key: "mine", label: "Мої" },
@@ -167,15 +168,9 @@ export default function ClientsPage() {
                 type="button"
                 onClick={() => setScope(sc.key)}
                 aria-pressed={on}
-                className="flex-1 cursor-pointer rounded-full transition-colors duration-200"
-                style={{
-                  minHeight: "38px",
-                  border: "none",
-                  background: on ? "#0A0A0A" : "transparent",
-                  color: on ? "#fff" : "#374151",
-                  fontSize: "13px",
-                  fontWeight: on ? 700 : 500,
-                }}
+                className={`min-h-[38px] flex-1 rounded-full text-sm transition-colors ${
+                  on ? "bg-bk font-bold text-white" : "font-medium text-cab-t2"
+                }`}
               >
                 {sc.label}
               </button>
@@ -183,44 +178,24 @@ export default function ClientsPage() {
           })}
         </div>
 
-        <div className="relative mb-4">
-          <svg
-            className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="#9CA3AF"
-            strokeWidth={1.5}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
+        <div className="relative">
+          <Search size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cab-t3" />
           <input
             type="search"
-            placeholder="Пошук клієнта..."
+            placeholder="Пошук клієнта…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Пошук клієнта"
-            className="w-full"
-            style={{
-              padding: "12px 16px 12px 44px",
-              borderRadius: "14px",
-              border: "1px solid #E5E7EB",
-              // 16px — нижче цього iOS зумить сторінку при фокусі в поле
-              fontSize: "16px",
-              background: "white",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-            }}
+            // 16px — нижче цього iOS зумить сторінку при фокусі в поле
+            className="h-12 w-full rounded-xl border border-cab-line bg-white pl-11 pr-4 text-base"
           />
         </div>
 
         {loading ? (
           <ClientsSkeleton />
         ) : clients.length === 0 ? (
-          <div className="py-12 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: "#F3F4F6" }}>
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="#9CA3AF" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-              </svg>
-            </div>
+          <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <Users size={32} className="text-cab-t3" />
             {/*
               Два різні порожні стани. «Нічого не знайдено» і «за вами ще
               нікого не закріплено» вимагають різних дій, і зливати їх в
@@ -229,117 +204,88 @@ export default function ClientsPage() {
             */}
             {query ? (
               <>
-                <p style={{ color: "#6B7280", fontSize: "15px" }}>Нічого не знайдено</p>
-                <p className="mt-1 text-xs text-g500">за запитом «{query}»</p>
+                <p className="text-[15px] font-semibold text-bk">Нічого не знайдено</p>
+                <Note>за запитом «{query}»</Note>
               </>
             ) : (
               <>
-                <p style={{ color: "#6B7280", fontSize: "15px" }}>За вами ще немає клієнтів</p>
-                <p className="mx-auto mt-1 max-w-xs text-xs text-g500">
-                  Тут з&apos;являться контрагенти, яких закріпив керівник, і ті, з ким у вас були
+                <p className="text-[15px] font-semibold text-bk">За вами ще немає клієнтів</p>
+                <Note>
+                  Тут зʼявляться контрагенти, яких закріпив керівник, і ті, з ким у вас були
                   документи. Щоб знайти будь-якого клієнта компанії — перемкніть на «Всі клієнти».
-                </p>
+                </Note>
               </>
             )}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {/* Обрізаний список видно одразу, а не після марного гортання. */}
             {scope === "all" && !query && (
-              <p className="pb-1 text-xs text-g500">
-                Спершу ваші клієнти, далі — решта бази компанії (перші {ALL_LIMIT} за абеткою).
-                Щоб знайти конкретного — введіть назву в пошук: він шукає по всій базі.
-              </p>
+              <Note>
+                Спершу ваші клієнти, далі — решта бази компанії (перші {ALL_LIMIT} за абеткою). Щоб
+                знайти конкретного — введіть назву в пошук: він шукає по всій базі.
+              </Note>
             )}
             {clients.map((c, i) => {
-              const color = getColor(c.name);
               const debt = c.receivableBalance ?? 0;
               const overdue = c.overdue ?? 0;
+              const docs = c._count?.salesDocuments ?? 0;
               // Межа між своїм портфелем і рештою бази. Підпис, а не колір:
               // у списку з двох сотень рядків відтінок нічого не пояснює.
               const boundary = scope === "all" && !c.mine && i > 0 && clients[i - 1].mine === true;
 
               return (
                 <Fragment key={c.id}>
-                {boundary && (
-                  <p className="px-1 pt-3 pb-1 text-xs font-semibold text-g500">Решта клієнтів компанії</p>
-                )}
-                <Link
-                  href={`/sales/clients/${c.id}`}
-                  className="flex items-center gap-3 rounded-2xl bg-white p-4"
-                  style={{ border: "1px solid #EFEFEF", textDecoration: "none", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
-                >
-                  <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-                    style={{ background: `${color}15`, color, fontWeight: 700, fontSize: "16px" }}
-                  >
-                    {c.name.charAt(0).toUpperCase()}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate" style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-                      {c.name}
+                  {boundary && (
+                    <p className="px-1 pb-1 pt-3 text-xs font-semibold text-cab-t3">
+                      Решта клієнтів компанії
                     </p>
-                    <div className="flex min-w-0 items-center gap-2">
-                      {c.code && (
-                        <span
-                          className="shrink-0"
-                          style={{ fontSize: "12px", color: "#9CA3AF", background: "#F3F4F6", padding: "1px 6px", borderRadius: "4px" }}
-                        >
-                          {c.code}
-                        </span>
-                      )}
-                      {c.phone && (
-                        <span className="truncate" style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                          {c.phone}
-                        </span>
-                      )}
-                      {/* Точка ще не уточнена — тиха позначка, щоб торговий
-                          бачив обсяг роботи, але вона не кричала гучніше
-                          за борг, по який він насправді їде. */}
-                      {c.geoSource !== "MANUAL" && (
-                        <span
-                          className="shrink-0"
-                          title="Точку на карті ще не уточнено"
-                          style={{ fontSize: "11px", color: "#D97706" }}
-                        >
-                          ⌖ пін
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/*
-                    Борг замість кількості документів: торговий іде до
-                    клієнта не за статистикою, а щоб забрати гроші.
-                    Прострочене підсвічуємо — це і є привід для розмови.
-                  */}
-                  <div className="shrink-0 text-right">
-                    {debt > 0 ? (
-                      <>
-                        <p
-                          className="tabular-nums"
-                          style={{ fontSize: "14px", fontWeight: 700, color: overdue > 0 ? "#DC2626" : "#6B7280" }}
-                        >
+                  )}
+                  <ListRow
+                    href={`/sales/clients/${c.id}`}
+                    lead={c.name.charAt(0).toUpperCase()}
+                    leadColor={getColor(c.name)}
+                    title={c.name}
+                    subtitle={
+                      [
+                        c.code,
+                        c.phone,
+                        // Точка ще не уточнена — тиха позначка, щоб торговий
+                        // бачив обсяг роботи, але вона не кричала гучніше
+                        // за борг, по який він насправді їде.
+                        c.geoSource !== "MANUAL" ? "точку не уточнено" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined
+                    }
+                    /*
+                      Борг замість кількості документів: торговий іде до
+                      клієнта не за статистикою, а щоб забрати гроші.
+                      Прострочене підсвічуємо — це і є привід для розмови.
+                    */
+                    value={
+                      debt > 0 ? (
+                        <span className={overdue > 0 ? "tabular-nums text-bad-fg" : "tabular-nums text-cab-t2"}>
                           {formatPrice(debt)}
-                        </p>
-                        <p style={{ fontSize: "11px", color: overdue > 0 ? "#DC2626" : "#9CA3AF" }}>
+                        </span>
+                      ) : docs > 0 ? (
+                        <span className="font-medium text-cab-t3">{docs} док.</span>
+                      ) : undefined
+                    }
+                    badge={
+                      debt > 0 ? (
+                        <Pill tone={overdue > 0 ? "bad" : "neutral"} dot>
                           {overdue > 0 ? "прострочено" : "борг"}
-                        </p>
-                      </>
-                    ) : (
-                      (c._count?.salesDocuments ?? 0) > 0 && (
-                        <p style={{ fontSize: "12px", color: "#9CA3AF" }}>{c._count!.salesDocuments} док.</p>
-                      )
-                    )}
-                  </div>
-                </Link>
+                        </Pill>
+                      ) : undefined
+                    }
+                  />
                 </Fragment>
               );
             })}
           </div>
         )}
-      </div>
-    </div>
+      </Page>
+    </>
   );
 }

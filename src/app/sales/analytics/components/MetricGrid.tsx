@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
-import { StatCard, money, num } from "@/components/ui/Stat";
+import { money, num } from "@/components/ui/Stat";
+import { StatCard } from "@/components/cabinet/ui";
 import { CATEGORICAL } from "@/lib/analytics/colors";
 import type { SummaryRow } from "./useSalesAnalytics";
 
@@ -14,112 +14,134 @@ import type { SummaryRow } from "./useSalesAnalytics";
  * перетворюється на купу чисел, які на телефоні доводиться гортати вбік.
  *
  * Групи розділені підписами, а не лише відступом: гроші, робота і ризик
- * — три різні розмови, і плутати їх не варто.
+ * — три різні розмови, і плутати їх не варто. Часову рамку кожної групи
+ * підписано праворуч від заголовка: без цього оборот за 10 днів поруч із
+ * боргом «станом на зараз» читається як помилка в даних.
  */
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+function Group({ title, frame, children }: { title: string; frame: string; children: ReactNode }) {
   return (
-    <section className="mt-4">
-      <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-g400">{title}</h2>
-      <div className="grid grid-cols-2 gap-3">{children}</div>
+    <section className="flex flex-col gap-2.5">
+      <div className="flex items-baseline justify-between gap-2 px-0.5">
+        <h2 className="text-[13px] font-semibold text-bk">{title}</h2>
+        <span className="text-xs text-cab-t3">{frame}</span>
+      </div>
+      {children}
     </section>
   );
 }
 
-/** Картка-посилання: та сама StatCard, але веде в дрілл. */
-function LinkedStat({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="block cursor-pointer rounded-[var(--radius-card)] transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-    >
-      {children}
-    </Link>
-  );
+function Pair({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-2 gap-2.5">{children}</div>;
 }
 
 export function MetricGrid({ row, moneyHref }: { row: SummaryRow; moneyHref: string }) {
   const overdue = row.receivables.overdue > 0;
+  const collectedRatio = row.revenue > 0 ? (row.collected / row.revenue) * 100 : null;
 
   return (
     <>
-      <Group title="Гроші">
+      <Group title="Гроші" frame="за обраний період">
+        <Pair>
+          <StatCard
+            label="Оборот"
+            value={money(row.revenue)}
+            unit="₴"
+            hint="відвантажено за період"
+            dot={CATEGORICAL[0]}
+          />
+          <StatCard
+            label="Зібрано"
+            value={money(row.collected)}
+            unit="₴"
+            dot={CATEGORICAL[4]}
+            hint={
+              collectedRatio == null ? (
+                <p className="text-xs text-cab-t3">гроші, що зайшли в офіс</p>
+              ) : (
+                /* Смужка, а не лише відсоток: «74 %» саме по собі нічого не
+                   каже, а видима частка від обороту — каже одразу. */
+                <div className="flex flex-col gap-1.5">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-cab-line">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, collectedRatio))}%`,
+                        background: CATEGORICAL[4],
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-cab-t3">{num(collectedRatio)}% від обороту</p>
+                </div>
+              )
+            }
+          />
+        </Pair>
         <StatCard
-          label="Оборот"
-          value={money(row.revenue)}
-          unit="₴"
-          hint="відвантажено за період"
-          accent={CATEGORICAL[0]}
-        />
-        <StatCard
-          label="Зібрано"
-          value={money(row.collected)}
-          unit="₴"
+          label="Заробіток"
+          value={row.earnings ? money(row.earnings.total) : "—"}
+          unit={row.earnings ? "₴" : undefined}
+          dot={CATEGORICAL[2]}
+          href={moneyHref}
           hint={
-            row.revenue > 0
-              ? `${num((row.collected / row.revenue) * 100)}% від обороту`
-              : "гроші, що зайшли в офіс"
+            row.earnings
+              ? row.earnings.penalties > 0
+                ? `зі зібраного за схемою «${row.earnings.schemeName}» · нараховано ${money(row.earnings.gross)}, утримано ${money(row.earnings.penalties)}`
+                : `зі зібраного за схемою «${row.earnings.schemeName}»`
+              : "схему мотивації не призначено"
           }
-          accent={CATEGORICAL[4]}
-        />
-        <div className="col-span-2">
-          <LinkedStat href={moneyHref}>
-            <StatCard
-              label="Заробіток"
-              value={row.earnings ? money(row.earnings.total) : "—"}
-              unit={row.earnings ? "₴" : undefined}
-              hint={
-                row.earnings
-                  ? row.earnings.penalties > 0
-                    ? `нараховано ${money(row.earnings.gross)}, утримано ${money(row.earnings.penalties)}`
-                    : `зі зібраного за схемою «${row.earnings.schemeName}»`
-                  : "схему мотивації не призначено"
-              }
-              accent={CATEGORICAL[2]}
-              tone={row.earnings ? "good" : "default"}
-            />
-          </LinkedStat>
-        </div>
-      </Group>
-
-      <Group title="Робота">
-        <StatCard label="Документів" value={num(row.docs)} hint="проведено за період" />
-        <StatCard label="Клієнтів" value={num(row.clients)} hint="унікальних за період" />
-        <StatCard label="Середній чек" value={money(row.avgCheck)} unit="₴" />
-        <StatCard
-          label="Паливо"
-          value={money(row.fuel.cost)}
-          unit="₴"
-          hint={
-            row.fuel.hasVehicle
-              ? `${num(row.fuel.workKm)} робочих км`
-              : `${num(row.fuel.workKm)} км · норма типова`
-          }
-          accent={CATEGORICAL[1]}
         />
       </Group>
 
-      <Group title="Ризик і результат">
-        <LinkedStat href={moneyHref}>
+      <Group title="Робота" frame="за обраний період">
+        <Pair>
+          <StatCard label="Документів" value={num(row.docs)} hint="проведено за період" dot={CATEGORICAL[0]} />
+          <StatCard label="Клієнтів" value={num(row.clients)} hint="унікальних за період" dot={CATEGORICAL[0]} />
+        </Pair>
+        <Pair>
+          <StatCard
+            label="Середній чек"
+            value={money(row.avgCheck)}
+            unit="₴"
+            hint="по проведених документах"
+            dot={CATEGORICAL[0]}
+          />
+          <StatCard
+            label="Паливо"
+            value={money(row.fuel.cost)}
+            unit="₴"
+            dot={CATEGORICAL[1]}
+            hint={
+              row.fuel.hasVehicle
+                ? `${num(row.fuel.workKm)} робочих км`
+                : `${num(row.fuel.workKm)} км · норма типова`
+            }
+          />
+        </Pair>
+      </Group>
+
+      <Group title="Ризик і результат" frame="борг — станом на зараз">
+        <Pair>
           <StatCard
             label="Дебіторка"
             value={money(row.receivables.total)}
             unit="₴"
+            href={moneyHref}
+            dot={CATEGORICAL[0]}
             hint={
               overdue
                 ? `прострочено ${money(row.receivables.overdue)} (${num(row.receivables.overdueRatio)}%)`
                 : "простроченої немає"
             }
-            tone={overdue ? "bad" : "good"}
           />
-        </LinkedStat>
-        <StatCard
-          label="Чистий результат"
-          value={money(row.net)}
-          unit="₴"
-          hint={`прибуток ${money(row.profit)} ₴ мінус пальне`}
-          tone={row.net >= 0 ? "good" : "bad"}
-        />
+          <StatCard
+            label="Чистий результат"
+            value={money(row.net)}
+            unit="₴"
+            dot={CATEGORICAL[0]}
+            hint={`прибуток ${money(row.profit)} ₴ мінус пальне`}
+          />
+        </Pair>
       </Group>
     </>
   );

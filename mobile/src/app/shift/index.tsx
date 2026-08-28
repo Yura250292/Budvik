@@ -72,6 +72,15 @@ export default function ShiftScreen() {
   const [device, setDevice] = useState<DeviceState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /**
+   * Чим скінчився похід у налаштування батареї.
+   *
+   * Раніше кнопка просто відкривала екран і замовкала. На планшетах Lenovo
+   * перемикач у загальному списку рухається, але нічого не змінює — людина
+   * поверталася, бачила те саме попередження й вирішувала, що застосунок
+   * зламаний. Тепер він сам питає систему й каже словами, спрацювало чи ні.
+   */
+  const [batteryResult, setBatteryResult] = useState<"ok" | "still" | null>(null);
 
   const refresh = useCallback(async () => {
     /**
@@ -145,6 +154,14 @@ export default function ShiftScreen() {
       );
     }
     router.push("/shift/odometer?phase=START");
+  };
+
+  const openBatterySettings = async () => {
+    setBatteryResult(null);
+    const optimized = await askIgnoreBatteryOptimizations();
+    await refresh();
+    if (optimized === null) return;
+    setBatteryResult(optimized ? "still" : "ok");
   };
 
   const sendNow = async () => {
@@ -312,11 +329,28 @@ export default function ShiftScreen() {
               tone="bad"
               icon="triangle-alert"
               title="Система присипляє застосунок"
-              action={{ label: "Відкрити налаштування батареї", onPress: askIgnoreBatteryOptimizations }}
+              action={{ label: "Відкрити налаштування батареї", onPress: openBatterySettings }}
             >
-              Через це маршрут рветься на години, а пробіг виходить меншим за справжній. Відкрийте
-              налаштування й оберіть для «Будвік27 Робота» варіант «Без обмежень».
+              {/* Шлях названо покроково: у загальному списку оптимізації на
+                  планшетах Lenovo перемикач рухається, але нічого не змінює. */}
+              <Body>
+                Через це маршрут рветься на години, а пробіг виходить меншим за справжній. На екрані,
+                що відкриється, знайдіть «Батарея» і оберіть «Без обмежень».
+              </Body>
             </Callout>
+          )}
+
+          {/* Відповідь на «я натиснув, і нічого не сталося»: тепер сталося або
+              не сталося, і це написано. */}
+          {batteryResult === "ok" && (
+            <Note tone="warn">Готово: система більше не присипляє застосунок.</Note>
+          )}
+          {batteryResult === "still" && (
+            <Note tone="bad">
+              Обмеження ще діє. На екрані застосунку відкрийте «Батарея» і оберіть саме «Без
+              обмежень» — перемикач у загальному списку оптимізації на цьому планшеті нічого не
+              змінює.
+            </Note>
           )}
 
           {device?.locationMode === "OFF" && (
@@ -370,7 +404,7 @@ export default function ShiftScreen() {
           <LinkRow
             icon="battery-charging"
             label="Не обмежувати батарею для застосунку"
-            onPress={askIgnoreBatteryOptimizations}
+            onPress={openBatterySettings}
           />
           {tracking && !shiftOpen && (
             <LinkRow

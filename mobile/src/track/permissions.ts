@@ -11,6 +11,8 @@ import { Platform } from "react-native";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as IntentLauncher from "expo-intent-launcher";
+import * as Application from "expo-application";
+import * as Battery from "expo-battery";
 
 export type PermissionState = {
   foreground: boolean;
@@ -55,15 +57,45 @@ export async function requestTrackingPermissions(): Promise<PermissionState> {
 }
 
 /**
- * Відкриває системний екран «не обмежувати батарею».
+ * Відкриває налаштування батареї САМОГО застосунку.
  *
- * Без цього виробничі оболонки (Xiaomi, Huawei, Samsung) присипляють службу
- * через кілька годин, і трек уривається серед дня — найгірший з можливих
- * варіантів, бо виглядає як «людина припинила працювати».
+ * Без цього виробничі оболонки (Xiaomi, Huawei, Samsung, Lenovo) присипляють
+ * службу через кілька годин, і трек уривається серед дня — найгірший з
+ * можливих варіантів, бо виглядає як «людина припинила працювати».
+ *
+ * Раніше тут відкривався ЗАГАЛЬНИЙ список оптимізації
+ * (IGNORE_BATTERY_OPTIMIZATION_SETTINGS). На планшетах Lenovo у ньому стоїть
+ * перемикач, який на вигляд рухається, а насправді нічого не змінює: людина
+ * тицяла його щодня, поверталася — і бачила те саме попередження. Перевірено
+ * на живому планшеті: прапорець `batteryOptimized` після цього лишався true.
+ *
+ * Екран самого застосунку надійніший: у ньому пункт «Батарея» → «Без
+ * обмежень» — радіокнопка, яка застосовується одразу і на стоковому Android,
+ * і на оболонках. Загальний список лишається запасним шляхом, якщо цього
+ * екрана на пристрої немає.
+ *
+ * Повертає стан ПІСЛЯ повернення з налаштувань — щоб застосунок міг сказати,
+ * спрацювало чи ні, а не лишати людину гадати.
  */
-export async function askIgnoreBatteryOptimizations(): Promise<void> {
-  if (Platform.OS !== "android") return;
-  await IntentLauncher.startActivityAsync(
-    "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"
-  ).catch(() => {});
+export async function askIgnoreBatteryOptimizations(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+
+  const pkg = Application.applicationId;
+  const opened = pkg
+    ? await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
+        data: `package:${pkg}`,
+      })
+        .then(() => true)
+        .catch(() => false)
+    : false;
+
+  if (!opened) {
+    await IntentLauncher.startActivityAsync(
+      "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"
+    ).catch(() => {});
+  }
+
+  // Питаємо систему, а не віримо на слово: полярність та сама, що в Kotlin —
+  // true означає «система МОЖЕ приспати застосунок».
+  return Battery.isBatteryOptimizationEnabledAsync().catch(() => null);
 }

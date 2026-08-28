@@ -25,11 +25,11 @@ export default async function SalesCatalogPage() {
   const [toc, tree] = await Promise.all([getCatalogToc(), getBrandTree()]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <>
       <SalesHeader title="Каталог" subtitle={`${toc.total.toLocaleString("uk-UA")} позицій`} />
 
       {/* max-w-lg на телефоні, ширше на планшеті — його тримають горизонтально */}
-      <div className="mx-auto max-w-lg px-4 pt-4 md:max-w-5xl lg:max-w-6xl">
+      <div className="mx-auto max-w-lg px-4 py-4 md:max-w-5xl lg:max-w-6xl">
         <Link
           href="/sales/catalog/list"
           className="mb-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[#FFD600] px-4 text-sm font-bold text-[#0A0A0A] active:bg-[#FFC400]"
@@ -48,7 +48,7 @@ export default async function SalesCatalogPage() {
             <a
               key={s.id}
               href={`#${s.id}`}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-g200 bg-white px-3 text-xs font-medium text-g600 active:bg-g50"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-cab-line bg-white px-3 text-xs font-medium text-cab-t2 active:bg-cab-bg"
             >
               <span>{s.icon}</span>
               {s.title}
@@ -68,13 +68,13 @@ export default async function SalesCatalogPage() {
                   фільтр шукає підрядок і дає більше, ніж сума рядків */}
               <Link
                 href={`/sales/catalog/list?section=${encodeURIComponent(section.id)}`}
-                className="mb-2 flex min-h-11 items-center gap-2 border-b border-g100 pb-1.5 active:bg-[#FFD600]/10"
+                className="mb-2 flex min-h-11 items-center gap-2 border-b border-[#F1F1EF] pb-1.5 active:bg-[#FFD600]/10"
               >
                 <span className="text-base">{section.icon}</span>
                 <span className="flex-1 text-base font-bold leading-tight text-[#0A0A0A]">
                   {section.title}
                 </span>
-                <span className="text-xs font-medium text-g400">усі →</span>
+                <span className="text-xs font-medium text-cab-t3">усі →</span>
               </Link>
 
               <ul>
@@ -85,8 +85,8 @@ export default async function SalesCatalogPage() {
                       className="flex min-h-11 items-baseline gap-2 rounded px-1.5 py-1 active:bg-[#FFD600]/15"
                     >
                       <span className="self-center text-sm text-[#1A1A1A]">{line.label}</span>
-                      <span className="min-w-4 flex-1 self-center border-b border-dotted border-g300" />
-                      <span className="self-center text-xs tabular-nums text-g400">{line.count}</span>
+                      <span className="min-w-4 flex-1 self-center border-b border-dotted border-cab-line" />
+                      <span className="self-center text-xs tabular-nums text-cab-t3">{line.count}</span>
                     </Link>
                   </li>
                 ))}
@@ -96,7 +96,7 @@ export default async function SalesCatalogPage() {
 
           {toc.other.length > 0 && (
             <section className="mb-6 break-inside-avoid">
-              <h2 className="mb-2 flex items-baseline gap-2 border-b border-g100 pb-1.5">
+              <h2 className="mb-2 flex items-baseline gap-2 border-b border-[#F1F1EF] pb-1.5">
                 <span className="text-base">📦</span>
                 <span className="flex-1 text-base font-bold leading-tight text-[#0A0A0A]">Інші групи</span>
               </h2>
@@ -108,8 +108,8 @@ export default async function SalesCatalogPage() {
                       className="flex min-h-11 items-baseline gap-2 rounded px-1.5 py-1 active:bg-[#FFD600]/15"
                     >
                       <span className="self-center text-sm text-[#1A1A1A]">{line.label}</span>
-                      <span className="min-w-4 flex-1 self-center border-b border-dotted border-g300" />
-                      <span className="self-center text-xs tabular-nums text-g400">{line.count}</span>
+                      <span className="min-w-4 flex-1 self-center border-b border-dotted border-cab-line" />
+                      <span className="self-center text-xs tabular-nums text-cab-t3">{line.count}</span>
                     </Link>
                   </li>
                 ))}
@@ -126,22 +126,22 @@ export default async function SalesCatalogPage() {
               <Link
                 key={b.id}
                 href={`/sales/catalog/list?brand=${b.slug}`}
-                className="flex min-h-11 items-center rounded-lg border border-g100 bg-g50 px-3 text-sm text-[#1A1A1A] active:bg-[#FFD600]/20"
+                className="flex min-h-11 items-center rounded-lg border border-[#F1F1EF] bg-cab-bg px-3 text-sm text-[#1A1A1A] active:bg-[#FFD600]/20"
               >
                 {b.name}
-                <span className="ml-1.5 text-xs text-g400">{b.count}</span>
+                <span className="ml-1.5 text-xs text-cab-t3">{b.count}</span>
               </Link>
             ))}
             <Link
               href="/sales/catalog/list?brand=none"
-              className="flex min-h-11 items-center rounded-lg border border-g300 px-3 text-sm font-medium text-g600 active:bg-g50"
+              className="flex min-h-11 items-center rounded-lg border border-cab-line px-3 text-sm font-medium text-cab-t2 active:bg-cab-bg"
             >
               Без бренда
-              <span className="ml-1.5 text-xs text-g400">{tree.unbranded}</span>
+              <span className="ml-1.5 text-xs text-cab-t3">{tree.unbranded}</span>
             </Link>
           </div>
         </section>
       </div>
-    </div>
+    </>
   );
 }

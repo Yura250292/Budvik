@@ -5,6 +5,12 @@ import { signOut } from "next-auth/react";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { Body, Button, Card, CardTitle, Note, Page } from "@/components/cabinet/ui";
+
+/** Поле форми в мові кабінету. 16px — інакше iOS зумить сторінку при фокусі. */
+const FIELD =
+  "w-full rounded-xl border border-cab-line bg-white px-3.5 py-3 text-base text-bk disabled:bg-cab-bg disabled:text-cab-t2";
+const LABEL = "mb-1.5 block text-[13px] font-semibold text-bk";
 
 /**
  * Профіль торгового: свої дані і зміна пароля.
@@ -28,26 +34,6 @@ type Profile = {
   avatarUrl: string | null;
   color: string | null;
 };
-
-const inputStyle = {
-  width: "100%",
-  padding: "12px 14px",
-  borderRadius: "12px",
-  border: "1px solid #E5E7EB",
-  fontSize: "16px", // 16px — щоб iOS не зумив форму при фокусі
-} as const;
-
-const labelStyle = {
-  display: "block",
-  fontSize: "13px",
-  fontWeight: 600,
-  marginBottom: "6px",
-} as const;
-
-const cardStyle = {
-  border: "1px solid #EFEFEF",
-  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-} as const;
 
 export default function SalesProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -171,42 +157,41 @@ export default function SalesProfilePage() {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
+    <>
       <SalesHeader title="Профіль" subtitle={profile?.name} backTo="/sales" showProfile={false} />
 
-      <div className="mx-auto px-4" style={{ maxWidth: "480px", paddingTop: "20px", paddingBottom: "40px" }}>
+      <Page>
         {!profile ? (
-          <p style={{ textAlign: "center", color: "#9CA3AF", padding: "40px 0" }}>Завантаження...</p>
+          <Card>
+            <Body>Завантаження…</Body>
+          </Card>
         ) : (
-          <div className="space-y-4">
+          <>
             {/* === ФОТО === */}
-            <div className="bg-white rounded-2xl p-5" style={cardStyle}>
+            <Card className="flex flex-col gap-3">
               <div className="flex items-center gap-4">
-                <Avatar name={profile.name} id={profile.id} src={profile.avatarUrl}
-                  color={profile.color} size={72} />
+                <Avatar
+                  name={profile.name}
+                  id={profile.id}
+                  src={profile.avatarUrl}
+                  color={profile.color}
+                  size={72}
+                />
 
-                <div className="flex-1 min-w-0">
-                  <p style={{ fontSize: "16px", fontWeight: 700, color: "#0A0A0A" }} className="truncate">
-                    {profile.name}
-                  </p>
-                  <p style={{ fontSize: "13px", color: "#6B7280", marginBottom: "10px" }}>
-                    Торговий представник
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-bold text-bk">{profile.name}</p>
+                  <p className="mb-2.5 text-[13px] text-cab-t2">Торговий представник</p>
 
                   <div className="flex gap-2">
-                    <button onClick={() => fileInput.current?.click()} disabled={photoBusy}
-                      style={{
-                        padding: "8px 14px", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
-                        background: "#FFD600", color: "#0A0A0A", border: "none", opacity: photoBusy ? 0.5 : 1,
-                      }}>
-                      {photoBusy ? "..." : profile.avatarUrl ? "Змінити фото" : "Додати фото"}
-                    </button>
-                    {profile.avatarUrl && (
-                      <button onClick={removePhoto} disabled={photoBusy}
-                        style={{
-                          padding: "8px 14px", borderRadius: "10px", fontSize: "13px", fontWeight: 600,
-                          background: "white", color: "#DC2626", border: "1px solid #FECACA",
-                        }}>
+                    <Button tone="brand" small onClick={() => fileInput.current?.click()} disabled={photoBusy}>
+                      {photoBusy ? "Вантажу…" : profile.avatarUrl ? "Змінити фото" : "Додати фото"}
+                    </Button>
+                    {!!profile.avatarUrl && (
+                      <button
+                        onClick={removePhoto}
+                        disabled={photoBusy}
+                        className="h-11 rounded-xl border border-bad-line bg-white px-3.5 text-[13px] font-semibold text-bad disabled:opacity-50"
+                      >
                         Прибрати
                       </button>
                     )}
@@ -214,134 +199,154 @@ export default function SalesProfilePage() {
                 </div>
               </div>
 
-              <input ref={fileInput} type="file" accept="image/*" hidden
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) uploadPhoto(f);
-                }} />
+                }}
+              />
 
-              {photoError && (
-                <p style={{ fontSize: "13px", color: "#DC2626", fontWeight: 500, marginTop: "12px" }}>{photoError}</p>
-              )}
-            </div>
+              {!!photoError && <Note tone="bad">{photoError}</Note>}
+            </Card>
 
             {/* === ДАНІ === */}
-            <div className="bg-white rounded-2xl p-5" style={cardStyle}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "16px" }}>Мої дані</h2>
+            <Card className="flex flex-col gap-4">
+              <CardTitle big>Мої дані</CardTitle>
 
-              <div className="space-y-4">
-                <div>
-                  <label style={labelStyle}>Ім'я</label>
-                  <input value={profile.name} disabled
-                    style={{ ...inputStyle, background: "#F9FAFB", color: "#6B7280" }} />
-                  <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "6px", lineHeight: 1.5 }}>
-                    Ім'я змінює адміністратор: за ним підтягуються ваші продажі з 1С.
-                  </p>
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Email для входу</label>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email" style={inputStyle} />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Телефон</label>
-                  <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+380..." autoComplete="tel"
-                    onKeyDown={(e) => e.key === "Enter" && saveData()}
-                    style={inputStyle} />
-                </div>
-
-                {profile.telegramUsername && (
-                  <div>
-                    <label style={labelStyle}>Telegram</label>
-                    <input value={`@${profile.telegramUsername}`} disabled
-                      style={{ ...inputStyle, background: "#F9FAFB", color: "#6B7280" }} />
-                  </div>
-                )}
-
-                {dataError && <p style={{ fontSize: "14px", color: "#DC2626", fontWeight: 500 }}>{dataError}</p>}
-                {dataDone && <p style={{ fontSize: "14px", color: "#16A34A", fontWeight: 500 }}>Дані збережено</p>}
-
-                <button onClick={saveData} disabled={dataSaving}
-                  style={{
-                    width: "100%", padding: "14px", borderRadius: "12px", fontWeight: 700, fontSize: "15px",
-                    background: "#FFD600", color: "#0A0A0A", border: "none", opacity: dataSaving ? 0.4 : 1,
-                  }}>
-                  {dataSaving ? "Зберігаю..." : "Зберегти дані"}
-                </button>
+              <div>
+                <label className={LABEL}>Ім&apos;я</label>
+                <input value={profile.name} disabled className={FIELD} />
+                <Note>Ім&apos;я змінює адміністратор: за ним підтягуються ваші продажі з 1С.</Note>
               </div>
-            </div>
+
+              <div>
+                <label className={LABEL}>Email для входу</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  className={FIELD}
+                />
+              </div>
+
+              <div>
+                <label className={LABEL}>Телефон</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+380..."
+                  autoComplete="tel"
+                  onKeyDown={(e) => e.key === "Enter" && saveData()}
+                  className={FIELD}
+                />
+              </div>
+
+              {!!profile.telegramUsername && (
+                <div>
+                  <label className={LABEL}>Telegram</label>
+                  <input value={`@${profile.telegramUsername}`} disabled className={FIELD} />
+                </div>
+              )}
+
+              {!!dataError && <p className="text-sm font-medium text-bad-fg">{dataError}</p>}
+              {dataDone && <p className="text-sm font-medium text-ok-fg">Дані збережено</p>}
+
+              <Button tone="brand" onClick={saveData} disabled={dataSaving} className="w-full">
+                {dataSaving ? "Зберігаю…" : "Зберегти дані"}
+              </Button>
+            </Card>
 
             {/* === ПАРОЛЬ === */}
-            <div className="bg-white rounded-2xl p-5" style={cardStyle}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "4px" }}>Пароль</h2>
-              <p style={{ fontSize: "13px", color: "#9CA3AF", marginBottom: "16px" }}>
-                {profile.hasPassword
-                  ? "Радимо замінити пароль, який видав адміністратор, на власний"
-                  : "У вас немає пароля — зверніться до адміністратора"}
-              </p>
+            <Card className="flex flex-col gap-4">
+              <div>
+                <CardTitle big>Пароль</CardTitle>
+                <Note>
+                  {profile.hasPassword
+                    ? "Радимо замінити пароль, який видав адміністратор, на власний"
+                    : "У вас немає пароля — зверніться до адміністратора"}
+                </Note>
+              </div>
 
               {profile.hasPassword && (
-                <div className="space-y-4">
+                <>
                   <div>
-                    <label style={labelStyle}>Поточний пароль</label>
-                    <input type={show ? "text" : "password"} value={current}
+                    <label className={LABEL}>Поточний пароль</label>
+                    <input
+                      type={show ? "text" : "password"}
+                      value={current}
                       onChange={(e) => setCurrent(e.target.value)}
-                      autoComplete="current-password" style={inputStyle} />
+                      autoComplete="current-password"
+                      className={FIELD}
+                    />
                   </div>
 
                   <div>
-                    <label style={labelStyle}>Новий пароль</label>
-                    <input type={show ? "text" : "password"} value={next}
+                    <label className={LABEL}>Новий пароль</label>
+                    <input
+                      type={show ? "text" : "password"}
+                      value={next}
                       onChange={(e) => setNext(e.target.value)}
                       placeholder="мінімум 6 символів"
-                      autoComplete="new-password" style={inputStyle} />
+                      autoComplete="new-password"
+                      className={FIELD}
+                    />
                   </div>
 
                   <div>
-                    <label style={labelStyle}>Повторіть новий</label>
-                    <input type={show ? "text" : "password"} value={repeat}
+                    <label className={LABEL}>Повторіть новий</label>
+                    <input
+                      type={show ? "text" : "password"}
+                      value={repeat}
                       onChange={(e) => setRepeat(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && savePassword()}
-                      autoComplete="new-password" style={inputStyle} />
+                      autoComplete="new-password"
+                      className={FIELD}
+                    />
                   </div>
 
-                  <label className="flex items-center gap-2" style={{ fontSize: "14px", color: "#6B7280" }}>
-                    <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)}
-                      style={{ width: "18px", height: "18px", accentColor: "#FFD600" }} />
+                  <label className="flex items-center gap-2 text-sm text-cab-t2">
+                    <input
+                      type="checkbox"
+                      checked={show}
+                      onChange={(e) => setShow(e.target.checked)}
+                      className="h-[18px] w-[18px] accent-primary"
+                    />
                     Показати паролі
                   </label>
 
-                  {passError && <p style={{ fontSize: "14px", color: "#DC2626", fontWeight: 500 }}>{passError}</p>}
-                  {passDone && <p style={{ fontSize: "14px", color: "#16A34A", fontWeight: 500 }}>Пароль змінено</p>}
+                  {!!passError && <p className="text-sm font-medium text-bad-fg">{passError}</p>}
+                  {passDone && <p className="text-sm font-medium text-ok-fg">Пароль змінено</p>}
 
-                  <button onClick={savePassword} disabled={passSaving || !current || !next || !repeat}
-                    style={{
-                      width: "100%", padding: "14px", borderRadius: "12px", fontWeight: 700, fontSize: "15px",
-                      background: "#0A0A0A", color: "#FFD600", border: "none",
-                      opacity: passSaving || !current || !next || !repeat ? 0.4 : 1,
-                    }}>
-                    {passSaving ? "Зберігаю..." : "Змінити пароль"}
-                  </button>
-                </div>
+                  <Button
+                    tone="dark"
+                    onClick={savePassword}
+                    disabled={passSaving || !current || !next || !repeat}
+                    className="w-full"
+                  >
+                    {passSaving ? "Зберігаю…" : "Змінити пароль"}
+                  </Button>
+                </>
               )}
-            </div>
+            </Card>
 
             {/* === ВИХІД ===
                 У застосунку виходить натив: signOut прибрав би кукі, але
                 лишив токен пристрою, і трек писався б далі. */}
-            <button onClick={() => (isApp ? window.BudvikApp?.logout() : signOut({ callbackUrl: "/" }))}
-              style={{
-                width: "100%", padding: "14px", borderRadius: "12px", fontWeight: 600, fontSize: "15px",
-                background: "white", color: "#DC2626", border: "1px solid #FECACA",
-              }}>
+            <button
+              onClick={() => (isApp ? window.BudvikApp?.logout() : signOut({ callbackUrl: "/" }))}
+              className="min-h-12 w-full rounded-2xl border border-bad-line bg-white text-[15px] font-semibold text-bad"
+            >
               Вийти з акаунту
             </button>
-          </div>
+          </>
         )}
-      </div>
-    </div>
+      </Page>
+    </>
   );
 }

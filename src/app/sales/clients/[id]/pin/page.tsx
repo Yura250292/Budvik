@@ -16,6 +16,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { Body, Button, Card, Note, Page } from "@/components/cabinet/ui";
+import { Check, LocateFixed } from "lucide-react";
 
 const PinPicker = dynamic(() => import("@/components/map/PinPicker"), {
   ssr: false,
@@ -166,92 +168,60 @@ export default function ClientPinPage() {
   const exact = data.geoSource === "MANUAL";
 
   return (
-    <div>
+    <>
       <SalesHeader title={data.name} subtitle="Точка на карті" backTo={`/sales/clients/${id}`} />
 
-      <div
-        className="rounded-2xl p-3 mb-3"
-        style={{ border: "1px solid #EFEFEF", background: "#fff" }}
-      >
-        <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.45 }}>
-          {exact
-            ? "Точку вже уточнено вручну. Якщо магазин переїхав — поставте нову."
-            : "Точку поставив геокодер за адресою, тому вона часто показує центр міста чи ринок. Станьте біля магазину й натисніть «Я зараз тут»."}
-        </p>
-        {data.address && (
-          <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "6px" }}>{data.address}</p>
+      <Page>
+        <Card tone={exact ? "plain" : "warn"} className="flex flex-col gap-1">
+          <Body>
+            {exact
+              ? "Точку вже уточнено вручну. Якщо магазин переїхав — поставте нову."
+              : "Точку поставив геокодер за адресою, тому вона часто показує центр міста чи ринок. Станьте біля магазину й натисніть «Я зараз тут»."}
+          </Body>
+          {!!data.address && <Note>{data.address}</Note>}
+        </Card>
+
+        <PinPicker lat={pos.lat} lng={pos.lng} onChange={onPick} />
+
+        {accuracy != null && (
+          <Note tone={accuracy > 40 ? "warn" : undefined}>
+            GPS дав точність ±{Math.round(accuracy)} м
+            {accuracy > 40 ? " — якщо це неточно, посуньте пін пальцем" : ""}
+          </Note>
         )}
-      </div>
 
-      <PinPicker lat={pos.lat} lng={pos.lng} onChange={onPick} />
+        {!!error && (
+          <Card tone="bad">
+            <p className="text-[13px] text-bad-fg">{error}</p>
+          </Card>
+        )}
 
-      {accuracy != null && (
-        <p style={{ fontSize: "12px", color: "#6B7280", margin: "8px 2px 0" }}>
-          GPS дав точність ±{Math.round(accuracy)} м
-          {accuracy > 40 ? " — якщо це неточно, посуньте пін пальцем" : ""}
-        </p>
-      )}
+        {saved && (
+          <Card tone="ok">
+            <p className="text-[13px] text-ok-fg">Точку збережено. Дякуємо!</p>
+          </Card>
+        )}
 
-      {error && (
-        <div
-          className="rounded-xl p-3 mt-3"
-          style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}
-        >
-          <p style={{ fontSize: "13px", color: "#B91C1C" }}>{error}</p>
-        </div>
-      )}
-
-      {saved && (
-        <div
-          className="rounded-xl p-3 mt-3"
-          style={{ background: "#ECFDF5", border: "1px solid #A7F3D0" }}
-        >
-          <p style={{ fontSize: "13px", color: "#047857" }}>Точку збережено. Дякуємо!</p>
-        </div>
-      )}
-
-      {/* Кнопки внизу: великою мішенню під палець, у зоні великого пальця */}
-      <div className="mt-3 mb-2 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={useMyLocation}
-          disabled={busy !== null}
-          className="w-full rounded-xl flex items-center justify-center gap-2"
-          style={{
-            height: "52px",
-            background: "#fff",
-            border: "1px solid #D1D5DB",
-            fontSize: "15px",
-            fontWeight: 600,
-            color: "#0A0A0A",
-            opacity: busy ? 0.6 : 1,
-          }}
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#2a78d6" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-            <circle cx="12" cy="12" r="6" />
-            <circle cx="12" cy="12" r="1.6" fill="#2a78d6" stroke="none" />
-          </svg>
+        {/* Кнопки внизу: великою мішенню під палець, у зоні великого пальця.
+            «Зберегти» лишається неактивною, поки пін не зрушив, — інакше
+            людина зберігає ту саму здогадку геокодера й вважає, що уточнила. */}
+        <Button tone="outline" onClick={useMyLocation} disabled={busy !== null} className="w-full">
+          <LocateFixed size={18} className="text-info" />
           {busy === "gps" ? "Визначаю…" : "Я зараз тут"}
-        </button>
+        </Button>
 
-        <button
-          type="button"
+        <Button
+          tone={moved ? "ok" : "outline"}
           onClick={save}
           disabled={busy !== null || !moved}
-          className="w-full rounded-xl"
-          style={{
-            height: "52px",
-            background: moved ? "#0A0A0A" : "#E5E7EB",
-            color: moved ? "#fff" : "#9CA3AF",
-            fontSize: "15px",
-            fontWeight: 600,
-            border: "none",
-          }}
+          className="w-full"
         >
+          {moved && <Check size={18} />}
           {busy === "save" ? "Зберігаю…" : "Зберегти точку"}
-        </button>
-      </div>
-    </div>
+        </Button>
+
+        <Note>Точка лишиться всім — і торговому, і офісу, і водієві на маршруті.</Note>
+      </Page>
+    </>
   );
 }

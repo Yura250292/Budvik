@@ -74,6 +74,21 @@ export function formatDate(date: Date | string): string {
 }
 
 /**
+ * Тільки дата, без години: «28.08.2026».
+ *
+ * Для маршрутів і змін година — шум: маршрут живе добою, і час його
+ * створення нікому нічого не каже. А от у вузькій колонці телефона він
+ * переносив дату на другий рядок і ламав шапку картки.
+ */
+export function formatDayDate(date: Date | string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(date));
+}
+
+/**
  * Дата документа, що приїхав з 1С, — рівно так, як її показує 1С.
  *
  * Агент віддає дату БЕЗ зсуву: «2026-08-26T14:29:38» — це стінний час

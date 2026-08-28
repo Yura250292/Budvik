@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import SalesBottomNav from "@/components/sales/SalesBottomNav";
 import SalesSectionGate from "@/components/sales/SalesSectionGate";
+import { TAB_BAR_SPACE } from "@/components/cabinet/TabBar";
 
 export const metadata: Metadata = {
   title: "Budvik — Торговий",
@@ -30,7 +31,9 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
         — обнуляємо його тут, а свій відступ ставимо нижче.
       */}
       <style>{`main { padding-bottom: 0 !important; }`}</style>
-      <div style={{ paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px) + 16px)" }}>
+      {/* Сірий фон кабінету: усі дані тут лежать у білих картках, і на білому
+          тлі вони перестають читатися як картки. */}
+      <div className="min-h-screen bg-cab-bg" style={{ paddingBottom: TAB_BAR_SPACE }}>
         {children}
       </div>
       <SalesBottomNav />

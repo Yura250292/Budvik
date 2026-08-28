@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 import { StaffBuildCard } from "@/components/app-install/StaffBuildCard";
+import { CabinetHeader } from "@/components/cabinet/Header";
+import { Body, Button, Card, CardTitle, Eyebrow, Note, Page } from "@/components/cabinet/ui";
 
 /**
  * Сторінка встановлення застосунку для водія.
@@ -36,6 +37,21 @@ const STEPS = [
   },
 ];
 
+/** Крок із номером у жовтому кружку: маркери <ol> у вузькій плашці зрізаються. */
+function Step({ n, title, children }: { n: number; title?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-2.5">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-bk">
+        {n}
+      </span>
+      <div className="min-w-0">
+        {!!title && <p className="text-sm font-semibold text-bk">{title}</p>}
+        <p className="text-[13px] leading-relaxed text-cab-t2">{children}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function DriverAppPage() {
   const isApp = useIsNativeApp();
   const update = useAppUpdate();
@@ -51,236 +67,101 @@ export default function DriverAppPage() {
   const hideDownload = isApp && (!update.available || !update.viaBridge);
 
   return (
-    <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
-      <header
-        className="sticky top-0 z-40 px-4"
-        style={{
-          background: "#0A0A0A",
-          color: "#fff",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)",
-          paddingBottom: "14px",
-        }}
-      >
-        <h1 style={{ fontSize: "19px", fontWeight: 700 }}>Застосунок</h1>
-        <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "3px" }}>
-          Встановлення на планшет або телефон
-        </p>
-      </header>
+    <>
+      <CabinetHeader
+        title="Застосунок"
+        subtitle="Встановлення на планшет або телефон"
+        backTo="/driver/profile"
+      />
 
-      <div className="mx-auto px-4" style={{ maxWidth: "480px", paddingTop: "16px", paddingBottom: "32px" }}>
+      <Page>
         <StaffBuildCard />
 
         {isApp &&
           update.available &&
           (update.viaBridge ? (
             /* Збірка вміє оновитись сама — кнопка нижче спрацює. */
-            <div
-              className="rounded-2xl p-4"
-              style={{ background: "#FFF9DB", border: "1px solid #FFE066", marginBottom: "16px" }}
-            >
-              <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>
-                Доступна нова версія
-              </p>
-              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px", lineHeight: 1.5 }}>
-                Цього разу Android скаже «пакет конфліктує»: у застосунку
-                змінився ключ підпису. Видаліть старий застосунок і поставте
-                новий — відмітки й трек від цього не постраждають, вони на
-                сервері. Наступні оновлення ставитимуться поверх самі.
-              </p>
-            </div>
+            <Card tone="brand" className="flex flex-col gap-1.5">
+              <CardTitle>Доступна нова версія</CardTitle>
+              <Body>
+                Цього разу Android скаже «пакет конфліктує»: у застосунку змінився ключ підпису.
+                Видаліть старий застосунок і поставте новий — відмітки й трек від цього не
+                постраждають, вони на сервері. Наступні оновлення ставитимуться поверх самі.
+              </Body>
+            </Card>
           ) : (
             /*
-              Стара збірка: завантаження всередині неї не працює взагалі
-              (у WebView немає DownloadListener). Кнопку тут не малюємо —
-              вона мовчки нічого б не зробила. Замість неї — що робити руками.
+              Стара збірка: завантаження всередині неї не працює взагалі (у
+              WebView немає DownloadListener). Кнопку тут не малюємо — вона
+              мовчки нічого б не зробила. Замість неї — що робити руками.
             */
-            <div
-              className="rounded-2xl p-4"
-              style={{ background: "#FFF9DB", border: "1px solid #FFE066", marginBottom: "16px" }}
-            >
-              <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>
-                Доступна нова версія
-              </p>
-              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "8px", lineHeight: 1.6 }}>
-                Цю версію треба поставити один раз вручну — саме вона навчає
-                застосунок оновлюватися самостійно.
-              </p>
-              {/* Номери власними значками: маркери <ol> у вузькій плашці
-                  зрізаються, і кроки читаються як суцільний список. */}
-              <div style={{ marginTop: "12px" }}>
-                {[
-                  <>Відкрийте на пристрої браузер Chrome</>,
-                  <>
-                    Введіть <span style={{ fontWeight: 700 }}>budvik27.com/driver/app</span>
-                  </>,
-                  <>Увійдіть і натисніть «Завантажити APK»</>,
-                  <>Відкрийте файл і підтвердіть «Оновити»</>,
-                ].map((step, i) => (
-                  <div key={i} className="flex gap-2.5" style={{ marginBottom: "8px" }}>
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        width: "20px",
-                        height: "20px",
-                        borderRadius: "9999px",
-                        background: "#FFD600",
-                        color: "#0A0A0A",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {i + 1}
-                    </span>
-                    <span style={{ fontSize: "13px", color: "#0A0A0A", lineHeight: 1.55 }}>
-                      {step}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", lineHeight: 1.5 }}>
-                Далі оновлення приходитимуть прямо сюди — без браузера.
-              </p>
-            </div>
+            <Card tone="brand" className="flex flex-col gap-2">
+              <CardTitle>Доступна нова версія</CardTitle>
+              <Body>
+                Цю версію треба поставити один раз вручну — саме вона навчає застосунок
+                оновлюватися самостійно.
+              </Body>
+              <Step n={1}>Відкрийте на пристрої браузер Chrome</Step>
+              <Step n={2}>
+                Введіть <span className="font-bold">budvik27.com/driver/app</span>
+              </Step>
+              <Step n={3}>Увійдіть і натисніть «Завантажити APK»</Step>
+              <Step n={4}>Відкрийте файл і підтвердіть «Оновити»</Step>
+              <Note>Далі оновлення приходитимуть прямо сюди — без браузера.</Note>
+            </Card>
           ))}
 
         {hideDownload ? (
           // Картку «вже встановлено» показуємо лише коли справді нема що
           // оновлювати; при застарілій збірці все сказано в плашці вище.
           !update.available && (
-            <div
-              className="rounded-2xl bg-white p-5"
-              style={{ border: "1px solid #E5E7EB", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
-            >
-              <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-                Застосунок уже встановлено
-              </p>
-              <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-                Ви читаєте це всередині нього, і версія найсвіжіша. Сторінка
-                потрібна, коли треба поставити застосунок на новий пристрій.
-              </p>
-            </div>
+            <Card className="flex flex-col gap-1.5">
+              <CardTitle>Застосунок уже встановлено</CardTitle>
+              <Body>
+                Ви читаєте це всередині нього, і версія найсвіжіша. Сторінка потрібна, коли треба
+                поставити застосунок на новий пристрій.
+              </Body>
+            </Card>
           )
         ) : (
           <>
-            <div
-              className="rounded-2xl bg-white p-5"
-              style={{ border: "1px solid #E5E7EB", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
-            >
-              <p style={{ fontSize: "16px", fontWeight: 700, color: "#0A0A0A" }}>
-                Budvik Tracker для Android
-              </p>
-              <p style={{ fontSize: "14px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-                Маршрут дня і запис пробігу в одному застосунку. Трек пишеться
-                у фоні — поки ви в системі, навіть коли екран вимкнено або ви
-                поїхали за підказками Google Maps.
-              </p>
-
+            <Card className="flex flex-col gap-2">
+              <CardTitle big>Budvik Tracker для Android</CardTitle>
+              <Body>
+                Маршрут дня і запис пробігу в одному застосунку. Трек пишеться у фоні — поки ви в
+                системі, навіть коли екран вимкнено або ви поїхали за підказками Google Maps.
+              </Body>
               <a
                 href="/api/app/download"
-                style={{
-                  display: "block",
-                  marginTop: "18px",
-                  padding: "14px",
-                  borderRadius: "12px",
-                  background: "#FFD600",
-                  color: "#0A0A0A",
-                  fontWeight: 700,
-                  fontSize: "15px",
-                  textAlign: "center",
-                  textDecoration: "none",
-                }}
+                className="mt-1 flex h-[52px] items-center justify-center rounded-xl bg-primary text-[15px] font-bold text-bk"
               >
                 Завантажити APK
               </a>
+              <Note>
+                Тільки для Android. На iPhone застосунок не встановиться — там кабінет відкривається
+                у браузері.
+              </Note>
+            </Card>
 
-              <p style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "10px", textAlign: "center" }}>
-                Тільки для Android. На iPhone застосунок не встановиться — там
-                кабінет відкривається у браузері.
-              </p>
-            </div>
+            <Eyebrow>Як встановити</Eyebrow>
+            {STEPS.map((step, i) => (
+              <Card key={step.title}>
+                <Step n={i + 1} title={step.title}>
+                  {step.body}
+                </Step>
+              </Card>
+            ))}
 
-            <div style={{ marginTop: "20px" }}>
-              <p
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "#9CA3AF",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  marginBottom: "10px",
-                }}
-              >
-                Як встановити
-              </p>
-
-              <div className="space-y-3">
-                {STEPS.map((step, i) => (
-                  <div
-                    key={step.title}
-                    className="flex gap-3 rounded-2xl bg-white p-4"
-                    style={{ border: "1px solid #E5E7EB" }}
-                  >
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "9999px",
-                        background: "#FFD600",
-                        color: "#0A0A0A",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
-                        {step.title}
-                      </p>
-                      <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "3px", lineHeight: 1.5 }}>
-                        {step.body}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <p
-              style={{
-                fontSize: "12px",
-                color: "#9CA3AF",
-                marginTop: "18px",
-                lineHeight: 1.5,
-                textAlign: "center",
-              }}
-            >
-              Застосунок записує ваше місцезнаходження в робочий час. Питання —
-              до керівника.
-            </p>
+            <Note>
+              Застосунок записує ваше місцезнаходження в робочий час. Питання — до керівника.
+            </Note>
           </>
         )}
 
-        <Link
-          href="/driver/profile"
-          style={{
-            display: "block",
-            marginTop: "20px",
-            fontSize: "13px",
-            color: "#6B7280",
-            textAlign: "center",
-          }}
-        >
-          ← Назад в акаунт
-        </Link>
-      </div>
-    </div>
+        <Button tone="outline" small href="/driver/profile" className="w-full">
+          Назад в акаунт
+        </Button>
+      </Page>
+    </>
   );
 }

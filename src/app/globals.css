@@ -57,6 +57,39 @@ a, button, [role="button"], input, select, textarea, label {
   --color-bk-soft: #121212;
   --color-bk-muted: #1A1A1A;
 
+  /*
+   * Палітра робочого кабінету (/sales, /driver) — з макета pencil-sales.pen.
+   *
+   * Окрема від вітринної навмисно. На вітрині жовтий — і кнопка, і акцент, і
+   * настрій; у кабінеті він лишається ЛИШЕ за керуванням, а дані фарбуються
+   * станом: зелене прийнято, жовтогаряче чекає, червоне не вийшло. Змішати
+   * дві мови означало б, що жовтий на екрані водія читається то як
+   * «натисни», то як «увага».
+   */
+  --color-cab-bg: #F4F4F2;
+  --color-cab-line: #E8E8E6;
+  --color-cab-t2: #5B6068;
+  --color-cab-t3: #8A8F98;
+
+  --color-ok: #059669;
+  --color-ok-fg: #047857;
+  --color-ok-bg: #ECFDF5;
+  --color-ok-line: #A7F3D0;
+
+  --color-warn: #D97706;
+  --color-warn-fg: #B45309;
+  --color-warn-bg: #FFFBEB;
+  --color-warn-line: #FDE68A;
+
+  --color-bad: #DC2626;
+  --color-bad-fg: #B91C1C;
+  --color-bad-bg: #FEF2F2;
+  --color-bad-line: #FECACA;
+
+  --color-info: #2563EB;
+  --color-info-fg: #1D4ED8;
+  --color-info-bg: #EFF6FF;
+
   /* Grays */
   --color-g50: #FAFAFA;
   --color-g100: #F7F7F7;

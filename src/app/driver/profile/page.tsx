@@ -13,10 +13,12 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { RefreshCw } from "lucide-react";
 import { useProfile } from "@/lib/useProfile";
 import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
+import { CabinetHeader } from "@/components/cabinet/Header";
+import { Body, Button, Card, CardTitle, Note, Page } from "@/components/cabinet/ui";
 
 type PayrollRow = {
   driverId: string;
@@ -69,39 +71,27 @@ export default function DriverProfilePage() {
   const mine = payroll?.rows?.[0] ?? null;
 
   return (
-    <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
-      <header
-        className="px-4"
-        style={{
-          background: "#0A0A0A",
-          color: "#fff",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 18px)",
-          paddingBottom: "18px",
-        }}
-      >
-        <h1 style={{ fontSize: "21px", fontWeight: 700 }}>{user?.name ?? "Водій"}</h1>
-        <p style={{ fontSize: "13px", color: "#9CA3AF", marginTop: "2px" }}>
-          Водій{user?.email ? ` · ${user.email}` : ""}
-        </p>
-      </header>
+    <>
+      <CabinetHeader
+        title={user?.name ?? "Водій"}
+        subtitle="Водій"
+        backTo="/driver"
+      />
 
-      <div className="space-y-3 px-4 py-4">
-        {/* Заробіток за місяць */}
-        <section
-          className="rounded-2xl px-4 py-4"
-          style={{ background: "#fff", border: "1px solid #E5E7EB" }}
-        >
-          <p style={{ fontSize: "12px", color: "#9CA3AF" }}>Нараховано цього місяця</p>
+      <Page>
+        {/* Заробіток за місяць — перше, заради чого сюди заходять. */}
+        <Card className="flex flex-col gap-2">
+          <p className="text-xs text-cab-t3">Нараховано цього місяця</p>
           {error ? (
-            <p style={{ fontSize: "13px", color: "#B91C1C", marginTop: "6px" }}>{error}</p>
+            <p className="text-[13px] text-bad-fg">{error}</p>
           ) : !payroll ? (
-            <p style={{ fontSize: "14px", color: "#9CA3AF", marginTop: "6px" }}>Рахуємо…</p>
+            <Body>Рахуємо…</Body>
           ) : mine ? (
             <>
-              <p style={{ fontSize: "28px", fontWeight: 700, color: "#0A0A0A", lineHeight: 1.15 }}>
+              <p className="text-[28px] font-bold leading-tight text-bk">
                 {money.format(mine.total)} ₴
               </p>
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
                 <Stat label="Маршрутних листів" value={String(mine.sheetsCount)} />
                 <Stat label="Пробіг" value={`${Math.round(mine.totalKm)} км`} />
                 <Stat label="За листами" value={`${money.format(mine.sheetsTotal)} ₴`} />
@@ -109,115 +99,69 @@ export default function DriverProfilePage() {
                   <Stat label="Надбавки" value={`${money.format(mine.bonusesTotal)} ₴`} />
                 )}
               </div>
+              <Note>
+                Ті самі цифри, що бачить керівник у зарплатній відомості: ставка за лист, 25/15 ₴ за
+                адресу, 0,5 % від суми мінус борги.
+              </Note>
             </>
           ) : (
             <>
-              <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A", marginTop: "4px" }}>
-                Цього місяця нарахувань немає
-              </p>
-              <p style={{ fontSize: "12.5px", color: "#6B7280", marginTop: "4px", lineHeight: 1.5 }}>
-                Зарплата рахується за маршрутними листами з 1С. Якщо листи є, а
-                тут порожньо — ваш акаунт ще не звʼязали з водієм у 1С,
-                скажіть про це керівнику.
-              </p>
+              <p className="text-[15px] font-semibold text-bk">Цього місяця нарахувань немає</p>
+              <Body>
+                Зарплата рахується за маршрутними листами з 1С. Якщо листи є, а тут порожньо — ваш
+                акаунт ще не звʼязали з водієм у 1С, скажіть про це керівнику.
+              </Body>
             </>
           )}
-        </section>
+        </Card>
 
         {/* Як усе працює — коротко, бо планшет новий для всіх */}
-        <section
-          className="rounded-2xl px-4 py-4"
-          style={{ background: "#fff", border: "1px solid #E5E7EB" }}
-        >
-          <p style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>Як це працює</p>
-          <ul style={{ margin: "8px 0 0", padding: "0 0 0 18px", listStyle: "disc" }}>
-            {[
-              isApp
-                ? "Застосунок пише ваш маршрут у фоні — навіть коли ви поїхали за Google Maps."
-                : "У браузері трек пишеться, лише поки відкритий «Мій день». Поставте застосунок — він пише у фоні.",
-              "Відмітка «Приїхав» зберігає, де ви були і скільки грошей забрали.",
-              "Наприкінці дня натисніть «Здаю касу» — офіс підтвердить прийом грошей.",
-              "Якщо зник звʼязок, точки чекають у пристрої й доїжджають самі.",
-            ].map((t) => (
-              <li key={t} style={{ fontSize: "12.5px", color: "#4B5563", lineHeight: 1.6 }}>
-                {t}
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Card className="flex flex-col gap-2">
+          <CardTitle>Як це працює</CardTitle>
+          {[
+            isApp
+              ? "Застосунок пише ваш маршрут у фоні — навіть коли ви поїхали за Google Maps."
+              : "У браузері трек пишеться, лише поки відкритий «Мій день». Поставте застосунок — він пише у фоні.",
+            "Відмітка «Приїхав» зберігає, де ви були і скільки грошей забрали.",
+            "Наприкінці дня натисніть «Здаю касу» — офіс підтвердить прийом грошей.",
+            "Якщо зник звʼязок, точки чекають у пристрої й доїжджають самі.",
+          ].map((t) => (
+            <p key={t} className="flex gap-2 text-[13px] leading-relaxed text-[#4B5563]">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              {t}
+            </p>
+          ))}
+        </Card>
 
         {/* Застосунок: у браузері кличемо поставити, всередині —
             пропонуємо оновитись, коли на сервері свіжіша збірка. */}
-        <section
-          className="rounded-2xl px-4 py-4"
-          style={{ background: "#fff", border: "1px solid #E5E7EB" }}
-        >
-          <p style={{ fontSize: "14px", fontWeight: 700, color: "#0A0A0A" }}>Застосунок</p>
-          <p style={{ fontSize: "12.5px", color: "#6B7280", marginTop: "4px", lineHeight: 1.5 }}>
+        <Card className="flex flex-col gap-2">
+          <CardTitle>Застосунок</CardTitle>
+          <Body>
             {isApp
               ? "Ви працюєте в застосунку — трек пишеться у фоні."
               : "Android-застосунок пише маршрут у фоні, поки ви в системі."}
-          </p>
+          </Body>
 
           {isApp && update.available ? (
             update.viaBridge ? (
-              <button
-                type="button"
-                onClick={update.start}
-                className="w-full cursor-pointer rounded-xl transition-colors duration-200"
-                style={{
-                  marginTop: "12px",
-                  minHeight: "46px",
-                  background: "#FFD600",
-                  border: "none",
-                  color: "#0A0A0A",
-                  fontSize: "14.5px",
-                  fontWeight: 700,
-                }}
-              >
+              <Button tone="brand" small onClick={update.start} className="mt-1 w-full">
+                <RefreshCw size={18} />
                 Оновити застосунок
-              </button>
+              </Button>
             ) : (
-              <Link
-                href="/driver/app"
-                style={{
-                  display: "block",
-                  marginTop: "12px",
-                  padding: "13px",
-                  borderRadius: "12px",
-                  background: "#FFD600",
-                  color: "#0A0A0A",
-                  fontSize: "14.5px",
-                  fontWeight: 700,
-                  textAlign: "center",
-                  textDecoration: "none",
-                }}
-              >
+              <Button tone="brand" small href="/driver/app" className="mt-1 w-full">
                 Доступна нова версія — як оновити
-              </Link>
+              </Button>
             )
           ) : (
             !isApp && (
-              <Link
-                href="/driver/app"
-                style={{
-                  display: "block",
-                  marginTop: "12px",
-                  padding: "13px",
-                  borderRadius: "12px",
-                  background: "#FFD600",
-                  color: "#0A0A0A",
-                  fontSize: "14.5px",
-                  fontWeight: 700,
-                  textAlign: "center",
-                  textDecoration: "none",
-                }}
-              >
+              <Button tone="brand" small href="/driver/app" className="mt-1 w-full">
                 Встановити застосунок
-              </Link>
+              </Button>
             )
           )}
-        </section>
+        </Card>
 
         <button
           type="button"
@@ -228,28 +172,26 @@ export default function DriverProfilePage() {
             if (isApp && window.BudvikApp) window.BudvikApp.logout();
             else void signOut({ callbackUrl: "/login" });
           }}
-          className="w-full cursor-pointer rounded-2xl transition-colors duration-200"
-          style={{
-            minHeight: "48px",
-            background: "#fff",
-            border: "1px solid #FECACA",
-            color: "#DC2626",
-            fontSize: "15px",
-            fontWeight: 600,
-          }}
+          className="min-h-12 w-full rounded-2xl border border-bad-line bg-white text-[15px] font-semibold text-bad"
         >
           Вийти з акаунту
         </button>
-      </div>
-    </div>
+
+        <Note>
+          {user?.email ? `Ви увійшли як ${user.email}. ` : ""}У застосунку вихід зупиняє трек і
+          стирає токен пристрою — інакше маршрут писався б під чужим акаунтом.
+        </Note>
+      </Page>
+    </>
   );
 }
 
+/** Підпис над числом: у ряд їх стає чотири, і пара «слово число» злипається. */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <span>
-      <span style={{ fontSize: "11px", color: "#9CA3AF" }}>{label} </span>
-      <span style={{ fontSize: "13.5px", fontWeight: 600, color: "#374151" }}>{value}</span>
+    <span className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-cab-t3">{label}</span>
+      <span className="text-[13px] font-semibold text-[#374151]">{value}</span>
     </span>
   );
 }

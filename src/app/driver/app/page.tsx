@@ -125,24 +125,12 @@ export default function DriverAppPage() {
           )
         ) : (
           <>
-            <Card className="flex flex-col gap-2">
-              <CardTitle big>Budvik Tracker для Android</CardTitle>
-              <Body>
-                Маршрут дня і запис пробігу в одному застосунку. Трек пишеться у фоні — поки ви в
-                системі, навіть коли екран вимкнено або ви поїхали за підказками Google Maps.
-              </Body>
-              <a
-                href="/api/app/download"
-                className="mt-1 flex h-[52px] items-center justify-center rounded-xl bg-primary text-[15px] font-bold text-bk"
-              >
-                Завантажити APK
-              </a>
-              <Note>
-                Тільки для Android. На iPhone застосунок не встановиться — там кабінет відкривається
-                у браузері.
-              </Note>
-            </Card>
-
+            {/*
+              Другої кнопки завантаження тут більше немає. Раніше сторінка
+              пропонувала дві: угорі нову збірку, нижче — помітнішу, яка ставила
+              СТАРИЙ трекер. Людина тиснула нижню, бо вона більша, і поверталася
+              з тим самим застосунком, від якого її й переводили.
+            */}
             <Eyebrow>Як встановити</Eyebrow>
             {STEPS.map((step, i) => (
               <Card key={step.title}>
@@ -153,8 +141,16 @@ export default function DriverAppPage() {
             ))}
 
             <Note>
-              Застосунок записує ваше місцезнаходження в робочий час. Питання — до керівника.
+              Тільки для Android. На iPhone застосунок не встановиться — там кабінет відкривається у
+              браузері. Застосунок записує ваше місцезнаходження в робочий час. Питання — до
+              керівника.
             </Note>
+
+            {/* Старий трекер лишається доступним на випадок відкату — але
+                дрібним посиланням, а не кнопкою поруч із новою збіркою. */}
+            <a href="/api/app/download" className="py-2 text-center text-xs text-cab-t3 underline">
+              Завантажити старий Budvik Tracker
+            </a>
           </>
         )}
 

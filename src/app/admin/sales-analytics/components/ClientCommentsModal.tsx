@@ -43,8 +43,9 @@ const MAX_SIDE = 1600;
  * повертаємо оригінал: краще повільно, ніж ніяк.
  */
 async function compress(file: File): Promise<File> {
+  let bitmap: ImageBitmap | null = null;
   try {
-    const bitmap = await createImageBitmap(file);
+    bitmap = await createImageBitmap(file);
     const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
     const w = Math.round(bitmap.width * scale);
     const h = Math.round(bitmap.height * scale);
@@ -55,15 +56,30 @@ async function compress(file: File): Promise<File> {
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
     ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close();
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.8)
     );
+    // Полотно теж тримає пам'ять: 1600×1200 — це ще 7 МБ, які на планшеті
+    // з двома гігабайтами не зайві. Обнуляємо розмір, щоб браузер віддав їх
+    // одразу, а не коли надумає.
+    canvas.width = 0;
+    canvas.height = 0;
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], "location.jpg", { type: "image/jpeg" });
   } catch {
     return file;
+  } finally {
+    /**
+     * Закривати ОБОВ'ЯЗКОВО і на всіх шляхах.
+     *
+     * Розпакований кадр із планшетної камери — це 4000×3000×4 байти, тобто
+     * 48 МБ у пам'яті вкладки. Раніше close() стояв лише на вдалій гілці:
+     * кожне скасування чи екзотичний формат лишали ці 48 МБ висіти до
+     * прибирача. Кілька спроб поспіль — і рендерер WebView просто вбивали
+     * за пам'ять, а для людини це «застосунок завис».
+     */
+    bitmap?.close();
   }
 }
 

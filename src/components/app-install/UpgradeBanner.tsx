@@ -19,10 +19,31 @@ import { useEffect, useState } from "react";
 
 type Build = { url: string; versionName: string };
 
+/**
+ * Версія, у якій старий трекер перестав підвисати.
+ *
+ * До 1.5 кожен фікс GPS тричі перечитував увесь буфер точок із диска — і все
+ * це в головному потоці. Поки зв'язок є, буфер малий і цього не видно; у селі
+ * він виростає до тисяч точок, і планшет завмирає рівно тоді, коли людина
+ * стоїть у клієнта й намагається поставити пін, дописати нотатку чи закрити
+ * зміну. Саме так це й виглядало у торгового, який лишився на 1.2.
+ */
+const TRACKER_FREEZE_FIXED_IN = 1.5;
+
+/** «1.2» → 1.2. Дві частини — більше в трекера й не було. */
+function trackerVersion(): number | null {
+  if (typeof navigator === "undefined") return null;
+  const m = navigator.userAgent.match(/BudvikApp\/([\d.]+)/);
+  const v = m ? Number.parseFloat(m[1]) : NaN;
+  return Number.isFinite(v) ? v : null;
+}
+
 export function UpgradeBanner() {
   const [build, setBuild] = useState<Build | null>(null);
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState(true);
+  /** Стара збірка трекера з відомим підвисанням — кажемо про це прямо. */
+  const [freezes, setFreezes] = useState<number | null>(null);
 
   useEffect(() => {
     if (typeof navigator === "undefined") return;
@@ -30,6 +51,9 @@ export function UpgradeBanner() {
     if (/BudvikStaff\//.test(navigator.userAgent)) return;
 
     setHidden(false);
+    const v = trackerVersion();
+    if (v !== null && v < TRACKER_FREEZE_FIXED_IN) setFreezes(v);
+
     fetch("/api/app/staff/version", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -97,6 +121,23 @@ export function UpgradeBanner() {
         Замінює Budvik Tracker. Маршрут пишеться навіть там, де немає зв’язку, а відмітку клієнта
         можна поставити без мережі — вона надішлеться сама.
       </p>
+
+      {/* Не загальне «оновіться», а те, що людина бачить на своєму планшеті
+          щодня: у цій збірці застосунок завмирає, коли трек накопичився. */}
+      {freezes !== null && (
+        <p
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "#FCA5A5",
+            marginTop: "10px",
+            lineHeight: 1.5,
+          }}
+        >
+          У вас Budvik Tracker {freezes}. Саме в ній планшет завмирає на пін, нотатку, фото й
+          закриття зміни, коли трек накопичився без зв’язку. У новому застосунку цього немає.
+        </p>
+      )}
 
       <button
         onClick={start}

@@ -4,8 +4,23 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import type { ReactNode } from "react";
+import {
+  Banknote,
+  ChevronRight,
+  CircleDollarSign,
+  ImageIcon,
+  MapPin,
+  Package,
+  Phone,
+  Star,
+  User,
+} from "lucide-react";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { SalesHeader } from "@/components/sales/SalesHeader";
+import { Body, Card, Note, Page } from "@/components/cabinet/ui";
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Створено", CONFIRMED: "Підтверджено", PACKING: "На упакуванні",
@@ -19,6 +34,84 @@ const STATUS_COLOR: Record<string, string> = {
   DRAFT: "#D97706", CONFIRMED: "#2563EB", PACKING: "#9333EA",
   IN_TRANSIT: "#D97706", DELIVERED: "#16A34A", CANCELLED: "#DC2626",
 };
+
+/**
+ * Картка-секція зі своєю шапкою і рядками через лінію.
+ *
+ * Оплати, товари, замовлення й повернення — чотири однакові за формою блоки:
+ * заголовок ліворуч, підсумок праворуч, далі рядки. Поки кожен був окремим
+ * набором інлайнових стилів, у них розійшлися і відступи, і товщина ліній.
+ */
+function Section({
+  title,
+  right,
+  icon,
+  tone = "plain",
+  children,
+}: {
+  title: string;
+  right?: ReactNode;
+  icon?: ReactNode;
+  tone?: "plain" | "bad";
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={`overflow-hidden rounded-2xl border bg-white ${
+        tone === "bad" ? "border-bad-line" : "border-cab-line"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-cab-line px-4 py-3">
+        <span className="flex min-w-0 items-center gap-2">
+          {icon}
+          <span className="truncate text-sm font-semibold text-bk">{title}</span>
+        </span>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Рядок секції: усі, крім першого, відокремлені лінією. */
+function SectionRow({ children, href }: { children: ReactNode; href?: string }) {
+  const cls = "block px-4 py-2.5 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-[#F1F1EF]";
+  return href ? (
+    <Link href={href} className={`${cls} active:opacity-70`}>
+      {children}
+    </Link>
+  ) : (
+    <div className={cls}>{children}</div>
+  );
+}
+
+/** Квадратик під іконку контакту: колір каже про стан, а не про тип. */
+function Tile({ bg, children }: { bg: string; children: ReactNode }) {
+  return (
+    <span
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
+      style={{ background: bg }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Мініатюра товару — з тим самим заповнювачем, коли фото немає. */
+function Thumb({ src, size = 44 }: { src?: string | null; size?: number }) {
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-cab-line bg-cab-bg"
+      style={{ width: size, height: size }}
+    >
+      {src ? (
+        <img src={src} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <ImageIcon size={size > 30 ? 20 : 14} className="text-[#C9C9C6]" />
+      )}
+    </span>
+  );
+}
 
 export default function ClientDetailPage() {
   const { data: session } = useSession();
@@ -35,13 +128,29 @@ export default function ClientDetailPage() {
       .catch(() => setLoading(false));
   }, [session, id]);
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9CA3AF" }}>Завантаження...</div>;
-  if (!data?.counterparty) return <div className="min-h-screen flex items-center justify-center"><p>Клієнта не знайдено</p></div>;
+  if (loading) {
+    return (
+      <Page>
+        <Card>
+          <Body>Завантаження…</Body>
+        </Card>
+      </Page>
+    );
+  }
+  if (!data?.counterparty) {
+    return (
+      <Page>
+        <Card tone="warn">
+          <Body>Клієнта не знайдено.</Body>
+        </Card>
+      </Page>
+    );
+  }
 
   const { counterparty: cp, debt, sales, topProducts = [], payments = [], returns } = data;
 
   return (
-    <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
+    <>
       <SalesHeader
         title={cp.name}
         subtitle={cp.code ? `ЄДРПОУ: ${cp.code}` : undefined}
@@ -49,226 +158,210 @@ export default function ClientDetailPage() {
         sticky
       />
 
-      <div className="max-w-lg mx-auto px-4" style={{ paddingTop: "16px" }}>
-        {/* Contact info */}
-        <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          {cp.phone && (
-            <a href={`tel:${cp.phone}`} className="flex items-center gap-3 py-2.5" style={{ textDecoration: "none", color: "#0A0A0A" }}>
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#EFF6FF" }}>
-                <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#3B82F6" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
-                </svg>
-              </div>
-              <span style={{ fontSize: "15px", fontWeight: 500 }}>{cp.phone}</span>
+      <Page>
+        {/* Контакти */}
+        <section className="overflow-hidden rounded-2xl border border-cab-line bg-white">
+          {!!cp.phone && (
+            <a href={`tel:${cp.phone}`} className="flex items-center gap-3 px-4 py-2.5">
+              <Tile bg="#EFF6FF">
+                <Phone size={18} color="#3B82F6" />
+              </Tile>
+              <span className="text-[15px] font-medium text-bk">{cp.phone}</span>
             </a>
           )}
+
           {/* Точка на карті. Рядок клікабельний завжди, навіть без адреси:
               саме такому клієнту пін потрібен найбільше. Позначка каже,
               чи точку вже уточнили руками, чи там досі здогадка геокодера. */}
           <Link
             href={`/sales/clients/${id}/pin`}
-            className="flex items-center gap-3 py-2.5"
-            style={{ borderTop: "1px solid #F3F4F6", textDecoration: "none", color: "#0A0A0A" }}
+            className="flex items-center gap-3 border-t border-[#F1F1EF] px-4 py-2.5"
           >
-            <div
-              className="w-9 h-9 rounded-lg flex items-center justify-center"
-              style={{ background: cp.geoSource === "MANUAL" ? "#ECFDF5" : "#FFF7ED" }}
-            >
-              <svg
-                className="w-4.5 h-4.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke={cp.geoSource === "MANUAL" ? "#059669" : "#D97706"}
-                strokeWidth={1.5}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-              </svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p style={{ fontSize: "14px", color: "#6B7280" }}>
+            <Tile bg={cp.geoSource === "MANUAL" ? "#ECFDF5" : "#FFF7ED"}>
+              <MapPin size={18} color={cp.geoSource === "MANUAL" ? "#059669" : "#D97706"} />
+            </Tile>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-medium text-bk">
                 {cp.address || "Адреси немає"}
-              </p>
-              <p style={{ fontSize: "12px", color: cp.geoSource === "MANUAL" ? "#059669" : "#D97706", marginTop: "1px" }}>
+              </span>
+              <span
+                className={`block text-xs font-medium ${
+                  cp.geoSource === "MANUAL" ? "text-ok-fg" : "text-warn-fg"
+                }`}
+              >
                 {cp.geoSource === "MANUAL"
                   ? "Точку уточнено"
                   : cp.deliveryLat != null
                     ? "Точка приблизна — уточнити"
                     : "Точки на карті немає — поставити"}
-              </p>
-            </div>
-            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
+              </span>
+            </span>
+            <ChevronRight size={18} className="shrink-0 text-cab-t3" />
           </Link>
-          {cp.contactPerson && (
-            <div className="flex items-center gap-3 py-2.5" style={{ borderTop: "1px solid #F3F4F6" }}>
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F3F4F6" }}>
-                <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#6B7280" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
-              </div>
-              <span style={{ fontSize: "14px", color: "#6B7280" }}>{cp.contactPerson}</span>
+
+          {!!cp.contactPerson && (
+            <div className="flex items-center gap-3 border-t border-[#F1F1EF] px-4 py-2.5">
+              <Tile bg="#F1F1EF">
+                <User size={18} className="text-cab-t2" />
+              </Tile>
+              <span className="text-[15px] font-medium text-bk">{cp.contactPerson}</span>
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Debt card */}
-        <div className="rounded-2xl p-4 mb-3" style={{
-          border: debt.total > 0 ? "1px solid #FCA5A5" : "1px solid #EFEFEF",
-          background: debt.total > 0 ? "linear-gradient(135deg, #FEF2F2, #FFF1F2)" : "white",
-          boxShadow: debt.total > 0 ? "0 2px 8px rgba(220,38,38,0.08)" : "0 1px 4px rgba(0,0,0,0.04)",
-        }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: debt.total > 0 ? "#FEE2E2" : "#F3F4F6" }}>
-                <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke={debt.total > 0 ? "#DC2626" : "#9CA3AF"} strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-                </svg>
-              </div>
-              <p style={{ fontSize: "14px", fontWeight: 600, color: debt.total > 0 ? "#DC2626" : "#6B7280" }}>
+        {/* Борг. Це перше, з чим торговий заходить у магазин, тому картка
+            кольорова лише коли борг є — інакше вона кричала б щодня. */}
+        <div
+          className={`rounded-2xl border p-4 ${
+            debt.total > 0 ? "border-bad-line bg-bad-bg" : "border-cab-line bg-white"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2.5">
+              <Tile bg={debt.total > 0 ? "#FEE2E2" : "#F1F1EF"}>
+                <Banknote size={18} className={debt.total > 0 ? "text-bad" : "text-cab-t3"} />
+              </Tile>
+              <span className={`text-sm font-semibold ${debt.total > 0 ? "text-bad-fg" : "text-cab-t2"}`}>
                 Заборгованість
-              </p>
-            </div>
-            <p style={{ fontSize: "24px", fontWeight: 700, color: debt.total > 0 ? "#DC2626" : "#16A34A" }}>
+              </span>
+            </span>
+            <span className={`text-2xl font-bold ${debt.total > 0 ? "text-bad-fg" : "text-ok-fg"}`}>
               {formatPrice(debt.total)}
-            </p>
+            </span>
           </div>
-          <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px" }}>
+          <Note>
             {debt.syncedAt ? `За даними 1С, оновлено ${formatDate(debt.syncedAt)}` : "За даними 1С"}
-          </p>
+          </Note>
         </div>
 
-        {/* Payments — ПКО з 1С, які зменшують борг вище */}
-        <div className="bg-white rounded-2xl p-4 mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#F0FDF4" }}>
-              <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#16A34A" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Останні оплати</p>
-          </div>
+        {/* Оплати — ПКО з 1С, які зменшують борг вище */}
+        <Section
+          title="Останні оплати"
+          icon={<CircleDollarSign size={18} className="text-ok" />}
+          right={
+            payments.length > 0 ? (
+              <span className="shrink-0 text-[13px] font-semibold text-cab-t2">
+                {payments.length} за 30 днів
+              </span>
+            ) : undefined
+          }
+        >
           {payments.length === 0 ? (
-            <p style={{ fontSize: "13px", color: "#9CA3AF" }}>Оплат поки не зафіксовано</p>
+            <div className="px-4 py-3">
+              <Body>Оплат поки не зафіксовано</Body>
+            </div>
           ) : (
             payments.map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between py-2" style={{ borderTop: "1px solid #F3F4F6" }}>
-                <div className="min-w-0">
-                  <p style={{ fontSize: "13px", fontWeight: 500, color: "#0A0A0A" }}>
-                    {formatDate(p.paidAt || p.createdAt)}
-                  </p>
-                  <p style={{ fontSize: "11px", color: "#9CA3AF" }} className="truncate">
-                    {p.notes || (p.method === "cash" ? "Готівка" : "Безготівково")}
-                  </p>
-                </div>
-                <p style={{ fontSize: "15px", fontWeight: 700, color: "#16A34A" }}>{formatPrice(p.amount)}</p>
-              </div>
+              <SectionRow key={p.id}>
+                <span className="flex items-center justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-bk">
+                      {formatDate(p.paidAt || p.createdAt)}
+                    </span>
+                    <span className="block truncate text-[11px] text-cab-t3">
+                      {p.notes || (p.method === "cash" ? "Готівка" : "Безготівково")}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[15px] font-bold text-ok-fg">
+                    {formatPrice(p.amount)}
+                  </span>
+                </span>
+              </SectionRow>
             ))
           )}
-        </div>
+        </Section>
 
-        {/* Top products */}
+        {/* Найчастіші товари */}
         {topProducts.length > 0 && (
-          <div className="bg-white rounded-2xl mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div className="flex items-center gap-2" style={{ padding: "14px 16px", borderBottom: "1px solid #F3F4F6" }}>
-              <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="#F59E0B" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-              </svg>
-              <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Найчастіші товари</p>
-            </div>
-            <div style={{ padding: "4px 0" }}>
-              {topProducts.map((tp: any) => (
-                <div key={tp.product.id} className="flex items-center gap-3" style={{ padding: "10px 16px", borderBottom: "1px solid #F9FAFB" }}>
-                  <div className="w-11 h-11 rounded-lg flex-shrink-0 overflow-hidden" style={{ background: "#F3F4F6", border: "1px solid #EFEFEF" }}>
-                    {tp.product.image ? (
-                      <img src={tp.product.image} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p style={{ fontSize: "14px", fontWeight: 500, color: "#0A0A0A" }} className="truncate">{tp.product.name}</p>
-                    <div className="flex gap-2" style={{ fontSize: "12px", color: "#9CA3AF" }}>
-                      <span>{tp.totalQuantity} шт. / {tp.orderCount} зам.</span>
-                      {tp.product.sku && <span>| {tp.product.sku}</span>}
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{formatPrice(tp.product.price)}</p>
-                    <p style={{ fontSize: "11px", color: tp.product.stock > 0 ? "#16A34A" : "#DC2626" }}>
-                      {tp.product.stock > 0 ? `${tp.product.stock} шт.` : "Немає"}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Section title="Найчастіші товари" icon={<Star size={18} className="text-warn" />}>
+            {topProducts.map((tp: any) => (
+              <SectionRow key={tp.product.id}>
+                <span className="flex items-center gap-3">
+                  <Thumb src={tp.product.image} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-bk">
+                      {tp.product.name}
+                    </span>
+                    <span className="block truncate text-xs text-cab-t3">
+                      {tp.totalQuantity} шт / {tp.orderCount} зам.
+                      {tp.product.sku ? ` · ${tp.product.sku}` : ""}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-semibold text-bk">
+                      {formatPrice(tp.product.price)}
+                    </span>
+                    <span
+                      className={`block text-[11px] font-medium ${
+                        tp.product.stock > 0 ? "text-ok-fg" : "text-bad-fg"
+                      }`}
+                    >
+                      {tp.product.stock > 0 ? `є ${tp.product.stock} шт` : "Немає"}
+                    </span>
+                  </span>
+                </span>
+              </SectionRow>
+            ))}
+          </Section>
         )}
 
-        {/* Sales history */}
-        <div className="bg-white rounded-2xl mb-3" style={{ border: "1px solid #EFEFEF", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          <div className="flex items-center justify-between" style={{ padding: "14px 16px", borderBottom: "1px solid #F3F4F6" }}>
-            <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Останні замовлення</p>
-            <p style={{ fontSize: "13px", color: "#6B7280" }}>{sales.count} підтв. / {formatPrice(sales.totalAmount)}</p>
-          </div>
-          {sales.items.length > 0 ? (
-            <div style={{ padding: "4px 0" }}>
-              {sales.items.slice(0, 10).map((s: any) => (
-                <Link key={s.id} href={`/sales/orders/${s.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
-                  <div style={{ padding: "10px 16px", borderBottom: "1px solid #F9FAFB" }}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{s.number}</span>
-                        <span style={{
-                          fontSize: "11px", fontWeight: 500,
-                          padding: "2px 6px", borderRadius: "4px",
-                          background: STATUS_BG[s.status], color: STATUS_COLOR[s.status],
-                        }}>
-                          {STATUS_LABELS[s.status]}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>{formatPrice(s.totalAmount)}</p>
-                        <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{formatDate(s.createdAt)}</p>
-                      </div>
-                    </div>
-                    {/* Product thumbnails */}
-                    {s.items && s.items.length > 0 && (
-                      <div className="flex gap-2 mt-1.5">
-                        {s.items.slice(0, 4).map((item: any) => (
-                          <div key={item.id} className="flex items-center gap-1.5" style={{ maxWidth: "45%", minWidth: 0 }}>
-                            <div className="w-7 h-7 rounded flex-shrink-0 overflow-hidden" style={{ background: "#F3F4F6", border: "1px solid #EFEFEF" }}>
-                              {item.product?.image ? (
-                                <img src={item.product.image} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="#D1D5DB" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-                                  </svg>
-                                </div>
-                              )}
-                            </div>
-                            <span style={{ fontSize: "11px", color: "#6B7280" }} className="truncate">{item.quantity}x {item.product?.name}</span>
-                          </div>
-                        ))}
-                        {s.items.length > 4 && (
-                          <span style={{ fontSize: "11px", color: "#9CA3AF", alignSelf: "center" }}>+{s.items.length - 4}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              ))}
+        {/* Замовлення */}
+        <Section
+          title="Останні замовлення"
+          right={
+            <span className="shrink-0 text-[13px] font-semibold text-cab-t2">
+              {sales.count} підтв. / {formatPrice(sales.totalAmount)}
+            </span>
+          }
+        >
+          {sales.items.length === 0 ? (
+            <div className="px-4 py-5 text-center">
+              <Body>Замовлень поки немає</Body>
             </div>
           ) : (
-            <p style={{ fontSize: "13px", color: "#9CA3AF", padding: "20px 16px", textAlign: "center" }}>Замовлень поки немає</p>
+            sales.items.slice(0, 10).map((s: any) => (
+              <SectionRow key={s.id} href={`/sales/orders/${s.id}`}>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="text-sm font-semibold text-bk">{s.number}</span>
+                    <span
+                      className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
+                      style={{ background: STATUS_BG[s.status], color: STATUS_COLOR[s.status] }}
+                    >
+                      {STATUS_LABELS[s.status]}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-[15px] font-bold text-bk">
+                      {formatPrice(s.totalAmount)}
+                    </span>
+                    <span className="block text-[11px] text-cab-t3">{formatDate(s.createdAt)}</span>
+                  </span>
+                </span>
+
+                {/* Мініатюри позицій: за ними документ упізнають швидше, ніж
+                    за номером — торговий пам'ятає, що возив, а не № 000512. */}
+                {!!s.items?.length && (
+                  <span className="mt-1.5 flex flex-wrap gap-2">
+                    {s.items.slice(0, 4).map((item: any) => (
+                      <span key={item.id} className="flex min-w-0 max-w-[45%] items-center gap-1.5">
+                        <Thumb src={item.product?.image} size={28} />
+                        <span className="truncate text-[11px] text-cab-t2">
+                          {item.quantity}x {item.product?.name}
+                        </span>
+                      </span>
+                    ))}
+                    {s.items.length > 4 && (
+                      <span className="self-center text-[11px] text-cab-t3">
+                        +{s.items.length - 4}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </SectionRow>
+            ))
           )}
-        </div>
+        </Section>
 
         {/*
           Повернення. Блок показується лише коли вони є: у більшості клієнтів
@@ -276,36 +369,37 @@ export default function ClientDetailPage() {
           на телефоні. Суми приходять з API вже додатними (у базі від'ємні).
         */}
         {returns && returns.count > 0 && (
-          <div className="bg-white rounded-2xl mb-3" style={{ border: "1px solid #FCA5A5", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div className="flex items-center justify-between" style={{ padding: "14px 16px", borderBottom: "1px solid #F3F4F6" }}>
-              <p style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>Повернення</p>
-              <p style={{ fontSize: "13px", fontWeight: 600, color: "#DC2626" }}>
-                {returns.count} шт. / −{formatPrice(returns.totalAmount)}
-              </p>
-            </div>
-            <div style={{ padding: "4px 0" }}>
-              {returns.items.slice(0, 10).map((r: any) => (
-                <div key={r.id} style={{ padding: "10px 16px", borderBottom: "1px solid #F9FAFB" }}>
-                  <div className="flex items-center justify-between">
-                    <div style={{ minWidth: 0 }}>
-                      <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>{r.number}</span>
-                      {r.items?.length > 0 && (
-                        <p style={{ fontSize: "11px", color: "#6B7280", marginTop: "2px" }} className="truncate">
-                          {r.items.map((i: any) => `${i.quantity}x ${i.product?.name ?? "—"}`).join(", ")}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right" style={{ flexShrink: 0, marginLeft: "8px" }}>
-                      <p style={{ fontSize: "15px", fontWeight: 700, color: "#DC2626" }}>
-                        −{formatPrice(r.totalAmount)}
-                      </p>
-                      <p style={{ fontSize: "11px", color: "#9CA3AF" }}>{formatDate(r.createdAt)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Section
+            title="Повернення"
+            tone="bad"
+            icon={<Package size={18} className="text-bad" />}
+            right={
+              <span className="shrink-0 text-[13px] font-semibold text-bad-fg">
+                {returns.count} шт / −{formatPrice(returns.totalAmount)}
+              </span>
+            }
+          >
+            {returns.items.slice(0, 10).map((r: any) => (
+              <SectionRow key={r.id}>
+                <span className="flex items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-bk">{r.number}</span>
+                    {!!r.items?.length && (
+                      <span className="block truncate text-[11px] text-cab-t2">
+                        {r.items.map((i: any) => `${i.quantity}x ${i.product?.name ?? "—"}`).join(", ")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-[15px] font-bold text-bad-fg">
+                      −{formatPrice(r.totalAmount)}
+                    </span>
+                    <span className="block text-[11px] text-cab-t3">{formatDate(r.createdAt)}</span>
+                  </span>
+                </span>
+              </SectionRow>
+            ))}
+          </Section>
         )}
 
         {/*
@@ -313,7 +407,7 @@ export default function ClientDetailPage() {
           /sales/new: торгові поки не оформлюють замовлення через
           застосунок. Сторінка на місці — повернути можна одним комітом.
         */}
-      </div>
-    </div>
+      </Page>
+    </>
   );
 }

@@ -10,6 +10,12 @@
  * запам'ятовує її в /api/app/version. Порожній список означає лише те,
  * що після останнього деплою ніхто ще не відкривав кабінет.
  *
+ * Заразом друкує стан ОСТАННЬОГО пульсу: дозвіл на місце, оптимізацію
+ * батареї, чи йде запис. Версія відповідає на «яка збірка», пульс — на
+ * «чому в неї нічого не пишеться», а ці два питання завжди приходять разом.
+ * 28.08 саме тут і виявилося, що на єдиному планшеті з новою збіркою дозвіл
+ * DENIED, тобто трек не писався жодного разу.
+ *
  * Читання, жодних записів:
  *   npx tsx scripts/check-app-versions.ts
  */
@@ -39,6 +45,35 @@ async function main(){
   const ids = [...rows.map(r => r.key.replace("app:installed:", "")), ...staffIds];
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
   const nameOf = new Map(users.map(u => [u.id, u.name]));
+
+  /**
+   * Останній пульс кожного планшета. Старі збірки трекера (до 1.3) пульсу не
+   * шлють узагалі — для них рядок лишиться порожнім, і це теж діагноз.
+   */
+  const beats = await prisma.deviceHeartbeat.findMany({
+    where: { userId: { in: ids } },
+    orderBy: { at: "desc" },
+    select: {
+      userId: true, at: true, tracking: true, buffered: true,
+      locationPermission: true, batteryOptimized: true, locationMode: true,
+    },
+  });
+  const beatOf = new Map<string, (typeof beats)[number]>();
+  for (const b of beats) if (!beatOf.has(b.userId)) beatOf.set(b.userId, b);
+
+  /** Що з пристроєм не так — словами, а не кодами. Порожньо = все гаразд. */
+  const health = (id: string): string => {
+    const b = beatOf.get(id);
+    if (!b) return "пульсу немає (збірка до 1.3 або застосунок не запускали)";
+    const bad: string[] = [];
+    if (b.locationPermission === "DENIED") bad.push("ДОЗВОЛУ НА МІСЦЕ НЕМАЄ — трек не пишеться");
+    else if (b.locationPermission === "WHILE_USING") bad.push("дозвіл лише «поки відкрито»");
+    if (b.locationMode === "OFF") bad.push("геолокацію вимкнено в системі");
+    if (b.batteryOptimized) bad.push("батарея душить застосунок");
+    if (!b.tracking) bad.push("запис стоїть");
+    if (b.buffered > 50) bad.push(`у буфері ${b.buffered} точок`);
+    return bad.join(" · ");
+  };
   if (staffRows.length) {
     console.log("— Робоча збірка (Будвік27 Робота) —");
     for (const r of staffRows) {
@@ -48,6 +83,8 @@ async function main(){
       });
       const verdict = r.value === STAFF_APK_VERSION_NAME ? "актуальна" : `→ ${STAFF_APK_VERSION_NAME} стане поверх`;
       console.log(`${(nameOf.get(id) ?? "?").padEnd(20)} v${r.value.padEnd(7)} ${verdict.padEnd(46)} (озвався ${kyiv})`);
+      const h = health(id);
+      if (h) console.log(`${" ".repeat(22)}${h}`);
     }
     console.log("");
   }
@@ -71,6 +108,12 @@ async function main(){
       timeZone: "Europe/Kyiv", hour: "2-digit", minute: "2-digit",
     });
     console.log(`${(nameOf.get(id) ?? "?").padEnd(20)} v${v.padEnd(5)} ${verdict.padEnd(46)} (озвався ${kyiv})${movedOn}`);
+    // Стан пристрою показуємо лише тому, хто ще на трекері: у того, хто вже
+    // переїхав, пульс іде від нової збірки й надрукований вище.
+    if (!movedOn) {
+      const h = health(id);
+      if (h) console.log(`${" ".repeat(22)}${h}`);
+    }
   }
   await prisma.$disconnect();
 }

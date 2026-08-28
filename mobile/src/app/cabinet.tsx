@@ -31,6 +31,12 @@ import { bufferedCount } from "@/track/db";
 import { isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import {
+  currentPermissions,
+  requestTrackingPermissions,
+  type PermissionState,
+} from "@/track/permissions";
+import { within, PROBE_MS } from "@/lib/within";
 import { colors, space, radius } from "@/theme";
 
 export default function CabinetScreen() {
@@ -40,6 +46,12 @@ export default function CabinetScreen() {
   const canGoBack = useRef(false);
   const [token, setToken] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  /**
+   * Дозволи на місце. Читаються тут, бо кабінет — єдиний екран, який
+   * відкривають гарантовано: до «Зміни» більшість не доходить, а без дозволу
+   * застосунок мовчки не пише нічого.
+   */
+  const [perms, setPerms] = useState<PermissionState | null>(null);
   const [bridge, setBridge] = useState<BridgeState>({
     shiftOpen: false,
     pending: 0,
@@ -50,6 +62,9 @@ export default function CabinetScreen() {
   useFocusEffect(
     useCallback(() => {
       getToken().then(setToken);
+      if (IS_STAFF_BUILD) {
+        within(currentPermissions(), PROBE_MS, null).then(setPerms);
+      }
     }, [])
   );
 
@@ -187,6 +202,45 @@ export default function CabinetScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Кабінет", headerShown: false }} />
+
+      {/*
+        Найдорожча тиша в застосунку — та, про яку ніхто не знає.
+        
+        Дозвіл на місце просили лише при відкритті зміни. Хто поставив
+        застосунок і просто зайшов у кабінет, лишався без дозволу, і трек не
+        писався взагалі — жодної помилки, жодного натяку, а ввечері виявлялося,
+        що дня немає. Саме так і сталося з першим планшетом на новій збірці:
+        стоїть з ранку, дозвіл DENIED, нуль точок.
+
+        Тому смуга тут, а не на екрані зміни: кабінет відкривають усі й щодня.
+      */}
+      {IS_STAFF_BUILD && perms && !perms.foreground && (
+        <Pressable
+          style={styles.permStrip}
+          onPress={() => requestTrackingPermissions().then(setPerms)}
+        >
+          <Text style={styles.permTitle}>Маршрут не пишеться</Text>
+          <Text style={styles.permText}>
+            Застосунок не має доступу до місця. Натисніть, щоб дозволити — інакше день не
+            зарахується.
+          </Text>
+        </Pressable>
+      )}
+
+      {/* Дозвіл є, але лише «поки відкрито»: запис обірветься, щойно згасне
+          екран, — а це станеться на першому ж перегоні між клієнтами. */}
+      {IS_STAFF_BUILD && perms?.foreground && !perms.background && (
+        <Pressable
+          style={[styles.permStrip, styles.permStripWarn]}
+          onPress={() => requestTrackingPermissions().then(setPerms)}
+        >
+          <Text style={[styles.permTitle, styles.permTitleWarn]}>Оберіть «Дозволяти завжди»</Text>
+          <Text style={[styles.permText, styles.permTextWarn]}>
+            Зараз стоїть «Тільки під час використання» — запис зупиниться, коли екран згасне.
+          </Text>
+        </Pressable>
+      )}
+
       <WebView
         ref={webRef}
         source={{
@@ -260,6 +314,12 @@ export default function CabinetScreen() {
 }
 
 const styles = StyleSheet.create({
+  permStrip: { backgroundColor: "#DC2626", paddingVertical: 10, paddingHorizontal: space.lg, gap: 2 },
+  permStripWarn: { backgroundColor: "#FFFBEB", borderBottomWidth: 1, borderBottomColor: "#FDE68A" },
+  permTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  permTitleWarn: { color: "#B45309" },
+  permText: { color: "#FFFFFFD9", fontSize: 12, lineHeight: 16 },
+  permTextWarn: { color: "#5B6068" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.md, padding: space.xl },
   title: { fontSize: 17, fontWeight: "700", color: colors.text, textAlign: "center" },
   text: { fontSize: 14, lineHeight: 20, color: colors.textMuted, textAlign: "center" },

@@ -4,13 +4,29 @@
  * Екран був у Kotlin-трекері й без нього нова збірка не замінює стару. Тут
  * лише читання: виправляти минулі зміни може лише офіс, бо з них рахується
  * зарплата.
+ *
+ * Верстка з макета: підсумок місяця плитками зверху, далі зміни картками. Мітки
+ * («закрилася сама», «одометр під питанням») стоять біля дати навмисно — саме
+ * вони пояснюють, чому в тій зміні пробіг інший, ніж людина пам'ятає.
  */
 
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
+import { View, StyleSheet, ActivityIndicator, RefreshControl } from "react-native";
 import { Stack, useFocusEffect } from "expo-router";
 import { staffApi, type ShiftHistory, type ShiftRow } from "@/api/staff";
-import { colors, space, radius } from "@/theme";
+import { c, sp } from "@/ui/tokens";
+import {
+  Body,
+  Card,
+  CardTitle,
+  Header,
+  Note,
+  Pill,
+  Row,
+  Screen,
+  StatTile,
+  TileRow,
+} from "@/ui/kit";
 
 export default function ShiftHistoryScreen() {
   const [data, setData] = useState<ShiftHistory | null>(null);
@@ -36,103 +52,114 @@ export default function ShiftHistoryScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: "Історія змін" }} />
-        <ActivityIndicator color={colors.ink} />
+      <View style={s.center}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator color={c.bk} />
       </View>
     );
   }
 
-  const s = data?.summary;
+  const sum = data?.summary;
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.page}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => {
-            setRefreshing(true);
-            await load();
-            setRefreshing(false);
-          }}
-        />
-      }
-    >
-      <Stack.Screen options={{ title: "Історія змін" }} />
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <Header title="Історія змін" eyebrow="Останні 30 днів" />
 
-      {s && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>За останні 30 днів</Text>
-          <Row label="Змін" value={String(s.count)} />
-          <Row label="Пробіг" value={`${Math.round(s.totalKm)} км`} />
-          <Row label="За кермом" value={`${Math.round(s.totalMinutes / 60)} год`} />
-          {s.autoClosed > 0 && (
-            <>
-              <Row label="Закрилися самі" value={String(s.autoClosed)} />
-              {/* Це не докір, а попередження: забуту зміну система закриває
-                  сама, і пробіг у ній рахується не за одометром. */}
-              <Text style={styles.muted}>
+      <Screen
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await load();
+              setRefreshing(false);
+            }}
+          />
+        }
+      >
+        {sum && (
+          <Card gap={10}>
+            <CardTitle>За останні 30 днів</CardTitle>
+            {/*
+              Три плитки, а не чотири як у макеті: на 390 px четверта лишає під
+              число 67 px, і «2 640 км» зрізається до «2 …». Число, яке не
+              вміщається, гірше за число рядком — тому «закрились самі» стоїть
+              нижче звичайним рядком. Це й чесніше: це не показник роботи, а
+              попередження.
+            */}
+            <TileRow>
+              <StatTile label="Змін" value={String(sum.count)} />
+              <StatTile label="Пробіг" value={formatKm(sum.totalKm)} unit="км" />
+              <StatTile
+                label="За кермом"
+                value={String(Math.round(sum.totalMinutes / 60))}
+                unit="год"
+              />
+            </TileRow>
+            {sum.autoClosed > 0 && (
+              <Row label="Закрились самі" value={String(sum.autoClosed)} tone="bad" />
+            )}
+            {sum.autoClosed > 0 && (
+              // Це не докір, а попередження: забуту зміну система закриває
+              // сама, і пробіг у ній рахується не за одометром.
+              <Note>
                 Забуту зміну система закриває сама, і пробіг у ній рахується за GPS, а не за
                 одометром. Закривайте зміну самі — так у розрахунку менше похибки.
-              </Text>
-            </>
-          )}
-        </View>
-      )}
+              </Note>
+            )}
+          </Card>
+        )}
 
-      {error && !data && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Немає зв’язку</Text>
-          <Text style={styles.muted}>Історія завантажиться, щойно з’явиться мережа.</Text>
-        </View>
-      )}
+        {error && !data && (
+          <Card tone="warn">
+            <CardTitle>Немає зв’язку</CardTitle>
+            <Body>Історія завантажиться, щойно з’явиться мережа.</Body>
+          </Card>
+        )}
 
-      {data?.shifts.map((sh) => <ShiftCard key={sh.id} shift={sh} />)}
+        {data?.shifts.map((sh) => <ShiftCard key={sh.id} shift={sh} />)}
 
-      {data?.shifts.length === 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Змін ще не було</Text>
-          <Text style={styles.muted}>Тут з’являться закриті зміни з пробігом і часом.</Text>
-        </View>
-      )}
-    </ScrollView>
+        {data?.shifts.length === 0 && (
+          <Card>
+            <CardTitle>Змін ще не було</CardTitle>
+            <Body>Тут з’являться закриті зміни з пробігом і часом.</Body>
+          </Card>
+        )}
+      </Screen>
+    </>
   );
 }
 
 function ShiftCard({ shift }: { shift: ShiftRow }) {
   const open = shift.status === "OPEN";
   return (
-    <View style={styles.card}>
-      <View style={styles.head}>
-        <Text style={styles.date}>{formatDay(shift.startedAt)}</Text>
-        {open && <Text style={styles.badgeOpen}>відкрита</Text>}
-        {shift.closedAutomatically && <Text style={styles.badgeWarn}>закрилася сама</Text>}
-        {shift.odometerSuspicious && <Text style={styles.badgeWarn}>одометр під питанням</Text>}
+    <Card gap={sp.xs}>
+      <View style={s.head}>
+        <CardTitle>{formatDay(shift.startedAt)}</CardTitle>
+        {open && <Pill tone="good" dot={false} label="відкрита" />}
+        {shift.closedAutomatically && <Pill tone="bad" dot={false} label="закрилася сама" />}
+        {shift.odometerSuspicious && <Pill tone="warn" dot={false} label="одометр під питанням" />}
       </View>
 
-      <Row label="Час" value={`${formatTime(shift.startedAt)} — ${shift.endedAt ? formatTime(shift.endedAt) : "…"}`} />
+      <Row
+        label="Час"
+        value={`${formatTime(shift.startedAt)} — ${shift.endedAt ? formatTime(shift.endedAt) : "…"}`}
+      />
       {shift.distanceKm != null && <Row label="Пробіг за одометром" value={`${shift.distanceKm} км`} />}
-      {shift.gpsDistanceKm != null && <Row label="За GPS" value={`${shift.gpsDistanceKm} км`} />}
+      {shift.gpsDistanceKm != null && <Row label="За GPS" value={`${formatDec(shift.gpsDistanceKm)} км`} />}
       {shift.personalKm != null && shift.personalKm > 0 && (
-        <Row label="Особисті" value={`${shift.personalKm} км`} />
+        <Row label="Особисті" value={`${shift.personalKm} км`} tone="muted" />
       )}
       {shift.startOdometer != null && (
         <Row
           label="Одометр"
-          value={`${shift.startOdometer} → ${shift.endOdometer ?? "…"}`}
+          value={`${formatKm(shift.startOdometer)} → ${
+            shift.endOdometer != null ? formatKm(shift.endOdometer) : "…"
+          }`}
         />
       )}
-    </View>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.muted}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
-    </View>
+    </Card>
   );
 }
 
@@ -161,16 +188,15 @@ function formatDay(iso: string): string {
   }
 }
 
-const styles = StyleSheet.create({
-  page: { padding: space.md, gap: space.md, backgroundColor: colors.surface, flexGrow: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  card: { backgroundColor: colors.bg, borderRadius: radius.lg, padding: space.lg, gap: space.xs },
-  cardTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
-  head: { flexDirection: "row", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
-  date: { fontSize: 16, fontWeight: "700", color: colors.text },
-  badgeOpen: { fontSize: 12, fontWeight: "700", color: colors.ok },
-  badgeWarn: { fontSize: 12, fontWeight: "700", color: colors.sale },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
-  muted: { fontSize: 13, color: colors.textMuted, lineHeight: 18 },
-  value: { fontSize: 14, fontWeight: "600", color: colors.text },
+function formatKm(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+function formatDec(n: number): string {
+  return String(n).replace(".", ",");
+}
+
+const s = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
+  head: { flexDirection: "row", alignItems: "center", gap: sp.sm, flexWrap: "wrap" },
 });

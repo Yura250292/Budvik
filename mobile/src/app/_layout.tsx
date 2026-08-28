@@ -222,11 +222,20 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="cabinet" options={{ title: "Кабінет" }} />
             <Stack.Screen name="scan" options={{ title: "Сканер", presentation: "modal" }} />
-            <Stack.Screen name="day" options={{ title: "Мій день" }} />
-            <Stack.Screen name="shift/index" options={{ title: "Зміна" }} />
-            <Stack.Screen name="shift/odometer" options={{ title: "Одометр" }} />
-            <Stack.Screen name="shift/history" options={{ title: "Історія змін" }} />
-            <Stack.Screen name="shift/late-close" options={{ title: "Забув закрити зміну" }} />
+            {/*
+              Робочі екрани малюють власну шапку (src/ui/kit.tsx): у макеті над
+              назвою стоїть надзаголовок — стан зміни, крок, дата, — а системна
+              шапка другого рядка не має. Вимикаємо її тут, а не всередині
+              екранів, інакше на кожному переході встигає блимнути стара.
+            */}
+            <Stack.Screen name="day" options={{ title: "Мій день", headerShown: false }} />
+            <Stack.Screen name="shift/index" options={{ title: "Зміна", headerShown: false }} />
+            <Stack.Screen name="shift/odometer" options={{ title: "Одометр", headerShown: false }} />
+            <Stack.Screen name="shift/history" options={{ title: "Історія змін", headerShown: false }} />
+            <Stack.Screen
+              name="shift/late-close"
+              options={{ title: "Забув закрити зміну", headerShown: false }}
+            />
           </Stack>
         </LockGate>
       </PersistQueryClientProvider>

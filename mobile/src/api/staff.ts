@@ -188,6 +188,47 @@ export type VisitInput = {
   lng?: number | null;
 };
 
+/* ---------- Одометр ---------- */
+
+/**
+ * Відповідь розпізнавання. Форма — з src/app/api/shift/odometer/recognize/route.ts.
+ *
+ * Тут вона описана повністю не заради повноти: раніше застосунок чекав пласке
+ * `{value, message}`, якого сервер ніколи не віддавав. Поле мовчки виходило
+ * undefined, і кожне фото — навіть ідеально розпізнане — вело в гілку «введіть
+ * самі». Тобто AI-читання одометра не працювало жодного разу, і без помилки в
+ * логах цього не було видно ні з застосунку, ні з сервера.
+ */
+export type OdometerRecognized = {
+  readId: string;
+  photoUrl: string | null;
+  ai: {
+    value: number | null;
+    confidence: number | null;
+    /** Цифри поодинці («1 8 4 3 2 0») — за ними людина бачить, де модель схибила. */
+    digitsRead: string | null;
+    isTripMeter: boolean;
+    reason: string | null;
+  };
+  verdict: {
+    /** Чи можна приймати число без правки людини. */
+    ok: boolean;
+    reason: string | null;
+    /** Готовий людський текст відмови — UI його не збирає сам. */
+    message: string | null;
+    warnings: Array<"few_digits" | "low_confidence" | "zero_distance" | "below_previous">;
+    /** Пробіг відносно точки відліку: старту зміни або кінця попередньої. */
+    deltaKm: number | null;
+  };
+  context: {
+    hasOpenShift: boolean;
+    startOdometer: number | null;
+    startedAt: string | null;
+    previousEndOdometer: number | null;
+    previousEndedAt: string | null;
+  };
+};
+
 /* ---------- Зміна ---------- */
 
 export type ShiftState = {
@@ -245,10 +286,7 @@ export const staffApi = {
 
   /** Розпізнавання одометра: фото йде multipart, бо це файл, а не JSON. */
   odometerRecognize: (form: FormData) =>
-    staffRequest<{ readId?: string; value?: number | null; message?: string }>(
-      "/api/shift/odometer/recognize",
-      { method: "POST", form }
-    ),
+    staffRequest<OdometerRecognized>("/api/shift/odometer/recognize", { method: "POST", form }),
 
   /* ---------- Трек ---------- */
 

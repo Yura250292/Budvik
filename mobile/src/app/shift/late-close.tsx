@@ -15,10 +15,21 @@
  */
 
 import { useCallback, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { staffApi, StaffApiError, type LateCloseSuggestion } from "@/api/staff";
-import { colors, space, radius } from "@/theme";
+import { c, sp } from "@/ui/tokens";
+import {
+  Body,
+  Button,
+  Card,
+  CardHead,
+  CardTitle,
+  Header,
+  Note,
+  Row,
+  Screen,
+} from "@/ui/kit";
 import { setShiftOpen } from "@/track/state";
 import { stopEverything } from "@/track/controller";
 import { cancelCloseReminders } from "@/track/reminder";
@@ -29,15 +40,29 @@ export default function LateCloseScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Мить, коли прочитано підказку: від неї міряється смуга часу. */
+  const [now, setNow] = useState(0);
 
   const load = useCallback(async () => {
     try {
       setData(await staffApi.lateCloseSuggestion());
+      setNow(Date.now());
       setError(null);
     } catch (e) {
       // 409 — відкритої зміни немає. Це не помилка, а нормальна відповідь.
+      /**
+       * 409 — відкритої зміни немає, і це не помилка, а відповідь. Решту
+       * показуємо словами сервера лише тоді, коли вони від сервера й прийшли:
+       * «Failed to fetch» на екрані людини в машині не означає нічого.
+       */
       const status = e instanceof StaffApiError ? e.status : 0;
-      setError(status === 409 ? "Відкритої зміни немає" : e instanceof Error ? e.message : "Немає зв’язку");
+      setError(
+        status === 409
+          ? "Відкритої зміни немає"
+          : e instanceof StaffApiError
+            ? e.message
+            : "Немає зв’язку"
+      );
       setData(null);
     }
     setLoading(false);
@@ -60,7 +85,10 @@ export default function LateCloseScreen() {
        * людина вже вдома, дописувати нічого.
        */
       await stopEverything();
-      Alert.alert("Зміну закрито", "Пробіг порахований за GPS — одометра за такий час уже не спитати.");
+      Alert.alert(
+        "Зміну закрито",
+        "Пробіг порахований за GPS — одометра за такий час уже не спитати."
+      );
       router.back();
     } catch (e) {
       Alert.alert("Не вдалося", e instanceof Error ? e.message : "Спробуйте, коли буде зв’язок");
@@ -71,92 +99,140 @@ export default function LateCloseScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: "Забув закрити зміну" }} />
-        <ActivityIndicator color={colors.ink} />
+      <View style={s.center}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator color={c.bk} />
       </View>
     );
   }
 
-  const s = data?.suggestion;
+  const sug = data?.suggestion;
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <Stack.Screen options={{ title: "Забув закрити зміну" }} />
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <Header title="Забув закрити зміну" eyebrow="Час — за треком, без фото" />
 
-      {error && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{error}</Text>
-          <Text style={styles.muted}>
-            Якщо зміна все-таки відкрита — перевірте зв’язок і спробуйте ще раз.
-          </Text>
-        </View>
-      )}
+      <Screen>
+        <Body>
+          Ви доїхали додому й не закрили зміну. Якби закрити «зараз», дорога додому й ніч у дворі
+          потрапили б у пробіг — тому час підказує трек.
+        </Body>
 
-      {data?.shift && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Зміна відкрита з {formatWhen(data.shift.startedAt)}</Text>
-          {data.shift.startOdometer != null && (
-            <Text style={styles.muted}>Одометр на старті: {data.shift.startOdometer} км</Text>
-          )}
-        </View>
-      )}
+        {!!error && (
+          <Card tone="bad" gap={sp.xs}>
+            <CardTitle>{error}</CardTitle>
+            <Body>Якщо зміна все-таки відкрита — перевірте зв’язок і спробуйте ще раз.</Body>
+          </Card>
+        )}
 
-      {s ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Схоже, ви закінчили о {formatTime(s.endedAt)}</Text>
-          <Text style={styles.muted}>
-            Після цього машина простояла {Math.round(s.stoodMinutes / 60) || "<1"} год і більше не
-            рушила — тож це найімовірніший кінець роботи.
-          </Text>
-          {s.workKm != null && (
-            <View style={styles.row}>
-              <Text style={styles.muted}>Робочий пробіг до цього часу</Text>
-              <Text style={styles.value}>{s.workKm} км</Text>
-            </View>
-          )}
-          {s.afterWorkKm != null && s.afterWorkKm > 0 && (
-            <View style={styles.row}>
-              <Text style={styles.muted}>Після — дорога додому</Text>
-              <Text style={styles.value}>{s.afterWorkKm} км</Text>
-            </View>
-          )}
+        {data?.shift && (
+          <Card gap={sp.xs}>
+            <CardTitle>Зміна відкрита з {formatWhen(data.shift.startedAt)}</CardTitle>
+            {data.shift.startOdometer != null && (
+              <Note>Одометр на старті: {formatKm(data.shift.startOdometer)} км</Note>
+            )}
+          </Card>
+        )}
 
-          <Pressable style={styles.primary} onPress={() => close(s.endedAt, "GPS")} disabled={busy}>
-            <Text style={styles.primaryText}>
-              {busy ? "Закриваю…" : `Так, закінчив о ${formatTime(s.endedAt)}`}
-            </Text>
-          </Pressable>
+        {sug && data?.shift ? (
+          <Card tone="brand" gap={10}>
+            <CardHead
+              icon="map-pin-check"
+              iconColor={c.good}
+              title={`Схоже, ви закінчили о ${formatTime(sug.endedAt)}`}
+            />
+            <Body>
+              Після цього машина простояла {Math.round(sug.stoodMinutes / 60) || "<1"} год і більше
+              не рушила — тож це найімовірніший кінець роботи.
+            </Body>
 
-          {/* Запасний варіант: підказка може бути хибною — наприклад, людина
-              довго стояла на складі, а потім поїхала ще до двох клієнтів. */}
-          <Pressable
-            style={styles.secondary}
-            onPress={() => close(new Date().toISOString(), "MANUAL")}
-            disabled={busy}
-          >
-            <Text style={styles.secondaryText}>Ні, працював до цієї хвилини</Text>
-          </Pressable>
-        </View>
-      ) : (
-        data?.shift && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Трек не підказує час</Text>
-            <Text style={styles.muted}>
-              Довгої зупинки в записі немає — можливо, трек не писався. Закрийте зміну поточним
-              часом, а якщо це не так, скажіть в офісі: виправити може лише вони.
-            </Text>
-            <Pressable
-              style={styles.primary}
-              onPress={() => close(new Date().toISOString(), "MANUAL")}
+            {/* Смуга часу: скільки з відкритої зміни було роботою, а скільки
+                вже стоянкою. Саме це співвідношення й вирішує людина. */}
+            <Timeline startedAt={data.shift.startedAt} endedAt={sug.endedAt} now={now} />
+
+            {sug.workKm != null && (
+              <Row label="Робочий пробіг до цього часу" value={`${formatDec(sug.workKm)} км`} />
+            )}
+            {sug.afterWorkKm != null && sug.afterWorkKm > 0 && (
+              <Row
+                label="Після — дорога додому"
+                value={`${formatDec(sug.afterWorkKm)} км`}
+                tone="muted"
+              />
+            )}
+
+            <Button
+              tone="brand"
+              icon="check"
+              label={busy ? "Закриваю…" : `Так, закінчив о ${formatTime(sug.endedAt)}`}
               disabled={busy}
-            >
-              <Text style={styles.primaryText}>{busy ? "Закриваю…" : "Закрити поточним часом"}</Text>
-            </Pressable>
-          </View>
-        )
-      )}
-    </ScrollView>
+              onPress={() => close(sug.endedAt, "GPS")}
+            />
+            {/* Запасний варіант: підказка може бути хибною — наприклад, людина
+                довго стояла на складі, а потім поїхала ще до двох клієнтів. */}
+            <Button
+              tone="outline"
+              small
+              label="Ні, працював до цієї хвилини"
+              disabled={busy}
+              onPress={() => close(new Date().toISOString(), "MANUAL")}
+            />
+          </Card>
+        ) : (
+          data?.shift && (
+            <Card gap={sp.sm}>
+              <CardHead icon="route-off" iconColor={c.warn} title="Трек не підказує час" />
+              <Body>
+                Довгої зупинки в записі немає — можливо, трек не писався. Закрийте зміну поточним
+                часом, а якщо це не так, скажіть в офісі: виправити може лише офіс.
+              </Body>
+              <Button
+                tone="brand"
+                label={busy ? "Закриваю…" : "Закрити поточним часом"}
+                disabled={busy}
+                onPress={() => close(new Date().toISOString(), "MANUAL")}
+              />
+            </Card>
+          )
+        )}
+
+        {!!data?.shift && (
+          <Note>
+            Пробіг цієї зміни буде за GPS — одометра за такий час уже не спитати. Показання на
+            кінець порахуються зранку з фото наступної зміни.
+          </Note>
+        )}
+      </Screen>
+    </>
+  );
+}
+
+/**
+ * Робота і стоянка однією смугою.
+ *
+ * Пропорція справжня: від відкриття зміни до підказаного кінця — зелене, далі
+ * до цієї хвилини — сіре. Число «простояла 3 год» саме по собі нічого не
+ * важить, а поруч із робочим часом одразу видно, наскільки підказка розумна.
+ */
+function Timeline({ startedAt, endedAt, now }: { startedAt: string; endedAt: string; now: number }) {
+  const start = Date.parse(startedAt);
+  const end = Date.parse(endedAt);
+  const total = Math.max(1, now - start);
+  const workFrac = Math.min(1, Math.max(0.05, (end - start) / total));
+
+  return (
+    <View style={s.timeline}>
+      <View style={s.track}>
+        <View style={[s.work, { flex: workFrac }]} />
+        <View style={[s.home, { flex: Math.max(0.02, 1 - workFrac) }]} />
+      </View>
+      <View style={s.timeLabels}>
+        <Text style={s.timeLabel}>{formatTime(startedAt)}</Text>
+        <Text style={[s.timeLabel, s.timeStop]}>{formatTime(endedAt)} · стоп</Text>
+        <Text style={s.timeLabel}>зараз</Text>
+      </View>
+    </View>
   );
 }
 
@@ -186,29 +262,21 @@ function formatWhen(iso: string): string {
   }
 }
 
-const styles = StyleSheet.create({
-  page: { padding: space.md, gap: space.md, backgroundColor: colors.surface, flexGrow: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  card: { backgroundColor: colors.bg, borderRadius: radius.lg, padding: space.lg, gap: space.xs },
-  cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
-  muted: { fontSize: 13, color: colors.textMuted, lineHeight: 19 },
-  value: { fontSize: 14, fontWeight: "600", color: colors.text },
-  primary: {
-    marginTop: space.sm,
-    padding: space.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-  },
-  primaryText: { fontWeight: "700", color: colors.ink, fontSize: 15 },
-  secondary: {
-    marginTop: space.xs,
-    paddingVertical: space.sm,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-  },
-  secondaryText: { fontWeight: "600", color: colors.text, fontSize: 14 },
+function formatKm(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+function formatDec(n: number): string {
+  return String(n).replace(".", ",");
+}
+
+const s = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
+  timeline: { gap: sp.xs, paddingVertical: 2 },
+  track: { flexDirection: "row", height: 6, borderRadius: 3, overflow: "hidden", backgroundColor: c.line },
+  work: { backgroundColor: c.good },
+  home: { backgroundColor: c.text3 },
+  timeLabels: { flexDirection: "row", justifyContent: "space-between" },
+  timeLabel: { fontSize: 10, color: c.text3 },
+  timeStop: { color: c.goodFg, fontWeight: "600" },
 });

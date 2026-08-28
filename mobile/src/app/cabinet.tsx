@@ -37,6 +37,7 @@ import {
   type PermissionState,
 } from "@/track/permissions";
 import { within, PROBE_MS } from "@/lib/within";
+import { UpdateBar } from "@/ui/UpdateBar";
 import { colors, space, radius } from "@/theme";
 
 export default function CabinetScreen() {
@@ -202,6 +203,10 @@ export default function CabinetScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Кабінет", headerShown: false }} />
+
+      {/* Кабінет — єдиний екран, який торговий відкриває щодня, тож саме тут
+          оновлення й має пропонувати себе. */}
+      <UpdateBar />
 
       {/*
         Найдорожча тиша в застосунку — та, про яку ніхто не знає.

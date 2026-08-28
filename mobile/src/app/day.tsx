@@ -30,7 +30,6 @@ import {
 } from "react-native";
 import { Stack, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
-import * as Updates from "expo-updates";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { staffApi, type DayResponse, type DayStop } from "@/api/staff";
 import { formatUAH } from "@/theme";
@@ -50,6 +49,7 @@ import {
   Screen,
 } from "@/ui/kit";
 import { DriverTabBar } from "@/ui/DriverTabBar";
+import { UpdateBar } from "@/ui/UpdateBar";
 import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import {
@@ -386,24 +386,6 @@ function DayHeader({
         <View style={{ flex: Math.max(0, total - done - missed) || (total ? 0 : 1) }} />
       </View>
     </View>
-  );
-}
-
-/**
- * Смуга «вийшло оновлення».
- *
- * Оновлення JS приїжджає саме, але застосовується лише на холодному старті, а
- * планшет у машині не вимикають тижнями. Тому пропонуємо перезапуск явно —
- * і лише тоді, коли оновлення справді вже завантажене.
- */
-function UpdateBar() {
-  const { isUpdatePending } = Updates.useUpdates();
-  if (!isUpdatePending) return null;
-  return (
-    <Pressable style={s.updateBar} onPress={() => Updates.reloadAsync().catch(() => {})}>
-      <Icon name="refresh-cw" size={16} color={c.bk} />
-      <Text style={s.updateLabel}>Вийшло оновлення — натисніть, щоб перезавантажити</Text>
-    </Pressable>
   );
 }
 

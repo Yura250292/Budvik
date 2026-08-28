@@ -20,8 +20,8 @@ function Line({ line }: { line: EarningLine }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
       <div className="min-w-0">
-        <span className="block text-sm text-g600">{line.label}</span>
-        <span className="block text-xs text-g500">{line.explanation}</span>
+        <span className="block text-sm text-cab-t2">{line.label}</span>
+        <span className="block text-xs text-cab-t2">{line.explanation}</span>
       </div>
       <span
         className="shrink-0 text-sm font-semibold tabular-nums"
@@ -66,23 +66,23 @@ export function EarningsBreakdown({
         <span className="text-3xl font-semibold tabular-nums tracking-tight text-bk">
           {money(earnings.total)}
         </span>
-        <span className="text-sm text-g500">₴</span>
+        <span className="text-sm text-cab-t2">₴</span>
       </div>
 
       {earnings.byBrand > 0 && (
-        <p className="mt-1 text-xs text-g500">
+        <p className="mt-1 text-xs text-cab-t2">
           З них{" "}
-          <span className="font-semibold tabular-nums text-g600">{money(earnings.byBrand)} ₴</span> —
+          <span className="font-semibold tabular-nums text-cab-t2">{money(earnings.byBrand)} ₴</span> —
           за правилами конкретних фірм (кільця вище).
         </p>
       )}
 
       {earnings.generalLines.length > 0 && (
-        <div className="mt-3 border-t border-g100 pt-1">
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-g400">
+        <div className="mt-3 border-t border-[#F1F1EF] pt-1">
+          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-cab-t3">
             Правила без прив&apos;язки до фірми
           </p>
-          <div className="divide-y divide-g100">
+          <div className="divide-y divide-[#F1F1EF]">
             {earnings.generalLines.map((l) => (
               <Line key={l.ruleId} line={l} />
             ))}
@@ -91,16 +91,16 @@ export function EarningsBreakdown({
       )}
 
       {earnings.penaltyLines.length > 0 && (
-        <div className="mt-3 border-t border-g100 pt-1">
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-g400">Утримання</p>
-          <div className="divide-y divide-g100">
+        <div className="mt-3 border-t border-[#F1F1EF] pt-1">
+          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-cab-t3">Утримання</p>
+          <div className="divide-y divide-[#F1F1EF]">
             {earnings.penaltyLines.map((l) => (
               <Line key={l.ruleId} line={l} />
             ))}
           </div>
           {/* Пояснення саме тут, а не в підказці внизу: питання «чому
               зняли» виникає рівно в цьому місці екрана. */}
-          <p className="mt-2 text-xs leading-relaxed text-g500">
+          <p className="mt-2 text-xs leading-relaxed text-cab-t2">
             Утримання рахується від усього нарахованого за період, а не від якоїсь однієї фірми —
             тому воно не входить у зелені суми біля кілець. Заберіть прострочену дебіторку, і
             утримання зникне.
@@ -108,20 +108,20 @@ export function EarningsBreakdown({
         </div>
       )}
 
-      <dl className="mt-3 border-t border-g200 pt-2 text-sm">
+      <dl className="mt-3 border-t border-cab-line pt-2 text-sm">
         <div className="flex items-baseline justify-between gap-3 py-1">
-          <dt className="text-g600">Нараховано</dt>
+          <dt className="text-cab-t2">Нараховано</dt>
           <dd className="font-medium tabular-nums text-bk">{money(earnings.gross)} ₴</dd>
         </div>
         {earnings.penalties > 0 && (
           <div className="flex items-baseline justify-between gap-3 py-1">
-            <dt className="text-g600">Утримано</dt>
+            <dt className="text-cab-t2">Утримано</dt>
             <dd className="font-medium tabular-nums" style={{ color: STATUS.bad.fg }}>
               −{money(earnings.penalties)} ₴
             </dd>
           </div>
         )}
-        <div className="flex items-baseline justify-between gap-3 border-t border-g100 py-1 pt-2">
+        <div className="flex items-baseline justify-between gap-3 border-t border-[#F1F1EF] py-1 pt-2">
           <dt className="font-semibold text-bk">До виплати</dt>
           <dd className="font-semibold tabular-nums text-bk">{money(earnings.total)} ₴</dd>
         </div>

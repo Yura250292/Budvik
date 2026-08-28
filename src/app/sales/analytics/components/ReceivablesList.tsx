@@ -55,7 +55,7 @@ export function ReceivablesList({ repId }: { repId: string | null }) {
           <span className="text-2xl font-semibold tabular-nums tracking-tight text-bk">
             {money(data.aging.total)}
           </span>
-          <span className="text-sm text-g500">₴</span>
+          <span className="text-sm text-cab-t2">₴</span>
           {data.aging.overdue > 0 && (
             <span className="ml-auto text-sm font-semibold tabular-nums" style={{ color: STATUS.bad.fg }}>
               прострочено {money(data.aging.overdue)} ({num(data.aging.overdueRatio)}%)
@@ -68,10 +68,10 @@ export function ReceivablesList({ repId }: { repId: string | null }) {
             {buckets.map((b) => (
               <span
                 key={b}
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-g200 px-2 py-1 text-xs"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-badge)] border border-cab-line px-2 py-1 text-xs"
               >
                 <ColorDot color={BUCKET_COLORS[b]} size={8} />
-                <span className="text-g600">{BUCKET_LABELS[b]}</span>
+                <span className="text-cab-t2">{BUCKET_LABELS[b]}</span>
                 <span className="font-semibold tabular-nums text-bk">
                   {money(data.aging.buckets[b])}
                 </span>
@@ -81,14 +81,14 @@ export function ReceivablesList({ repId }: { repId: string | null }) {
         )}
 
         {data.aging.unknown > 0 && (
-          <p className="mt-2 text-xs leading-relaxed text-g500">
+          <p className="mt-2 text-xs leading-relaxed text-cab-t2">
             Для {money(data.aging.unknown)} грн 1С ще не передала розбивку за строками — цей борг не
             віднесено ні до робочого, ні до простроченого, і у відсоток прострочки він не входить.
           </p>
         )}
       </div>
 
-      <ul className="divide-y divide-g100 border-t border-g100">
+      <ul className="divide-y divide-[#F1F1EF] border-t border-[#F1F1EF]">
         {data.clients.map((c) => (
           <li key={c.counterpartyId} className="px-4 py-3">
             <div className="flex items-baseline justify-between gap-3">
@@ -98,12 +98,12 @@ export function ReceivablesList({ repId }: { repId: string | null }) {
               </span>
             </div>
             <div className="mt-0.5 flex items-baseline justify-between gap-3 text-xs">
-              <span className="min-w-0 truncate text-g500">
+              <span className="min-w-0 truncate text-cab-t2">
                 {c.lastDocAt ? `остання відвантажка ${formatDate(c.lastDocAt)}` : "відвантажень немає"}
               </span>
               <span className="shrink-0 tabular-nums">
                 {c.overdue === null ? (
-                  <span className="text-g400" title="1С не передала розбивку за строками">
+                  <span className="text-cab-t3" title="1С не передала розбивку за строками">
                     строки невідомі
                   </span>
                 ) : c.overdue > 0 ? (

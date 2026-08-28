@@ -48,7 +48,7 @@ export function AnalyticsHeader({
           <Link
             href={backTo}
             aria-label="Назад"
-            className="mt-0.5 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-btn)] border border-g200 bg-white text-g600 transition-colors hover:border-g300 hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
+            className="mt-0.5 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-btn)] border border-cab-line bg-white text-cab-t2 transition-colors hover:border-g300 hover:text-bk focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -57,7 +57,7 @@ export function AnalyticsHeader({
         )}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-xl font-bold leading-tight text-bk">{title}</h1>
-          <p className="truncate text-xs text-g400">
+          <p className="truncate text-xs text-cab-t3">
             {subtitle}
             {subtitle && month ? " · " : ""}
             {month ? monthLabel(month) : ""}
@@ -72,7 +72,7 @@ export function AnalyticsHeader({
       </div>
 
       {showFrames && (
-        <p className="mt-2.5 text-[11px] leading-relaxed text-g500">
+        <p className="mt-2.5 text-[11px] leading-relaxed text-cab-t2">
           Оборот, паливо і зібране — за обраний період. План —
           {month ? ` за весь ${monthLabel(month)}` : " за календарний місяць"}. Дебіторка — борг
           станом на зараз, від періоду не залежить.

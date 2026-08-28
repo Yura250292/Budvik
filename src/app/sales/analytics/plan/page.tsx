@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { Card } from "@/components/ui/Card";
+import { Card, Note } from "@/components/cabinet/ui";
 import { Skeleton, CardSkeleton } from "@/components/ui/Skeleton";
 import { Gauge } from "@/components/ui/Gauge";
 import { money } from "@/components/ui/Stat";
@@ -53,7 +53,7 @@ function PlanDrill() {
         <>
           {/* Загальний напівкруг як якір: щоб було видно, з чого
               складається підсумок, у який торговий щойно провалився. */}
-          <Card className="flex flex-col items-center text-center">
+          <Card className="flex flex-col items-center gap-1 text-center">
             <Gauge
               percent={data.plan.attainment}
               hasTarget={data.plan.target > 0}
@@ -64,23 +64,19 @@ function PlanDrill() {
                   : undefined
               }
             />
-            <p className="mt-1 text-sm font-medium text-bk">Разом по всіх фірмах</p>
-            <p className="mt-0.5 text-xs text-g500">
-              Виконання рахується за весь {monthLabel(data.month)} — план місячний.
-            </p>
+            <p className="text-sm font-medium text-bk">Разом по всіх фірмах</p>
+            <Note>Виконання рахується за весь {monthLabel(data.month)} — план місячний.</Note>
           </Card>
 
-          <div className="mt-3">
-            <BrandPlanList brands={data.brands} />
-          </div>
+          <BrandPlanList brands={data.brands} />
 
           <EarningsBreakdown earnings={data.earnings} reconciles={data.reconciles} />
 
-          <p className="mt-4 px-1 text-[11px] leading-relaxed text-g500">
+          <Note>
             Оборот по фірмах рахується з позицій документів, тож їхня сума не збігається із
             загальним оборотом рівно на суму знижок. Заробіток — за обраний період, план — за
             календарний місяць.
-          </p>
+          </Note>
         </>
       )}
     </>

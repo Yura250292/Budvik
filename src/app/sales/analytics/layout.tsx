@@ -7,10 +7,9 @@
  */
 export default function SalesAnalyticsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
-      {/* max-w-lg скроєний під телефон: на планшеті таблиця «План по фірмах»
-          (5 колонок) у 512px не влазила і різала «Заробіток». */}
-      <div className="mx-auto max-w-lg px-4 pt-4 sm:max-w-2xl">{children}</div>
-    </div>
+    // Фон дає секція (/sales/layout.tsx) — тут він лише перебивався б на білий.
+    // max-w-lg скроєний під телефон; на планшеті ширше, бо там поруч уміщається
+    // і назва фірми, і обидві суми.
+    <div className="mx-auto flex max-w-lg flex-col gap-3 px-4 py-4 sm:max-w-2xl">{children}</div>
   );
 }

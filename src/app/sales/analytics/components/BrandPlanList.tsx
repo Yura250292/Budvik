@@ -18,7 +18,7 @@ import type { PlanBrand } from "./useSalesAnalytics";
 function EarnedFooter({ brand }: { brand: PlanBrand }) {
   if (brand.earned === null) {
     return (
-      <span className="text-center text-[10px] leading-tight text-g400">
+      <span className="text-center text-[10px] leading-tight text-cab-t3">
         окремих правил немає
       </span>
     );
@@ -69,50 +69,60 @@ export function BrandPlanList({ brands }: { brands: PlanBrand[] }) {
             </div>
           </div>
 
-          {/* Ті самі числа текстом: кільце показує «як», таблиця — «скільки». */}
-          <div className="overflow-x-auto border-t border-g100">
-            <table className="w-full min-w-[380px] text-xs">
-              <thead>
-                <tr className="border-b border-g200 bg-g50 text-left font-medium text-g500">
-                  <th className="py-2 pl-4 pr-2">Фірма</th>
-                  <th className="px-2 py-2 text-right">План</th>
-                  <th className="px-2 py-2 text-right">Виконано</th>
-                  <th className="px-2 py-2 text-right">Зібрано</th>
-                  <th className="py-2 pl-2 pr-4 text-right">Заробіток</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-g100">
-                {planned.map((b) => (
-                  <tr key={b.brandId}>
-                    <td className="py-2 pl-4 pr-2">
-                      <span className="inline-flex min-w-0 items-center gap-1.5">
-                        <span
-                          aria-hidden
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: b.color }}
-                        />
-                        <span className="truncate text-bk">{b.brandName}</span>
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 text-right tabular-nums text-g600">{money(b.target)}</td>
-                    <td className="px-2 py-2 text-right font-semibold tabular-nums text-bk">
+          {/*
+            Ті самі числа текстом: кільце показує «як», рядки — «скільки».
+
+            Списком, а не таблицею. П'ять колонок на телефоні не вміщалися:
+            блок їхав горизонтальною прокруткою, і «Заробіток» — єдина колонка,
+            заради якої сюди й заходять, — опинявся за краєм екрана.
+          */}
+          <div className="border-t border-cab-line">
+            {planned.map((b) => (
+              <div key={b.brandId} className="border-b border-[#F1F1EF] px-4 py-3 last:border-b-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: b.color }}
+                    />
+                    <span className="truncate text-sm font-semibold text-bk">{b.brandName}</span>
+                  </span>
+                  {b.earned === null ? (
+                    <span className="shrink-0 text-sm text-cab-t3">—</span>
+                  ) : (
+                    <span
+                      className="shrink-0 text-sm font-bold tabular-nums"
+                      style={{ color: STATUS.good.fg }}
+                    >
+                      {money(b.earned)} ₴
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
+                  <span className="flex flex-col">
+                    <span className="text-[11px] text-cab-t3">План</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-cab-t2">
+                      {money(b.target)}
+                    </span>
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-[11px] text-cab-t3">Виконано</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-bk">
                       {money(b.actual)}
-                      <span className="ml-1 font-normal text-g400">{num(b.attainment)}%</span>
-                    </td>
-                    <td className="px-2 py-2 text-right tabular-nums text-g600">{money(b.collected)}</td>
-                    <td className="py-2 pl-2 pr-4 text-right tabular-nums">
-                      {b.earned === null ? (
-                        <span className="text-g400">—</span>
-                      ) : (
-                        <span className="font-semibold" style={{ color: STATUS.good.fg }}>
-                          {money(b.earned)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <span className="ml-1 font-normal text-cab-t3">{num(b.attainment)}%</span>
+                    </span>
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-[11px] text-cab-t3">Зібрано</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-cab-t2">
+                      {money(b.collected)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       ) : (
@@ -130,7 +140,7 @@ export function BrandPlanList({ brands }: { brands: PlanBrand[] }) {
             title="Фірми без плану"
             hint="Продажі є, цілі на місяць немає — тож і відсотка виконання бути не може."
           />
-          <ul className="divide-y divide-g100 text-sm">
+          <ul className="divide-y divide-[#F1F1EF] text-sm">
             {unplanned.map((b) => (
               <li key={b.brandId} className="flex items-baseline justify-between gap-3 py-2">
                 <span className="inline-flex min-w-0 items-center gap-2">

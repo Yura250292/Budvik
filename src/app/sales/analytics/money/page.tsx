@@ -139,7 +139,7 @@ function MoneyDrill() {
             <EarningsBreakdown earnings={plan.data.earnings} reconciles={plan.data.reconciles} />
           ) : null}
 
-          <p className="mt-4 px-1 text-[11px] leading-relaxed text-g500">
+          <p className="mt-4 px-1 text-[11px] leading-relaxed text-cab-t2">
             Заробіток рахується зі зібраних коштів, а не з обороту: продаж клієнту, який не
             заплатив, доходу не приносить. Тому дебіторка — це не покарання, а ваші ще не отримані
             гроші.
@@ -147,10 +147,10 @@ function MoneyDrill() {
 
           {/* Стара схема нікуди не зникла — але живе окремо, щоб дві
               різні суми заробітку не стояли поруч без пояснення. */}
-          <p className="mt-2 px-1 text-[11px] text-g400">
+          <p className="mt-2 px-1 text-[11px] text-cab-t3">
             <Link
               href="/dashboard/commissions"
-              className="cursor-pointer underline decoration-g300 underline-offset-2 transition-colors hover:text-g600"
+              className="cursor-pointer underline decoration-g300 underline-offset-2 transition-colors hover:text-cab-t2"
             >
               Комісії за старою схемою
             </Link>{" "}

@@ -44,6 +44,22 @@ const SANITY_FACTOR = 4;
  */
 const WEAK_DRAW_STEP_M = 200;
 
+/**
+ * Наскільки коротшою за шлях «туди й назад» має бути пряма між сусідами,
+ * щоб вершину між ними визнати промахом GPS, а не поворотом.
+ *
+ * Число — це косинус форми трикутника, і читати його треба кутами: 0,71
+ * відповідає прямому куту на перехресті, 0,5 — гострому кутові 60°, а
+ * справжній зубець зі слабкого фікса дає 0,1–0,3, бо йде майже точно
+ * назад.
+ *
+ * Спершу стояло 0,5, і на дні з рідкими фіксами воно з'їдало вже й
+ * дорогу: круті повороти заміської траси на такому кроці точок теж
+ * виглядають гострими. 0,3 лишає їх на місці й прибирає рівно те, що
+ * стирчить убік і вертається.
+ */
+const SPIKE_RATIO = 0.3;
+
 export type GapSegment = {
   /** Індекс точки-кінця розриву в масиві треку */
   index: number;
@@ -131,7 +147,8 @@ export function buildTrackPath(
    */
   let weakTail = 0;
 
-  for (const p of points) {
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
     const weak = p.accuracyM != null && p.accuracyM > MAX_ACCURACY_M;
 
     const line = asLineString(p.gapGeometry);
@@ -166,6 +183,26 @@ export function buildTrackPath(
       const [prevLat, prevLng] = out[out.length - 1];
       const threshold = Math.min(p.accuracyM!, WEAK_DRAW_STEP_M);
       if (haversineM(prevLat, prevLng, p.lat, p.lng) < threshold) continue;
+
+      /**
+       * Зубець: пішов убік і одразу повернувся — це не поворот, а промах.
+       *
+       * Саме з таких точок на карті виростали «віяла»: слабкий фікс
+       * відскакує на пів кілометра, наступний повертається на дорогу, і
+       * обидва плечі проходять поріг зсуву — бо він міряє відстань, а не
+       * напрямок. Дивимось на трикутник: якщо шлях у дві ноги вдвічі
+       * довший за пряму між сусідами, вершина між ними — шум.
+       *
+       * Поворот вулиці таку перевірку проходить: там пряма між сусідами
+       * лише трохи коротша за дві ноги. Зникає рівно те, що стирчить.
+       */
+      const next = points[i + 1];
+      if (next && !asLineString(next.gapGeometry)) {
+        const outM = haversineM(prevLat, prevLng, p.lat, p.lng);
+        const backM = haversineM(p.lat, p.lng, next.lat, next.lng);
+        const acrossM = haversineM(prevLat, prevLng, next.lat, next.lng);
+        if (acrossM < (outM + backM) * SPIKE_RATIO) continue;
+      }
     }
 
     out.push([p.lat, p.lng]);

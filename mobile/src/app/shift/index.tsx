@@ -21,8 +21,10 @@ import { bufferedCount } from "@/track/db";
 import { isTracking, startTracking, stopEverything } from "@/track/controller";
 import { getPendingShift, type PendingShift } from "@/track/pending-shift";
 import {
+  askEnableLocationServices,
   askIgnoreBatteryOptimizations,
   currentPermissions,
+  openAppSettings,
   requestTrackingPermissions,
   type PermissionState,
 } from "@/track/permissions";
@@ -166,6 +168,17 @@ export default function ShiftScreen() {
       );
     }
     router.push("/shift/odometer?phase=START");
+  };
+
+  /**
+   * Просимо систему ввімкнути геолокацію й одразу перечитуємо стан.
+   *
+   * Перечитати обов'язково: діалог могли закрити кнопкою «назад», і тоді
+   * попередження мусить лишитися на екрані, а не зникнути як «полагоджене».
+   */
+  const enableLocation = async () => {
+    await askEnableLocationServices();
+    await refreshLocal();
   };
 
   const openBatterySettings = async () => {
@@ -386,9 +399,44 @@ export default function ShiftScreen() {
             </Note>
           )}
 
-          {device?.locationMode === "OFF" && (
-            <Callout tone="bad" icon="triangle-alert" title="Геолокацію вимкнено">
-              Маршрут не пишеться взагалі. Увімкніть визначення місця в шторці налаштувань телефона.
+          {/*
+            Геолокація вимкнена — і це НЕ те саме, що відсутній дозвіл.
+            Дозвіл може бути «Завжди», а перемикач місця на пристрої стояти в
+            режимі без супутників: тоді позиція приходить по вежах із похибкою
+            в сотні метрів, трек малює не вулицю, а район, і пробіг не сходиться
+            з одометром. Саме так у полі два дні писався хибний маршрут, і
+            помітили це аж по розбіжності з фото одометра.
+
+            Тому не «зайдіть у налаштування», а кнопка: система показує своє
+            вікно й вмикає високу точність сама.
+          */}
+          {(device?.locationMode === "OFF" || perms?.servicesEnabled === false) && (
+            <Callout
+              tone="bad"
+              icon="triangle-alert"
+              title="Геолокацію вимкнено"
+              action={{ label: "Увімкнути геолокацію", onPress: enableLocation }}
+            >
+              <Body>
+                Маршрут не пишеться взагалі. Дозвіл у застосунку є, але саме визначення місця на
+                пристрої вимкнене — натисніть, і система ввімкне його сама.
+              </Body>
+            </Callout>
+          )}
+
+          {/* Дозвіл дано, але «Приблизно»: місце з точністю до району. Для
+              маршруту це те саме, що й вимкнений GPS. */}
+          {perms?.foreground && perms.preciseLocation === false && (
+            <Callout
+              tone="bad"
+              icon="triangle-alert"
+              title="Увімкніть «Точне місцезнаходження»"
+              action={{ label: "Відкрити дозволи застосунку", onPress: openAppSettings }}
+            >
+              <Body>
+                Зараз стоїть «Приблизно» — координати з точністю до району, і пробіг за ними
+                вийде іншим, ніж на одометрі. У дозволах застосунку оберіть «Точно».
+              </Body>
             </Callout>
           )}
 

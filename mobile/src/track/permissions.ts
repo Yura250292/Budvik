@@ -18,25 +18,51 @@ export type PermissionState = {
   foreground: boolean;
   background: boolean;
   notifications: boolean;
+  /**
+   * Чи ввімкнена сама геолокація на пристрої.
+   *
+   * Це не дозвіл застосунку, а системний перемикач, і сплутати їх дорого:
+   * дозвіл може бути «Завжди», а місце при цьому визначатися по вежах.
+   */
+  servicesEnabled: boolean;
+  /**
+   * Чи дали ТОЧНЕ місце.
+   *
+   * З Android 12 у діалозі два кружечки, і «Приблизно» виглядає безпечнішим
+   * вибором. Наслідок для маршруту той самий, що й вимкнений GPS: похибка в
+   * кілометри, і трек пише не вулицю, а район.
+   */
+  preciseLocation: boolean;
 };
 
 export async function currentPermissions(): Promise<PermissionState> {
-  const [fg, bg, notif] = await Promise.all([
+  const [fg, bg, notif, services] = await Promise.all([
     Location.getForegroundPermissionsAsync().catch(() => null),
     Location.getBackgroundPermissionsAsync().catch(() => null),
     Notifications.getPermissionsAsync().catch(() => null),
+    Location.hasServicesEnabledAsync().catch(() => true),
   ]);
   return {
     foreground: fg?.granted ?? false,
     background: bg?.granted ?? false,
     notifications: notif?.granted ?? false,
+    servicesEnabled: services ?? true,
+    // На iOS поля android немає — там окремого «приблизного» дозволу в цьому
+    // вигляді не існує, тож відсутність значення вважаємо точним місцем.
+    preciseLocation: fg?.android ? fg.android.accuracy === "fine" : true,
   };
 }
 
 export async function requestTrackingPermissions(): Promise<PermissionState> {
   const fg = await Location.requestForegroundPermissionsAsync();
   if (!fg.granted) {
-    return { foreground: false, background: false, notifications: false };
+    return {
+      foreground: false,
+      background: false,
+      notifications: false,
+      servicesEnabled: await Location.hasServicesEnabledAsync().catch(() => true),
+      preciseLocation: false,
+    };
   }
 
   /**
@@ -49,11 +75,45 @@ export async function requestTrackingPermissions(): Promise<PermissionState> {
   const notif = await Notifications.requestPermissionsAsync().catch(() => null);
   const bg = await Location.requestBackgroundPermissionsAsync().catch(() => null);
 
+  const [services] = await Promise.all([Location.hasServicesEnabledAsync().catch(() => true)]);
+
   return {
     foreground: true,
     background: bg?.granted ?? false,
     notifications: notif?.granted ?? false,
+    servicesEnabled: services ?? true,
+    preciseLocation: fg.android ? fg.android.accuracy === "fine" : true,
   };
+}
+
+/**
+ * Просить систему ввімкнути геолокацію — тим самим діалогом, що й карти.
+ *
+ * Це головна знахідка розбору 29.08: у планшета в полі був дозвіл «Завжди», а
+ * місце приходило по вежах з похибкою 300 м, бо сам перемикач геолокації на
+ * пристрої стояв у режимі без супутників. Дозвіл і режим — різні речі, і
+ * застосунок, який просить лише дозвіл, цього не бачить.
+ *
+ * `enableNetworkProviderAsync` показує системне вікно Google Play Services
+ * («Увімкнути геолокацію?» → «OK»), і система сама переводить пристрій у
+ * режим високої точності. Два дотики, без походу в налаштування.
+ *
+ * Якщо служб Google на пристрої немає або людина відмовилась — відкриваємо
+ * екран налаштувань місця: там той самий перемикач, просто руками.
+ */
+export async function askEnableLocationServices(): Promise<boolean> {
+  try {
+    await Location.enableNetworkProviderAsync();
+  } catch {
+    if (Platform.OS === "android") {
+      await IntentLauncher.startActivityAsync(
+        IntentLauncher.ActivityAction.LOCATION_SOURCE_SETTINGS
+      ).catch(() => {});
+    }
+  }
+  // Питаємо систему наново, а не віримо результату діалогу: людина могла
+  // закрити його кнопкою «назад», і тоді нічого не змінилося.
+  return await Location.hasServicesEnabledAsync().catch(() => false);
 }
 
 /**
@@ -120,4 +180,20 @@ export async function askIgnoreBatteryOptimizations(): Promise<boolean | null> {
   // Питаємо систему, а не віримо на слово: полярність та сама, що в Kotlin —
   // true означає «система МОЖЕ приспати застосунок».
   return Battery.isBatteryOptimizationEnabledAsync().catch(() => null);
+}
+
+/**
+ * Відкриває екран дозволів САМОГО застосунку.
+ *
+ * Потрібен там, де системного діалогу вже не буде: «Приблизне» місце
+ * перемикається лише руками, і повторний запит дозволу його не підніме —
+ * Android вважає дозвіл виданим і мовчки нічого не показує.
+ */
+export async function openAppSettings(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  const pkg = Application.applicationId;
+  if (!pkg) return;
+  await IntentLauncher.startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", {
+    data: `package:${pkg}`,
+  }).catch(() => {});
 }

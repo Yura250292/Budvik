@@ -32,7 +32,9 @@ import { isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import {
+  askEnableLocationServices,
   currentPermissions,
+  openAppSettings,
   requestTrackingPermissions,
   type PermissionState,
 } from "@/track/permissions";
@@ -292,6 +294,45 @@ export default function CabinetScreen() {
           <Text style={styles.permText}>
             Застосунок не має доступу до місця. Натисніть, щоб дозволити — інакше день не
             зарахується.
+          </Text>
+        </Pressable>
+      )}
+
+      {/*
+        Дозвіл є, а місце вимкнене — найпідступніший зі станів.
+
+        Він не схожий на поломку: застосунок працює, крапка на карті рухається,
+        трек пишеться. Тільки координати приходять по вежах, і замість вулиці в
+        дні лежить район із похибкою в сотні метрів. Так у полі два дні йшов
+        маршрут, який розійшовся з одометром на 47 км, і жоден екран про це не
+        сказав.
+
+        Одне натискання: система показує своє вікно й вмикає високу точність.
+      */}
+      {IS_STAFF_BUILD && perms?.foreground && perms.servicesEnabled === false && (
+        <Pressable
+          style={styles.permStrip}
+          onPress={() => askEnableLocationServices().then(() => currentPermissions().then(setPerms))}
+        >
+          <Text style={styles.permTitle}>Геолокацію вимкнено</Text>
+          <Text style={styles.permText}>
+            Дозвіл є, але саме визначення місця вимкнене — маршрут пишеться по вежах, з похибкою в
+            сотні метрів. Натисніть, щоб увімкнути.
+          </Text>
+        </Pressable>
+      )}
+
+      {/* Місце дали «Приблизно» — координати з точністю до району. Перемикається
+          лише руками: повторний запит Android уже не показує. */}
+      {IS_STAFF_BUILD && perms?.foreground && perms.preciseLocation === false && (
+        <Pressable
+          style={styles.permStrip}
+          onPress={() => openAppSettings().then(() => currentPermissions().then(setPerms))}
+        >
+          <Text style={styles.permTitle}>Увімкніть «Точне місцезнаходження»</Text>
+          <Text style={styles.permText}>
+            Зараз стоїть «Приблизно» — це район, а не вулиця. Натисніть і в дозволах застосунку
+            оберіть «Точно».
           </Text>
         </Pressable>
       )}

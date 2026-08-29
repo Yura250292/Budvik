@@ -35,6 +35,9 @@ const brandFilters = (slug: string) => ({
   types: [],
   showAll: false,
   withImage: false,
+  // Як і на сторінці групи: ISR не читає searchParams, тож фільтри живуть на
+  // /catalog?brand=…, куди ведуть пілюлі груп нижче.
+  attrs: {},
 });
 
 export const brandBasePath = (slug: string) => `/brand/${slug}`;
@@ -69,7 +72,9 @@ export default async function BrandLanding({ slug, page }: { slug: string; page:
 
   const [{ products: rawProducts, total }, types] = await Promise.all([
     fetchCatalogPage(brandFilters(brand.slug), page),
-    getBrandTypes(brand.slug),
+    // shoppable — щоб пілюля не обіцяла більше, ніж покаже клік: видача нижче
+    // фільтрує наявність, а числа тут рахувались по всіх активних картках.
+    getBrandTypes(brand.slug, { shoppable: true }),
   ]);
 
   // Сторінка за межами видачі — 404, а не порожня сітка: інакше робот

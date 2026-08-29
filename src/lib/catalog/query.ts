@@ -5,6 +5,7 @@ import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { skuSearchConditions, looksLikeSku } from "@/lib/catalog/sku-search";
 import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
+import { FACETS, FACET_BY_KEY, facetsFor, type FacetDef } from "@/lib/catalog/facets";
 
 /**
  * Фільтри каталогу в одному місці.
@@ -47,6 +48,14 @@ export interface CatalogFilters {
   withImage: boolean;
   categorySlug?: string;
   sort?: string;
+  /**
+   * Характеристики: ключ реєстру → обрані значення. «power» → ["akum"].
+   *
+   * Окремим полем, а не колонками у фільтрі, бо набір залежить від місця в
+   * каталозі: про болгарку питають діаметр диска, про пензель — ні. Що саме
+   * питати, вирішує src/lib/catalog/facets.ts.
+   */
+  attrs: Record<string, string[]>;
 }
 
 export function parseFilters(sp: URLSearchParams | Record<string, string | undefined>): CatalogFilters {
@@ -64,6 +73,14 @@ export function parseFilters(sp: URLSearchParams | Record<string, string | undef
     return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
   };
 
+  // Читаємо лише ключі реєстру: чужий параметр в адресі не має ставати
+  // фільтром, інакше будь-яка мітка з реклами (?fbclid=…) звужувала б видачу.
+  const attrs: Record<string, string[]> = {};
+  for (const def of FACETS) {
+    const vals = list(def.key);
+    if (vals.length) attrs[def.key] = vals;
+  }
+
   return {
     brands: list("brand"),
     types: list("type"),
@@ -75,6 +92,7 @@ export function parseFilters(sp: URLSearchParams | Record<string, string | undef
     withImage: get("withImage") === "1",
     categorySlug: get("category") || undefined,
     sort: get("sort") || undefined,
+    attrs,
   };
 }
 
@@ -178,8 +196,60 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
   if (!f.showAll) and.push({ stock: { gt: 0 } });
   if (f.withImage) and.push({ image: { not: null } }, { NOT: { image: "" } });
 
+  for (const cond of attrConditions(f.attrs)) and.push(cond);
+
   if (and.length) where.AND = and;
   return where;
+}
+
+/**
+ * Умови за характеристиками: живлення, діаметр диска, напруга, потужність.
+ *
+ * Кілька значень одного фасета — це «або» («125 або 230 мм»), різні фасети —
+ * «і» («акумуляторна І 125 мм»): саме так люди й читають набір галочок.
+ *
+ * `skipKey` лишає один фасет поза умовою — потрібно, щоб порахувати його
+ * власні лічильники: список значень, звужений сам собою, схлопнувся б до
+ * обраного рядка, і зняти вибір не було б чим.
+ */
+function attrConditions(
+  attrs: Record<string, string[]> | undefined,
+  skipKey?: string
+): Prisma.ProductWhereInput[] {
+  if (!attrs) return [];
+  const out: Prisma.ProductWhereInput[] = [];
+
+  for (const [key, values] of Object.entries(attrs)) {
+    if (!values.length || key === skipKey) continue;
+    const def = FACET_BY_KEY.get(key);
+    if (!def) continue;
+
+    if (def.kind === "range") {
+      const or: Prisma.ProductWhereInput[] = [];
+      for (const id of values) {
+        const b = def.buckets?.find((x) => x.id === id);
+        if (!b) continue;
+        const cmp: Prisma.IntFilter = {};
+        if (b.gte !== undefined) cmp.gte = b.gte;
+        if (b.lt !== undefined) cmp.lt = b.lt;
+        or.push({ [def.column]: cmp } as Prisma.ProductWhereInput);
+      }
+      if (or.length) out.push({ OR: or });
+      continue;
+    }
+
+    if (def.kind === "number") {
+      const nums = values.map(Number).filter((n) => Number.isFinite(n));
+      if (nums.length) out.push({ [def.column]: { in: nums } } as Prisma.ProductWhereInput);
+      continue;
+    }
+
+    // enum: значення поза переліком ігноруємо — в адресу їх міг вписати хто завгодно.
+    const allowed = values.filter((v) => def.options?.some((o) => o.value === v));
+    if (allowed.length) out.push({ [def.column]: { in: allowed } } as Prisma.ProductWhereInput);
+  }
+
+  return out;
 }
 
 export function buildOrderBy(sort?: string): Prisma.ProductOrderByWithRelationInput[] {
@@ -231,6 +301,12 @@ export function filtersToQuery(
   if (f.withImage) sp.set("withImage", "1");
   if (f.categorySlug) sp.set("category", f.categorySlug);
   if (f.sort) sp.set("sort", f.sort);
+  // Порядком реєстру, а не Object.keys: інакше та сама пара фільтрів давала б
+  // різні адреси, і пагінація з чипами розходились би між собою.
+  for (const def of FACETS) {
+    const vals = f.attrs?.[def.key];
+    if (vals?.length) sp.set(def.key, vals.join(","));
+  }
   if (page && page > 1) sp.set("page", String(page));
   const qs = sp.toString();
   return qs ? `?${qs}` : "";
@@ -295,6 +371,172 @@ const fetchBrandFacetsCached = unstable_cache(fetchBrandFacetsUncached, ["catalo
   revalidate: 60,
   tags: [CATALOG_CACHE_TAG],
 });
+
+/**
+ * Скільки товарів дає кожен розділ **у поточній видачі**.
+ *
+ * Числа розділів приходили зі змісту каталогу — тобто з усього каталогу,
+ * незалежно від того, що людина вже обрала. Всередині бренда це виглядало як
+ * обіцянка: «Polax / Малярний інструмент 1 240», а за кліком відкривалось
+ * сорок позицій, бо решта — інші фірми. Тепер розділ рахується тим самим
+ * where, що й видача, тож обраний бренд лишається в умові автоматично.
+ *
+ * Розділ сам себе не звужує — інакше після вибору лишався б один рядок і
+ * перейти в сусідній розділ, не скинувши фільтр, було б нічим. Групи теж
+ * прибираємо: вони належать розділу, і з ними числа сусідніх розділів були б
+ * нулями.
+ */
+export async function fetchSectionFacets(f: CatalogFilters): Promise<Record<string, number>> {
+  if (f.search) return fetchSectionFacetsUncached(f);
+  return fetchSectionFacetsCached(f);
+}
+
+async function fetchSectionFacetsUncached(f: CatalogFilters): Promise<Record<string, number>> {
+  const where = await buildWhere({ ...f, section: undefined, types: [] });
+  const rows = await prisma.product.groupBy({
+    by: ["sectionId"],
+    where: { ...where, sectionId: { not: null } },
+    _count: { _all: true },
+  });
+
+  const out: Record<string, number> = {};
+  for (const r of rows) if (r.sectionId) out[r.sectionId] = r._count._all;
+  return out;
+}
+
+const fetchSectionFacetsCached = unstable_cache(
+  fetchSectionFacetsUncached,
+  ["catalog-section-facets"],
+  { revalidate: 60, tags: [CATALOG_CACHE_TAG] }
+);
+
+/**
+ * Скільки товарів дає кожна група товару **у поточній видачі**.
+ *
+ * Замінює getBrandTypes() на сторінці каталогу: та рахувала групи лише по
+ * бренду й не знала про розділ, тож усередині бренда рівень розділу зникав, а
+ * список був плоским і обрізаним. Тут умова спільна з видачею — і бренд, і
+ * розділ, і ціна, і наявність, — тому «Пензлі 12» всередині Polax означає
+ * рівно дванадцять пензлів Polax.
+ *
+ * Група сама себе не звужує з тієї ж причини, що й бренд вище.
+ */
+export async function fetchTypeFacets(f: CatalogFilters): Promise<Record<string, number>> {
+  if (f.search) return fetchTypeFacetsUncached(f);
+  return fetchTypeFacetsCached(f);
+}
+
+async function fetchTypeFacetsUncached(f: CatalogFilters): Promise<Record<string, number>> {
+  const where = await buildWhere({ ...f, types: [] });
+  const rows = await prisma.product.groupBy({
+    by: ["typeKey"],
+    where: { ...where, typeKey: { not: null } },
+    _count: { _all: true },
+  });
+
+  const out: Record<string, number> = {};
+  for (const r of rows) if (r.typeKey) out[r.typeKey] = r._count._all;
+  return out;
+}
+
+const fetchTypeFacetsCached = unstable_cache(fetchTypeFacetsUncached, ["catalog-type-facets"], {
+  revalidate: 60,
+  tags: [CATALOG_CACHE_TAG],
+});
+
+export interface AttrFacet {
+  key: string;
+  label: string;
+  unit?: string;
+  options: { value: string; label: string; count: number }[];
+}
+
+/**
+ * Характеристики, за якими зараз є сенс фільтрувати, з лічильниками.
+ *
+ * Блоки зʼявляються контекстно: набір визначає facetsFor() за обраним розділом
+ * і групою, тож «Діаметр диска» видно на болгарках і кругах, а не над усім
+ * каталогом. Коли фасетів для місця немає, функція не робить жодного запиту —
+ * чистий /catalog за це не платить нічого.
+ *
+ * Кожен фасет рахується без себе самого — так само, як бренди й розділи вище.
+ */
+export async function fetchAttrFacets(f: CatalogFilters): Promise<AttrFacet[]> {
+  const defs = facetsFor({ section: f.section, types: f.types });
+  if (!defs.length) return [];
+  if (f.search) return fetchAttrFacetsUncached(f, defs);
+  return fetchAttrFacetsCached(f, defs);
+}
+
+async function fetchAttrFacetsUncached(f: CatalogFilters, defs: FacetDef[]): Promise<AttrFacet[]> {
+  const out = await Promise.all(defs.map((def) => facetOptions(f, def)));
+  // Фасет без жодного значення показувати нема сенсу: порожній блок читається
+  // як поламаний фільтр. Обране лишається завжди — інакше зняти його нічим.
+  return out.filter((x) => x.options.length > 0);
+}
+
+const fetchAttrFacetsCached = unstable_cache(fetchAttrFacetsUncached, ["catalog-attr-facets"], {
+  revalidate: 60,
+  tags: [CATALOG_CACHE_TAG],
+});
+
+async function facetOptions(f: CatalogFilters, def: FacetDef): Promise<AttrFacet> {
+  const base = await buildWhere({ ...f, attrs: omitKey(f.attrs, def.key) });
+  const rows = await prisma.product.groupBy({
+    by: [def.column],
+    where: { ...base, [def.column]: { not: null } },
+    _count: { _all: true },
+  });
+
+  const chosen = new Set(f.attrs[def.key] ?? []);
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const raw = (r as Record<string, unknown>)[def.column];
+    if (raw === null || raw === undefined) continue;
+    counts.set(String(raw), r._count._all);
+  }
+
+  let options: { value: string; label: string; count: number }[];
+
+  if (def.kind === "range") {
+    options = (def.buckets ?? []).map((b) => {
+      let n = 0;
+      for (const [raw, cnt] of counts) {
+        const v = Number(raw);
+        if (!Number.isFinite(v)) continue;
+        if (b.gte !== undefined && v < b.gte) continue;
+        if (b.lt !== undefined && v >= b.lt) continue;
+        n += cnt;
+      }
+      return { value: b.id, label: b.label, count: n };
+    });
+  } else if (def.kind === "enum") {
+    options = (def.options ?? []).map((o) => ({ ...o, count: counts.get(o.value) ?? 0 }));
+  } else {
+    // number: значення беремо з бази, впорядковані як числа — «100, 125, 230»,
+    // а не рядками, де «100» стоїть після «1000».
+    options = [...counts.entries()]
+      .map(([value, count]) => ({
+        value,
+        label: def.unit ? `${value} ${def.unit}` : value,
+        count,
+      }))
+      .sort((a, b) => Number(a.value) - Number(b.value));
+  }
+
+  return {
+    key: def.key,
+    label: def.label,
+    unit: def.unit,
+    options: options.filter((o) => o.count > 0 || chosen.has(o.value)),
+  };
+}
+
+function omitKey(attrs: Record<string, string[]>, key: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(attrs)) if (k !== key) out[k] = v;
+  return out;
+}
 
 /**
  * Поля, які читають картки каталогу. Один список на всі шляхи вибірки.

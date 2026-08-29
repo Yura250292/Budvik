@@ -8,20 +8,32 @@
 
 import { NextResponse } from "next/server";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
+import { SECTIONS } from "@/lib/catalog/classify";
+import { parseFilters, fetchSectionFacets, fetchAttrFacets } from "@/lib/catalog/query";
 
 export const revalidate = 3600;
 
 export async function GET(req: Request) {
-  const brand = new URL(req.url).searchParams.get("brand");
+  const sp = new URL(req.url).searchParams;
+  const brand = sp.get("brand");
+  const section = sp.get("section");
 
-  const [brands, types, price] = await Promise.all([
+  const filters = parseFilters(sp);
+
+  const [brands, types, price, sectionFacets, attrs] = await Promise.all([
     getBrandTree(),
     /**
      * Типи звужуємо до обраного бренда: у SIGMA свої 24 типи, і показувати
      * там «Бензопила», якої в неї немає, означає обіцяти порожню видачу.
+     *
+     * Розділ звужує далі — інакше застосунок, як і сайт колись, губив рівень
+     * розділу всередині бренда: людина обирала «Малярний», а список груп
+     * лишався плоским переліком усіх груп бренда.
      */
-    getBrandTypes(brand),
+    getBrandTypes(brand, { section: section ?? undefined, shoppable: true }),
     getPriceBounds(),
+    fetchSectionFacets(filters),
+    fetchAttrFacets(filters),
   ]);
 
   return NextResponse.json({
@@ -33,6 +45,12 @@ export async function GET(req: Request) {
       logoUrl: b.logoUrl,
     })),
     types,
+    // Поле лише додається — старі збірки застосунку його не читають.
+    sections: SECTIONS.map((s) => ({ id: s.id, title: s.title, count: sectionFacets[s.id] ?? 0 }))
+      .filter((s) => s.count > 0),
+    // Характеристики доречні лише для конкретних груп («діаметр диска» — про
+    // болгарки), тож без ?type= чи ?section= масив порожній.
+    attrs,
     price,
   });
 }

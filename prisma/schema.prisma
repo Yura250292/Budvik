@@ -410,6 +410,16 @@ model Product {
   chuckMm        Float? // Патрон (мм)
   toolType       String? // drill | grinder | saw | jigsaw | sander
   weightKg       Float? // Вага (кг)
+
+  /// Живлення: 'akum' | 'merezha' | 'benzo'. NULL — невідомо.
+  ///
+  /// Головний фасет вітрини: «акумуляторна чи мережева» — перше, чим покупець
+  /// звужує вибір інструменту. Рахує src/lib/catalog/attributes.ts за назвою
+  /// (обмін із 1С характеристик не віддає), перераховує scripts/extract-specs.mts.
+  /// Дефолтів не пишемо: вигаданий фасет мовчки викидає товар із видачі.
+  powerSource String?
+  /// Напруга акумулятора, В — 12, 18, 20, 36… Визначає сумісність із батареєю.
+  voltageV    Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -464,6 +474,10 @@ model Product {
   // і «весь розділ», і «одна група всередині розділу».
   @@index([sectionId, typeKey])
   @@index([typeKey])
+  // Атрибутні фасети питають завжди в межах групи: «живлення» — про
+  // інструмент, «діаметр диска» — про болгарки й круги.
+  @@index([typeKey, powerSource])
+  @@index([typeKey, discDiameterMm])
   // GIN — бо шукаємо `barcodes has "482..."`, а B-tree по масиву в цьому не помічний.
   @@index([barcodes], type: Gin)
 }

@@ -12,10 +12,19 @@ import CatalogFilters from "@/components/catalog/CatalogFilters";
 import CatalogBreadcrumbs, { sectionOfFilters } from "@/components/catalog/CatalogBreadcrumbs";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SearchTracker from "@/components/webstats/SearchTracker";
-import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
+import { getBrandTree, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { getCatalogToc } from "@/lib/catalog/sections";
-import { TYPE_LABELS } from "@/lib/catalog/classify";
-import { parseFilters, fetchCatalogPage, fetchBrandFacets, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
+import { TYPE_LABELS, TYPE_SECTION } from "@/lib/catalog/classify";
+import {
+  parseFilters,
+  fetchCatalogPage,
+  fetchBrandFacets,
+  fetchSectionFacets,
+  fetchTypeFacets,
+  fetchAttrFacets,
+  filtersToQuery,
+  CATALOG_PAGE_SIZE,
+} from "@/lib/catalog/query";
 
 type SP = Record<string, string | undefined>;
 
@@ -32,18 +41,23 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const params = await searchParams;
   const f = parseFilters(params);
 
+  // Характеристики теж роблять адресу фільтрованою: без цього
+  // ?type=болгарка&power=akum отримав би canonical на /catalog/typ/болгарка —
+  // тобто робот вважав би акумуляторні болгарки дублем усіх болгарок.
+  const hasAttrs = Object.values(f.attrs).some((v) => v.length > 0);
+
   const noExtras = (skip: "brand" | "type") =>
     (skip === "brand" || !f.brands.length) &&
     (skip === "type" || !f.types.length) &&
     !f.search && f.priceMin === undefined && f.priceMax === undefined &&
-    !f.showAll && !f.withImage && !f.categorySlug && !f.sort && !params.page;
+    !f.showAll && !f.withImage && !f.categorySlug && !f.sort && !params.page && !hasAttrs;
 
   const onlyBrand = f.brands.length === 1 && f.brands[0] !== "none" && noExtras("brand");
   const onlyType = f.types.length === 1 && noExtras("type");
   const isFiltered =
     f.brands.length > 0 || f.types.length > 0 || !!f.search ||
     f.priceMin !== undefined || f.priceMax !== undefined ||
-    f.showAll || f.withImage || !!f.categorySlug || !!f.sort || !!params.page;
+    f.showAll || f.withImage || !!f.categorySlug || !!f.sort || !!params.page || hasAttrs;
 
   return {
     title: f.search ? `Пошук: ${f.search}` : "Каталог інструментів",
@@ -80,6 +94,9 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
  */
 const MAX_PAGE = 100;
 
+/** Скільки груп показуємо в панелі, коли розділ не обрано. */
+const TYPES_SHOWN = 24;
+
 export default async function CatalogPage({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;
   const filters = parseFilters(params);
@@ -96,35 +113,65 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   // оптової ціни для 2%. Оптовик добирає свою знижку на клієнті
   // (useWholesaleDiscounts у ProductCard).
   const singleBrand = filters.brands.length === 1 ? filters.brands[0] : null;
-  const [{ products: rawProducts, total, isFuzzy }, tree, priceBounds, brandTypes, toc, facets] =
-    await Promise.all([
-      fetchCatalogPage(filters, page),
-      getBrandTree(),
-      getPriceBounds(),
-      singleBrand ? getBrandTypes(singleBrand) : Promise.resolve([]),
-      getCatalogToc(),
-      fetchBrandFacets(filters),
-    ]);
+  const [
+    { products: rawProducts, total, isFuzzy },
+    tree,
+    priceBounds,
+    toc,
+    facets,
+    sectionFacets,
+    typeFacets,
+    attrFacets,
+  ] = await Promise.all([
+    fetchCatalogPage(filters, page),
+    getBrandTree(),
+    getPriceBounds(),
+    getCatalogToc(),
+    fetchBrandFacets(filters),
+    fetchSectionFacets(filters),
+    fetchTypeFacets(filters),
+    fetchAttrFacets(filters),
+  ]);
 
   /*
-   * Дерево каталогу для лівої колонки.
+   * Дерево каталогу для лівої колонки — у розрізі того, що вже обрано.
    *
-   * Групи товару досі з'являлись лише всередині одного бренда — тобто на
-   * чистому /catalog фільтрувати не було чим, і єдиним способом звузити
-   * видачу лишався бренд. Тепер, коли обрано розділ, показуємо його типи:
-   * «Різальний інструмент» → круг, диск, свердло, бур. Це той самий зміст,
-   * що на вітрині й на /catalog/zmist, тож числа скрізь однакові.
+   * Раніше тут стояло «бренд перебиває розділ»: коли обрано один бренд, групи
+   * бралися з getBrandTypes(бренд), яка про розділ не знала зовсім. Всередині
+   * бренда рівень розділу зникав, список груп ставав плоским і обрізаним 24
+   * рядками, а числа рахувалися по всіх активних картках — тобто обіцяли
+   * більше, ніж показував клік.
+   *
+   * Тепер і розділи, і групи рахує той самий where, що й видача
+   * (fetchSectionFacets / fetchTypeFacets), тож обраний бренд лишається в
+   * умові сам собою: «Пензлі 12» у Polax означають дванадцять пензлів Polax.
    */
-  const sectionOptions = toc.sections.map((s) => ({ id: s.id, title: s.title, count: s.total }));
+  const sectionOptions = toc.sections
+    .map((s) => ({ id: s.id, title: s.title, count: sectionFacets[s.id] ?? 0 }))
+    // Порожній розділ у панелі — глухий кут: клік по ньому дає «Товарів не
+    // знайдено». Активний лишаємо завжди, інакше зняти вибір не було б чим.
+    .filter((s) => s.count > 0 || s.id === filters.section);
   const activeSection = sectionOfFilters(filters, sectionOptions);
-  const sectionLines = activeSection
-    ? toc.sections.find((s) => s.id === activeSection.id)?.lines ?? []
-    : [];
   // Весь розділ — це коли всередині ще нічого не звужували.
   const wholeSection = Boolean(activeSection) && filters.types.length === 0;
-  // Бренд звужує сильніше за розділ: якщо обрано один бренд, групи беремо в
-  // його розрізі — «свердло» всередині YATO, а не по всьому каталогу.
-  const types = singleBrand ? brandTypes : sectionLines;
+
+  const typeKeys = new Set(
+    filters.section
+      ? // Усередині розділу — всі його групи, що є у видачі.
+        Object.keys(typeFacets).filter((k) => TYPE_SECTION[k] === filters.section)
+      : // Без розділу список груп неоглядний (сотні), тож показуємо найбільші.
+        Object.keys(typeFacets)
+          .sort((a, b) => (typeFacets[b] ?? 0) - (typeFacets[a] ?? 0))
+          .slice(0, TYPES_SHOWN)
+  );
+  // Обране лишається в списку, навіть коли фасет дав нуль або група не
+  // втрапила в топ: інакше зняти фільтр не було б чим — рядок зник би разом
+  // із галочкою.
+  for (const t of filters.types) typeKeys.add(t);
+
+  const types = [...typeKeys]
+    .map((key) => ({ key, label: TYPE_LABELS[key] ?? key, count: typeFacets[key] ?? 0 }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "uk"));
 
   // Картці потрібен лише короткий анонс без розмітки — повний опис у
   // пропсах їхав би в HTML двічі (розмітка + RSC-payload для гідрації).
@@ -153,16 +200,22 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   if (facets.none) brandCounts.none = facets.none;
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
 
+  // Заголовок читається зверху вниз по дереву: «Пензлі Polax» замість просто
+  // «Polax» — інакше сторінка групи всередині бренда виглядала так само, як
+  // головна сторінка бренда, і людина не бачила, куди саме зайшла.
+  const typeTitle = filters.types.length === 1 ? TYPE_LABELS[filters.types[0]] ?? filters.types[0] : null;
   const title =
     activeBrands.length === 1
-      ? activeBrands[0].name
+      ? typeTitle
+        ? `${typeTitle} ${activeBrands[0].name}`
+        : wholeSection && activeSection
+          ? `${activeSection.title} — ${activeBrands[0].name}`
+          : activeBrands[0].name
       : filters.search
         ? `Пошук: «${filters.search}»`
         : wholeSection && activeSection
           ? activeSection.title
-          : filters.types.length === 1
-            ? TYPE_LABELS[filters.types[0]] ?? filters.types[0]
-            : "Каталог інструментів";
+          : typeTitle ?? "Каталог інструментів";
 
   const SORTS = [
     { value: "", label: "Рекомендовані" },
@@ -199,16 +252,44 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         Вхід у зміст за розділами. Головний спосіб орієнтуватись, коли людина
         не знає назви: 49 тис. позицій сіткою і фільтр за брендами не
         відповідають на питання «а що у вас є з малярного».
+
+        Усередині бренда веде звідси не можна: зміст глобальний (він на ISR і
+        searchParams не читає), тож кнопка була виходом із бренда без вороття.
+        Замість неї — розділи цього бренда з його ж числами.
       */}
-      <Link
-        href="/catalog/zmist"
-        className="mb-4 flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-[#E0E0E0] bg-white px-4 text-sm font-bold text-[#0A0A0A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15 sm:mb-6"
-      >
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
-        </svg>
-        Каталог за розділами
-      </Link>
+      {activeBrands.length === 1 && sectionOptions.length > 0 ? (
+        <div className="mb-4 sm:mb-6">
+          <p className="mb-2 text-xs font-medium text-[#9E9E9E]">
+            Розділи {activeBrands[0].name}:
+          </p>
+          <div className="scrollbar-hide -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0">
+            {sectionOptions.map((s) => (
+              <Link
+                key={s.id}
+                href={`/catalog${filtersToQuery({ brands: filters.brands, section: s.id, showAll: filters.showAll, withImage: filters.withImage })}`}
+                rel="nofollow"
+                className={`flex-shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  filters.section === s.id
+                    ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
+                    : "border-[#E0E0E0] bg-white text-[#555] hover:bg-[#FAFAFA]"
+                }`}
+              >
+                {s.title} <span className="text-[#9E9E9E]">{s.count}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <Link
+          href="/catalog/zmist"
+          className="mb-4 flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-[#E0E0E0] bg-white px-4 text-sm font-bold text-[#0A0A0A] transition hover:border-[#FFD600] hover:bg-[#FFD600]/10 active:bg-[#FFD600]/15 sm:mb-6"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
+          </svg>
+          Каталог за розділами
+        </Link>
+      )}
 
       <div className="mb-4">
         <div className="scrollbar-hide -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0">
@@ -235,7 +316,13 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <ActiveFilterChips filters={filters} brands={allBrands} unbranded={tree.unbranded} sections={sectionOptions} />
+      <ActiveFilterChips
+        filters={filters}
+        brands={allBrands}
+        unbranded={tree.unbranded}
+        sections={sectionOptions}
+        attrFacets={attrFacets}
+      />
 
       <div className="flex flex-col gap-4 sm:gap-6 md:flex-row">
         <aside className="w-full flex-shrink-0 md:w-72">
@@ -247,6 +334,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             sections={sectionOptions}
             brandCounts={brandCounts}
             priceBounds={priceBounds}
+            attrFacets={attrFacets}
           />
         </aside>
 

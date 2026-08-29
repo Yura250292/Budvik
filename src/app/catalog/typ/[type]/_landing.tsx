@@ -27,6 +27,10 @@ const typeFilters = (type: string) => ({
   types: [type],
   showAll: false,
   withImage: false,
+  // Сторінка на ISR і searchParams не читає — звужувати її фільтрами не можна
+  // (це вимкнуло б кешування для всього маршруту). Хто хоче фільтрувати, іде
+  // звідси на /catalog?type=… — динамічну сторінку з панеллю.
+  attrs: {},
 });
 
 export function parseType(raw: string): string | null {

@@ -21,7 +21,9 @@ export async function GET(req: Request) {
   const brand = new URL(req.url).searchParams.get("brand");
 
   if (brand) {
-    return NextResponse.json({ types: await getBrandTypes(brand) });
+    // shoppable — той самий сенс, що в getShoppableBrandTree нижче: список
+    // груп у застосунку є обіцянкою видачі, а не описом бази.
+    return NextResponse.json({ types: await getBrandTypes(brand, { shoppable: true }) });
   }
 
   const [tree, showcase, photos, summaries] = await Promise.all([

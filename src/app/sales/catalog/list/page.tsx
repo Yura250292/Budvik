@@ -50,7 +50,9 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
    */
   const toc = await getCatalogToc();
   const types = singleBrand
-    ? await getBrandTypes(singleBrand)
+    // shoppable: false явно — кабінет бере відсутню позицію під замовлення,
+    // тож ховати від торгового групи без залишку не можна.
+    ? await getBrandTypes(singleBrand, { section: filters.section, shoppable: false })
     : toc.sections.find((s) => s.id === filters.section)?.lines ?? [];
   const sectionOptions = toc.sections.map((s) => ({ id: s.id, title: s.title, count: s.total }));
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { CatalogFilters } from "@/lib/catalog/query";
+import type { CatalogFilters, AttrFacet } from "@/lib/catalog/query";
 import { filtersToQuery } from "@/lib/catalog/query";
 import type { BrandNode } from "@/lib/catalog/brand-tree";
 import type { SectionOption } from "@/components/catalog/CatalogFilters";
@@ -17,6 +17,7 @@ export default function ActiveFilterChips({
   brands,
   unbranded,
   sections = [],
+  attrFacets = [],
   basePath = "/catalog",
   defaultShowAll = false,
 }: {
@@ -25,6 +26,8 @@ export default function ActiveFilterChips({
   unbranded: number;
   /** Розділи каталогу — щоб цілий розділ показати одним чипом, а не дюжиною. */
   sections?: SectionOption[];
+  /** Характеристики — щоб чип писався людською назвою: «Ø125 мм», а не «disc=125». */
+  attrFacets?: AttrFacet[];
   /** Куди ведуть чипи: вітрина чи кабінет торгового. */
   basePath?: string;
   /**
@@ -39,13 +42,20 @@ export default function ActiveFilterChips({
   const nameBySlug = new Map(brands.map((b) => [b.slug, b.name]));
   const query = (f: Partial<CatalogFilters>) => filtersToQuery(f, undefined, { defaultShowAll });
 
-  const chips: { label: string; href: string }[] = [];
+  const chips: { label: string; href: string; context?: boolean }[] = [];
 
   for (const slug of filters.brands) {
     const label = slug === "none" ? `Без бренда (${unbranded})` : nameBySlug.get(slug) || slug;
     chips.push({
       label,
       href: `${basePath}${query({ ...filters, brands: filters.brands.filter((b) => b !== slug) })}`,
+      /*
+       * Один бренд — це рамка навколо всього дерева, а не рядовий фільтр:
+       * розділи, групи й крихти всередині нього рахуються й ведуть у його
+       * межах. Виділяємо темним, щоб було видно, що видача обмежена фірмою, і
+       * що знімається це саме тут — решта хрестиків бренд не чіпає.
+       */
+      context: filters.brands.length === 1 && slug !== "none",
     });
   }
 
@@ -70,6 +80,27 @@ export default function ActiveFilterChips({
       label: TYPE_LABELS[t] ?? t.charAt(0).toUpperCase() + t.slice(1),
       href: `${basePath}${query({ ...filters, types: filters.types.filter((x) => x !== t) })}`,
     });
+  }
+
+  /*
+   * Характеристики — по чипу на кожне обране значення.
+   *
+   * Назву беремо з фасета, а не з адреси: «Акумуляторне» замість «power=akum»
+   * і «125 мм» замість «disc=125». Хрестик знімає одне значення, лишаючи
+   * решту — інакше вибір «125 або 230» довелося б набирати заново.
+   */
+  for (const fa of attrFacets) {
+    for (const value of filters.attrs[fa.key] ?? []) {
+      const opt = fa.options.find((o) => o.value === value);
+      const rest = (filters.attrs[fa.key] ?? []).filter((v) => v !== value);
+      const attrs = { ...filters.attrs };
+      if (rest.length) attrs[fa.key] = rest;
+      else delete attrs[fa.key];
+      chips.push({
+        label: `${fa.label}: ${opt?.label ?? value}`,
+        href: `${basePath}${query({ ...filters, attrs })}`,
+      });
+    }
   }
 
   if (filters.priceMin !== undefined || filters.priceMax !== undefined) {
@@ -111,10 +142,20 @@ export default function ActiveFilterChips({
           key={c.label}
           href={c.href}
           rel="nofollow"
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#FFD600] bg-[#FFD600]/15 px-3 py-1.5 text-xs font-medium text-[#0A0A0A] transition hover:bg-[#FFD600]/30"
+          className={
+            c.context
+              ? "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#0A0A0A] bg-[#0A0A0A] px-3 py-1.5 text-xs font-semibold text-[#FFD600] transition hover:bg-[#262626]"
+              : "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-[#FFD600] bg-[#FFD600]/15 px-3 py-1.5 text-xs font-medium text-[#0A0A0A] transition hover:bg-[#FFD600]/30"
+          }
         >
           {c.label}
-          <svg className="h-3.5 w-3.5 text-[#6B7280]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className={`h-3.5 w-3.5 ${c.context ? "text-[#FFD600]/70" : "text-[#6B7280]"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </Link>

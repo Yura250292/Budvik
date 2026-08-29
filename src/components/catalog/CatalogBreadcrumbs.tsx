@@ -50,9 +50,30 @@ export function buildCrumbs(
     { label: "Каталог", href: "/catalog" },
   ];
 
-  // Показ («лише з фото», «показати відсутні») — не рівень дерева, а те, як
-  // людина дивиться на будь-який із них: переносимо на всі ланки.
-  const view = { showAll: filters.showAll, withImage: filters.withImage };
+  /*
+   * Показ («лише з фото», «показати відсутні») — не рівень дерева, а те, як
+   * людина дивиться на будь-який із них: переносимо на всі ланки.
+   *
+   * Бренд теж їде на всі ланки, хоч і є фільтром. Він стояв останньою
+   * сходинкою — нижче за групу, — і вихід «на крок назад» із «Пензлі Polax»
+   * вів на всі пензлі всіх фірм. Для людини, яка зайшла через сторінку
+   * бренда, це не крок назад, а втрата місця, де вона перебуває: бренд для
+   * неї — рамка навколо всього дерева, а не остання уточнена дрібниця.
+   * Знімається він хрестиком чипа, а не ланкою крихт.
+   */
+  const singleBrand = filters.brands.length === 1 && brandName ? filters.brands : [];
+  const view = {
+    showAll: filters.showAll,
+    withImage: filters.withImage,
+    brands: singleBrand,
+  };
+
+  if (singleBrand.length && brandName) {
+    crumbs.push({
+      label: brandName,
+      href: `/catalog${filtersToQuery({ ...view })}`,
+    });
+  }
 
   const section = sectionOfFilters(filters, sections);
   if (section) {
@@ -77,9 +98,11 @@ export function buildCrumbs(
     });
   }
 
-  if (filters.brands.length === 1 && brandName) {
+  // Кілька брендів — не рамка, а звичайний фільтр: назвати їх одним словом
+  // ніяк, тож лишаються чипами. Ланка показує лише скільки їх.
+  if (filters.brands.length > 1) {
     crumbs.push({
-      label: brandName,
+      label: `${filters.brands.length} бренди`,
       href: `/catalog${filtersToQuery({ ...view, section: filters.section, types: filters.types, brands: filters.brands })}`,
     });
   }

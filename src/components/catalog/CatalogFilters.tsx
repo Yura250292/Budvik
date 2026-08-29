@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useId } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BrandNode, TypeNode } from "@/lib/catalog/brand-tree";
+import type { AttrFacet } from "@/lib/catalog/query";
 
 /**
  * Фільтри каталогу для показу клієнту.
@@ -38,6 +39,12 @@ interface Props {
    */
   brandCounts?: Record<string, number>;
   priceBounds: { min: number; max: number };
+  /**
+   * Характеристики, доречні для поточного місця каталогу: живлення, діаметр
+   * диска, напруга. Приходять уже з лічильниками й без порожніх значень —
+   * сервер знає, що є у видачі, а клієнт лише малює.
+   */
+  attrFacets?: AttrFacet[];
   /** Куди застосовувати фільтри: вітрина чи кабінет торгового. */
   basePath?: string;
   /**
@@ -58,6 +65,7 @@ export default function CatalogFilters({
   sections = [],
   brandCounts = {},
   priceBounds,
+  attrFacets = [],
   basePath = "/catalog",
   defaultShowAll = false,
 }: Props) {
@@ -76,6 +84,7 @@ export default function CatalogFilters({
       sections={sections}
       brandCounts={brandCounts}
       priceBounds={priceBounds}
+      attrFacets={attrFacets}
       basePath={basePath}
       defaultShowAll={defaultShowAll}
     />
@@ -90,6 +99,7 @@ function FiltersInner({
   sections,
   brandCounts,
   priceBounds,
+  attrFacets,
   basePath,
   defaultShowAll,
 }: Required<Props>) {
@@ -97,18 +107,28 @@ function FiltersInner({
   const sp = useSearchParams();
 
   const current = useMemo(
-    () => ({
-      brands: (sp.get("brand") || "").split(",").filter(Boolean),
-      types: (sp.get("type") || "").split(",").filter(Boolean),
-      section: sp.get("section") || "",
-      priceMin: sp.get("priceMin") || "",
-      priceMax: sp.get("priceMax") || "",
-      showAll: sp.has("all") ? sp.get("all") === "1" : defaultShowAll,
-      withImage: sp.get("withImage") === "1",
-      search: sp.get("search") || "",
-      sort: sp.get("sort") || "",
-    }),
-    [sp, defaultShowAll]
+    () => {
+      // Характеристики читаємо лише ті, що зараз доречні: ключі приходять
+      // разом із фасетами, тож чужий параметр в адресі в чернетку не потрапить.
+      const attrs: Record<string, string[]> = {};
+      for (const fa of attrFacets) {
+        const vals = (sp.get(fa.key) || "").split(",").filter(Boolean);
+        if (vals.length) attrs[fa.key] = vals;
+      }
+      return {
+        brands: (sp.get("brand") || "").split(",").filter(Boolean),
+        types: (sp.get("type") || "").split(",").filter(Boolean),
+        section: sp.get("section") || "",
+        priceMin: sp.get("priceMin") || "",
+        priceMax: sp.get("priceMax") || "",
+        showAll: sp.has("all") ? sp.get("all") === "1" : defaultShowAll,
+        withImage: sp.get("withImage") === "1",
+        search: sp.get("search") || "",
+        sort: sp.get("sort") || "",
+        attrs,
+      };
+    },
+    [sp, defaultShowAll, attrFacets]
   );
 
   const [draft, setDraft] = useState(current);
@@ -125,7 +145,8 @@ function FiltersInner({
     (current.priceMin ? 1 : 0) +
     (current.priceMax ? 1 : 0) +
     (current.showAll !== defaultShowAll ? 1 : 0) +
-    (current.withImage ? 1 : 0);
+    (current.withImage ? 1 : 0) +
+    Object.values(current.attrs).reduce((n, v) => n + v.length, 0);
 
   const apply = useCallback(
     (next: typeof draft) => {
@@ -141,11 +162,17 @@ function FiltersInner({
       if (next.showAll !== defaultShowAll) q.set("all", next.showAll ? "1" : "0");
       if (next.withImage) q.set("withImage", "1");
       if (next.sort) q.set("sort", next.sort);
+      // Порядком фасетів, а не Object.keys: адреса має бути та сама при тому
+      // самому наборі галочок, інакше кеш видачі не спрацює.
+      for (const fa of attrFacets) {
+        const vals = next.attrs[fa.key];
+        if (vals?.length) q.set(fa.key, vals.join(","));
+      }
       const qs = q.toString();
       router.push(`${basePath}${qs ? `?${qs}` : ""}`);
       setOpen(false);
     },
-    [router, basePath, defaultShowAll]
+    [router, basePath, defaultShowAll, attrFacets]
   );
 
   const toggle = (key: "brands" | "types", value: string) => {
@@ -169,6 +196,18 @@ function FiltersInner({
     });
   };
 
+  /** Галочка характеристики: кілька значень одного фасета — це «або». */
+  const toggleAttr = (key: string, value: string) => {
+    setDraft((d) => {
+      const cur = d.attrs[key] ?? [];
+      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
+      const attrs = { ...d.attrs };
+      if (next.length) attrs[key] = next;
+      else delete attrs[key];
+      return { ...d, attrs };
+    });
+  };
+
   const reset = () => {
     const cleared = {
       ...draft,
@@ -179,6 +218,7 @@ function FiltersInner({
       priceMax: "",
       showAll: defaultShowAll,
       withImage: false,
+      attrs: {},
     };
     setDraft(cleared);
     apply(cleared);
@@ -231,8 +271,42 @@ function FiltersInner({
    */
   const activeSection = sections.find((s) => s.id === draft.section) ?? null;
 
+  /**
+   * Бренди чернетки людськими назвами — для рядка контексту.
+   *
+   * Мапу будуємо з тих самих списків, що вже прийшли пропсами: окремого
+   * джерела назв тут не потрібно, а slug у заголовку («polax») читався б як
+   * технічний рядок, а не як фірма, у межах якої людина зараз перебуває.
+   */
+  const draftBrandNames = useMemo(() => {
+    const bySlug = new Map([...brands, ...tailBrands].map((b) => [b.slug, b.name]));
+    return draft.brands.map((s) => (s === "none" ? "Без бренда" : bySlug.get(s) ?? s));
+  }, [draft.brands, brands, tailBrands]);
+
   const body = (
     <div className="space-y-3">
+      {/*
+        Рамка, у якій людина зараз перебуває.
+
+        Бренд звужує все нижче — розділи, групи й числа біля них рахуються в
+        його межах. Без цього рядка панель виглядала так, ніби показує весь
+        каталог, і порожні розділи всередині дрібної фірми читались як
+        поламаний фільтр, а не як «у цієї фірми такого немає».
+      */}
+      {draftBrandNames.length > 0 && (
+        <div className="flex items-center gap-2 rounded-[10px] bg-[#0A0A0A] px-3 py-2.5">
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[#FFD600]">
+            У межах: {draftBrandNames.join(", ")}
+          </span>
+          <button
+            onClick={() => setDraft((d) => ({ ...d, brands: [] }))}
+            className="flex-shrink-0 cursor-pointer rounded px-1.5 py-1 text-xs font-medium text-[#FFD600]/70 transition hover:text-[#FFD600]"
+          >
+            Весь каталог
+          </button>
+        </div>
+      )}
+
       {/*
         Розділ — верхній рівень дерева.
 
@@ -269,6 +343,67 @@ function FiltersInner({
           </div>
         </FilterBlock>
       )}
+
+      {/* Групи товарів усередині розділу (або бренда) */}
+      {types.length > 0 && (
+        <FilterBlock title="Групи товару" defaultOpen={Boolean(activeSection) || draft.brands.length > 0}>
+          <div className="flex flex-wrap gap-1.5">
+            {types.map((t) => {
+              const on = draft.types.includes(t.key);
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => pickType(t.key)}
+                  className={`rounded-lg border px-3 py-2 text-sm transition ${
+                    on
+                      ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
+                      : "border-[#EFEFEF] bg-[#FAFAFA] text-[#1A1A1A] hover:border-[#FFD600]"
+                  }`}
+                >
+                  {t.label}
+                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#9E9E9E]"}`}>{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </FilterBlock>
+      )}
+
+      {/*
+        Характеристики — те, чим товар обирають насправді.
+
+        Бренд і група відповідають на питання «що це», але болгарку беруть не
+        за фірмою: спершу акумуляторна чи мережева, потім який круг стає.
+        Блоки приходять уже підібраними під місце в каталозі — над пензлями
+        «Діаметр диска» не зʼявиться, — і з лічильниками, тож видно, чи є за
+        чим іти, ще до кліку.
+      */}
+      {attrFacets.map((fa) => (
+        <FilterBlock key={fa.key} title={fa.label} defaultOpen>
+          <div className="flex flex-wrap gap-1.5">
+            {fa.options.map((o) => {
+              const on = (draft.attrs[fa.key] ?? []).includes(o.value);
+              return (
+                <button
+                  key={o.value}
+                  onClick={() => toggleAttr(fa.key, o.value)}
+                  aria-pressed={on}
+                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition ${
+                    on
+                      ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
+                      : "border-[#EFEFEF] bg-[#FAFAFA] text-[#1A1A1A] hover:border-[#FFD600]"
+                  }`}
+                >
+                  {o.label}
+                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#9E9E9E]"}`}>
+                    {o.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </FilterBlock>
+      ))}
 
       {/* Ціна */}
       <FilterBlock title="Ціна, грн" defaultOpen={!activeSection}>
@@ -313,43 +448,6 @@ function FiltersInner({
         </div>
       </FilterBlock>
 
-      {/* Наявність */}
-      <FilterBlock title="Показувати" defaultOpen={false}>
-        {/* Навпаки до колишнього «лише в наявності»: наявність тепер
-            за замовчуванням, а галочка відкриває решту асортименту. */}
-        <CheckRow checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))}>
-          <span className="text-sm text-[#1A1A1A]">Показати відсутні</span>
-        </CheckRow>
-        <CheckRow checked={draft.withImage} onChange={() => setDraft((d) => ({ ...d, withImage: !d.withImage }))}>
-          <span className="text-sm text-[#1A1A1A]">Лише з фото</span>
-        </CheckRow>
-      </FilterBlock>
-
-      {/* Групи товарів усередині розділу (або бренда) */}
-      {types.length > 0 && (
-        <FilterBlock title="Групи товару">
-          <div className="flex flex-wrap gap-1.5">
-            {types.map((t) => {
-              const on = draft.types.includes(t.key);
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => pickType(t.key)}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
-                    on
-                      ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
-                      : "border-[#EFEFEF] bg-[#FAFAFA] text-[#1A1A1A] hover:border-[#FFD600]"
-                  }`}
-                >
-                  {t.label}
-                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#9E9E9E]"}`}>{t.count}</span>
-                </button>
-              );
-            })}
-          </div>
-        </FilterBlock>
-      )}
-
       {/* Бренди */}
       <FilterBlock title="Бренди" defaultOpen={!activeSection}>
         <input
@@ -384,6 +482,19 @@ function FiltersInner({
                 : `Показати дрібні бренди (${hiddenBrands})`}
           </button>
         )}
+      </FilterBlock>
+
+      {/* Наявність — не рівень дерева, а те, як людина дивиться на будь-який
+          із них: тому в самому низу, під усіма фільтрами. */}
+      <FilterBlock title="Показувати" defaultOpen={false}>
+        {/* Навпаки до колишнього «лише в наявності»: наявність тепер
+            за замовчуванням, а галочка відкриває решту асортименту. */}
+        <CheckRow checked={draft.showAll} onChange={() => setDraft((d) => ({ ...d, showAll: !d.showAll }))}>
+          <span className="text-sm text-[#1A1A1A]">Показати відсутні</span>
+        </CheckRow>
+        <CheckRow checked={draft.withImage} onChange={() => setDraft((d) => ({ ...d, withImage: !d.withImage }))}>
+          <span className="text-sm text-[#1A1A1A]">Лише з фото</span>
+        </CheckRow>
       </FilterBlock>
     </div>
   );

@@ -168,7 +168,22 @@ const TYPES_SHOWN = 24;
  * (lib/catalog/classify.ts), і його результат лежить у базі.
  */
 export const getBrandTypes = unstable_cache(
-  async (brandSlug: string | null): Promise<TypeNode[]> => {
+  async (
+    brandSlug: string | null,
+    opts?: {
+      /** Звузити до одного розділу — «пензлі Polax», а не всі групи Polax. */
+      section?: string;
+      /**
+       * Рахувати лише те, що можна купити (stock > 0, price > 0).
+       *
+       * Без цього пілюлі на сторінці бренда обіцяли більше, ніж показував
+       * клік: тут рахувались усі активні картки, а видача каталогу за
+       * замовчуванням фільтрує наявність. «Пензлі 34» відкривали чотири.
+       * Кабінет торгового навпаки бере відсутнє під замовлення — там false.
+       */
+      shoppable?: boolean;
+    }
+  ): Promise<TypeNode[]> => {
     const brand = brandSlug && brandSlug !== "none"
       ? await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true } })
       : null;
@@ -181,20 +196,26 @@ export const getBrandTypes = unstable_cache(
         isActive: true,
         typeKey: { not: null },
         ...(brandSlug === "none" ? { brandId: null } : brand ? { brandId: brand.id } : {}),
+        ...(opts?.section ? { sectionId: opts.section } : {}),
+        ...(opts?.shoppable ? { stock: { gt: 0 }, price: { gt: 0 } } : {}),
       },
       _count: { _all: true },
     });
 
-    return rows
+    const nodes = rows
       .map((r) => ({
         key: r.typeKey!,
         label: TYPE_LABELS[r.typeKey!] ?? r.typeKey!,
         count: r._count._all,
       }))
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "uk"))
-      .slice(0, TYPES_SHOWN);
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "uk"));
+
+    // Усередині розділу груп небагато і обрізати їх нема потреби: обмеження
+    // існує проти плоского списку всіх груп бренда, а не проти повного
+    // переліку одного розділу — там кожен зрізаний рядок став би недосяжним.
+    return opts?.section ? nodes : nodes.slice(0, TYPES_SHOWN);
   },
-  ["catalog-brand-types-v2"],
+  ["catalog-brand-types-v3"],
   { revalidate: 3600, tags: [CATALOG_CACHE_TAG] }
 );
 

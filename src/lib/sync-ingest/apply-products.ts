@@ -15,6 +15,7 @@ import { Prisma } from "@prisma/client";
 import { generateSlug } from "@/lib/import-1c";
 import { parsePackQty } from "@/lib/pack-qty";
 import { classify } from "@/lib/catalog/classify";
+import { attrsFromName } from "@/lib/catalog/attributes";
 import { isHiddenCategory } from "@/lib/catalog/category-display";
 import { isRealSku } from "@/lib/catalog/sku-search";
 import crypto from "crypto";
@@ -71,6 +72,11 @@ export async function applyProducts(
       categoryId: true,
       brandId: true,
       packQty: true,
+      // Характеристики — щоб при зміні назви дозаповнити порожнє, не зачепивши
+      // прочитане з каталогів виробників.
+      discDiameterMm: true,
+      voltageV: true,
+      powerWatts: true,
     },
   });
 
@@ -261,6 +267,9 @@ export async function applyProducts(
       // масовий прогін (scripts/classify-catalog.mts). Без цього новий товар
       // лежав би поза будь-яким розділом до наступного запуску скрипта.
       const group = classify(rec.name);
+      // Характеристики для фільтрів вітрини — з тієї ж назви. Інакше новий
+      // товар випадав би з фасета «Живлення» до наступного прогону скрипта.
+      const newAttrs = attrsFromName(rec.name, group?.type ?? null);
 
       const createData = {
         externalId: rec.externalId,
@@ -273,15 +282,22 @@ export async function applyProducts(
         packQty: parsePackQty(rec.name),
         typeKey: group?.type ?? null,
         sectionId: group?.section ?? null,
+        powerSource: newAttrs.powerSource ?? null,
+        discDiameterMm: newAttrs.discDiameterMm ?? null,
+        voltageV: newAttrs.voltageV ?? null,
+        powerWatts: newAttrs.powerWatts ?? null,
         // Стенди, реклама, сувенірка, обмінний фонд — не для вітрини.
         isActive: !isHiddenCategory(categoryNameById.get(categoryId)),
         syncedAt: new Date(),
         syncSource: "1C",
       };
+      // Той самий набір, що в candidates вище: щойно створений товар лягає в
+      // byExternalId, і наступні записи батча читають його як звичайний
+      // існуючий — з характеристиками включно.
       const selectFields = {
         id: true, externalId: true, sku: true, name: true,
         slug: true, description: true, categoryId: true, brandId: true,
-        packQty: true,
+        packQty: true, discDiameterMm: true, voltageV: true, powerWatts: true,
       };
 
       let createdProduct = null;
@@ -381,6 +397,23 @@ export async function applyProducts(
       const c = classify(rec.name);
       updates.typeKey = c?.type ?? null;
       updates.sectionId = c?.section ?? null;
+
+      /*
+       * Характеристики теж рахуються з назви — іншого джерела в обміну немає.
+       *
+       * Живлення перезаписуємо: воно виводиться саме з назви, і якщо в 1С
+       * виправили «GCD 600» на «GCD 600 акумуляторний», стара відповідь просто
+       * хибна. Числа лише дозаповнюємо: точніше за регекс їх могли проставити
+       * каталоги виробників (scripts/extract-specs.mts), і затирати те, що
+       * прочитано з таблиці характеристик, вгадуванням із назви не можна.
+       */
+      const attrs = attrsFromName(rec.name, c?.type ?? null);
+      if (attrs.powerSource) updates.powerSource = attrs.powerSource;
+      if (attrs.discDiameterMm != null && existing.discDiameterMm == null) {
+        updates.discDiameterMm = attrs.discDiameterMm;
+      }
+      if (attrs.voltageV != null && existing.voltageV == null) updates.voltageV = attrs.voltageV;
+      if (attrs.powerWatts != null && existing.powerWatts == null) updates.powerWatts = attrs.powerWatts;
     }
 
     // Опис заповнюємо лише якщо на сайті порожньо.

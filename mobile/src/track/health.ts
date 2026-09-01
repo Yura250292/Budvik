@@ -41,7 +41,23 @@ export type HealthResult = "не-пишемо" | "свіжо" | "перепід�
 
 export async function ensureFreshFixes(): Promise<HealthResult> {
   const mode = await getMode();
-  if (!mode) return "не-пишемо";
+
+  /**
+   * Порожній режим — це НЕ завжди «людина не на зміні».
+   *
+   * `startTracking` обнуляє режим, коли запуск служби впав, — і 01.09 планшет
+   * простояв так із відкритою зміною: сторож раз на чверть години пробував
+   * підняти запис із фону, де Android цього не дозволяє, а ця перевірка,
+   * єдина, що працює на передньому плані, виходила отут першим рядком і не
+   * робила нічого. Тобто людина відкривала застосунок, дивилася на нього — і
+   * він не лікувався.
+   */
+  if (!mode) {
+    if (Date.now() - lastRestartAt < MIN_RETRY_MS) return "зарано-повторювати";
+    lastRestartAt = Date.now();
+    const { ensureRecording } = await import("./controller");
+    return (await ensureRecording().catch(() => false)) ? "перепідписались" : "не-пишемо";
+  }
 
   const fix = await getLastFix();
   const silentMs = fix ? Date.now() - fix.at : Infinity;

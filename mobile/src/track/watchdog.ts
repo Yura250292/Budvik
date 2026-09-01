@@ -18,7 +18,7 @@ import { getMode, getRole, isShiftOpen } from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
-import { isTracking, startTracking } from "./controller";
+import { ensureRecording, isTracking, startTracking } from "./controller";
 import { ensureFreshFixes } from "./health";
 import { checkJsUpdate } from "@/lib/self-update";
 
@@ -47,7 +47,9 @@ export async function runWatchdog(): Promise<void> {
   // Водій пише трек від входу, торговий — поки відкрита зміна (див. controller.ts).
   const shouldTrack = shiftOpen || role === "DRIVER";
   if (shouldTrack && !tracking) {
-    await startTracking("SHIFT");
+    // Саме правило живе в controller.ensureRecording — його ж кличе перевірка
+    // на передньому плані. Дві копії розійшлися б непомітно.
+    await ensureRecording();
     return;
   }
 

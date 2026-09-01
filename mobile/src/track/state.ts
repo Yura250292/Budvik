@@ -86,6 +86,22 @@ export async function setLastError(message: string | null): Promise<void> {
   await setMeta("lastError", message ? message.slice(0, 200) : null);
 }
 
+/**
+ * Чому НЕ ВДАЛОСЯ підняти запис — окремо від помилок відправки.
+ *
+ * Обидві скарги жили в одному полі, і 01.09 це коштувало діагнозу: планшет не
+ * зміг запустити службу локації, а в пульс поїхало «Network request failed» від
+ * буфера, бо воно записалося пізніше. Найважливіше — «запису немає» — зникло
+ * під випадковою мережевою дрібницею.
+ */
+export async function getStartError(): Promise<string | null> {
+  return getMeta("startError");
+}
+
+export async function setStartError(message: string | null): Promise<void> {
+  await setMeta("startError", message ? message.slice(0, 200) : null);
+}
+
 /** Скидання всього стану — на виході з акаунта. */
 export async function resetState(): Promise<void> {
   await Promise.all([
@@ -95,5 +111,6 @@ export async function resetState(): Promise<void> {
     setMeta("lastWritten", null),
     setMeta("lastFix", null),
     setLastError(null),
+    setStartError(null),
   ]);
 }

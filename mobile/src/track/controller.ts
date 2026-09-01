@@ -13,7 +13,16 @@ import { staffApi, setUnauthorizedHandler } from "@/api/staff";
 import { TRACK_TASK } from "./task-name";
 import { bufferedCount, clearPoints, getMeta, setMeta } from "./db";
 import { flush, heartbeat } from "./uploader";
-import { getMode, getRole, resetState, setLastError, setMode, setRole } from "./state";
+import {
+  getMode,
+  getRole,
+  isShiftOpen,
+  resetState,
+  setLastError,
+  setMode,
+  setRole,
+  setStartError,
+} from "./state";
 import { currentPermissions } from "./permissions";
 import { armAfterShift, disarmAfterShift } from "./after-shift";
 import { notifyNow } from "./notify";
@@ -57,7 +66,7 @@ export async function isTracking(): Promise<boolean> {
 export async function startTracking(mode: TrackMode): Promise<boolean> {
   const perms = await currentPermissions();
   if (!perms.foreground) {
-    await setLastError("Немає дозволу на геолокацію");
+    await setStartError("Немає дозволу на геолокацію");
     return false;
   }
 
@@ -83,13 +92,38 @@ export async function startTracking(mode: TrackMode): Promise<boolean> {
   await setMode(mode);
   try {
     await Location.startLocationUpdatesAsync(TRACK_TASK, OPTIONS[mode]);
-    await setLastError(null);
+    await setStartError(null);
     return true;
   } catch (e) {
+    /**
+     * Режим обнуляємо навмисно: служби немає, і `tracking: true` у пульсі був
+     * би брехнею. А причину пишемо у ВЛАСНИЙ канал — інакше її затре перша ж
+     * скарга буфера, і з сервера це виглядатиме як проблема з мережею.
+     */
     await setMode(null);
-    await setLastError(e instanceof Error ? e.message : String(e));
+    await setStartError(e instanceof Error ? e.message : String(e));
     return false;
   }
+}
+
+/**
+ * «Мусить писати — то пиши»: єдине правило відновлення запису.
+ *
+ * Живе в одному місці навмисно, бо кличуть його двоє: мережевий сторож
+ * (watchdog.ts) і перевірка на передньому плані (health.ts). Дві копії
+ * розійшлися б, і тоді відповідь на «чому не пишеться» залежала б від того,
+ * хто саме перевіряв.
+ *
+ * Виклик із переднього плану цінніший, ніж здається: Android не дозволяє
+ * піднімати службу переднього плану з фону, тож сторож на заблокованому
+ * планшеті може лише спробувати й записати помилку. А коли людина відкрила
+ * застосунок — запуск дозволений, і саме тоді запис зобов'язаний ожити сам.
+ */
+export async function ensureRecording(): Promise<boolean> {
+  const [role, shiftOpen, tracking] = await Promise.all([getRole(), isShiftOpen(), isTracking()]);
+  if (tracking) return false;
+  if (!(shiftOpen || role === "DRIVER")) return false;
+  return startTracking("SHIFT");
 }
 
 export async function stopTracking(): Promise<void> {

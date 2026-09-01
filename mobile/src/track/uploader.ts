@@ -21,6 +21,7 @@ import {
   getLastFix,
   getLastFlushAt,
   getLastHeartbeatAt,
+  getStartError,
   getMode,
   isShiftOpen,
   setLastError,
@@ -246,15 +247,24 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
   const last = await getLastHeartbeatAt();
   if (!force && Date.now() - last < HEARTBEAT_INTERVAL_MS) return null;
 
-  const [buffered, mode, shiftOpen, fix, lastError, lastSync, device] = await Promise.all([
-    bufferedCount(),
-    getMode(),
-    isShiftOpen(),
-    getLastFix(),
-    getLastError(),
-    getLastFlushAt(),
-    readDeviceState(),
-  ]);
+  const [buffered, mode, shiftOpen, fix, lastError, startError, lastSync, device] =
+    await Promise.all([
+      bufferedCount(),
+      getMode(),
+      isShiftOpen(),
+      getLastFix(),
+      getLastError(),
+      getStartError(),
+      getLastFlushAt(),
+      readDeviceState(),
+    ]);
+
+  /**
+   * Коли запис не піднявся — це головніше за будь-яку скаргу буфера: там даних
+   * немає взагалі, а тут вони просто чекають. Тому причина запуску йде першою і
+   * не може бути затерта мережевою дрібницею.
+   */
+  const problem = startError ? `Запис не піднявся: ${startError}` : lastError;
 
   try {
     const pulse = await staffApi.heartbeat({
@@ -266,7 +276,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       lastFixAt: fix ? new Date(fix.at).toISOString() : undefined,
       lastFixAccuracyM: fix?.accuracyM ?? undefined,
       lastSyncAt: lastSync ? new Date(lastSync).toISOString() : undefined,
-      lastError: lastError ?? undefined,
+      lastError: problem ?? undefined,
       /**
        * Стан пристрою — заради відповіді на питання «чому трек обірвався».
        * Ті самі значення, що шле Kotlin-трекер, щоб адмінка не мала двох шкал.

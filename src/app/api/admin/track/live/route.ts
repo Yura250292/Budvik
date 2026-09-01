@@ -198,6 +198,7 @@ export async function GET(req: NextRequest) {
             locationPermission: beat.locationPermission,
             locationMode: beat.locationMode,
             batteryOptimized: beat.batteryOptimized,
+            lastError: beat.lastError,
           }
         : null,
     });

@@ -5,7 +5,7 @@
  * запобіжниками, бо кожен із них з'явився після конкретної втрати даних.
  */
 
-import { staffApi, StaffApiError, APP_VERSION } from "@/api/staff";
+import { staffApi, StaffApiError, APP_BUILD } from "@/api/staff";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
 import { notifyNow } from "./notify";
@@ -42,7 +42,31 @@ const FLUSH_INTERVAL_MS = 120_000;
 const FLUSH_AT_POINTS = 10;
 const HEARTBEAT_INTERVAL_MS = 180_000;
 
+/**
+ * Замок відправки — і мить її останнього поступу.
+ *
+ * Самого замка виявилося мало. 01.09 у полі стояли три планшети з буфером у
+ * сотні точок: пульс ішов, GPS писав, помилок не було жодної — а точки не
+ * їхали. Відправка висіла на запиті, який не завершиться ніколи (у тій збірці
+ * ще не було тайм-ауту), і тримала замок до смерті процесу. Тайм-аут додано,
+ * але покладатися лише на нього не можна: будь-яке нове зависання всередині
+ * циклу знову зачинило б буфер назавжди — і знову мовчки.
+ *
+ * Тому замок тепер із поступом: він чинний, лише поки відправка рухається.
+ * Стоїть довше за FLUSH_STALL_MS — його забирає наступна спроба.
+ */
 let flushing = false;
+let flushProgressAt = 0;
+/** Хто тримає замок: зависла спроба не має знімати його з-під живої. */
+let flushOwner = 0;
+
+/**
+ * Скільки відправка може стояти без поступу, перш ніж її визнають зависною.
+ *
+ * Утричі більше за межу однієї пачки (90 с у staffRequest): повільна сільська
+ * мережа в неї вкладається, а запит, який не завершиться ніколи, — ні.
+ */
+const FLUSH_STALL_MS = 5 * 60_000;
 
 /**
  * Віддає буфер пачками, доки він не спорожніє.
@@ -51,8 +75,20 @@ let flushing = false;
  * пишеться далі, і зріз «перші N» зніс би свіжі точки, яких сервер не бачив.
  */
 export async function flush(): Promise<void> {
-  if (flushing) return;
+  const stalled = flushing && Date.now() - flushProgressAt >= FLUSH_STALL_MS;
+  if (flushing && !stalled) return;
+
+  const me = ++flushOwner;
   flushing = true;
+  flushProgressAt = Date.now();
+
+  /**
+   * Про зависання мусить дізнатися сервер. Без цього рядка в пульсі не
+   * лишається жодного сліду, і причина знову виглядає як «немає зв'язку» —
+   * тобто нас знову послали б перевіряти мережу замість застосунку.
+   */
+  if (stalled) await setLastError("Відправка зависла — почато заново");
+
   try {
     for (;;) {
       const slice = await oldestPoints(MAX_BATCH);
@@ -84,6 +120,13 @@ export async function flush(): Promise<void> {
         });
         await dropPoints(batch);
         await setLastError(null);
+        /**
+         * Позначка «остання вдала відправка» — після КОЖНОЇ пачки, а не коли
+         * буфер спорожніє. Інакше довгий злив виглядає з сервера як цілковите
+         * мовчання: рівно так і виглядав день, з якого це почалося.
+         */
+        await setLastFlushAt(Date.now());
+        flushProgressAt = Date.now();
       } catch (e) {
         const status = e instanceof StaffApiError ? e.status : 0;
 
@@ -101,6 +144,7 @@ export async function flush(): Promise<void> {
         if (status >= 400 && status < 500 && status !== 403 && status !== 429) {
           await dropPoints(batch);
           await setLastError(`Пачку відхилено (${status})`);
+          flushProgressAt = Date.now();
           continue;
         }
 
@@ -110,7 +154,9 @@ export async function flush(): Promise<void> {
     }
     await setLastFlushAt(Date.now());
   } finally {
-    flushing = false;
+    // Замок знімає лише його власник: зависла спроба, яка нарешті відповіла,
+    // не має відчиняти буфер з-під тієї, що працює просто зараз.
+    if (flushOwner === me) flushing = false;
   }
 }
 
@@ -163,7 +209,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       locationMode: device.locationMode,
       batteryPct: device.batteryPct ?? undefined,
       batteryOptimized: device.batteryOptimized ?? undefined,
-      appVersion: APP_VERSION,
+      appVersion: APP_BUILD,
     });
     await setLastHeartbeatAt(Date.now());
 

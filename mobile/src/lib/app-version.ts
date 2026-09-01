@@ -7,9 +7,28 @@
  */
 
 import Constants from "expo-constants";
+import * as Updates from "expo-updates";
 
 export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 export const APP_VERSION_CODE = Number(Constants.expoConfig?.android?.versionCode ?? 0);
+
+/**
+ * Яка САМЕ збірка JS працює зараз: вбудована в APK чи доїхала повітрям.
+ *
+ * 01.09 брак цього рядка коштував півдня маршруту в трьох торгових. Планшети
+ * звітували «1.3.0», у сховищі лежала «1.3.0» — і з сервера неможливо було
+ * дізнатися головного: чи працює на них виправлення, опубліковане трьома
+ * днями раніше. Номер версії при оновленні повітрям не змінюється взагалі,
+ * тож на це питання він не відповідає й не відповість.
+ *
+ * `isEmbeddedLaunch` істинний рівно тоді, коли запущено бандл із APK.
+ */
+export const APP_BUNDLE = Updates.isEmbeddedLaunch
+  ? "apk"
+  : `ota.${(Updates.updateId ?? "?").replace(/-/g, "").slice(0, 8)}`;
+
+/** Те, чим застосунок називає себе в пульсі: версія і бандл нерозривно. */
+export const APP_BUILD = `${APP_VERSION} ${APP_BUNDLE}`;
 
 /**
  * Заголовок x-budvik-app.

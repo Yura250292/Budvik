@@ -87,6 +87,7 @@ export async function checkTrackSilence(): Promise<number> {
           tracking: true,
           buffered: true,
           lastFixAt: true,
+          lastError: true,
           locationPermission: true,
           locationMode: true,
           batteryOptimized: true,
@@ -124,6 +125,7 @@ export async function checkTrackSilence(): Promise<number> {
             locationPermission: lastBeat.locationPermission,
             locationMode: lastBeat.locationMode,
             batteryOptimized: lastBeat.batteryOptimized,
+            lastError: lastBeat.lastError,
           }
         : null,
     });

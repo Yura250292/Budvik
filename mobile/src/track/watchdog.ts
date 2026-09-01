@@ -20,6 +20,7 @@ import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
 import { isTracking, startTracking } from "./controller";
 import { ensureFreshFixes } from "./health";
+import { checkJsUpdate } from "@/lib/self-update";
 
 export async function runWatchdog(): Promise<void> {
   /**
@@ -62,6 +63,20 @@ export async function runWatchdog(): Promise<void> {
   if (!shouldTrack && mode === "AFTER_SHIFT" && !tracking) {
     await startTracking("AFTER_SHIFT");
   }
+
+  /**
+   * Оновлення JS — останнім, бо це не робота треку, а її майбутнє.
+   *
+   * `checkAutomatically: "ON_LOAD"` питає про оновлення ЛИШЕ на запуску, а
+   * планшет у машині не вимикають тижнями: виправлення, опубліковане вранці,
+   * могло не дійти взагалі. Саме так 01.09 троє їздили без треку на збірці, у
+   * якій буфер висів, — хоч виправлення лежало опубліковане три доби.
+   *
+   * Тут лише завантаження. Перезапуск робить людина смугою вгорі екрана
+   * (UpdateBar): рестарт посеред візиту стер би незбережене, а посеред зміни
+   * зупинив би службу — ціна помилки вища за чверть години очікування.
+   */
+  await checkJsUpdate().catch(() => {});
 }
 
 export async function registerWatchdog(): Promise<void> {

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate:prod": "vercel env pull .env --environment=production --yes && prisma migrate deploy",
+    "check:staff": "tsx scripts/check-staff-build.mts",
     "worker": "tsx worker/index.ts",
     "worker:prepare": "prisma generate",
     "test:e2e": "playwright test",

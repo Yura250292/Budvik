@@ -69,6 +69,44 @@ let flushOwner = 0;
 const FLUSH_STALL_MS = 5 * 60_000;
 
 /**
+ * Крок відправки з власною межею часу — і з іменем кроку в помилці.
+ *
+ * Тайм-аут у staffRequest прикриває рівно одне: очікування відповіді сервера.
+ * Але 01.09 відправка зависала й на 1.4.0, де той тайм-аут уже стояв, — отже
+ * вішає щось поза ним. Найімовірніше сам запит: у React Native скасування
+ * через AbortController не завжди доходить до з'єднання, яке застрягло на
+ * рівні Android, і тоді обіцянка не завершується ніколи.
+ *
+ * Гонка нижче не скасовує зависле — воно лишається висіти в порожнечі й
+ * помирає разом із процесом. Але вона робить дві речі, яких бракувало:
+ * звільняє замок і НАЗИВАЄ крок. Наступного разу не доведеться гадати, у
+ * якому з чотирьох місць стоїть відправка, — це буде написано в пульсі.
+ */
+function step<T>(what: string, ms: number, run: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    run().finally(() => clearTimeout(timer)),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Крок «${what}» не завершився за ${Math.round(ms / 1000)} с`)),
+        ms
+      );
+    }),
+  ]);
+}
+
+/**
+ * Скільки точок беремо в пачку ЗАРАЗ.
+ *
+ * Пачка на 200 точок — це десятки кілобайт, і на сільському каналі саме вона
+ * застрягає першою, тоді як пульс на кілька сотень байтів проходить. Тому
+ * після невдачі ріжемо пачку навпіл, а після вдалої — вертаємо стелю. Так
+ * поганий зв'язок сповільнює відправку, замість того щоб зупиняти її зовсім.
+ */
+let batchSize = MAX_BATCH;
+const MIN_BATCH = 25;
+
+/**
  * Віддає буфер пачками, доки він не спорожніє.
  *
  * Видаляє РІВНО те, що сервер підтвердив, і аж після відповіді: у цю мить трек
@@ -88,15 +126,32 @@ export async function flush(force = false): Promise<void> {
   flushProgressAt = Date.now();
 
   /**
-   * Про зависання мусить дізнатися сервер. Без цього рядка в пульсі не
-   * лишається жодного сліду, і причина знову виглядає як «немає зв'язку» —
-   * тобто нас знову послали б перевіряти мережу замість застосунку.
+   * Запис стану теж під межею і теж мовчазний: пульс — це довідка, і
+   * зависання на ній не має тримати саму відправку. Саме через те, що ці
+   * рядки були звичайними await, помилка не встигала дійти до сервера.
    */
-  if (stalled) await setLastError("Відправка зависла — почато заново");
+  const note = async (msg: string | null) => {
+    try {
+      await step("запис стану", 10_000, () => setLastError(msg));
+    } catch {
+      /* стан — не робота */
+    }
+  };
+  const markSent = async () => {
+    try {
+      await step("позначка відправки", 10_000, () => setLastFlushAt(Date.now()));
+    } catch {
+      /* те саме */
+    }
+  };
+
+  // Про зависання мусить дізнатися сервер: без цього рядка в пульсі не
+  // лишається сліду, і причина знову виглядає як «немає зв'язку».
+  if (stalled) await note("Відправка зависла — почато заново");
 
   try {
     for (;;) {
-      const slice = await oldestPoints(MAX_BATCH);
+      const slice = await step("читання буфера", 20_000, () => oldestPoints(batchSize));
       if (slice.length === 0) break;
 
       /**
@@ -110,27 +165,31 @@ export async function flush(force = false): Promise<void> {
       const batch = cut === -1 ? slice : slice.slice(0, cut);
 
       try {
-        await staffApi.trackPoints({
-          points: batch.map((p: BufferedPoint) => ({
-            lat: p.lat,
-            lng: p.lng,
-            accuracyM: p.accuracyM ?? undefined,
-            speedKmh: p.speedKmh ?? undefined,
-            headingDeg: p.headingDeg ?? undefined,
-            // Час пристрою, а не час відправки: на ньому тримається і дедуп на
-            // сервері, і сам порядок точок у дні.
-            recordedAt: p.recordedAt,
-          })),
-          phase: phase ?? undefined,
-        });
-        await dropPoints(batch);
-        await setLastError(null);
+        await step("відправка пачки", 120_000, () =>
+          staffApi.trackPoints({
+            points: batch.map((p: BufferedPoint) => ({
+              lat: p.lat,
+              lng: p.lng,
+              accuracyM: p.accuracyM ?? undefined,
+              speedKmh: p.speedKmh ?? undefined,
+              headingDeg: p.headingDeg ?? undefined,
+              // Час пристрою, а не час відправки: на ньому тримається і дедуп на
+              // сервері, і сам порядок точок у дні.
+              recordedAt: p.recordedAt,
+            })),
+            phase: phase ?? undefined,
+          })
+        );
+        await step("видалення надісланого", 20_000, () => dropPoints(batch));
+        await note(null);
+        // Пачка пройшла — канал тримає стелю, вертаємо її.
+        batchSize = MAX_BATCH;
         /**
          * Позначка «остання вдала відправка» — після КОЖНОЇ пачки, а не коли
          * буфер спорожніє. Інакше довгий злив виглядає з сервера як цілковите
          * мовчання: рівно так і виглядав день, з якого це почалося.
          */
-        await setLastFlushAt(Date.now());
+        await markSent();
         flushProgressAt = Date.now();
       } catch (e) {
         const status = e instanceof StaffApiError ? e.status : 0;
@@ -147,17 +206,19 @@ export async function flush(force = false): Promise<void> {
          * неї. 403 віддає захист хостингу, 429 — стеля частоти: обидва минають.
          */
         if (status >= 400 && status < 500 && status !== 403 && status !== 429) {
-          await dropPoints(batch);
-          await setLastError(`Пачку відхилено (${status})`);
+          await step("видалення відхиленого", 20_000, () => dropPoints(batch)).catch(() => {});
+          await note(`Пачку відхилено (${status})`);
           flushProgressAt = Date.now();
           continue;
         }
 
-        await setLastError(e instanceof Error ? e.message : String(e));
+        // Не долетіло — наступного разу пробуємо меншою пачкою.
+        batchSize = Math.max(MIN_BATCH, Math.floor(batchSize / 2));
+        await note(e instanceof Error ? e.message : String(e));
         return; // мережа або сервер — спробуємо наступного разу
       }
     }
-    await setLastFlushAt(Date.now());
+    await markSent();
   } finally {
     // Замок знімає лише його власник: зависла спроба, яка нарешті відповіла,
     // не має відчиняти буфер з-під тієї, що працює просто зараз.

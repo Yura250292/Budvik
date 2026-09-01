@@ -83,3 +83,7 @@ output/unifix-catalog/
 
 # Зібране з сайтів виробників — фото лежать у R2, у git їм робити нічого
 output/vendor-*/
+
+# Кеш Gradle нативного модуля треку: сміття від локальних прогонів expo export,
+# яке інакше щоразу висить у git status і одного дня заїде в коміт.
+mobile/modules/*/android/.gradle/

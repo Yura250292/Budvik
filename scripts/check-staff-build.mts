@@ -60,8 +60,17 @@ console.log(`Робоча збірка ${STAFF_APK_VERSION_NAME}`);
 console.log(`  APK у сховищі зібрано з ${STAFF_APK_COMMIT}`);
 console.log(`  Останнє оновлення повітрям — з ${STAFF_OTA_COMMIT}\n`);
 
-if (apkLag.length === 0 && otaLag.length === 0) {
-  console.log("✅ У полі рівно те, що в HEAD.");
+/**
+ * Відставання APK саме по собі — ще не біда: JS доїжджає повітрям, і поки в
+ * ньому немає нативного, у полі працює HEAD. Тривожить лише те, що доставити
+ * нічим не можна або ще не доставлено.
+ */
+if (nativeLag.length === 0 && otaLag.length === 0) {
+  console.log(
+    apkLag.length === 0
+      ? "✅ У полі рівно те, що в HEAD."
+      : "✅ У полі HEAD: APK старіший, але все після нього доставлено повітрям."
+  );
   process.exit(0);
 }
 
@@ -75,8 +84,6 @@ if (otaLag.length > 0) {
   console.log(`⚠️  Не в полі: ${otaLag.length} комітів після останнього оновлення.`);
   for (const c of otaLag) console.log(`     ${c}`);
   console.log('   mobile/: npm run update:staff "що саме" → оновити STAFF_OTA_COMMIT\n');
-} else if (apkLag.length > 0) {
-  console.log("   JS-частина доставлена повітрям — на планшетах вона вже є.\n");
 }
 
 process.exit(1);

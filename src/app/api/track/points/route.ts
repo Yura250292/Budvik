@@ -207,7 +207,9 @@ async function ingestDay(
   // прокладається в порядку руху.
   const sinceTrusted = (trustedIdx >= 0 ? tail.slice(0, trustedIdx) : tail)
     .filter((p) => !isTrusted(p))
-    .map((p) => ({ lat: p.lat, lng: p.lng }))
+    // Похибку несемо з собою: за нею вирішується, чи вести дорогу через
+    // цей фікс, чи він пояснюється власним промахом (див. pickVia).
+    .map((p) => ({ lat: p.lat, lng: p.lng, accuracyM: p.accuracyM }))
     .reverse();
 
   const prepared = preparePoints(raw, last, lastTrusted, sinceTrusted);

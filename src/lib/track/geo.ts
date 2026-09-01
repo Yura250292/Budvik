@@ -166,20 +166,73 @@ export type PrepareResult = {
 };
 
 /**
+ * Відстань від точки до прямої між опорами розриву, метри.
+ *
+ * Плоска апроксимація, як у sales/deviation: на довжині розриву кривина
+ * Землі дає менше метра, а тягти сюди залежність заради цього не варто.
+ */
+function offChordM(
+  p: { lat: number; lng: number },
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): number {
+  const mPerDegLat = 111_320;
+  const mPerDegLng = 111_320 * Math.cos((p.lat * Math.PI) / 180);
+
+  const px = (p.lng - a.lng) * mPerDegLng;
+  const py = (p.lat - a.lat) * mPerDegLat;
+  const bx = (b.lng - a.lng) * mPerDegLng;
+  const by = (b.lat - a.lat) * mPerDegLat;
+
+  const lenSq = bx * bx + by * by;
+  if (lenSq === 0) return Math.hypot(px, py);
+
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / lenSq));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+/**
  * Кілька точок із проміжку — рівномірно, а не поспіль.
  *
  * Беремо не перші три, а розкидані по всій довжині: три сусідні фікси на
  * початку відрізка не сказали б про дорогу нічого, чого не видно з самої
  * опори.
+ *
+ * Але спершу відсіюємо ті, що не кажуть нічого взагалі. Проміжні точки
+ * тут за побудовою слабкі — довірена одразу стає новою опорою, — і
+ * похибка в них буває 300-800 м. OSRM ЗОБОВ'ЯЗАНИЙ пройти крізь кожну
+ * задану точку: фікс по вежі, що впав за квартал від траси, змушує
+ * маршрут з'їхати в село, обігнути квартал і повернутися. Саме так у
+ * Щирці на карті виникали петлі там, де торговий їхав головною, і саме
+ * звідти бралися зайві кілометри: 31.08 у Валентина розриви з прямою
+ * 22 км «дорогою» дали 334 км.
+ *
+ * Правило: точка йде в маршрут, лише якщо її відхилення від прямої між
+ * опорами БІЛЬШЕ за її власну похибку. Тоді гак до клієнта — заради
+ * якого via і вводилися — лишається (він на кілометри вбік, а похибка
+ * сотні метрів), а тремтіння по вежах поруч із трасою відпадає: воно
+ * пояснюється самою похибкою й нового про дорогу не каже.
  */
 function pickVia(
-  between: Array<{ lat: number; lng: number }>
+  between: Array<{ lat: number; lng: number; accuracyM?: number | null }>,
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number }
 ): Array<{ lat: number; lng: number }> {
-  if (between.length <= MAX_GAP_VIA) return [...between];
-  const step = (between.length - 1) / (MAX_GAP_VIA + 1);
+  const meaningful = between.filter((p) => {
+    // Похибка невідома — точці віримо як є: так поводився код до цього
+    // правила, і перерахунок старого дня має лишитися повторюваним.
+    if (p.accuracyM == null) return true;
+    return offChordM(p, from, to) > p.accuracyM;
+  });
+
+  if (meaningful.length <= MAX_GAP_VIA) {
+    return meaningful.map((p) => ({ lat: p.lat, lng: p.lng }));
+  }
+  const step = (meaningful.length - 1) / (MAX_GAP_VIA + 1);
   const out: Array<{ lat: number; lng: number }> = [];
   for (let i = 1; i <= MAX_GAP_VIA; i++) {
-    out.push(between[Math.round(step * i)]);
+    const p = meaningful[Math.round(step * i)];
+    out.push({ lat: p.lat, lng: p.lng });
   }
   return out;
 }
@@ -214,7 +267,7 @@ export function preparePoints(
    * хвилин. Без цього списку дорога прокладалася б лише через ту
    * дрібку проміжку, що втрапила в останню пачку.
    */
-  prevSinceAnchor: Array<{ lat: number; lng: number }> = []
+  prevSinceAnchor: Array<{ lat: number; lng: number; accuracyM?: number | null }> = []
 ): PrepareResult {
   const rejected = { accuracy: 0, stale: 0, malformed: 0 };
   const points: PreparedPoint[] = [];
@@ -244,7 +297,9 @@ export function preparePoints(
    * Тепер такий відрізок теж добирається дорогою, а ці точки йдуть у
    * запит проміжними — щоб дорога пройшла там, де людина справді їхала.
    */
-  let sinceAnchor: Array<{ lat: number; lng: number }> = [...prevSinceAnchor];
+  let sinceAnchor: Array<{ lat: number; lng: number; accuracyM?: number | null }> = [
+    ...prevSinceAnchor,
+  ];
 
   for (const p of sorted) {
     const at = new Date(p.recordedAt);
@@ -330,7 +385,7 @@ export function preparePoints(
       isGap = countsToDistance && meters >= GAP_M;
       if (isGap) {
         gapFrom = { lat: anchor.lat, lng: anchor.lng };
-        gapVia = pickVia(sinceAnchor);
+        gapVia = pickVia(sinceAnchor, anchor, p);
       }
       if (countsToDistance) addedM += meters;
     }
@@ -357,7 +412,7 @@ export function preparePoints(
       anchor = cursor;
       sinceAnchor = [];
     } else {
-      sinceAnchor.push({ lat: p.lat, lng: p.lng });
+      sinceAnchor.push({ lat: p.lat, lng: p.lng, accuracyM });
     }
   }
 

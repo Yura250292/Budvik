@@ -81,11 +81,17 @@ type ReportsResponse = {
     totalKm: number;
     kmPerDay: number;
     checkpointsCount: number;
-    kmPerCheckpoint: number;
+    /** null, поки в торгового немає жодного візиту за період. */
+    kmPerCheckpoint: number | null;
     avgTripHours: number;
     suspiciousCount: number;
   }>;
-  teamAvg: { kmPerDay: number; checkpointsPerDay: number; kmPerCheckpoint: number; avgTripHours: number };
+  teamAvg: {
+    kmPerDay: number;
+    checkpointsPerDay: number;
+    kmPerCheckpoint: number | null;
+    avgTripHours: number;
+  } | null;
   repsList: Array<{ id: string; name: string }>;
   trips: Trip[];
 };
@@ -145,6 +151,10 @@ export function TripsTab({
   }
 
   if (!data) return null;
+
+  // За порожній період середнього по команді немає — і це нормальний стан
+  // вкладки, а не помилка: показуємо прочерк замість числа.
+  const teamKmPerCheckpoint = data.teamAvg?.kmPerCheckpoint ?? null;
 
   const mapPoints = data.trips.flatMap((t) => [
     ...(t.startLat != null && t.startLng != null
@@ -220,7 +230,7 @@ export function TripsTab({
         <StatCard label="Візитів" value={num(data.kpis.checkpointsCount)} accent={CATEGORICAL[2]} />
         <StatCard
           label="Км на точку"
-          value={num(data.teamAvg.kmPerCheckpoint, 1)}
+          value={teamKmPerCheckpoint != null ? num(teamKmPerCheckpoint, 1) : "—"}
           tone={data.kpis.suspiciousCount > 0 ? "warn" : "default"}
           hint={data.kpis.suspiciousCount > 0 ? `${data.kpis.suspiciousCount} підозрілих` : "у середньому"}
         />
@@ -276,8 +286,8 @@ export function TripsTab({
                     <td className="px-4 py-3 text-right tabular-nums text-g600">{num(w.kmPerDay, 1)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-g600">{num(w.checkpointsCount)}</td>
                     <td className="px-4 py-3 text-right">
-                      {w.kmPerCheckpoint > 0 ? (
-                        <Badge status={efficiencyStatus(w.kmPerCheckpoint, data.teamAvg.kmPerCheckpoint)}>
+                      {w.kmPerCheckpoint != null && w.kmPerCheckpoint > 0 ? (
+                        <Badge status={efficiencyStatus(w.kmPerCheckpoint, teamKmPerCheckpoint ?? 0)}>
                           {num(w.kmPerCheckpoint, 1)}
                         </Badge>
                       ) : (

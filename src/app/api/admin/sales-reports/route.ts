@@ -212,23 +212,26 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.totalKm - a.totalKm);
 
   // ---- Середнє по команді ----
-  const teamAvg = workers.length
-    ? {
-        kmPerDay: Math.round(workers.reduce((s, w) => s + w.kmPerDay, 0) / workers.length),
-        checkpointsPerDay: Number(
-          (workers.reduce((s, w) => s + w.checkpointsPerDay, 0) / workers.length).toFixed(1)
-        ),
-        kmPerCheckpoint: (() => {
-          const vals = workers.filter((w) => w.kmPerCheckpoint != null);
-          return vals.length
-            ? Math.round(vals.reduce((s, w) => s + (w.kmPerCheckpoint || 0), 0) / vals.length)
-            : null;
-        })(),
-        avgTripHours: Number(
-          (workers.reduce((s, w) => s + w.avgTripHours, 0) / workers.length).toFixed(1)
-        ),
-      }
-    : null;
+  // Порожній період — теж відповідь, тому об'єкт віддаємо завжди: раніше
+  // тут був null, і вкладка «Логістика» падала цілком, щойно за період
+  // не траплялося жодної поїздки. «Немає даних» показує вже клієнт.
+  const kmPerCheckpointVals = workers
+    .map((w) => w.kmPerCheckpoint)
+    .filter((v): v is number => v != null);
+  const teamAvg = {
+    kmPerDay: workers.length
+      ? Math.round(workers.reduce((s, w) => s + w.kmPerDay, 0) / workers.length)
+      : 0,
+    checkpointsPerDay: workers.length
+      ? Number((workers.reduce((s, w) => s + w.checkpointsPerDay, 0) / workers.length).toFixed(1))
+      : 0,
+    kmPerCheckpoint: kmPerCheckpointVals.length
+      ? Math.round(kmPerCheckpointVals.reduce((s, v) => s + v, 0) / kmPerCheckpointVals.length)
+      : null,
+    avgTripHours: workers.length
+      ? Number((workers.reduce((s, w) => s + w.avgTripHours, 0) / workers.length).toFixed(1))
+      : 0,
+  };
 
   // ---- Денна динаміка ----
   const dailyMap = new Map<string, { date: string; km: number; trips: number; checkpoints: number }>();

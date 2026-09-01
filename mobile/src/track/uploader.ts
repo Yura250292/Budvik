@@ -74,8 +74,13 @@ const FLUSH_STALL_MS = 5 * 60_000;
  * Видаляє РІВНО те, що сервер підтвердив, і аж після відповіді: у цю мить трек
  * пишеться далі, і зріз «перші N» зніс би свіжі точки, яких сервер не бачив.
  */
-export async function flush(): Promise<void> {
-  const stalled = flushing && Date.now() - flushProgressAt >= FLUSH_STALL_MS;
+export async function flush(force = false): Promise<void> {
+  /**
+   * `force` — для виходу з акаунта: там після відправки буфер СТИРАЄТЬСЯ, тож
+   * тихе повернення на замку означає не «відкладемо», а «день видалено».
+   * Чекати п'ять хвилин на визнання замка зависним у цьому місці нема коли.
+   */
+  const stalled = flushing && (force || Date.now() - flushProgressAt >= FLUSH_STALL_MS);
   if (flushing && !stalled) return;
 
   const me = ++flushOwner;

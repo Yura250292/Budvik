@@ -81,7 +81,7 @@ export default function AccountScreen() {
            * WebView, і якби запуск залежав від нього, водій, який не відкриває
            * жодної сторінки, лишався б без запису маршруту.
            */
-          await onStaffLogin(res.user?.role ?? null).catch(() => {});
+          await onStaffLogin(res.user?.role ?? null, res.user?.id ?? null).catch(() => {});
           router.replace({ pathname: "/cabinet", params: { target: res.target ?? "/sales" } });
           return;
         }

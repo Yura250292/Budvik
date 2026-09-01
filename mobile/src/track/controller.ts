@@ -11,11 +11,12 @@
 import * as Location from "expo-location";
 import { staffApi, setUnauthorizedHandler } from "@/api/staff";
 import { TRACK_TASK } from "./task-name";
-import { clearPoints } from "./db";
+import { bufferedCount, clearPoints, getMeta, setMeta } from "./db";
 import { flush, heartbeat } from "./uploader";
 import { getMode, getRole, resetState, setLastError, setMode, setRole } from "./state";
 import { currentPermissions } from "./permissions";
 import { armAfterShift, disarmAfterShift } from "./after-shift";
+import { notifyNow } from "./notify";
 
 export type TrackMode = "SHIFT" | "AFTER_SHIFT";
 
@@ -134,9 +135,35 @@ export async function logoutAndStop(): Promise<void> {
   // людиною, не мають будити наступну.
   const { cancelCloseReminders } = await import("./reminder");
   await cancelCloseReminders();
-  await flush().catch(() => {});
+  /**
+   * Відправка через `force`: звичайний виклик тихо повернувся б, якби замок
+   * тримала зависла спроба, — і рядок нижче стер би день, якого сервер не
+   * бачив. 01.09 такий замок висів у трьох планшетах одночасно, і один
+   * випадковий «Вийти» коштував би 361 точки.
+   */
+  await flush(true).catch(() => {});
   await staffApi.logout().catch(() => {});
-  await clearPoints().catch(() => {});
+
+  /**
+   * Стираємо буфер, ЛИШЕ якщо він справді порожній.
+   *
+   * Стирання тут не примха: планшет передають з рук у руки, і чужі точки
+   * поїхали б у день наступної людини. Але ціна помилки в двох напрямках
+   * різна — неправильно приписаний трек видно й можна виправити, а видалений
+   * не повертається нізвідки. Тому те, що не доїхало, лишається чекати, а
+   * право на нього тримає мітка власника (див. onStaffLogin): увійде та сама
+   * людина — день доїде, увійде інша — буфер піде під ніж там.
+   */
+  const left = await bufferedCount().catch(() => 0);
+  if (left === 0) {
+    await clearPoints().catch(() => {});
+  } else {
+    await notifyNow(
+      "Маршрут ще не відправлено",
+      `${left} точок за сьогодні лишилися в планшеті. Вони поїдуть самі при першому зв'язку — не видаляйте застосунок.`
+    );
+  }
+
   await resetState();
 }
 
@@ -207,8 +234,27 @@ export async function syncTrackingWithServer(role: string | null): Promise<void>
  * трек чекав на неї, у водія він не стартував би ніколи — саме ця вада вже була
  * в Kotlin-трекері й лікувалася там так само, роллю.
  */
-export async function onStaffLogin(role: string | null): Promise<void> {
+export async function onStaffLogin(role: string | null, userId?: string | null): Promise<void> {
   await setRole(role);
+
+  /**
+   * Чий буфер лежить у планшеті.
+   *
+   * Вихід більше не стирає невідправлені точки (див. logoutAndStop), тож
+   * рішення про чужий день ухвалюється тут — у мить, коли вже видно, ХТО
+   * увійшов. Та сама людина забирає свій день; інша застає порожній буфер,
+   * як і раніше.
+   *
+   * Немає мітки — буфер лишили збірки до 1.4.0, і чий він, невідомо. Тоді
+   * зберігаємо: помилково приписаний трек видно в звірці з одометром, а
+   * видалений не повертається.
+   */
+  if (userId) {
+    const owner = await getMeta("bufferOwner").catch(() => null);
+    if (owner && owner !== userId) await clearPoints().catch(() => {});
+    await setMeta("bufferOwner", userId).catch(() => {});
+  }
+
   const { registerWatchdog } = await import("./watchdog");
   await registerWatchdog().catch(() => {});
 

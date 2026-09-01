@@ -224,6 +224,15 @@ function sumKm(rows: ShiftRow[]): number {
  * добрий. Трек іде по прямій між точками, тож він завжди коротший за
  * одометр: усе, що менше одиниці, означає помилку в показах.
  */
+/**
+ * Колір числа «Збіг» — той самий поріг, що й у рядку зміни (1..2,5).
+ * Виписаний функцією, щоб список і підсумок не розійшлися при правці.
+ */
+function ratioColor(ratio: number | null): string {
+  if (ratio == null) return "#9CA3AF";
+  return ratio < 1 || ratio > 2.5 ? "#DC2626" : "#16A34A";
+}
+
 function ratioHint(ratio: number | null): string {
   if (ratio == null) return "Нема з чим порівняти: немає або одометра, або треку";
   if (ratio < 1) return "Одометр менший за трек — так не буває, перевірте покази";
@@ -241,7 +250,20 @@ function time(iso: string): string {
   }).format(new Date(iso));
 }
 
-export function ShiftsTab({ period }: { period: Period }) {
+export function ShiftsTab({
+  period,
+  onPeriodChange,
+}: {
+  period: Period;
+  /**
+   * Період міняє сама вкладка — заради навігатора днів.
+   *
+   * Пресети зверху відповідають на «як минув тиждень», а тут щодня інше
+   * питання: «що було в цього дня». Гортати його стрілками треба саме
+   * звідси, з-під списку змін, а не повертатися до календаря вгорі.
+   */
+  onPeriodChange?: (p: Period) => void;
+}) {
   const [rows, setRows] = useState<ShiftRow[]>([]);
   const [summary, setSummary] = useState<{
     count: number;
@@ -353,6 +375,10 @@ export function ShiftsTab({ period }: { period: Period }) {
 
   return (
     <div className="space-y-4">
+      {onPeriodChange && (
+        <DayNav period={period} onChange={onPeriodChange} />
+      )}
+
       {summary && (
         <div className="flex flex-wrap items-stretch gap-2">
           <Metric label="Змін" value={String(summary.count)} />
@@ -571,12 +597,7 @@ export function ShiftsTab({ period }: { period: Period }) {
                       <td
                         style={{
                           ...tdR,
-                          color:
-                            s.odometerToGpsRatio == null
-                              ? "#9CA3AF"
-                              : s.odometerToGpsRatio < 1 || s.odometerToGpsRatio > 2.5
-                                ? "#DC2626"
-                                : "#16A34A",
+                          color: ratioColor(s.odometerToGpsRatio),
                         }}
                         title={ratioHint(s.odometerToGpsRatio)}
                       >
@@ -921,6 +942,8 @@ export function ShiftsTab({ period }: { period: Period }) {
           </div>
         </div>
       )}
+
+      {rows.length > 0 && <RepBreakdown rows={rows} truncated={rows.length >= 200} />}
     </div>
   );
 }
@@ -1306,6 +1329,288 @@ function PlanVerdict({
           )}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Навігатор по днях.
+ *
+ * Пресети зверху («7 днів», «Цей місяць») відповідають на питання про
+ * період. Але щодня в офісі питають інше — «а що було в цього дня»: чому
+ * зміна закрилась о 22:00, куди їздив у вівторок, чи виїхав узагалі.
+ * Гортати дні через календар угорі означає щоразу тицяти дві дати.
+ *
+ * Тому стрілки, поле дати й «Сьогодні» стоять просто над списком змін.
+ * Коли обрано період із кількох днів, поле показує його останній день і
+ * підписує, скільки днів показано, — інакше стрілка мовчки перетворила б
+ * місяць на добу й це виглядало б як зникнення даних.
+ */
+function DayNav({
+  period,
+  onChange,
+}: {
+  period: Period;
+  onChange: (p: Period) => void;
+}) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
+  const single = period.from === period.to;
+  const day = period.to;
+  const span = Math.round(
+    (Date.parse(`${period.to}T12:00:00Z`) - Date.parse(`${period.from}T12:00:00Z`)) / 86_400_000
+  ) + 1;
+
+  const go = (d: string) => onChange({ from: d, to: d });
+  const shift = (delta: number) => {
+    const t = new Date(`${day}T12:00:00Z`);
+    t.setUTCDate(t.getUTCDate() + delta);
+    go(t.toISOString().slice(0, 10));
+  };
+
+  const btn: React.CSSProperties = {
+    border: "1px solid #E5E7EB",
+    background: "#fff",
+    borderRadius: 8,
+    padding: "6px 10px",
+    fontSize: 13,
+    cursor: "pointer",
+    lineHeight: 1,
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" style={btn} onClick={() => shift(-1)} title="Попередній день" aria-label="Попередній день">
+        ‹
+      </button>
+      <input
+        type="date"
+        value={day}
+        max={today}
+        onChange={(e) => e.target.value && go(e.target.value)}
+        style={{ ...btn, padding: "6px 8px", cursor: "text" }}
+      />
+      <button
+        type="button"
+        style={btn}
+        onClick={() => shift(1)}
+        disabled={day >= today}
+        title="Наступний день"
+        aria-label="Наступний день"
+      >
+        ›
+      </button>
+      <button
+        type="button"
+        style={{ ...btn, fontWeight: single && day === today ? 700 : 400 }}
+        onClick={() => go(today)}
+      >
+        Сьогодні
+      </button>
+      <span style={{ fontSize: 12, color: "#9CA3AF" }}>
+        {single
+          ? "один день — стрілками гортати сусідні"
+          : `показано ${span} ${plural(span, "день", "дні", "днів")} · стрілка або дата залишать один`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Аналіз змін по торгових: разом і кожен окремо.
+ *
+ * Список вище відповідає на питання про КОНКРЕТНУ зміну, а це — про
+ * людину за період. Числа тут не нові: вони складені з тих самих рядків,
+ * що вже прийшли, і другого джерела правди не заводять.
+ *
+ * Головна колонка — «Збіг»: пробіг за одометром, поділений на пробіг за
+ * треком, ЗА ПЕРІОД. Саме вона відрізняє людину, у якої кілометри
+ * сходяться, від тієї, у кого планшет не бачить неба, — і від тієї, у
+ * кого кілометри є, а треку до них немає.
+ *
+ * Ділимо суми, а не усереднюємо готові відношення змін. Дві причини.
+ * Перша: число стоїть упритул до власних доданків, і читач ділить їх
+ * очима — медіана 0,85 поруч із «953 км» і «796 км» виглядала б
+ * помилкою екрана. Друга: у зміни відношення буває незаповнене, і такі
+ * зміни випадали б із оцінки мовчки. Саме так Ігор Джумага показував
+ * прочерк, маючи 468 км одометра проти 108 за треком — найгірший рядок
+ * таблиці був єдиним без оцінки.
+ */
+function RepBreakdown({ rows, truncated }: { rows: ShiftRow[]; truncated: boolean }) {
+  const reps = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        shifts: number;
+        days: Set<string>;
+        minutes: number;
+        odometerKm: number;
+        trackKm: number;
+        orders: number;
+        suspicious: number;
+        unconfirmed: number;
+        overrunning: number;
+        open: number;
+      }
+    >();
+
+    for (const r of rows) {
+      let a = map.get(r.userId);
+      if (!a) {
+        a = {
+          id: r.userId,
+          name: r.name,
+          shifts: 0,
+          days: new Set(),
+          minutes: 0,
+          odometerKm: 0,
+          trackKm: 0,
+          orders: 0,
+          suspicious: 0,
+          unconfirmed: 0,
+          overrunning: 0,
+          open: 0,
+        };
+        map.set(r.userId, a);
+      }
+      a.shifts += 1;
+      a.days.add(kyivDay(r.startedAt));
+      a.minutes += r.durationMinutes ?? 0;
+      a.odometerKm += r.distanceKm ?? 0;
+      a.trackKm += r.gpsDistanceKm ?? 0;
+      a.orders += r.ordersCount ?? 0;
+      if (r.odometerSuspicious) a.suspicious += 1;
+      if (r.closedLate && !r.confirmedAt) a.unconfirmed += 1;
+      if (r.overrun?.exceeded) a.overrunning += 1;
+      if (r.status === "OPEN") a.open += 1;
+    }
+
+    return [...map.values()]
+      .map((a) => ({
+        ...a,
+        daysWorked: a.days.size,
+        ratio: a.trackKm > 0 ? a.odometerKm / a.trackKm : null,
+        kmPerDay: a.days.size ? Math.round(a.odometerKm / a.days.size) : 0,
+        kmPerOrder: a.orders > 0 ? a.odometerKm / a.orders : null,
+      }))
+      .sort((x, y) => y.odometerKm - x.odometerKm);
+  }, [rows]);
+
+  const total = useMemo(
+    () => ({
+      shifts: reps.reduce((s, r) => s + r.shifts, 0),
+      daysWorked: reps.reduce((s, r) => s + r.daysWorked, 0),
+      minutes: reps.reduce((s, r) => s + r.minutes, 0),
+      odometerKm: reps.reduce((s, r) => s + r.odometerKm, 0),
+      trackKm: reps.reduce((s, r) => s + r.trackKm, 0),
+      orders: reps.reduce((s, r) => s + r.orders, 0),
+      attention: reps.reduce((s, r) => s + r.suspicious + r.unconfirmed + r.overrunning, 0),
+    }),
+    [reps]
+  );
+
+  const totalRatio = total.trackKm > 0 ? total.odometerKm / total.trackKm : null;
+
+  if (reps.length === 0) return null;
+
+  return (
+    <div className="rounded-xl" style={{ border: "1px solid #E5E7EB", background: "#fff" }}>
+      <div style={{ padding: "14px 16px 8px" }}>
+        <p style={{ fontSize: 15, fontWeight: 700 }}>Аналіз змін по торгових</p>
+        <p style={{ fontSize: 12, color: "#6B7280", marginTop: 4, lineHeight: 1.5 }}>
+          За обраний період. «Збіг» — пробіг за одометром, поділений на пробіг за
+          треком: трек іде по прямій між точками й завжди коротший, тож норма
+          приблизно від 1 до 2,5. Менше одиниці означає помилку в показах
+          одометра, більше — що кілометри є, а треку до них немає.
+        </p>
+        {truncated && (
+          <p style={{ fontSize: 12, color: "#B45309", marginTop: 6 }}>
+            Показано перші 200 змін періоду — для довшого періоду підсумки неповні.
+          </p>
+        )}
+      </div>
+      <TableScroll minWidth={860}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr style={{ background: "#F9FAFB" }}>
+              <th style={th}>Торговий</th>
+              <th style={thR}>Змін</th>
+              <th style={thR}>Днів</th>
+              <th style={thR}>Годин</th>
+              <th style={thR} title="За одометром — те, за що платять">Пробіг</th>
+              <th style={thR}>Км/день</th>
+              <th style={thR} title="Скільки намалював GPS-трек">За треком</th>
+              <th style={thR}>Збіг</th>
+              <th style={thR}>Замовлень</th>
+              <th style={thR} title="Скільки кілометрів припало на одне замовлення">Км/зам.</th>
+              <th style={thR} title="Підозрілий одометр, не підтверджені зміни, перевитрата понад план">
+                Уваги
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {reps.map((r) => {
+              const attention = r.suspicious + r.unconfirmed + r.overrunning;
+              return (
+                <tr key={r.id} style={{ borderTop: "1px solid #F3F4F6" }}>
+                  <td style={{ ...td, fontWeight: 600 }}>
+                    {r.name}
+                    {r.open > 0 && (
+                      <span style={{ fontSize: 11, color: "#2563EB", marginLeft: 6 }}>у дорозі</span>
+                    )}
+                  </td>
+                  <td style={tdR}>{r.shifts}</td>
+                  <td style={tdR}>{r.daysWorked}</td>
+                  <td style={tdR}>{(r.minutes / 60).toFixed(1)}</td>
+                  <td style={{ ...tdR, fontWeight: 700 }}>{Math.round(r.odometerKm)}</td>
+                  <td style={tdR}>{r.kmPerDay || "—"}</td>
+                  <td style={{ ...tdR, color: "#6B7280" }}>{Math.round(r.trackKm) || "—"}</td>
+                  <td style={{ ...tdR, color: ratioColor(r.ratio) }} title={ratioHint(r.ratio)}>
+                    {r.ratio != null ? r.ratio.toFixed(2) : "—"}
+                  </td>
+                  <td style={tdR}>{r.orders || "—"}</td>
+                  <td style={tdR}>{r.kmPerOrder != null ? r.kmPerOrder.toFixed(0) : "—"}</td>
+                  <td style={{ ...tdR, color: attention > 0 ? "#DC2626" : "#9CA3AF" }}>
+                    {attention || "—"}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr style={{ borderTop: "2px solid #E5E7EB", background: "#F9FAFB" }}>
+              <td style={{ ...td, fontWeight: 700 }}>Разом</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{total.shifts}</td>
+              {/*
+                «Днів» у підсумку — це людино-дні, а не календарні дні:
+                четверо в полі одного дня дають чотири. Саме це число
+                ділить пробіг у «Км/день», тож інша сума тут збрехала б.
+              */}
+              <td style={{ ...tdR, fontWeight: 700 }}>{total.daysWorked}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{(total.minutes / 60).toFixed(1)}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{Math.round(total.odometerKm)}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>
+                {total.daysWorked ? Math.round(total.odometerKm / total.daysWorked) : "—"}
+              </td>
+              <td style={{ ...tdR, fontWeight: 700, color: "#6B7280" }}>
+                {Math.round(total.trackKm) || "—"}
+              </td>
+              <td
+                style={{ ...tdR, fontWeight: 700, color: ratioColor(totalRatio) }}
+                title={ratioHint(totalRatio)}
+              >
+                {totalRatio != null ? totalRatio.toFixed(2) : "—"}
+              </td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{total.orders || "—"}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>
+                {total.orders > 0 ? (total.odometerKm / total.orders).toFixed(0) : "—"}
+              </td>
+              <td style={{ ...tdR, fontWeight: 700, color: total.attention > 0 ? "#DC2626" : "#9CA3AF" }}>
+                {total.attention || "—"}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </TableScroll>
     </div>
   );
 }

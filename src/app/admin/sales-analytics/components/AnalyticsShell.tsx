@@ -428,7 +428,9 @@ export function AnalyticsShell() {
         {tab === "logistics" && view === "trips" && (
           <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
         )}
-        {tab === "logistics" && view === "shifts" && <ShiftsTab period={period} />}
+        {tab === "logistics" && view === "shifts" && (
+          <ShiftsTab period={period} onPeriodChange={setPeriod} />
+        )}
         {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
         {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
       </div>

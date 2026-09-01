@@ -67,7 +67,7 @@ export function SalesQrShare() {
     <>
       <button
         onClick={openModal}
-        className="mb-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-[10px] border border-g200 bg-white px-4 text-sm font-bold text-[#0A0A0A] active:bg-g50"
+        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[10px] border border-g200 bg-white px-3 text-sm font-bold text-[#0A0A0A] active:bg-g50"
       >
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path
@@ -76,7 +76,7 @@ export function SalesQrShare() {
             d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 4h2m2 0h2m-6-4h2m2 0h2"
           />
         </svg>
-        QR каталогу для клієнта
+        QR для клієнта
       </button>
 
       {open && (

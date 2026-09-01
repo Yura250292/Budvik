@@ -5,11 +5,13 @@ import Image from "next/image";
 import { formatPrice } from "@/lib/utils";
 import type { Suggestion, SuggestFacet } from "./useSuggest";
 import { productLabel } from "@/lib/catalog/category-display";
+import { isRealSku } from "@/lib/catalog/sku-search";
 import NoPhoto from "@/components/ui/NoPhoto";
 
 /**
- * Рядки підказок. Виділені окремо, бо однакові в трьох місцях, а різняться
- * лише обгорткою: у шапці це випадайка, у мобільному оверлеї — сам екран.
+ * Рядки підказок. Виділені окремо, бо однакові в чотирьох місцях, а різняться
+ * лише обгорткою: у шапці це випадайка, у мобільному оверлеї — сам екран, у
+ * кабінеті торгового — панель під полем на змісті каталогу.
  */
 export default function SuggestList({
   items,
@@ -17,6 +19,8 @@ export default function SuggestList({
   types = [],
   active,
   query,
+  basePath = "/catalog",
+  showSku = false,
   onPick,
   onShowAll,
 }: {
@@ -26,6 +30,13 @@ export default function SuggestList({
   types?: SuggestFacet[];
   active: number;
   query: string;
+  /**
+   * Куди ведуть уточнення: вітрина чи список кабінету торгового. Сам товар
+   * завжди відкривається карткою /catalog/[slug] — вона одна на обидва.
+   */
+  basePath?: string;
+  /** Показати артикул перед ярликом: у кабінеті клієнт називає його першим. */
+  showSku?: boolean;
   onPick: () => void;
   onShowAll: () => void;
 }) {
@@ -47,7 +58,7 @@ export default function SuggestList({
               {types.map((t) => (
                 <Link
                   key={`t-${t.key}`}
-                  href={`/catalog?search=${encodeURIComponent(q)}&type=${encodeURIComponent(t.key)}`}
+                  href={`${basePath}?search=${encodeURIComponent(q)}&type=${encodeURIComponent(t.key)}`}
                   onClick={onPick}
                   className="cursor-pointer rounded-full border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-1 text-xs font-medium text-[#1A1A1A] transition-colors duration-200 hover:border-[#FFD600] hover:bg-[#FFD600]/15"
                 >
@@ -61,7 +72,7 @@ export default function SuggestList({
               {brands.map((b) => (
                 <Link
                   key={`b-${b.key}`}
-                  href={`/catalog?search=${encodeURIComponent(q)}&brand=${encodeURIComponent(b.key)}`}
+                  href={`${basePath}?search=${encodeURIComponent(q)}&brand=${encodeURIComponent(b.key)}`}
                   onClick={onPick}
                   className="flex cursor-pointer items-center gap-1.5 rounded-full border border-[#E5E5E5] px-3 py-1 text-xs text-[#1A1A1A] transition-colors duration-200 hover:border-[#FFD600] hover:bg-[#FFD600]/15"
                 >
@@ -95,7 +106,12 @@ export default function SuggestList({
                 разом із номером вузла («02.03. Дрилі-шуруповерти»), а в 84%
                 товарів там узагалі звалище «Імпорт з 1С» — тоді показуємо
                 бренд. */}
-            <p className="text-xs text-[#9E9E9E]">{productLabel(item.category, item.brand)}</p>
+            <p className="text-xs text-[#9E9E9E]">
+              {showSku && isRealSku(item.sku) && (
+                <span className="font-medium tabular-nums text-[#555]">{item.sku} · </span>
+              )}
+              {productLabel(item.category, item.brand)}
+            </p>
           </div>
           <div className="flex-shrink-0 text-right">
             <span className={`text-sm font-bold ${item.stock > 0 ? "text-[#0A0A0A]" : "text-[#9E9E9E]"}`}>

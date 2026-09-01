@@ -3,6 +3,8 @@ export const revalidate = 3600;
 import Link from "next/link";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { SalesQrShare } from "@/components/sales/SalesQrShare";
+import SalesCatalogSearch from "@/components/sales/SalesCatalogSearch";
+import { SlidersHorizontal } from "lucide-react";
 import { getCatalogToc } from "@/lib/catalog/sections";
 import { getBrandTree } from "@/lib/catalog/brand-tree";
 
@@ -18,6 +20,10 @@ import { getBrandTree } from "@/lib/catalog/brand-tree";
  * самому списку, але шукати ним товар незручно — це відповідь на інше
  * питання.
  *
+ * Над змістом — поле пошуку за назвою чи артикулом. Клієнт частіше називає
+ * артикул або слово з назви, ніж розділ, і без поля торговий мусив
+ * угадувати, де в змісті лежить «GR-30030».
+ *
  * Живе всередині /sales, а не в загальному /catalog, бо кореневий layout
  * підставляє шапку й нижнє меню магазину — торговий втратив би навігацію.
  */
@@ -30,17 +36,25 @@ export default async function SalesCatalogPage() {
 
       {/* max-w-lg на телефоні, ширше на планшеті — його тримають горизонтально */}
       <div className="mx-auto max-w-lg px-4 py-4 md:max-w-5xl lg:max-w-6xl">
-        <Link
-          href="/sales/catalog/list"
-          className="mb-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[#FFD600] px-4 text-sm font-bold text-[#0A0A0A] active:bg-[#FFC400]"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          Пошук і фільтри по всьому каталогу
-        </Link>
+        <div className="mb-4">
+          <SalesCatalogSearch />
+        </div>
 
-        <SalesQrShare />
+        {/*
+          Другорядні входи в одному ряду: раніше жовта кнопка «Пошук і фільтри»
+          обіцяла пошук, а вела в самі фільтри. Тепер пошук — поле вище, а
+          сюди йдуть ті, кому треба гортати весь каталог із фільтрами.
+        */}
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <Link
+            href="/sales/catalog/list"
+            className="flex min-h-12 items-center justify-center gap-2 rounded-[10px] border border-g200 bg-white px-3 text-sm font-bold text-[#0A0A0A] active:bg-g50"
+          >
+            <SlidersHorizontal className="h-5 w-5" strokeWidth={2} />
+            Усі товари й фільтри
+          </Link>
+          <SalesQrShare />
+        </div>
 
         {/* Закладки розділів */}
         <div className="mb-4 flex flex-wrap gap-1.5">

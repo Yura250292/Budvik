@@ -5,6 +5,7 @@ import { SalesHeader } from "@/components/sales/SalesHeader";
 import CatalogFilters from "@/components/catalog/CatalogFilters";
 import ActiveFilterChips from "@/components/catalog/ActiveFilterChips";
 import SalesProductList from "@/components/catalog/SalesProductList";
+import SalesCatalogSearch from "@/components/sales/SalesCatalogSearch";
 import { getBrandTree, getBrandTypes, getPriceBounds } from "@/lib/catalog/brand-tree";
 import { getCatalogToc } from "@/lib/catalog/sections";
 import { parseFilters, fetchCatalogPage, filtersToQuery, CATALOG_PAGE_SIZE } from "@/lib/catalog/query";
@@ -36,7 +37,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
   const filters = { ...parseFilters(params), showAll: params.all !== "0" };
   const page = Math.max(1, parseInt(params.page || "1", 10));
 
-  const [{ products, total }, tree, priceBounds] = await Promise.all([
+  const [{ products, total, isFuzzy }, tree, priceBounds] = await Promise.all([
     fetchCatalogPage(filters, page),
     getBrandTree(),
     getPriceBounds(),
@@ -58,9 +59,16 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
 
   const allBrands = tree.main.concat(tree.tail);
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
-  const totalPages = Math.ceil(total / CATALOG_PAGE_SIZE);
+  // Рятувальна видача — одна сторінка схожого, гортати там нічого.
+  const totalPages = isFuzzy ? 1 : Math.ceil(total / CATALOG_PAGE_SIZE);
 
   const title = activeBrands.length === 1 ? activeBrands[0].name : "Каталог";
+  /*
+   * Чи звужено видачу чимось, крім самого запиту. На порожній видачі з
+   * пошуком це вирішує, що пропонувати: скинути звуження чи змінити слово.
+   */
+  const narrowed =
+    filters.brands.length > 0 || filters.types.length > 0 || !!filters.section || !filters.showAll;
 
   return (
     <div className="min-h-screen bg-background">
@@ -72,6 +80,22 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
 
       {/* Ширше на планшеті: його тримають горизонтально й показують клієнту */}
       <div className="mx-auto max-w-lg px-4 pt-4 md:max-w-4xl lg:max-w-5xl">
+        {/*
+          Поле пошуку над усім, зокрема над бічною колонкою на планшеті: клієнт
+          називає наступний артикул, поки торговий ще дивиться попередній.
+          key перезбирає поле при зміні запиту в адресі — інакше після
+          переходу з підказки в полі лишався б старий текст.
+        */}
+        <div className="mb-4">
+          <SalesCatalogSearch key={filters.search ?? ""} initialQuery={filters.search ?? ""} />
+        </div>
+
+        {isFuzzy && (
+          <p className="mb-3 text-sm text-cab-t2">
+            За запитом «{filters.search}» точних збігів немає. Можливо, ви шукали:
+          </p>
+        )}
+
         {/*
           На телефоні фільтри — кнопка з панеллю зверху; від планшета вони
           стають бічною колонкою, і товар видно одночасно з фільтрами.
@@ -101,10 +125,31 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
 
         {products.length === 0 ? (
           <div className="py-16 text-center text-g400">
-            <p className="text-base">Товарів не знайдено</p>
-            <Link href="/sales/catalog/list" className="mt-2 inline-block font-medium text-[#FFB800]">
-              Скинути фільтри
-            </Link>
+            <p className="text-base">
+              {filters.search ? `За запитом «${filters.search}» нічого не знайдено` : "Товарів не знайдено"}
+            </p>
+            {/*
+              Запит + звуження — спершу пропонуємо прибрати звуження: артикул
+              із підказки шукався по всьому каталогу, а список міг стояти в
+              межах іншого бренда. Без звуження лишається змінити саме слово.
+            */}
+            {filters.search && narrowed ? (
+              <Link
+                href={`/sales/catalog/list?search=${encodeURIComponent(filters.search)}`}
+                className="mt-2 inline-block font-medium text-[#FFB800]"
+              >
+                Шукати «{filters.search}» по всьому каталогу
+              </Link>
+            ) : (
+              <>
+                {filters.search && (
+                  <p className="mt-1 text-sm">Спробуйте артикул без пробілів або інше слово з назви</p>
+                )}
+                <Link href="/sales/catalog/list" className="mt-2 inline-block font-medium text-[#FFB800]">
+                  {filters.search ? "Скинути пошук" : "Скинути фільтри"}
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <>

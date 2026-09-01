@@ -6,6 +6,8 @@ export interface Suggestion {
   id: string;
   name: string;
   slug: string;
+  /** Артикул з 1С; у кабінеті торгового його показують у рядку. */
+  sku?: string | null;
   price: number;
   image?: string | null;
   stock: number;

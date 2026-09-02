@@ -17,6 +17,7 @@ import { buildTrackPath } from "@/lib/track/gaps";
 import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
 import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
+import { matchDayPath } from "@/lib/track/road-match";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,15 @@ export async function GET(
     }),
     prisma.trackSession.findUnique({
       where: { userId_day: { userId, day: dayStart } },
-      select: { distanceKm: true, pointsCount: true, startedAt: true, lastPointAt: true },
+      select: {
+        distanceKm: true,
+        pointsCount: true,
+        startedAt: true,
+        lastPointAt: true,
+        roadPath: true,
+        roadPathPoints: true,
+        id: true,
+      },
     }),
     prisma.trackPoint.findMany({
       where: { userId, session: { day: dayStart } },
@@ -102,6 +111,28 @@ export async function GET(
 
   const planVsFact = await resolvePlanVsFact(userId, day, workPoints);
 
+  /**
+   * Лінія, покладена на дороги.
+   *
+   * Рахується лише тоді, коли точок побільшало з минулого разу, — інакше
+   * кожне відкриття дня коштувало б десятка запитів до публічного OSRM. Не
+   * вдалося (сервер мовчить, ліміт) — карта просто малює сиру лінію, як досі.
+   */
+  let roadPath: Array<[number, number]> | null = asPath(trackSession?.roadPath);
+  const pointsNow = workPoints.length;
+  if (trackSession && pointsNow >= 2 && trackSession.roadPathPoints !== pointsNow) {
+    const matched = await matchDayPath(workPoints).catch(() => null);
+    if (matched) {
+      roadPath = matched;
+      await prisma.trackSession
+        .update({
+          where: { id: trackSession.id },
+          data: { roadPath: matched, roadPathPoints: pointsNow },
+        })
+        .catch(() => null);
+    }
+  }
+
   return NextResponse.json({
     day,
     user,
@@ -118,6 +149,12 @@ export async function GET(
        * для розбору «стояв чи їхав».
        */
       path: buildTrackPath(workPoints),
+      /**
+       * Та сама дорога, але покладена на граф вулиць. Окремим полем, а не
+       * замість path: сирий трек мусить лишатися доступним — саме за ним
+       * видно, де приймач брехав, а прив'язка це якраз ховає.
+       */
+      roadPath,
       /** Скільки точок сховано як неробочі — щоб фільтр не був таємним */
       hiddenPoints,
       workHours: WORK_HOURS_LABEL,
@@ -146,4 +183,17 @@ export async function GET(
         }
       : null,
   });
+}
+
+/** Обережне читання кеша: у Json могло лежати що завгодно зі старих версій. */
+function asPath(value: unknown): Array<[number, number]> | null {
+  if (!Array.isArray(value)) return null;
+  const out: Array<[number, number]> = [];
+  for (const v of value) {
+    if (!Array.isArray(v) || v.length < 2) return null;
+    const [lat, lng] = v;
+    if (typeof lat !== "number" || typeof lng !== "number") return null;
+    out.push([lat, lng]);
+  }
+  return out.length >= 2 ? out : null;
 }

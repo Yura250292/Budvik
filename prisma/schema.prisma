@@ -2492,6 +2492,15 @@ model TrackSession {
   pointsCount Int   @default(0)
   distanceKm  Float @default(0)
 
+  /// Лінія дня, покладена на дороги (map matching OSRM) — КЕШ, не дані.
+  ///
+  /// Сирі точки лишаються джерелом правди й пробігу; тут лежить лише те, що
+  /// малюється на карті. Рахувати це на кожне відкриття дня надто дорого:
+  /// доба — це десяток запитів до публічного OSRM.
+  roadPath       Json?
+  /// Скільки точок було в сесії, коли лінію рахували: більше — час перерахувати.
+  roadPathPoints Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

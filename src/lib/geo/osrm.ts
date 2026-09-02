@@ -1,4 +1,90 @@
-const OSRM_URL = "https://router.project-osrm.org";
+/**
+ * Адреса OSRM. За замовчуванням — публічний демо-сервер, і це його межі:
+ * `/match` приймає РІВНО 10 координат (11 уже «TooBig»), запити лімітовані за
+ * частотою, а на розріджений слід він віддає впевненість 0,00. Для доби з
+ * семисот точок це означає під вісімдесят запитів і сумнівний результат.
+ *
+ * Власний OSRM з викачкою по Україні знімає обидва обмеження: доба лягає одним
+ * запитом, і та сама залежність перестає бути найслабшою ланкою в прийомі
+ * треку. Тому адреса — змінна оточення: перемикання займає один рядок.
+ */
+const OSRM_URL = process.env.OSRM_URL ?? "https://router.project-osrm.org";
+
+/**
+ * Скільки чекаємо на публічний демо-сервер OSRM.
+ *
+ * Без межі жоден із цих викликів не завершується ніколи, якщо з'єднання
+ * зависло, — а вони стоять усередині прийому треку, тобто тримають запит
+ * планшета. Саме такий безмежний `fetch` 01.09 годинами тримав замок відправки
+ * на пристроях; повторювати ту саму помилку на сервері не варто.
+ */
+const OSRM_TIMEOUT_MS = 8_000;
+
+async function osrmFetch(url: string, timeoutMs = OSRM_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Точка сліду для прив'язки до дороги: координата й похибка фікса. */
+export type MatchPoint = { lng: number; lat: number; accuracyM?: number | null };
+
+/**
+ * Кладе сирий слід GPS на граф доріг (map matching).
+ *
+ * `/route` прокладає шлях МІЖ двома точками, а `/match` бере ЦІЛИЙ слід і
+ * знаходить послідовність доріг, якою людина найімовірніше їхала. Це те, що
+ * потрібно для карти: лінія лягає рівно по вулиці, а не ламаною між фіксами.
+ *
+ * `radiuses` — головний параметр. Він каже матчеру, наскільки довіряти кожній
+ * точці: фікс із похибкою 8 м прив'яжеться до найближчої вулиці, а з похибкою
+ * 90 м матиме право лягти на сусідню. Без нього матчер однаково довіряє всім і
+ * впевнено кладе слід на паралельну дорогу — та сама вада, через яку домальовка
+ * колись малювала петлі кварталами.
+ *
+ * `tidy=true` просить OSRM самому прибрати надто щільні й тремтячі точки:
+ * стоянка з десятком фіксів на місці інакше дає безглузді мікропетлі.
+ */
+export async function matchTrace(points: MatchPoint[]): Promise<GeoJSON.LineString | null> {
+  if (points.length < 2) return null;
+
+  const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
+  /**
+   * Стеля радіуса — 50 м. Вище матчер починає «шукати кращу дорогу» за
+   * квартал звідси; нижче 8 м — відкидає точку як таку, що не лягає на граф.
+   */
+  const radiuses = points
+    .map((p) => Math.min(50, Math.max(8, Math.round(p.accuracyM ?? 15))))
+    .join(";");
+
+  const url =
+    `${OSRM_URL}/match/v1/driving/${coords}` +
+    `?geometries=geojson&overview=full&tidy=true&gaps=ignore&radiuses=${radiuses}`;
+
+  const res = await osrmFetch(url);
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (data.code !== "Ok" || !Array.isArray(data.matchings)) return null;
+
+  /**
+   * Матчер повертає кілька шматків, коли слід рветься (людина заїхала туди,
+   * де доріг немає, або зникла на кілометр). Склеюємо їх по порядку: діра між
+   * шматками лишиться прямою, і це чесно — там ми справді не знаємо дороги.
+   */
+  const line: [number, number][] = [];
+  for (const m of data.matchings) {
+    const coordsOut = m?.geometry?.coordinates;
+    if (!Array.isArray(coordsOut)) continue;
+    for (const c of coordsOut) line.push([c[0], c[1]]);
+  }
+
+  return line.length >= 2 ? { type: "LineString", coordinates: line } : null;
+}
 
 interface OsrmRouteResult {
   totalDistanceKm: number;
@@ -21,7 +107,7 @@ export async function getRoute(
 ): Promise<OsrmRouteResult> {
   const url = `${OSRM_URL}/route/v1/driving/${coordsToString(coords)}?overview=full&geometries=geojson`;
 
-  const res = await fetch(url);
+  const res = await osrmFetch(url);
   if (!res.ok) throw new Error(`OSRM route error: ${res.status}`);
 
   const data = await res.json();
@@ -46,7 +132,7 @@ export async function getOptimalTrip(
   // roundtrip=false: don't return to start
   const url = `${OSRM_URL}/trip/v1/driving/${coordsToString(coords)}?source=first&roundtrip=false&geometries=geojson&overview=full`;
 
-  const res = await fetch(url);
+  const res = await osrmFetch(url);
   if (!res.ok) throw new Error(`OSRM trip error: ${res.status}`);
 
   const data = await res.json();

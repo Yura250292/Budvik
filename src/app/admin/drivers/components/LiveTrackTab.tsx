@@ -84,8 +84,13 @@ export type DayDetail = {
     startedAt: string | null;
     lastPointAt: string | null;
     points: Array<{ lat: number; lng: number; recordedAt: string; speedKmh: number | null }>;
-    /** Лінія з добитими розривами — нею й малюємо трек. */
+    /** Лінія з добитими розривами — сирий трек як він є. */
     path: Array<[number, number]>;
+    /**
+     * Та сама лінія, покладена на граф вулиць (map matching).
+     * null — коли прив'язати не вдалося; тоді малюємо сиру.
+     */
+    roadPath: Array<[number, number]> | null;
     /** Точки поза робочим вікном: записані, але не показані */
     hiddenPoints: number;
     workHours: string;
@@ -173,6 +178,8 @@ function kyivToday(): string {
 
 export function LiveTrackTab() {
   const [day, setDay] = useState(kyivToday);
+  /** Малювати трек по вулицях, а не ламаною між фіксами. */
+  const [onRoads, setOnRoads] = useState(true);
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<DayDetail | null>(null);
@@ -275,6 +282,21 @@ export function LiveTrackTab() {
           }}
           className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-2 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
         />
+        {/*
+          Прив'язка до доріг — за замовчуванням увімкнена, але вимикається.
+          Сирий трек мусить лишатися під рукою: саме за ним видно, де приймач
+          брехав, а прив'язка це якраз згладжує. Коли розбираєш «чи він там
+          був», потрібна правда, а не краса.
+        */}
+        <label className="flex cursor-pointer items-center gap-2 text-[13px] text-g600">
+          <input
+            type="checkbox"
+            checked={onRoads}
+            onChange={(e) => setOnRoads(e.target.checked)}
+            className="cursor-pointer accent-primary-dark"
+          />
+          По дорогах
+        </label>
         {isToday && <span className="text-[13px] text-g500">Оновлюється кожні 30 с</span>}
       </div>
 
@@ -308,7 +330,10 @@ export function LiveTrackTab() {
                   shown
                     ? {
                         points: shown.track.points,
-                        path: shown.track.path,
+                        path:
+                          onRoads && shown.track.roadPath
+                            ? shown.track.roadPath
+                            : shown.track.path,
                         stops: shown.route.stops,
                         plan: shown.plan,
                         excursions: shown.deviation?.excursions ?? [],

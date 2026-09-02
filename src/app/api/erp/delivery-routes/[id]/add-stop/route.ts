@@ -1,10 +1,15 @@
 /**
  * Додати точку до маршруту.
  *
- * Два види точок:
+ * Три види точок:
  *   1. Замовлення — `{ salesDocumentId }`. Класика: накладна, контрагент,
  *      адреса з його картки.
- *   2. Бонусна поїздка — `{ kind: "PICKUP" | "ERRAND", title, ... }`.
+ *   2. Клієнт із бази — `{ kind: "DELIVERY", counterpartyId }`, без накладної.
+ *      Маршрут часто складають по пам'яті («Коваль у Жовтанцях»), ще до того,
+ *      як менеджер виписав документ, або взагалі під довіз без накладної.
+ *      Тариф за точку тут працює як для звичайної доставки — водій робить ту
+ *      саму роботу, і платити за неї треба так само.
+ *   3. Бонусна поїздка — `{ kind: "PICKUP" | "ERRAND", title, ... }`.
  *      Забрати товар, відвезти ремонт на пошту. Накладної немає, оплата
  *      задається вручну (payOverride), бо тариф 25/15 ₴ за точку тут не
  *      підходить: поїздка на пошту не дорівнює вигрузці в магазині.
@@ -95,10 +100,63 @@ export async function POST(
     return NextResponse.json({ ok: true, stop: created }, { status: 201 });
   }
 
-  // --- Звичайна доставка ---
+  // --- Клієнт із бази, ще без накладної ---
   if (!salesDocumentId) {
-    return NextResponse.json({ error: "Оберіть замовлення" }, { status: 400 });
+    if (!counterpartyId) {
+      return NextResponse.json(
+        { error: "Оберіть замовлення або знайдіть клієнта в базі" },
+        { status: 400 }
+      );
+    }
+
+    const cp = await prisma.counterparty.findUnique({
+      where: { id: counterpartyId },
+      select: { id: true, address: true, deliveryAddress: true },
+    });
+    if (!cp) {
+      return NextResponse.json({ error: "Клієнта не знайдено" }, { status: 404 });
+    }
+
+    // Двічі один клієнт у маршруті — це не дві роботи, а одна: водій
+    // під'їжджає раз. Зарплата це й так дедуплікує за адресою, але в
+    // чек-листі водія дубль виглядав би як помилка логіста.
+    const already = await prisma.deliveryStop.findFirst({
+      where: { deliveryRouteId: id, counterpartyId, kind: "DELIVERY" },
+      select: { id: true },
+    });
+    if (already) {
+      return NextResponse.json(
+        { error: "Цей клієнт уже є в маршруті" },
+        { status: 409 }
+      );
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const count = await tx.deliveryStop.count({ where: { deliveryRouteId: id } });
+      return tx.deliveryStop.create({
+        data: {
+          deliveryRouteId: id,
+          counterpartyId: cp.id,
+          kind: "DELIVERY",
+          sequence: count + 1,
+          address:
+            address?.trim() || cp.deliveryAddress || cp.address || null,
+          // payOverride лишається порожнім: точка тарифна. Логіст може
+          // проставити суму окремо, якщо домовилися інакше.
+          payOverride:
+            typeof payOverride === "number" && Number.isFinite(payOverride)
+              ? payOverride
+              : null,
+          zoneOverride: zoneOverride ?? null,
+          notes: notes?.trim() || null,
+        },
+      });
+    });
+
+    return NextResponse.json({ ok: true, stop: created }, { status: 201 });
   }
+
+  // --- Звичайна доставка ---
 
   const doc = await prisma.salesDocument.findUnique({
     where: { id: salesDocumentId },

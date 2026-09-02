@@ -63,7 +63,27 @@ export async function POST(req: NextRequest) {
   const me = auth.me;
 
   const body = await req.json();
-  const { driverId, date, vehicleInfo, fuelConsumption, fuelPricePer, notes, salesDocumentIds } = body;
+  const {
+    driverId,
+    date,
+    vehicleInfo,
+    fuelConsumption,
+    fuelPricePer,
+    notes,
+    salesDocumentIds,
+    // Клієнти, знайдені пошуком по базі: точки без накладної. Логіст
+    // збирає маршрут по пам'яті («Коваль у Жовтанцях»), ще до документів.
+    counterpartyIds,
+  } = body as {
+    driverId?: string | null;
+    date?: string;
+    vehicleInfo?: string | null;
+    fuelConsumption?: number | null;
+    fuelPricePer?: number | null;
+    notes?: string | null;
+    salesDocumentIds?: string[];
+    counterpartyIds?: string[];
+  };
 
   if (!date) {
     return NextResponse.json({ error: "Вкажіть дату" }, { status: 400 });
@@ -113,6 +133,40 @@ export async function POST(req: NextRequest) {
         await tx.salesDocument.update({
           where: { id: doc.id },
           data: { deliveryMethod: "DRIVER" },
+        });
+      }
+    }
+
+    // Клієнти з бази — точки без накладної, після замовлень.
+    if (counterpartyIds && counterpartyIds.length > 0) {
+      let sequence = await tx.deliveryStop.count({
+        where: { deliveryRouteId: created.id },
+      });
+
+      for (const counterpartyId of Array.from(new Set(counterpartyIds))) {
+        const cp = await tx.counterparty.findUnique({
+          where: { id: counterpartyId },
+          select: { id: true, address: true, deliveryAddress: true },
+        });
+        if (!cp) continue;
+
+        // Того самого клієнта могло вже привести його ж замовлення —
+        // тоді другої точки не треба: водій під'їжджає раз.
+        const already = await tx.deliveryStop.findFirst({
+          where: { deliveryRouteId: created.id, counterpartyId: cp.id },
+          select: { id: true },
+        });
+        if (already) continue;
+
+        sequence += 1;
+        await tx.deliveryStop.create({
+          data: {
+            deliveryRouteId: created.id,
+            counterpartyId: cp.id,
+            kind: "DELIVERY",
+            sequence,
+            address: cp.deliveryAddress || cp.address || null,
+          },
         });
       }
     }

@@ -50,7 +50,9 @@ export default function StopPinModal({
   /** true — пін поставив геокодер, точність лише до міста */
   approximate: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  /** Координата, яку щойно підтвердили — щоб той, хто відкрив карту, оновив
+   *  свій рядок, не перепитуючи сервер. */
+  onSaved: (lat: number, lng: number) => void;
 }) {
   const start = {
     lat: lat ?? FALLBACK.lat,
@@ -120,7 +122,7 @@ export default function StopPinModal({
         setError(data.error || "Не вдалося зберегти");
         return;
       }
-      onSaved();
+      onSaved(pos.lat, pos.lng);
       onClose();
     } catch {
       setError("Немає зв'язку — спробуйте ще раз");

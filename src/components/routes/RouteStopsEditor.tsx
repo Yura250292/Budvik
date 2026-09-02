@@ -4,7 +4,13 @@
  * Ручне коригування точок маршруту.
  *
  * Три речі, яких раніше не було взагалі: прибрати точку, додати точку
- * (замовленням або бонусною поїздкою) і перемкнути зону оплати.
+ * (замовленням, клієнтом із бази або бонусною поїздкою) і перемкнути зону
+ * оплати.
+ *
+ * Клієнт із бази — окремий вид точки: маршрут часто складають ще до
+ * накладних, по пам'яті («Коваль у Жовтанцях»). Якщо в такого клієнта немає
+ * координати взагалі, карта відкривається одразу: виправити пін тут коштує
+ * один клік, а водієві на трасі — півгодини.
  *
  * Порядок міняється стрілками, а не перетягуванням: логіст працює і з
  * ноутбука, і з планшета в цеху, а drag-n-drop на тачскріні всередині
@@ -15,6 +21,7 @@
 import { useState } from "react";
 import { formatPrice } from "@/lib/utils";
 import StopPinModal from "@/components/routes/StopPinModal";
+import ClientSearch, { pinUnusable, type FoundClient } from "@/components/routes/ClientSearch";
 import { appendMissing } from "@/lib/routes/order";
 
 type Stop = {
@@ -79,8 +86,11 @@ export default function RouteStopsEditor({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState<null | "order" | "errand">(null);
-  const [pinStop, setPinStop] = useState<Stop | null>(null);
+  const [adding, setAdding] = useState<null | "order" | "client" | "errand">(null);
+  // Ціль модалки піна — не сама точка, а клієнт: координата живе в його
+  // картці. Так у карту можна відкрити й того, кого щойно знайшли пошуком
+  // і хто ще не став точкою маршруту.
+  const [pinTarget, setPinTarget] = useState<PinTarget | null>(null);
 
   // Форма бонусної поїздки
   const [exKind, setExKind] = useState<"PICKUP" | "ERRAND">("PICKUP");
@@ -178,6 +188,35 @@ export default function RouteStopsEditor({
       `add:${orderId}`
     );
     if (ok) setAdding(null);
+  };
+
+  const addClient = async (c: FoundClient) => {
+    const ok = await call(
+      `/api/erp/delivery-routes/${routeId}/add-stop`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "DELIVERY",
+          counterpartyId: c.id,
+          address: c.address,
+        }),
+      },
+      `add:${c.id}`
+    );
+    // Точки на карті немає (або вона на центр села) — показуємо карту
+    // одразу. Пізніше цей клієнт загубиться серед десятка інших, і водій
+    // поїде його шукати. Приблизні піни геокодера не перебиваємо: їх
+    // більшість, і модалка на кожному додаванні перестала б читатися.
+    if (ok && pinUnusable(c)) {
+      setPinTarget({
+        counterpartyId: c.id,
+        name: c.name,
+        address: c.address,
+        lat: c.lat,
+        lng: c.lng,
+        approximate: c.geoSource !== "MANUAL",
+      });
+    }
   };
 
   const addErrand = async () => {
@@ -316,7 +355,7 @@ export default function RouteStopsEditor({
                       водій поїде за приблизною координатою. */}
                   {cp && (noPin || roughPin) && (
                     <button
-                      onClick={() => setPinStop(stop)}
+                      onClick={() => setPinTarget(stopPin(stop))}
                       style={{
                         padding: "4px 10px",
                         borderRadius: "6px",
@@ -332,7 +371,7 @@ export default function RouteStopsEditor({
                   )}
                   {cp && !noPin && !roughPin && (
                     <button
-                      onClick={() => setPinStop(stop)}
+                      onClick={() => setPinTarget(stopPin(stop))}
                       style={{
                         padding: "4px 10px",
                         borderRadius: "6px",
@@ -438,6 +477,7 @@ export default function RouteStopsEditor({
           {adding === null && (
             <div className="flex gap-2">
               <SmallBtn onClick={() => setAdding("order")}>+ Замовлення</SmallBtn>
+              <SmallBtn onClick={() => setAdding("client")}>+ Клієнт з бази</SmallBtn>
               <SmallBtn onClick={() => setAdding("errand")}>+ Поїздка</SmallBtn>
             </div>
           )}
@@ -486,6 +526,39 @@ export default function RouteStopsEditor({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {adding === "client" && (
+            <div style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: "8px", padding: "12px" }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: "8px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                  Знайти клієнта в базі
+                </span>
+                <SmallBtn onClick={() => setAdding(null)}>Закрити</SmallBtn>
+              </div>
+              <ClientSearch
+                autoFocus
+                onPick={addClient}
+                busyId={busy?.startsWith("add:") ? busy.slice(4) : null}
+                pickedIds={stops
+                  .map((s) => s.counterparty?.id)
+                  .filter((id): id is string => !!id)}
+                onFixPin={(c) =>
+                  setPinTarget({
+                    counterpartyId: c.id,
+                    name: c.name,
+                    address: c.address,
+                    lat: c.lat,
+                    lng: c.lng,
+                    approximate: c.geoSource !== "MANUAL",
+                  })
+                }
+              />
+              <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px" }}>
+                Точка без накладної: у чек-листі водія буде назва клієнта, а
+                тариф за точку рахується як за звичайну доставку.
+              </p>
             </div>
           )}
 
@@ -554,20 +627,48 @@ export default function RouteStopsEditor({
         </div>
       )}
 
-      {pinStop?.counterparty && (
+      {pinTarget && (
         <StopPinModal
-          counterpartyId={pinStop.counterparty.id}
-          name={pinStop.counterparty.name}
-          address={pinStop.address}
-          lat={pinStop.counterparty.deliveryLat ?? null}
-          lng={pinStop.counterparty.deliveryLng ?? null}
-          approximate={pinStop.counterparty.geoSource !== "MANUAL"}
-          onClose={() => setPinStop(null)}
+          counterpartyId={pinTarget.counterpartyId}
+          name={pinTarget.name}
+          address={pinTarget.address}
+          lat={pinTarget.lat}
+          lng={pinTarget.lng}
+          approximate={pinTarget.approximate}
+          onClose={() => setPinTarget(null)}
           onSaved={onChanged}
         />
       )}
     </div>
   );
+}
+
+/** Кого і з якою координатою відкриваємо в карті. */
+type PinTarget = {
+  counterpartyId: string;
+  name: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  approximate: boolean;
+};
+
+/**
+ * Точка списку → ціль для карти.
+ *
+ * Координата береться з картки клієнта, а не з точки: виправлення має діяти
+ * на всі майбутні маршрути, а не лише на цей.
+ */
+function stopPin(stop: Stop): PinTarget {
+  const cp = stop.counterparty!;
+  return {
+    counterpartyId: cp.id,
+    name: cp.name,
+    address: stop.address,
+    lat: cp.deliveryLat ?? null,
+    lng: cp.deliveryLng ?? null,
+    approximate: cp.geoSource !== "MANUAL",
+  };
 }
 
 const inputStyle: React.CSSProperties = {

@@ -12,19 +12,55 @@
  * б на першій же правці.
  */
 
-import { Text, Pressable, StyleSheet } from "react-native";
+import { useState } from "react";
+import { Text, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import * as Updates from "expo-updates";
 import { c, sp } from "./tokens";
 import { Icon } from "./Icon";
 
 export function UpdateBar() {
   const { isUpdatePending } = Updates.useUpdates();
+  const [busy, setBusy] = useState(false);
   if (!isUpdatePending) return null;
 
+  /**
+   * Натиск мусить мати наслідок — видимий.
+   *
+   * Досі помилку ковтав `.catch(() => {})`, і смуга виглядала мертвою: людина
+   * тисне, нічого не відбувається, вона тисне ще раз. 02.09 так було на двох
+   * планшетах одночасно. Перезавантаження може й справді не вдатися —
+   * expo-updates відмовляє, коли саме зараз качається наступне оновлення, — і
+   * тоді треба сказати це словами, а не мовчати.
+   *
+   * Запасний шлях у тексті не випадковий: холодний старт застосовує
+   * завантажене оновлення так само надійно, як і ця кнопка.
+   */
+  const apply = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await Updates.reloadAsync();
+    } catch (e) {
+      setBusy(false);
+      Alert.alert(
+        "Не вдалося перезавантажити",
+        `${e instanceof Error ? e.message : String(e)}\n\n` +
+          "Закрийте застосунок повністю (кнопка «недавні» → змахніть убік) і " +
+          "відкрийте знову — оновлення застосується само."
+      );
+    }
+  };
+
   return (
-    <Pressable style={s.bar} onPress={() => Updates.reloadAsync().catch(() => {})}>
-      <Icon name="refresh-cw" size={16} color={c.bk} />
-      <Text style={s.label}>Вийшло оновлення — натисніть, щоб перезавантажити</Text>
+    <Pressable style={s.bar} onPress={apply} disabled={busy}>
+      {busy ? (
+        <ActivityIndicator size="small" color={c.bk} />
+      ) : (
+        <Icon name="refresh-cw" size={16} color={c.bk} />
+      )}
+      <Text style={s.label}>
+        {busy ? "Перезавантажую…" : "Вийшло оновлення — натисніть, щоб перезавантажити"}
+      </Text>
     </Pressable>
   );
 }

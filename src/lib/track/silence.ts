@@ -87,6 +87,7 @@ export async function checkTrackSilence(): Promise<number> {
           tracking: true,
           buffered: true,
           lastFixAt: true,
+          lastFixAccuracyM: true,
           lastError: true,
           locationPermission: true,
           locationMode: true,
@@ -122,6 +123,7 @@ export async function checkTrackSilence(): Promise<number> {
             tracking: lastBeat.tracking,
             buffered: lastBeat.buffered,
             lastFixMinutesAgo: minutesSince(lastBeat.lastFixAt),
+            lastFixAccuracyM: lastBeat.lastFixAccuracyM,
             locationPermission: lastBeat.locationPermission,
             locationMode: lastBeat.locationMode,
             batteryOptimized: lastBeat.batteryOptimized,
@@ -129,6 +131,17 @@ export async function checkTrackSilence(): Promise<number> {
           }
         : null,
     });
+
+    /**
+     * «У приміщенні» — не привід будити офіс.
+     *
+     * Приймач живий і чесно віддає позицію по вежі; ми свідомо не пишемо її в
+     * трек, бо це коло на пів села, а не місце. Людина при цьому просто в
+     * клієнта або на складі — і сповіщення «трек не пишеться» тут лише вчить
+     * ігнорувати сповіщення. Стан видно на карті у «На маршруті», і цього
+     * досить: там він поруч із рештою картини, а не серед ночі в Telegram.
+     */
+    if (reason?.startsWith("У приміщенні")) continue;
 
     const hoursOpen = Math.floor((now - shift.startedAt.getTime()) / 60_000 / 60);
 

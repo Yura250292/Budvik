@@ -195,6 +195,7 @@ export async function GET(req: NextRequest) {
             tracking: beat.tracking,
             buffered: beat.buffered,
             lastFixMinutesAgo: fixAgo,
+            lastFixAccuracyM: beat.lastFixAccuracyM,
             locationPermission: beat.locationPermission,
             locationMode: beat.locationMode,
             batteryOptimized: beat.batteryOptimized,

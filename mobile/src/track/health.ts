@@ -19,7 +19,7 @@
 
 import * as Location from "expo-location";
 import { TRACK_TASK } from "./task-name";
-import { getLastFix, getMode, setLastError } from "./state";
+import { getLastFix, getLastFixAt, getMode, setLastError } from "./state";
 
 /**
  * Скільки тиші вважати збоєм.
@@ -59,8 +59,10 @@ export async function ensureFreshFixes(): Promise<HealthResult> {
     return (await ensureRecording().catch(() => false)) ? "перепідписались" : "не-пишемо";
   }
 
-  const fix = await getLastFix();
-  const silentMs = fix ? Date.now() - fix.at : Infinity;
+  // Пізніше з двох джерел: мітка фікса або час останньої записаної точки.
+  // Друге не бреше за побудовою — див. getLastFixAt.
+  const fixAt = await getLastFixAt();
+  const silentMs = fixAt != null ? Date.now() - fixAt : Infinity;
   if (silentMs < STALE_MS[mode]) return "свіжо";
 
   if (Date.now() - lastRestartAt < MIN_RETRY_MS) return "зарано-повторювати";

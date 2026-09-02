@@ -19,6 +19,7 @@ import {
 import {
   getLastError,
   getLastFix,
+  getLastFixAt,
   getLastFlushAt,
   getLastHeartbeatAt,
   getStartError,
@@ -250,12 +251,13 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
   const { isTracking } = await import("./controller");
   const subscribed = await isTracking().catch(() => null);
 
-  const [buffered, mode, shiftOpen, fix, lastError, startError, lastSync, device] =
+  const [buffered, mode, shiftOpen, fix, fixAt, lastError, startError, lastSync, device] =
     await Promise.all([
       bufferedCount(),
       getMode(),
       isShiftOpen(),
       getLastFix(),
+      getLastFixAt(),
       getLastError(),
       getStartError(),
       getLastFlushAt(),
@@ -281,7 +283,12 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       mode: mode ?? "NONE",
       shiftOpen,
       buffered,
-      lastFixAt: fix ? new Date(fix.at).toISOString() : undefined,
+      /**
+       * Пізніше з двох: мітка фікса або час останньої записаної точки. Одна
+       * мітка вже колись розійшлася з дійсністю й спричинила хибну тривогу
+       * «приймач мовчить» на планшеті, який у ту саму мить писав трек.
+       */
+      lastFixAt: fixAt != null ? new Date(fixAt).toISOString() : undefined,
       lastFixAccuracyM: fix?.accuracyM ?? undefined,
       lastSyncAt: lastSync ? new Date(lastSync).toISOString() : undefined,
       lastError: problem ?? undefined,

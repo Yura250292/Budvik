@@ -79,6 +79,26 @@ export async function setLastFix(at: number, accuracyM: number | null): Promise<
   await setMeta("lastFix", JSON.stringify({ at, accuracyM }));
 }
 
+/**
+ * Коли приймач востаннє дав хоч щось — з ДВОХ джерел, а не з одного.
+ *
+ * Мітка `lastFix` пишеться на кожен фікс, зокрема на відкинутий фільтрами, і
+ * саме тому вона цінна. Але 02.09 вона розійшлася з дійсністю: планшет Ігоря
+ * дві години писав точки з похибкою 13 м, а пульс казав «приймач мовчав 118
+ * хв» — і застосунок на цій підставі дарма перепідписувався, щоразу гублячи
+ * кілька точок. Причину розбіжності (два контексти JS після оновлення
+ * повітрям) я не довів, і саме тому не спираюся більше на одне джерело.
+ *
+ * `lastWritten` — час останньої ЗАПИСАНОЇ точки. Він не бреше за побудовою:
+ * якщо точка лягла в буфер, приймач працював. Беремо пізніше з двох — тоді
+ * тривога «мовчить» не може спрацювати там, де трек іде.
+ */
+export async function getLastFixAt(): Promise<number | null> {
+  const [fix, written] = await Promise.all([getLastFix(), getLastWritten()]);
+  const times = [fix?.at, written?.at].filter((t): t is number => typeof t === "number");
+  return times.length > 0 ? Math.max(...times) : null;
+}
+
 export async function getLastError(): Promise<string | null> {
   return getMeta("lastError");
 }

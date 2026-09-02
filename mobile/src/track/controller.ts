@@ -120,9 +120,25 @@ export async function startTracking(mode: TrackMode): Promise<boolean> {
  * застосунок — запуск дозволений, і саме тоді запис зобов'язаний ожити сам.
  */
 export async function ensureRecording(): Promise<boolean> {
-  const [role, shiftOpen, tracking] = await Promise.all([getRole(), isShiftOpen(), isTracking()]);
-  if (tracking) return false;
+  const [role, shiftOpen, tracking, mode] = await Promise.all([
+    getRole(),
+    isShiftOpen(),
+    isTracking(),
+    getMode(),
+  ]);
   if (!(shiftOpen || role === "DRIVER")) return false;
+
+  /**
+   * Мало перевірити, що запис ІДЕ, — треба, щоб він ішов ПОТРІБНИМ режимом.
+   *
+   * AFTER_SHIFT — це дорога додому: точка раз на три хвилини й знижена
+   * точність. Якщо зміна відкрилася, а перемикання в SHIFT чомусь не сталося
+   * (упав запуск служби, застосунок прибили в ту саму мить), обидві перевірки
+   * бачили `tracking === true` і мовчки вважали, що все гаразд. Людина при
+   * цьому їздить містом, а в буфер лягає одна точка на три хвилини — і день
+   * виглядає майже порожнім, без жодної помилки будь-де.
+   */
+  if (tracking && mode === "SHIFT") return false;
   return startTracking("SHIFT");
 }
 

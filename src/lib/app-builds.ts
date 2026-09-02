@@ -33,9 +33,9 @@ export const SHOP_APK_VERSION_NAME = "1.0.0";
  * сторінок разом із банером у кабінеті, тобто ставити стає нічого. Один раз
  * я вже підняв їх наперед і мало не викотив саме це.
  */
-export const STAFF_APK_KEY = "app/BudvikStaff-1.5.0.apk";
-export const STAFF_APK_VERSION_CODE = 10500;
-export const STAFF_APK_VERSION_NAME = "1.5.0";
+export const STAFF_APK_KEY = "app/BudvikStaff-1.5.1.apk";
+export const STAFF_APK_VERSION_CODE = 10501;
+export const STAFF_APK_VERSION_NAME = "1.5.1";
 
 /**
  * З чого зібрано те, що СПРАВДІ стоїть у полі.
@@ -54,7 +54,7 @@ export const STAFF_APK_VERSION_NAME = "1.5.0";
  * Оновлювати: STAFF_APK_COMMIT — коли залито новий APK, STAFF_OTA_COMMIT —
  * після кожного `npm run update:staff`.
  */
-export const STAFF_APK_COMMIT = "1de8109";
+export const STAFF_APK_COMMIT = "f3b6d61";
 export const STAFF_OTA_COMMIT = "ae56120";
 
 /**

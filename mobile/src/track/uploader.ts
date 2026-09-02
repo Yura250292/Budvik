@@ -269,7 +269,18 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
    * немає взагалі, а тут вони просто чекають. Тому причина запуску йде першою і
    * не може бути затерта мережевою дрібницею.
    */
-  const problem = startError ? `Запис не піднявся: ${startError}` : lastError;
+  /**
+   * Префікс лише для СПРАВЖНЬОЇ невдачі запуску. Разова проба приймача пише в
+   * той самий канал, і з префіксом виходило «Запис не піднявся: проба
+   * приймача: ±12 м» — тобто текст казав протилежне до того, що сталося.
+   * Читати ці рядки доводиться саме тоді, коли шукаєш поламку, і брехати вони
+   * не мають права.
+   */
+  const problem = startError
+    ? startError.startsWith("проба приймача")
+      ? startError
+      : `Запис не піднявся: ${startError}`
+    : lastError;
 
   try {
     const pulse = await staffApi.heartbeat({

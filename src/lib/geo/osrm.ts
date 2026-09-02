@@ -49,7 +49,9 @@ export type MatchPoint = { lng: number; lat: number; accuracyM?: number | null }
  * `tidy=true` просить OSRM самому прибрати надто щільні й тремтячі точки:
  * стоянка з десятком фіксів на місці інакше дає безглузді мікропетлі.
  */
-export async function matchTrace(points: MatchPoint[]): Promise<GeoJSON.LineString | null> {
+export async function matchTrace(
+  points: MatchPoint[]
+): Promise<{ line: GeoJSON.LineString; confidence: number } | null> {
   if (points.length < 2) return null;
 
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
@@ -77,13 +79,30 @@ export async function matchTrace(points: MatchPoint[]): Promise<GeoJSON.LineStri
    * шматками лишиться прямою, і це чесно — там ми справді не знаємо дороги.
    */
   const line: [number, number][] = [];
+  /**
+   * Впевненість зважуємо довжиною: матчер віддає її окремо на кожен шматок, і
+   * стометровий уривок із нулем не має важити стільки ж, скільки п'ять
+   * кілометрів із 0,98. Саме за цим числом вирішується, малювати дорогу чи
+   * лишити сиру лінію: впевнено покладений НЕ ТОЙ проїзд гірший за чесну
+   * ламану — його ніхто не помітить.
+   */
+  let weighted = 0;
+  let meters = 0;
+
   for (const m of data.matchings) {
     const coordsOut = m?.geometry?.coordinates;
     if (!Array.isArray(coordsOut)) continue;
     for (const c of coordsOut) line.push([c[0], c[1]]);
+    const d = typeof m.distance === "number" ? m.distance : 0;
+    weighted += (typeof m.confidence === "number" ? m.confidence : 0) * d;
+    meters += d;
   }
 
-  return line.length >= 2 ? { type: "LineString", coordinates: line } : null;
+  if (line.length < 2) return null;
+  return {
+    line: { type: "LineString", coordinates: line },
+    confidence: meters > 0 ? weighted / meters : 0,
+  };
 }
 
 interface OsrmRouteResult {

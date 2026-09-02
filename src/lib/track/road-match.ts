@@ -39,6 +39,16 @@ import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 const CHUNK = Number(process.env.OSRM_MATCH_CHUNK ?? 10);
 
 /**
+ * Нижче цієї впевненості дорогу не малюємо.
+ *
+ * На щільному сліді матчер віддає 0,84–0,98 — це справжня вулиця. Нуль він
+ * ставить там, де точки рідкі або людина стояла, і саме там охоче кладе слід
+ * на паралельну дорогу. Впевнено намальований НЕ ТОЙ проїзд гірший за чесну
+ * ламану: ламану видно оком, а вигадану вулицю — ні.
+ */
+const MIN_CONFIDENCE = 0.5;
+
+/**
  * Скільки часу дозволено витратити на всю добу.
  *
  * Сторінка чекає на цей результат, тож межа мусить бути людською. Що не
@@ -86,20 +96,27 @@ export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number
     if (chunk.length < 2) break;
 
     /**
-     * Або вся доба, або нічого.
+     * Шматок, який не ліг упевнено, лишається сирим — і це навмисно.
      *
-     * Спокуса домалювати «скільки встигли» дає гіршу карту, ніж чесна сира
-     * лінія: половина дня лягає по вулицях, друга half ламаною, і людина не
-     * розуміє, де правда, а де здогад. Не вклалися в бюджет чи сервер
-     * відмовив — повертаємо null, і карта малює як досі.
+     * Дорога малюється там, де ми її знаємо, а де не знаємо — лишається та
+     * сама ламана, що й досі. Лінія від цього не рветься, а карта не починає
+     * брехати рівно в тому місці, де матчер сам зізнався, що не впевнений.
      */
-    if (Date.now() - started > BUDGET_MS) return null;
+    const raw = (): Array<[number, number]> =>
+      chunk.map((p) => [p.lat, p.lng] as [number, number]);
 
-    const matched = await matchTrace(
-      chunk.map((p) => ({ lng: p.lng, lat: p.lat, accuracyM: p.accuracyM }))
-    ).catch(() => null);
-    if (!matched) return null;
-    const line = matched.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+    let line: Array<[number, number]>;
+    if (Date.now() - started > BUDGET_MS) {
+      line = raw();
+    } else {
+      const matched = await matchTrace(
+        chunk.map((p) => ({ lng: p.lng, lat: p.lat, accuracyM: p.accuracyM }))
+      ).catch(() => null);
+      line =
+        matched && matched.confidence >= MIN_CONFIDENCE
+          ? matched.line.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])
+          : raw();
+    }
 
     // Шматки перекриваються однією точкою — не задвоюємо стик.
     for (const v of out.length > 0 ? line.slice(1) : line) out.push(v);

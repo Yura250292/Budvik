@@ -13,13 +13,16 @@
 import { useCallback, useState } from "react";
 import RouteOptimizer from "@/components/routes/RouteOptimizer";
 import RouteStopsEditor from "@/components/routes/RouteStopsEditor";
+import RouteMapLink from "@/components/routes/RouteMapLink";
 
 type Stop = React.ComponentProps<typeof RouteStopsEditor>["stops"][number];
 type Order = React.ComponentProps<typeof RouteStopsEditor>["availableOrders"][number];
 
 export default function RoutePlanPanel({
   routeId,
+  number,
   driverId,
+  driverName,
   date,
   stops,
   editable,
@@ -27,7 +30,10 @@ export default function RoutePlanPanel({
   onChanged,
 }: {
   routeId: string;
+  /** Номер маршруту — їде в текст, який пересилають водієві */
+  number: string;
   driverId: string | null;
+  driverName: string | null;
   date: string;
   stops: Stop[];
   /** false — водій уже в дорозі: точки лише для перегляду */
@@ -57,6 +63,9 @@ export default function RoutePlanPanel({
           onPreviewOrder={handlePreviewOrder}
         />
       )}
+      {/* Готовий обʼїзд одним посиланням: водієві його пересилають у
+          месенджер, тому порядок беремо збережений, а не запропонований. */}
+      <RouteMapLink number={number} date={date} driverName={driverName} stops={stops} />
       <RouteStopsEditor
         routeId={routeId}
         stops={stops}

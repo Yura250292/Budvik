@@ -27,11 +27,23 @@ export type MapLink = {
  * Менше двох точок — порожній масив: маршруту з однієї точки не буває.
  */
 export function googleMapsLinks(points: MapPoint[]): MapLink[] {
+  return splitIntoLinks(points, directionsUrl);
+}
+
+/** Те саме, але посиланнями-шляхами — форма для пересилання водієві. */
+export function googleMapsPathLinks(points: MapPoint[]): MapLink[] {
+  return splitIntoLinks(points, pathDirectionsUrl);
+}
+
+function splitIntoLinks(
+  points: MapPoint[],
+  build: (chunk: MapPoint[]) => string
+): MapLink[] {
   const links: MapLink[] = [];
   let i = 0;
   while (i < points.length - 1) {
     const chunk = points.slice(i, i + MAX_POINTS_PER_LINK);
-    links.push({ url: directionsUrl(chunk), points: chunk.length });
+    links.push({ url: build(chunk), points: chunk.length });
     i += MAX_POINTS_PER_LINK - 1;
   }
   return links;
@@ -52,6 +64,30 @@ export function directionsUrl(points: MapPoint[]): string {
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`
   );
+}
+
+/**
+ * Посилання-шлях: /maps/dir/точка/точка/…
+ *
+ * Друга форма того самого маршруту, і саме її ми даємо людині в руки.
+ * Причина проста: 02.09 власник перевірив обидві на своєму телефоні, і
+ * дорогу через усі шість точок побудувала ця. Форма з api=1 лишається для
+ * застосунку й планувальника — там посилання відкриває сам застосунок, а
+ * не месенджер.
+ *
+ * Координати ріжемо до шести знаків (≈0,1 м): довші хвости точності не
+ * додають, зате роблять посилання таким, що месенджери його переносять.
+ */
+export function pathDirectionsUrl(points: MapPoint[]): string {
+  return (
+    "https://www.google.com/maps/dir/" +
+    points.map((p) => `${round(p.lat)},${round(p.lng)}`).join("/")
+  );
+}
+
+/** Шість знаків після коми — приблизно 0,1 метра. */
+function round(v: number): number {
+  return Number(v.toFixed(6));
 }
 
 /** Посилання на одну точку — «довези мене сюди». */

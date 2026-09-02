@@ -447,7 +447,9 @@ function RouteCard({
           />
           <RoutePlanPanel
             routeId={r.id}
+            number={r.number}
             driverId={r.driverId}
+            driverName={r.driver?.name ?? null}
             date={r.date}
             stops={r.stops ?? []}
             editable={EDITABLE.includes(r.status)}

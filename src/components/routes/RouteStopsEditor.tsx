@@ -34,6 +34,9 @@ type Stop = {
   payOverride: number | null;
   zoneOverride: "CITY" | "OBLAST" | null;
   notes: string | null;
+  /** Власна координата точки — є лише в поїздок без контрагента. */
+  lat?: number | null;
+  lng?: number | null;
   counterparty?: {
     id: string;
     name: string;

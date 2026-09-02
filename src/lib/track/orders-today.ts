@@ -211,6 +211,44 @@ export async function ordersTodayForRep(repId: string, day: string): Promise<Ord
   return shape(rows.filter((r) => r.repId === repId));
 }
 
+/** Підсумок дня одного торгового: скільки замовлень і на скільки грошей. */
+export type OrdersSummary = {
+  count: number;
+  totalUah: number;
+  /** Непроведені: офіс іще не підтвердив. */
+  draftCount: number;
+  draftUah: number;
+};
+
+/**
+ * Скільки й на яку суму торговий назамовляв за день.
+ *
+ * Рахує ВСІ рядки, а не `dots`: точка на карті буває лише в клієнта з
+ * координатами, а гроші є в кожного. Пропустити тих, кого не геокодовано,
+ * означало б назвати у звіті суму, меншу за справжню, — і саме на цьому
+ * числі люди помічають, що звіту вірити не можна.
+ *
+ * Чернетки окремою парою: це намір, а не виручка (див. пояснення вгорі
+ * файлу), і додавати їх у головну суму не можна. Приховати теж не можна —
+ * увечері більшість замовлень ще непроведені, і звіт «0 грн» був би
+ * неправдою іншого боку.
+ */
+export async function ordersSummaryForRep(repId: string, day: string): Promise<OrdersSummary> {
+  const rows = (await ordersOfDay(day)).filter((r) => r.repId === repId);
+
+  const out: OrdersSummary = { count: 0, totalUah: 0, draftCount: 0, draftUah: 0 };
+  for (const r of rows) {
+    if (r.draft) {
+      out.draftCount++;
+      out.draftUah += r.amount ?? 0;
+    } else {
+      out.count++;
+      out.totalUah += r.amount ?? 0;
+    }
+  }
+  return out;
+}
+
 /**
  * Скільки замовлень у кожного за день — для колонки в таблиці.
  *

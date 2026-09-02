@@ -12,6 +12,8 @@ import type { OdometerSource } from "@prisma/client";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { autoCloseForgotten, findLastFinished, summarize } from "@/lib/shift/service";
 import { recountAfterWorkKm } from "@/lib/shift/reconcile";
+import { notifyShiftOpened } from "@/lib/shift/telegram-report";
+import { afterResponse } from "@/lib/http/after-response";
 
 export const dynamic = "force-dynamic";
 
@@ -195,6 +197,28 @@ export async function POST(req: NextRequest) {
           : null,
       };
     });
+
+    /**
+     * Сповіщення офісу — після відповіді, а не всередині транзакції.
+     *
+     * `afterResponse` замість голого fire-and-forget: на Vercel функція
+     * засинає одразу після відповіді, і незавершений проміс просто
+     * зникає разом із нею. Гілки `repeated` вище цього коду не
+     * дістаються навмисно — ретрай WorkManager не має слати другого
+     * повідомлення про ту саму зміну.
+     */
+    afterResponse(() =>
+      notifyShiftOpened(
+        result.shift.id,
+        result.autoClosed
+          ? {
+              distanceKm: result.autoClosed.distanceKm,
+              afterWorkKm: result.autoClosed.afterWorkKm,
+              endedAt: result.forgotten?.endedAt ?? null,
+            }
+          : null
+      )
+    );
 
     return NextResponse.json({
       shift: summarize(result.shift),

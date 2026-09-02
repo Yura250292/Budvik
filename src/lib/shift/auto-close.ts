@@ -20,8 +20,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { sendTelegramMessage } from "@/lib/telegram/notify";
 import { kyivHour, kyivTime } from "@/lib/date/kyiv";
+import { notifyShiftClosed } from "@/lib/shift/telegram-report";
 import { guessWorkEnd, STOP_MINUTES } from "@/lib/shift/late-close";
 import { autoCloseNote, closeWithoutPhoto, type LateCloseSource } from "@/lib/shift/reconcile";
 
@@ -250,7 +250,7 @@ export async function autoCloseStaleShifts(
       continue;
     }
 
-    const closed = await prisma.$transaction((tx) =>
+    await prisma.$transaction((tx) =>
       closeWithoutPhoto(tx, shift, {
         endedAt: decision.close!.endedAt,
         source: decision.close!.source,
@@ -258,36 +258,15 @@ export async function autoCloseStaleShifts(
       })
     );
 
-    await notify(decision, closed.gpsDistanceKm);
+    /**
+     * Звіт у той самий канал, що й решта сповіщень про зміни, — тим
+     * самим модулем. Раніше автозакриття мало власний текст, і поруч із
+     * повними звітами про ручне закриття він виглядав як інша система:
+     * ні часу на зміні, ні замовлень, ні пробігу за треком у людському
+     * вигляді. Причину рішення передаємо окремо — вона є лише тут.
+     */
+    await notifyShiftClosed(shift.id, { reasonLine: decision.reason });
   }
 
   return decisions;
-}
-
-/**
- * Сповіщення в той самий канал, що й «трек не пишеться».
- *
- * Без тротла: автозакриття — подія разова, повторів у неї немає за
- * означенням (зміна після нього вже не OPEN).
- */
-async function notify(decision: AutoCloseDecision, gpsKm: number | null): Promise<void> {
-  const chatId = process.env.SYNC_ALERT_CHAT_ID;
-  if (!chatId) return;
-
-  const label: Record<string, string> = {
-    AUTO_GPS: "за зупинкою в треку",
-    AUTO_GAP: "час приблизний, трек із розривом",
-    AUTO_DEAD: "трек мовчав",
-    AUTO_FORCED: "за часом",
-  };
-  const source = decision.close!.source;
-
-  await sendTelegramMessage(
-    chatId,
-    `🕗 <b>Зміну закрито автоматично</b> (${label[source] ?? source})\n` +
-      `${decision.name ?? "Без імені"} — з ${kyivTime(decision.startedAt)} до ${kyivTime(decision.close!.endedAt)}\n` +
-      `${decision.reason}\n` +
-      (gpsKm != null ? `За треком ${gpsKm} км. ` : "") +
-      `Одометр порахується зранку з фото наступної зміни.`
-  ).catch(() => {});
 }

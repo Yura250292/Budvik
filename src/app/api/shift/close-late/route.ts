@@ -18,6 +18,8 @@ import { prisma } from "@/lib/prisma";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { guessWorkEnd, gpsKmBetween } from "@/lib/shift/late-close";
 import { autoCloseNote, closeWithoutPhoto } from "@/lib/shift/reconcile";
+import { notifyShiftClosed } from "@/lib/shift/telegram-report";
+import { afterResponse } from "@/lib/http/after-response";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +102,9 @@ export async function POST(req: NextRequest) {
   const updated = await prisma.$transaction((tx) =>
     closeWithoutPhoto(tx, shift, { endedAt, source, notes: autoCloseNote(source, null) })
   );
+
+  // Звіт офісу — після відповіді (див. пояснення в open/route.ts).
+  afterResponse(() => notifyShiftClosed(updated.id));
 
   return NextResponse.json({
     // Форма відповіді незмінна: на неї спирається екран пізнього

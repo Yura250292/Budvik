@@ -12,6 +12,8 @@ import type { OdometerSource } from "@prisma/client";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { findLastFinished, gpsDistanceForShift, summarize } from "@/lib/shift/service";
 import { MAX_DAILY_KM } from "@/lib/odometer/validate";
+import { notifyShiftClosed } from "@/lib/shift/telegram-report";
+import { afterResponse } from "@/lib/http/after-response";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +118,10 @@ export async function POST(req: NextRequest) {
       data: { shiftId: shift.id },
     });
   }
+
+  // Звіт офісу — після відповіді (див. пояснення в open/route.ts). Сюди
+  // не потрапляє повторне закриття: воно віддає відповідь вище.
+  afterResponse(() => notifyShiftClosed(updated.id));
 
   // Попередня закрита зміна — щоб застосунок одразу показав «минулого
   // разу було стільки», без другого запиту.

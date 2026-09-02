@@ -28,6 +28,7 @@ import {
 import { alertAgentSilent } from "@/lib/sync-ingest/alerts";
 import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
 import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
+import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -257,6 +258,27 @@ async function closeStaleShifts(): Promise<void> {
     }
   } catch (e) {
     console.error("worker: автозакриття змін впало", e);
+  }
+
+  /**
+   * Сигнал офісу про незакриті — ПІСЛЯ автозакриття, у тому ж проході.
+   *
+   * Порядок тут значущий. Зміна, яку цей самий тік щойно закрив, уже не
+   * OPEN, і офіс отримає про неї звіт закриття, а не «не закрив» —
+   * писати обидва означало б суперечити самому собі в сусідніх
+   * повідомленнях. Лишаються ті, які автозакриття свідомо не чіпає:
+   * мертвий трек до 23:00 і машина, що ще в дорозі.
+   */
+  try {
+    const alerted = (await alertUnclosedShifts()).filter((d) => d.send);
+    if (alerted.length > 0) {
+      console.log(
+        `worker: сповіщень про незакриті зміни — ${alerted.length}: ` +
+          alerted.map((d) => d.name ?? d.shiftId).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: перевірка незакритих змін впала", e);
   }
 }
 

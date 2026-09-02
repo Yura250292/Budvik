@@ -244,6 +244,17 @@ async function ingestDay(
 
   const [, updated] = await prisma.$transaction([
     prisma.trackPoint.createMany({
+      /**
+       * Повтор тихо пропускаємо, а не валимо пачку.
+       *
+       * Запобіжник від зависання в застосунку перевідправляє пачку, яка ще
+       * летить, — і коли перша врешті доходить, ті самі точки приїжджають
+       * удруге. Дедуп у preparePoints це не ловить: паралельні запити читають
+       * хвіст одночасно й обидва бачать його чистим. Унікальність у базі
+       * (sessionId + recordedAt) робить дубль неможливим, а цей прапорець —
+       * нешкідливим: пачка з одним повтором має доїхати цілою, а не впасти.
+       */
+      skipDuplicates: true,
       data: prepared.points.map((p, i) => {
         const shift = resolveShift(p.recordedAt);
         return {

@@ -247,6 +247,9 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
   const last = await getLastHeartbeatAt();
   if (!force && Date.now() - last < HEARTBEAT_INTERVAL_MS) return null;
 
+  const { isTracking } = await import("./controller");
+  const subscribed = await isTracking().catch(() => null);
+
   const [buffered, mode, shiftOpen, fix, lastError, startError, lastSync, device] =
     await Promise.all([
       bufferedCount(),
@@ -270,6 +273,11 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     const pulse = await staffApi.heartbeat({
       reportedAt: new Date().toISOString(),
       tracking: mode !== null,
+      /**
+       * Що каже САМА система, а не наш прапорець режиму. Два стани, які досі
+       * зливалися в один: «ми думаємо, що пишемо» і «підписка справді жива».
+       */
+      subscribed: subscribed ?? undefined,
       mode: mode ?? "NONE",
       shiftOpen,
       buffered,

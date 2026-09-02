@@ -79,6 +79,27 @@ export async function ensureFreshFixes(): Promise<HealthResult> {
     }
     const { startTracking } = await import("./controller");
     await startTracking(mode);
+
+    /**
+     * Разова проба — щоб наступного разу не гадати.
+     *
+     * 02.09 планшет годину мовчав при живій підписці, і з сервера неможливо
+     * було відрізнити «приймач не бачить неба» від «система не віддає
+     * координат саме нашому застосунку». Пряма проба відповідає на це одним
+     * рядком: або приходить координата з похибкою, або приходить помилка
+     * системи — і те, й те їде в пульс.
+     */
+    const { setStartError } = await import("./state");
+    try {
+      const probe = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      await setStartError(
+        `проба приймача: ±${Math.round(probe.coords.accuracy ?? -1)} м`
+      );
+    } catch (e) {
+      await setStartError(`проба приймача впала: ${e instanceof Error ? e.message : String(e)}`);
+    }
     return "перепідписались";
   } catch (e) {
     await setLastError(e instanceof Error ? e.message : String(e));

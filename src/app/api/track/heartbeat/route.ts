@@ -25,6 +25,8 @@ type Body = {
   /** Час на пристрої, ISO. Розбіжність із сервером ловить збитий годинник. */
   reportedAt?: string;
   tracking?: boolean;
+  /** Чи підтверджує система живу підписку — не те саме, що tracking. */
+  subscribed?: boolean;
   mode?: string;
   shiftOpen?: boolean;
   buffered?: number;
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest) {
       deviceName: token?.deviceName ?? null,
       reportedAt: date(body.reportedAt),
       tracking: body.tracking === true,
+      subscribed: typeof body.subscribed === "boolean" ? body.subscribed : null,
       mode: text(body.mode, 20),
       shiftOpen: body.shiftOpen === true,
       buffered: int(body.buffered, 0, 100_000) ?? 0,

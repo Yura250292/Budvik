@@ -63,7 +63,10 @@ export async function isTracking(): Promise<boolean> {
   return Location.hasStartedLocationUpdatesAsync(TRACK_TASK).catch(() => false);
 }
 
-export async function startTracking(mode: TrackMode): Promise<boolean> {
+export async function startTracking(
+  mode: TrackMode,
+  opts: { force?: boolean } = {}
+): Promise<boolean> {
   const perms = await currentPermissions();
   if (!perms.foreground) {
     await setStartError("Немає дозволу на геолокацію");
@@ -79,7 +82,7 @@ export async function startTracking(mode: TrackMode): Promise<boolean> {
    */
   if (await isTracking()) {
     const current = await getMode();
-    if (current === mode) return true;
+    if (current === mode && !opts.force) return true;
     await Location.stopLocationUpdatesAsync(TRACK_TASK).catch(() => {});
   }
 
@@ -239,11 +242,23 @@ setUnauthorizedHandler(async () => {
 export async function syncTrackingWithServer(role: string | null): Promise<void> {
   if (role) await setRole(role);
 
+  /**
+   * Підписку на холодному старті ПЕРЕСТВОРЮЄМО, а не перевіряємо.
+   *
+   * `hasStartedLocationUpdatesAsync` читає збережений прапорець, а не живу
+   * службу, — і після оновлення застосунку він бреше. 02.09 Віктор поставив
+   * 1.5.0, відкрив зміну й проїхав містом 45 хвилин: режим SHIFT, «пишемо» —
+   * true, а фіксів нуль, бо службу вбило встановленням. `startTracking`
+   * бачив «уже пишемо тим самим режимом» і чесно виходив, нічого не зробивши.
+   *
+   * Холодний старт — саме та мить, коли перепідписка нічого не коштує: одна
+   * пропущена точка проти дня, який пишеться в нікуди.
+   */
   const pulse = await heartbeat(true);
   const shouldTrack = pulse?.shouldTrack ?? false;
 
   if (shouldTrack) {
-    await startTracking("SHIFT");
+    await startTracking("SHIFT", { force: true });
     return;
   }
 
@@ -256,7 +271,7 @@ export async function syncTrackingWithServer(role: string | null): Promise<void>
    */
   const effectiveRole = role ?? (await getRole());
   if (effectiveRole === "DRIVER") {
-    await startTracking("SHIFT");
+    await startTracking("SHIFT", { force: true });
     return;
   }
 

@@ -63,45 +63,84 @@ type Options = {
  */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * Запит із НАТИВНОЮ межею часу.
+ *
+ * Це не стильова примха, а виправлення вади, яка коштувала трьох днів. Раніше
+ * межу тримали `setTimeout` + `AbortController`, тобто ЧИСТИЙ JS. Android
+ * заморожує JS-контекст фонового завдання, щойно воно віддає керування: якщо
+ * запит завис, таймер не спрацьовує ніколи, бо його нікому виконати. У полі це
+ * виглядало так: 28 спроб відправки за три години, кожна закінчується
+ * «відправка зависла — почато заново», і ЖОДНОГО повідомлення про тайм-аут.
+ *
+ * XMLHttpRequest у React Native передає `timeout` у нативний шар мережі, і
+ * обриває його ОС, а не наш таймер. Це працює й тоді, коли JS спить.
+ *
+ * fetch тут не годиться принципово: у RN він побудований поверх того самого
+ * XHR, але скасування веде через JS-сигнал — тобто через те, що якраз і
+ * замерзає.
+ */
+function nativeRequest(
+  url: string,
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    /** Рядок JSON або FormData — типи RN тут розходяться, тому власний союз. */
+    body?: string | FormData | null;
+    timeoutMs: number;
+  }
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(init.method, url);
+    xhr.timeout = init.timeoutMs;
+    for (const [key, value] of Object.entries(init.headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText ?? "" });
+    xhr.onerror = () => reject(new Error("Мережа недоступна"));
+    xhr.ontimeout = () =>
+      reject(new Error(`Сервер не відповів за ${Math.round(init.timeoutMs / 1000)} с`));
+    xhr.onabort = () => reject(new Error("Запит скасовано"));
+    // Приведення потрібне лише через розбіжність типів XHR у RN: FormData
+    // він надсилає нативно, але в декларації її немає.
+    xhr.send((init.body ?? null) as never);
+  });
+}
+
 export async function staffRequest<T>(path: string, opts: Options = {}): Promise<T> {
   const token = opts.anonymous ? null : await getToken();
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const { status, text } = await nativeRequest(`${API_BASE}${path}`, {
+    method: opts.method ?? (opts.body || opts.form ? "POST" : "GET"),
+    headers: {
+      "x-budvik-app": APP_HEADER,
+      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: opts.form ?? (opts.body ? JSON.stringify(opts.body) : undefined),
+    timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  });
 
-  try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: opts.method ?? (opts.body || opts.form ? "POST" : "GET"),
-      headers: {
-        "x-budvik-app": APP_HEADER,
-        ...(opts.body ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: opts.form ?? (opts.body ? JSON.stringify(opts.body) : undefined),
-      signal: controller.signal,
-    });
-
-    if (res.status === 401 && !opts.anonymous) {
-      /**
-       * 401 означає рівно одне: токен мертвий. Сервер навмисно розрізняє його і
-       * 403 («увійшов, але сюди не можна») — інакше застосунок викидав би людину
-       * з акаунта на кожній забороні.
-       */
-      await clearToken();
-      await onUnauthorized?.();
-    }
-
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new StaffApiError(body?.error ?? `Сервер відповів ${res.status}`, res.status);
-    }
-
-    // 204 і порожнє тіло теж бувають — не падаємо на порожньому JSON.
-    return (await res.json().catch(() => null)) as T;
-  } finally {
-    // Таймер гасимо аж тут: заголовки могли прийти швидко, а тіло — застрягти.
-    clearTimeout(timer);
+  if (status === 401 && !opts.anonymous) {
+    /**
+     * 401 означає рівно одне: токен мертвий. Сервер навмисно розрізняє його і
+     * 403 («увійшов, але сюди не можна») — інакше застосунок викидав би людину
+     * з акаунта на кожній забороні.
+     */
+    await clearToken();
+    await onUnauthorized?.();
   }
+
+  const parsed = text ? (JSON.parse(text) as unknown) : null;
+
+  if (status < 200 || status >= 300) {
+    const body = parsed as { error?: string } | null;
+    throw new StaffApiError(body?.error ?? `Сервер відповів ${status}`, status);
+  }
+
+  // 204 і порожнє тіло теж бувають — не падаємо на порожньому JSON.
+  return parsed as T;
 }
 
 /* ---------- Історія та пізнє закриття ---------- */

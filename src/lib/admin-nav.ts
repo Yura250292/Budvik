@@ -69,7 +69,11 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/procurement", title: "Закупівлі", desc: "Дефіцит на складі: що замовити", iconKey: "purchase", roles: AM },
       // Зворотний бік закупівель: там «чого бракує», тут «що лежить».
       { href: "/admin/procurement/turnover", title: "Оборотність складу", desc: "Неліквіди та надлишки: що не рухається", iconKey: "report", roles: AM },
-      { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Прихідні накладні", iconKey: "purchase", roles: ALL },
+      // Прихід — зворотний бік «Закупівель», і закритий тим самим правилом:
+      // у накладних видно закупівельні ціни. Доти пункт світився всім, а
+      // сторінка пускала ADMIN і SALES, блокуючи MANAGER, — тобто саме тих,
+      // хто цим і займається.
+      { href: "/admin/erp/purchase-orders", title: "Прихід", desc: "Надходження товару з 1С", iconKey: "purchase", roles: AM },
       { href: "/admin/erp/sales", title: "Продаж", desc: "Документи B2B/оффлайн", iconKey: "money", roles: ALL },
       { href: "/admin/erp/invoices", title: "Видаткові накладні", desc: "Генерація та оплати", iconKey: "invoice", roles: AM },
       { href: "/admin/erp/promotions", title: "Акції", desc: "Знижки, кешбек, об'ємні ціни", iconKey: "promo", roles: AM },
@@ -186,6 +190,7 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/erp/reports",
     "/admin/erp/stats",
     "/admin/procurement",
+    "/admin/erp/purchase-orders",
     "/admin/warehouse-reports",
     "/admin/integration",
     "/admin/drivers",

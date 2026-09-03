@@ -10,9 +10,10 @@
  *     sync-ingest/apply-documents.ts). Тож «валовий прибуток» виходив
  *     0,1% від обороту — число, яке виглядає правдоподібно й тому
  *     небезпечне: за ним можна прийняти рішення.
- *   - Надходження товару не вивантажуються: каналу purchase_doc немає в
- *     agent/ps/queries.json, і таблиця PurchaseOrder порожня. Звідси
- *     «Закупівлі: 0».
+ *   - ~~Надходження товару не вивантажуються~~ — з 03.09.2026 канал
+ *     purchase_doc має виробника в агенті (`receiptsSince` у queries.json),
+ *     і закупівлі рахуються нижче по PurchaseOrder. Вартість складу все ще
+ *     ні: для неї потрібна собівартість, а не ціна приходу.
  *   - Вартість складу рахувалася із SupplierProduct, де 0 записів.
  *
  * Тому P&L тут немає — його не можна побудувати чесно, доки 1С не почне
@@ -79,6 +80,15 @@ export type AccountingReport = {
 
   /** shipped − returned. Саме це число зіставне з оборотом в аналітиці торгових. */
   shippedNet: number;
+
+  /**
+   * Закупівлі за період — проведені надходження товару з 1С.
+   *
+   * Не «витрати» і не собівартість проданого: це те, що приїхало на склад у
+   * цьому періоді, за цінами постачальників. Поруч із відвантаженням воно
+   * відповідає на питання «скільки завезли проти того, скільки продали».
+   */
+  purchased: { total: number; count: number; suppliers: number };
 
   /**
    * Гроші в касу за період — касовий метод. Друга колонка того самого
@@ -265,19 +275,44 @@ async function advances() {
 function knownGaps(): string[] {
   return [
     "Собівартість і маржа: 1С не передає закупівельну ціну в рядках реалізації — прибуток порахувати неможливо.",
-    "Закупівлі та вартість складу: надходження товару з 1С не вивантажуються.",
+    "Вартість складу: рахувати її нема з чого — прихід дає ціну закупівлі партії, а не собівартість залишку.",
     "Строки боргу з 1С не приходять — старіння рахуємо самі за датами наших відвантажень.",
   ];
+}
+
+/**
+ * Закупівлі за період: проведені прихідні накладні.
+ *
+ * Період беремо за `createdAt` — це дата документа (обмін ставить її з 1С),
+ * тим самим полем фільтрує і сторінка «Прихід». Скасовані й непроведені не
+ * рахуються: у 1С їх немає в обліку.
+ */
+async function purchasedTotals(from: Date, to: Date) {
+  const agg = await prisma.purchaseOrder.aggregate({
+    where: { status: "CONFIRMED", createdAt: { gte: from, lte: to } },
+    _count: { _all: true },
+    _sum: { totalAmount: true },
+  });
+  const suppliers = await prisma.purchaseOrder.groupBy({
+    by: ["supplierId"],
+    where: { status: "CONFIRMED", createdAt: { gte: from, lte: to } },
+  });
+  return {
+    total: agg._sum.totalAmount ?? 0,
+    count: agg._count._all,
+    suppliers: suppliers.length,
+  };
 }
 
 export async function getAccountingReport(period: Period): Promise<AccountingReport> {
   const { from, to } = period;
 
   // Дебіторка не залежить від періоду, решта — залежить.
-  const [shipped, returned, collected, months, receivableRows, adv] = await Promise.all([
+  const [shipped, returned, collected, purchased, months, receivableRows, adv] = await Promise.all([
     shippedTotals(from, to),
     returnedTotals(from, to),
     collectedTotals(from, to),
+    purchasedTotals(from, to),
     monthlyFlows(),
     receivableRowsByRep(),
     advances(),
@@ -290,6 +325,7 @@ export async function getAccountingReport(period: Period): Promise<AccountingRep
     shipped,
     returned,
     shippedNet: shipped.total - returned.total,
+    purchased,
     collected,
     // Розрив рахуємо від НЕТТО: повернення зменшує борг клієнта так само,
     // як оплата, тож без нього «відвантажили мінус зібрали» завищувало б

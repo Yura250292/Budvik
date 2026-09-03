@@ -1,41 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
+import { listPurchaseOrders, purchaseSuppliers } from "@/lib/erp/purchase-orders";
+import { requireRoles, OFFICE_ROLES } from "@/lib/app/identity";
 
+/**
+ * Прихід доступний лише офісу (ADMIN/MANAGER): у накладних видно закупівельні
+ * ціни, і закрито їх тим самим правилом, що й розділ «Закупівлі» (див.
+ * middleware.ts). Раніше тут стояли три ролі, сторінка пускала дві інші, а
+ * меню показувало пункт усім — три різні відповіді на одне питання.
+ */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, OFFICE_ROLES);
+  if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get("status");
-  const supplierId = searchParams.get("supplierId");
 
-  const where: Record<string, unknown> = {};
-  if (status) where.status = status;
-  if (supplierId) where.supplierId = supplierId;
+  // Довідник постачальників для фільтра — окремим запитом, щоб не тягнути
+  // 3,7 тисячі контрагентів там, де надходження є лише від сотні.
+  if (searchParams.get("facet") === "suppliers") {
+    return NextResponse.json(await purchaseSuppliers());
+  }
 
-  const orders = await prisma.purchaseOrder.findMany({
-    where,
-    include: {
-      supplier: { select: { id: true, name: true } },
-      createdBy: { select: { id: true, name: true } },
-      _count: { select: { items: true } },
-    },
-    orderBy: { createdAt: "desc" },
+  const source = searchParams.get("source");
+  const result = await listPurchaseOrders({
+    from: searchParams.get("from"),
+    to: searchParams.get("to"),
+    supplierId: searchParams.get("supplierId"),
+    stockLocationId: searchParams.get("stockLocationId"),
+    status: searchParams.get("status"),
+    source: source === "1c" || source === "site" ? source : null,
+    q: searchParams.get("q"),
   });
 
-  return NextResponse.json(orders);
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, OFFICE_ROLES);
+  if (!auth.ok) return auth.response;
 
   const body = await req.json();
   const { supplierId, items, notes } = body;
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest) {
       supplierId,
       totalAmount,
       notes: notes || null,
-      createdById: session.user.id,
+      createdById: auth.me.userId,
       items: {
         create: items.map((item: { productId: string; quantity: number; purchasePrice: number }) => ({
           productId: item.productId,

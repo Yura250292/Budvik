@@ -56,6 +56,8 @@ type Report = {
   returned: { total: number; count: number; clients: number };
   /** shipped − returned: число, зіставне з оборотом в аналітиці торгових. */
   shippedNet: number;
+  /** Проведені надходження товару за період — те, що завезли на склад. */
+  purchased: { total: number; count: number; suppliers: number };
   collected: { total: number; count: number; clients: number };
   gap: number;
   months: MonthRow[];
@@ -122,6 +124,7 @@ export default function AccountingReportsPage() {
       ["Відвантажено (реалізації, брутто)", Math.round(report.shipped.total), report.shipped.count],
       ["Повернення від покупців", -Math.round(report.returned.total), report.returned.count],
       ["Відвантажено нетто", Math.round(report.shippedNet), ""],
+      ["Завезено на склад (прихід)", Math.round(report.purchased.total), report.purchased.count],
       ["Зібрано грошей (каса)", Math.round(report.collected.total), report.collected.count],
       ["Розрив (нетто − зібрано)", Math.round(report.gap), ""],
       [""],
@@ -266,6 +269,20 @@ export default function AccountingReportsPage() {
                   {report.gap > 0 ? "борг за період виріс" : "збирали більше, ніж відвантажували"}
                 </p>
               </div>
+            </div>
+
+            {/* Закупівлі окремим рядком, а не п'ятою карткою вгорі: це інший
+                бік балансу — скільки завезли проти того, скільки продали.
+                Раніше тут стояв нуль, бо надходження з 1С не вивантажувались. */}
+            <div className="mt-4 border-t border-g100 pt-4">
+              <p className="text-xs font-medium text-g500">Завезено на склад (прихід)</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-bk">
+                {money(report.purchased.total)}
+              </p>
+              <p className="mt-1 text-xs text-g500">
+                {report.purchased.count} накладних · {report.purchased.suppliers} постачальників ·
+                за цінами закупівлі, а не собівартістю проданого
+              </p>
             </div>
           </Card>
 

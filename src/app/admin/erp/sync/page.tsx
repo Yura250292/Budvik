@@ -262,6 +262,10 @@ export default function SyncPage() {
     email: "Email",
     NEW: "Новий запис",
     MISSING: "Відсутній в 1С",
+    UNMATCHED_SUPPLIER: "Постачальника немає на сайті",
+    UNMATCHED_PRODUCT: "Товару немає на сайті",
+    UNMATCHED_SALES_REP: "Торгового немає на сайті",
+    FOREIGN_CURRENCY_NO_RATE: "Валютний документ без курсу",
     totalAmount: "Сума документа",
     itemCount: "Кількість позицій",
     debt_amount: "Сума боргу",
@@ -278,6 +282,9 @@ export default function SyncPage() {
     counterparty: "Контрагент",
     sales_document: "Продаж",
     purchase_order: "Закупівля",
+    purchase_doc: "Надходження",
+    document: "Документ",
+    document_item: "Рядок документа",
   };
 
   function hasChanges(p: PreviewResult): boolean {
@@ -782,7 +789,7 @@ export default function SyncPage() {
                           d.entityType === "product" ? "bg-blue-100 text-blue-700" :
                           d.entityType === "counterparty" ? "bg-purple-100 text-purple-700" :
                           d.entityType === "sales_document" ? "bg-green-100 text-green-700" :
-                          d.entityType === "purchase_order" ? "bg-cyan-100 text-cyan-700" :
+                          d.entityType === "purchase_order" || d.entityType === "purchase_doc" ? "bg-cyan-100 text-cyan-700" :
                           "bg-yellow-100 text-yellow-700"
                         }`}>
                           {typeLabel[d.entityType] || d.entityType}

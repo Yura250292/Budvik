@@ -379,6 +379,22 @@ export default function CounterpartiesPage() {
                         </td>
                         <td style={{ padding: "14px 16px", textAlign: "center", fontSize: "14px", color: "#6B7280" }}>
                           {docCount}
+                          {/*
+                            Надходження окремим посиланням: у картці постачальника
+                            найчастіше питають саме «що і коли він привозив», а
+                            загальний лічильник документів на це не відповідає.
+                          */}
+                          {c._count.purchaseOrders > 0 && (
+                            <div style={{ marginTop: "2px" }}>
+                              <Link
+                                href={`/admin/erp/purchase-orders?supplierId=${c.id}`}
+                                className="text-blue-600 hover:text-blue-800"
+                                style={{ fontSize: "12px" }}
+                              >
+                                надходжень: {c._count.purchaseOrders}
+                              </Link>
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: "14px 16px", textAlign: "center" }}>
                           <span

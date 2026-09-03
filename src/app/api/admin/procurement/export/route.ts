@@ -48,6 +48,8 @@ async function fullReportBook(report: LowStockReport) {
     { header: "Залишок", key: "stock", width: 10 },
     { header: "Продажі/міс", key: "perMonth", width: 12 },
     { header: "Вистачить, днів", key: "daysLeft", width: 15 },
+    // Остання дата приходу: відрізняє «скінчилось» від «більше не возимо».
+    { header: "Останній прихід", key: "lastReceipt", width: 15 },
     { header: "Замовити", key: "suggested", width: 11 },
     { header: "Статус", key: "status", width: 34 },
   ];
@@ -57,7 +59,7 @@ async function fullReportBook(report: LowStockReport) {
     `${title}: що замовити, ${new Date().toLocaleDateString("uk-UA")} — обіг за ${report.velocityDays} днів, позицій ${report.total}, ` +
       `замовити ${report.toOrder} (з них терміново ${report.urgent}), сума ~${report.orderCost.toLocaleString("uk-UA")} грн`,
   ]);
-  ws.mergeCells("A1:I1");
+  ws.mergeCells("A1:J1");
   ws.getRow(1).font = { bold: true, size: 13 };
   ws.getRow(2).eachCell((c) => {
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF444444" } };
@@ -66,14 +68,14 @@ async function fullReportBook(report: LowStockReport) {
 
   for (const section of report.sections) {
     const secRow = ws.addRow([`${section.name}  —  позицій: ${section.total}, замовити: ${section.toOrder}`]);
-    ws.mergeCells(`A${secRow.number}:I${secRow.number}`);
+    ws.mergeCells(`A${secRow.number}:J${secRow.number}`);
     secRow.font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
     secRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2F5496" } };
     secRow.height = 20;
 
     for (const group of section.groups) {
       const gRow = ws.addRow([`    ${group.name}  —  ${group.total} поз., замовити: ${group.toOrder}`]);
-      ws.mergeCells(`A${gRow.number}:I${gRow.number}`);
+      ws.mergeCells(`A${gRow.number}:J${gRow.number}`);
       gRow.font = { bold: true };
       gRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E2F3" } };
       gRow.outlineLevel = 1;
@@ -87,6 +89,9 @@ async function fullReportBook(report: LowStockReport) {
           stock: item.stock,
           perMonth: item.perMonth || "—",
           daysLeft: item.daysLeft ?? "—",
+          lastReceipt: item.lastReceiptAt
+            ? new Date(item.lastReceiptAt).toLocaleDateString("uk-UA")
+            : "—",
           suggested: item.suggested || "",
           status: SEVERITY_LABEL[item.severity],
         });

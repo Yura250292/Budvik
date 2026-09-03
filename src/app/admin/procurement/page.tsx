@@ -360,6 +360,10 @@ export default function ProcurementPage() {
                   <Th align="right">Залишок</Th>
                   <Th align="right">Продажі/міс</Th>
                   <Th align="right">Вистачить</Th>
+                  {/* Коли востаннє возили: нуль на складі й останній прихід
+                      торік — це не дірка в закупівлі, а товар, який перестали
+                      брати. Доти звіт цієї різниці не показував. */}
+                  <Th align="right">Прихід</Th>
                   <Th align="right">Замовити</Th>
                   <Th>Статус</Th>
                 </tr>
@@ -516,6 +520,20 @@ function GroupRows({
                   "—"
                 ) : (
                   <span style={{ color: item.daysLeft < 30 ? "#B91C1C" : undefined }}>{item.daysLeft} дн</span>
+                )}
+              </Td>
+              <Td align="right">
+                {item.lastReceiptAt ? (
+                  <span
+                    className="text-g500"
+                    title={`Останнє надходження: ${new Date(item.lastReceiptAt).toLocaleDateString("uk-UA")}`}
+                  >
+                    {new Date(item.lastReceiptAt).toLocaleDateString("uk-UA", { month: "2-digit", year: "2-digit" })}
+                  </span>
+                ) : (
+                  <span className="text-g300" title="Надходжень у наявній історії немає">
+                    —
+                  </span>
                 )}
               </Td>
               <Td align="right">

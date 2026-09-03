@@ -14,6 +14,20 @@ import type { CounterpartyRecord, DebtRecord } from "./types";
 import { ApplyContext } from "./context";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 
+/**
+ * Тип контрагента з прапорців «Поставщик» / «Покупатель» довідника 1С.
+ *
+ * null означає «нема чого сказати»: або агент старий і прапорців не шле,
+ * або в 1С не позначено жодного — і тоді тип на сайті чіпати не можна.
+ */
+function deriveType(rec: CounterpartyRecord): CounterpartyType | null {
+  if (rec.isSupplier === undefined && rec.isCustomer === undefined) return null;
+  if (rec.isSupplier && rec.isCustomer) return "BOTH";
+  if (rec.isSupplier) return "SUPPLIER";
+  if (rec.isCustomer) return "CUSTOMER";
+  return null;
+}
+
 export async function applyCounterparties(
   records: CounterpartyRecord[],
   ctx: ApplyContext
@@ -106,7 +120,7 @@ export async function applyCounterparties(
             externalId: rec.externalId,
             name: rec.name,
             code,
-            type: (rec.type as CounterpartyType) || "BOTH",
+            type: deriveType(rec) ?? (rec.type as CounterpartyType) ?? "BOTH",
             phone: rec.phone || null,
             email: rec.email || null,
             address: rec.address || null,
@@ -139,16 +153,18 @@ export async function applyCounterparties(
       takenCodes.add(rec.code);
     }
     if (rec.name !== existing.name) updates.name = rec.name;
-    // Тип із обміну навмисно НЕ оновлюємо.
+
+    // Тип оновлюємо ЛИШЕ за явними прапорцями нового агента.
     //
-    // Прапорець «постачальник» у запиті агента на цьому сервері відсутній:
-    // вибірка віддає п'ять колонок, а не шість, тож на місці постачальника
-    // стоїть позначка видалення. Оновлення типу за такими даними робило з
-    // помічених на видалення контрагентів постачальників — шість карток
-    // встигли поїхати, поки це не спіймали.
-    //
-    // Тип лишається таким, яким його поставили при створенні, доки запит на
-    // сервері не почне віддавати «Поставщик» окремою колонкою.
+    // Колись тип брався з поля `type`, яке агент виводив сам, і поки в його
+    // запиті не було колонки «Поставщик», на її місці читалась позначка
+    // видалення: шість помічених на видалення карток встигли стати
+    // постачальниками, перш ніж це спіймали. Тому тепер рішення ухвалює
+    // сервер, і тільки коли обидва прапорці справді приїхали — їхня
+    // ВІДСУТНІСТЬ означає старого агента, і тоді тип лишається як був.
+    const derived = deriveType(rec);
+    if (derived && derived !== existing.type) updates.type = derived;
+
     // Контакти лише доповнюємо: порожнє значення з 1С не має стирати те,
     // що менеджер вніс вручну.
     if (rec.phone?.trim() && !existing.phone) updates.phone = rec.phone.trim();

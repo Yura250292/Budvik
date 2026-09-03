@@ -335,6 +335,9 @@ export async function handleCompleteRun(
   if (body.counts?.paymentsFailed) {
     await alertQueryFailed(runId, "оплати (ПКО)", String(body.counts.paymentsFailed));
   }
+  if (body.counts?.receiptsFailed) {
+    await alertQueryFailed(runId, "надходження товару", String(body.counts.receiptsFailed));
+  }
 
   if (status === "failed") {
     await alertRunFailed(runId, body.error || "без деталей");

@@ -4,8 +4,20 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { formatPrice, formatDate } from "@/lib/utils";
+import { formatPrice, formatDate, formatDocDate } from "@/lib/utils";
 import { TableScroll } from "@/components/ui/TableScroll";
+
+/**
+ * Картка прихідної накладної.
+ *
+ * Документ із 1С (externalId заповнений) — лише для перегляду: проводить,
+ * змінює і скасовує його 1С, а обмін привозить результат наступним циклом.
+ * Кнопки для нього приховані, і сервер відмовляє теж (роут PATCH віддає 409),
+ * щоб правка не встигла розійтися з обліком між двома циклами обміну.
+ *
+ * Ручні накладні лишаються для випадків поза 1С. Залишок вони НЕ рухають:
+ * Product.stock рахується з регістру 1С і перезаписується щоп'ять хвилин.
+ */
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Чернетка",
@@ -33,7 +45,17 @@ export default function PurchaseOrderDetailPage() {
   // Form state
   const [supplierId, setSupplierId] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<{ productId: string; productName: string; sku: string; quantity: number; purchasePrice: number }[]>([]);
+  const [items, setItems] = useState<{
+    productId: string;
+    productName: string;
+    sku: string;
+    slug?: string | null;
+    brand?: string | null;
+    image?: string | null;
+    lineNo?: number | null;
+    quantity: number;
+    purchasePrice: number;
+  }[]>([]);
 
   // Lookups
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -74,6 +96,10 @@ export default function PurchaseOrderDetailPage() {
           productId: i.productId,
           productName: i.product?.name || "",
           sku: i.product?.sku || "",
+          slug: i.product?.slug ?? null,
+          brand: i.product?.brand?.name ?? null,
+          image: i.product?.image ?? null,
+          lineNo: i.lineNo ?? null,
           quantity: i.quantity,
           purchasePrice: i.purchasePrice,
         }))
@@ -169,7 +195,9 @@ export default function PurchaseOrderDetailPage() {
   };
 
   const handleConfirm = async () => {
-    if (!confirm("Підтвердити прихід? Залишки товарів будуть оновлені.")) return;
+    // Про залишки тут навмисно нічого не обіцяємо: їх веде 1С, а проведення
+    // сайтового документа лише фіксує статус і ціну постачальника.
+    if (!confirm("Підтвердити прихід? Залишки веде 1С — вони не зміняться.")) return;
     setSaving(true);
     const res = await fetch(`/api/erp/purchase-orders/${id}/confirm`, { method: "POST" });
     if (res.ok) {
@@ -194,7 +222,7 @@ export default function PurchaseOrderDetailPage() {
     setSaving(false);
   };
 
-  if (role !== "ADMIN" && role !== "SALES") {
+  if (role !== "ADMIN" && role !== "MANAGER") {
     return <div className="max-w-7xl mx-auto px-4 py-16 text-center"><h1 className="text-2xl font-bold">Доступ заборонено</h1></div>;
   }
 
@@ -202,7 +230,12 @@ export default function PurchaseOrderDetailPage() {
     return <div className="min-h-screen flex items-center justify-center" style={{ color: "#9E9E9E" }}>Завантаження...</div>;
   }
 
-  const isDraft = isNew || order?.status === "DRAFT";
+  // Дзеркало картки продажу: DRAFT з 1С — це непроведений документ обліку,
+  // а не наша чернетка, і редагувати його на сайті не можна.
+  const isOneC = !!order?.externalId;
+  const isDraft = isNew || (order?.status === "DRAFT" && !isOneC);
+  // Номер рядка показуємо лише там, де він щось означає, — у документах 1С.
+  const showLineNo = isOneC;
 
   return (
     <div className="min-h-screen" style={{ background: "#F7F7F7" }}>
@@ -223,7 +256,15 @@ export default function PurchaseOrderDetailPage() {
                   <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${STATUS_COLORS[order.status]}`}>
                     {STATUS_LABELS[order.status]}
                   </span>
-                  <span style={{ fontSize: "13px", color: "#9CA3AF" }}>{formatDate(order.createdAt)}</span>
+                  {/* Документ 1С — у UTC, щоб час збігався з екраном 1С посимвольно. */}
+                  <span style={{ fontSize: "13px", color: "#9CA3AF" }}>
+                    {order.externalId ? formatDocDate(order.createdAt) : formatDate(order.createdAt)}
+                  </span>
+                  {isOneC && (
+                    <span className="rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: "#EFF6FF", color: "#2563EB" }}>
+                      З 1С
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -249,7 +290,7 @@ export default function PurchaseOrderDetailPage() {
                 )}
               </>
             )}
-            {order && order.status !== "CANCELLED" && (
+            {order && !isOneC && order.status !== "CANCELLED" && (
               <button
                 onClick={handleCancel}
                 disabled={saving}
@@ -263,11 +304,30 @@ export default function PurchaseOrderDetailPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6" style={{ paddingTop: "24px", paddingBottom: "40px" }}>
+        {isOneC && (
+          <div className="mb-6 rounded-xl p-4 text-sm" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", color: "#1E40AF" }}>
+            Документ надходження з 1С. Тут він лише для перегляду: номер, склад,
+            позиції та суми змінює 1С, а обмін привозить зміни протягом циклу.
+            {order?.stockLocation?.name && <> Склад: <b>{order.stockLocation.name}</b>.</>}
+            {order?.currencyCode && (
+              <> Документ у валюті <b>{order.currencyCode}</b>
+                {order.currencyRate ? <> за курсом {order.currencyRate.toLocaleString("uk-UA", { maximumFractionDigits: 4 })}</> : null}
+                {" "}— суми показані в гривні.
+              </>
+            )}
+            {order?.syncedAt && (
+              <span style={{ color: "#3B82F6" }}> Останнє оновлення з 1С: {formatDate(order.syncedAt)}.</span>
+            )}
+          </div>
+        )}
+
         {/* Supplier & Notes */}
         <div className="bg-white rounded-xl p-6 mb-6" style={{ border: "1px solid #EFEFEF" }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-g600 mb-1">Постачальник *</label>
+              <label className="block text-sm font-medium text-g600 mb-1">
+                Постачальник{isDraft ? " *" : ""}
+              </label>
               {isDraft ? (
                 <select
                   value={supplierId}
@@ -279,8 +339,18 @@ export default function PurchaseOrderDetailPage() {
                     <option key={s.id} value={s.id}>{s.name}{s.code ? ` (${s.code})` : ""}</option>
                   ))}
                 </select>
+              ) : order?.supplier ? (
+                <p style={{ fontSize: "14px", fontWeight: 500, padding: "10px 0" }}>
+                  <Link
+                    href={`/admin/erp/purchase-orders?supplierId=${order.supplier.id}`}
+                    className="text-blue-600 hover:text-blue-800"
+                    title="Усі надходження від цього постачальника"
+                  >
+                    {order.supplier.name}
+                  </Link>
+                </p>
               ) : (
-                <p style={{ fontSize: "14px", fontWeight: 500, padding: "10px 0" }}>{order?.supplier?.name}</p>
+                <p style={{ fontSize: "14px", padding: "10px 0", color: "#9CA3AF" }}>—</p>
               )}
             </div>
             <div>
@@ -346,6 +416,9 @@ export default function PurchaseOrderDetailPage() {
             <table className="w-full">
               <thead>
                 <tr style={{ background: "#FAFAFA", borderBottom: "1px solid #EFEFEF" }}>
+                  {showLineNo && (
+                    <th style={{ padding: "12px 8px", textAlign: "right", fontSize: "13px", fontWeight: 600, color: "#6B7280", width: "44px" }}>№</th>
+                  )}
                   <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "13px", fontWeight: 600, color: "#6B7280", width: "40%" }}>Товар</th>
                   <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>Артикул</th>
                   <th style={{ padding: "12px 16px", textAlign: "center", fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>Кількість</th>
@@ -357,14 +430,50 @@ export default function PurchaseOrderDetailPage() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={isDraft ? 6 : 5} style={{ padding: "40px", textAlign: "center", color: "#9CA3AF", fontSize: "14px" }}>
-                      Немає товарів. Скористайтесь пошуком вище.
+                    <td colSpan={(isDraft ? 6 : 5) + (showLineNo ? 1 : 0)} style={{ padding: "40px", textAlign: "center", color: "#9CA3AF", fontSize: "14px" }}>
+                      {isOneC ? "У документі немає позицій, зіставлених із товарами сайту." : "Немає товарів. Скористайтесь пошуком вище."}
                     </td>
                   </tr>
                 ) : (
                   items.map((item, idx) => (
                     <tr key={idx} style={{ borderBottom: "1px solid #F3F4F6" }}>
-                      <td style={{ padding: "12px 16px", fontSize: "14px", fontWeight: 500 }}>{item.productName}</td>
+                      {showLineNo && (
+                        <td style={{ padding: "12px 8px", textAlign: "right", fontSize: "13px", color: "#9CA3AF" }}>
+                          {item.lineNo ?? idx + 1}
+                        </td>
+                      )}
+                      <td style={{ padding: "12px 16px", fontSize: "14px", fontWeight: 500 }}>
+                        <div className="flex items-center gap-3">
+                          {item.image && (
+                            // Звичайний <img>: домени фото різні (budvik.com,
+                            // prom.ua, cdn.27.ua), і оптимізатор робив би зайвий
+                            // проксі-запит на кожен рядок накладної.
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={item.image}
+                              alt=""
+                              style={{ width: 36, height: 36, objectFit: "contain", borderRadius: 6, border: "1px solid #EFEFEF", flexShrink: 0 }}
+                            />
+                          )}
+                          <div className="min-w-0">
+                            {item.slug ? (
+                              <a
+                                href={`/catalog/${item.slug}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-700 hover:underline"
+                              >
+                                {item.productName}
+                              </a>
+                            ) : (
+                              item.productName
+                            )}
+                            {item.brand && (
+                              <div style={{ fontSize: "12px", color: "#9CA3AF", fontWeight: 400 }}>{item.brand}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
                       <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280", fontFamily: "monospace" }}>{item.sku || "—"}</td>
                       <td style={{ padding: "12px 16px", textAlign: "center" }}>
                         {isDraft ? (
@@ -415,14 +524,33 @@ export default function PurchaseOrderDetailPage() {
               {items.length > 0 && (
                 <tfoot>
                   <tr style={{ background: "#FAFAFA", borderTop: "2px solid #EFEFEF" }}>
-                    <td colSpan={isDraft ? 4 : 3} style={{ padding: "14px 16px", textAlign: "right", fontSize: "15px", fontWeight: 700 }}>
+                    {/*
+                      Підпис займає всі колонки, крім останньої видимої суми
+                      (і крім службової колонки дій у чернетці). Доти тут
+                      стояло «3», і в режимі перегляду підсумок з'їжджав на
+                      колонку вліво — під «Ціну закупівлі».
+                    */}
+                    <td colSpan={4 + (showLineNo ? 1 : 0)} style={{ padding: "14px 16px", textAlign: "right", fontSize: "15px", fontWeight: 700 }}>
                       Разом:
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "18px", fontWeight: 700, color: "#0A0A0A" }}>
-                      {formatPrice(totalAmount)}
+                      {/*
+                        Для документа 1С сума береться з шапки, а не з рядків:
+                        позиції, яких немає в довіднику сайту, до таблиці не
+                        потрапляють (вони лишились у журналі розбіжностей), і
+                        підсумок по рядках був би меншим за накладну.
+                      */}
+                      {formatPrice(isOneC ? order?.totalAmount ?? 0 : totalAmount)}
                     </td>
                     {isDraft && <td />}
                   </tr>
+                  {isOneC && Math.abs((order?.totalAmount ?? 0) - totalAmount) > 0.01 && (
+                    <tr style={{ background: "#FAFAFA" }}>
+                      <td colSpan={(isDraft ? 6 : 5) + (showLineNo ? 1 : 0)} style={{ padding: "0 16px 12px", textAlign: "right", fontSize: "12px", color: "#9CA3AF" }}>
+                        Сума показаних позицій: {formatPrice(totalAmount)} — решта рядків не зіставлена з товарами сайту.
+                      </td>
+                    </tr>
+                  )}
                 </tfoot>
               )}
             </table>

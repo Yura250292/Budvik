@@ -1,26 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireRoles, OFFICE_ROLES } from "@/lib/app/identity";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, OFFICE_ROLES);
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const order = await prisma.purchaseOrder.findUnique({
     where: { id },
     include: {
       supplier: true,
+      stockLocation: { select: { id: true, name: true } },
       createdBy: { select: { id: true, name: true } },
+      // Порядок рядків — той, що набрали в 1С: торговий і закупівельник
+      // звіряють нашу картку з екраном 1С поруч, і переставлені позиції
+      // читаються як інші дані. Рядки без номера (набрані на сайті або
+      // приїхали до появи lineNo) сортуються за назвою після них.
       items: {
+        orderBy: [{ lineNo: { sort: "asc", nulls: "last" } }, { product: { name: "asc" } }],
         include: {
-          product: { select: { id: true, name: true, sku: true, price: true, stock: true } },
+          product: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              slug: true,
+              price: true,
+              stock: true,
+              image: true,
+              brand: { select: { name: true } },
+            },
+          },
         },
       },
     },
@@ -37,15 +51,22 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session || !["ADMIN", "MANAGER", "SALES"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireRoles(req, OFFICE_ROLES);
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const existing = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Не знайдено" }, { status: 404 });
+  }
+  // Документ з 1С правиться в 1С. Локальна правка не «нічого не зламає»:
+  // наступний цикл обміну перезапише її, і між цим сайт показуватиме те,
+  // чого в обліку немає.
+  if (existing.externalId) {
+    return NextResponse.json(
+      { error: "Документ із 1С редагується лише в 1С" },
+      { status: 409 }
+    );
   }
   if (existing.status !== "DRAFT") {
     return NextResponse.json({ error: "Можна редагувати тільки чернетку" }, { status: 400 });

@@ -57,6 +57,15 @@ export type LowStockItem = {
   daysLeft: number | null;
   /** Скільки радимо замовити, щоб вистачило на ~2 місяці (мінімум — норма). */
   suggested: number;
+  /**
+   * Коли товар востаннє приходив від постачальника; null — не приходив
+   * ніколи в межах наявної історії надходжень.
+   *
+   * Відповідає на питання, якого не було в звіті: «скінчилось — а ми взагалі
+   * це возимо?». Позиція з нулем на складі й останнім приходом торік — це
+   * не дірка в закупівлі, а товар, який перестали брати.
+   */
+  lastReceiptAt: string | null;
 };
 
 export type LowStockGroup = { name: string; total: number; toOrder: number; items: LowStockItem[] };
@@ -179,6 +188,24 @@ async function loadVelocity(velocityDays: number): Promise<Map<string, number>> 
   return new Map(rows.map((r) => [r.productId, Number(r.sold)]));
 }
 
+/**
+ * Дата останнього проведеного надходження по кожному товару.
+ *
+ * Одним запитом на весь звіт: по товару за раз це були б тисячі звернень.
+ * Рахуємо лише по проведених документах — непроведене надходження в 1С ще
+ * не факт приходу.
+ */
+async function loadLastReceipts(): Promise<Map<string, Date>> {
+  const rows = await prisma.$queryRaw<Array<{ productId: string; last: Date }>>`
+    SELECT i."productId", MAX(o."createdAt") AS last
+    FROM "PurchaseOrderItem" i
+    JOIN "PurchaseOrder" o ON o.id = i."purchaseOrderId"
+    WHERE o.status = 'CONFIRMED'
+    GROUP BY i."productId"
+  `;
+  return new Map(rows.map((r) => [r.productId, r.last]));
+}
+
 export async function buildLowStockReport(params: LowStockParams): Promise<LowStockReport | null> {
   const brand = params.brandId
     ? await prisma.brand.findUnique({ where: { id: params.brandId }, select: { id: true, name: true } })
@@ -193,7 +220,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
   // потрібних, і огляд по всіх брендах стає вчетверо повільнішим.
   const soldIds = params.includeDead ? null : [...(await velocityPromise).keys()];
 
-  const [products, categories, velocity] = await Promise.all([
+  const [products, categories, velocity, lastReceipts] = await Promise.all([
     prisma.product.findMany({
       where: {
         isActive: true,
@@ -214,6 +241,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     }),
     prisma.category.findMany({ select: { id: true, name: true, parentId: true } }),
     velocityPromise,
+    loadLastReceipts(),
   ]);
 
   // Мертві відсіяні в SQL, тож рахуємо їх окремо — інакше цифра «сховано»
@@ -319,6 +347,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       id: p.id, sku: p.sku, name: p.name, brandName: p.brand?.name ?? "—",
       price: p.price, stock: p.stock, expensive, threshold, severity,
       sold90, perMonth: Math.round(perMonth * 10) / 10, daysLeft, suggested,
+      lastReceiptAt: lastReceipts.get(p.id)?.toISOString() ?? null,
     });
   }
 

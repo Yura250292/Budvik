@@ -181,12 +181,17 @@ $returnsBackfilledAt = $null
 # and their flag already pinned the window to ~90 days. Its own flag lets it
 # catch up on the same history exactly once.
 $costBackfilledAt = $null
+# Goods receipts joined last: the purchase channel had a receiver on the site
+# and no producer here at all, so its history starts from scratch and needs
+# its own one-off reach-back.
+$receiptsBackfilledAt = $null
 if (Test-Path $statePath) {
     try {
         $s = ReadJsonUtf8 $statePath
         if ($s.realizationsBackfilledAt) { $realBackfilledAt = [string]$s.realizationsBackfilledAt }
         if ($s.returnsBackfilledAt) { $returnsBackfilledAt = [string]$s.returnsBackfilledAt }
         if ($s.costBackfilledAt) { $costBackfilledAt = [string]$s.costBackfilledAt }
+        if ($s.receiptsBackfilledAt) { $receiptsBackfilledAt = [string]$s.receiptsBackfilledAt }
     } catch {
         # Unreadable state means the backfill simply repeats -- upserts by
         # Ref_Key, so a repeat costs time, not correctness.
@@ -246,7 +251,7 @@ if ($config.scope.documents) {
     # would leave the previous run's file in place, and send.ps1 would ship
     # those rows again as if they were fresh.
     $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "realization_doc.ndjson",
-                         "return_doc.ndjson", "debt.ndjson", "payment.ndjson",
+                         "return_doc.ndjson", "purchase_doc.ndjson", "debt.ndjson", "payment.ndjson",
                          "route_sheet.ndjson", "route_sheet_stop.ndjson")
 }
 foreach ($f in $filesThisScope) {
@@ -778,7 +783,23 @@ try {
             $rec = [ordered]@{ externalId = $id; name = Str $r.Get(1) }
             $code = Str $r.Get(2)
             if ($code) { $rec.code = $code }
-            if ($r.Get(3)) { $rec.type = "CUSTOMER" }
+
+            # Both flags go out as they stand in 1C, and the server derives the
+            # type from them. Sending a ready-made "type" is what once turned
+            # six deletion-marked counterparties into suppliers: the query had
+            # no supplier column, so Get(3) was read off the wrong field.
+            #
+            # The supplier column is the LAST one, so an older base that lacks
+            # it simply yields nothing here instead of shifting every index.
+            $isCustomer = [bool]$r.Get(3)
+            $isSupplier = $false
+            try { $isSupplier = [bool]$r.Get(5) } catch { }
+            $rec.isCustomer = $isCustomer
+            $rec.isSupplier = $isSupplier
+            if ($isSupplier -and $isCustomer) { $rec.type = "BOTH" }
+            elseif ($isSupplier) { $rec.type = "SUPPLIER" }
+            elseif ($isCustomer) { $rec.type = "CUSTOMER" }
+
             if ($r.Get(4)) { $rec.deleted = $true }
             WriteRecord $w $rec
             $n++
@@ -1201,6 +1222,137 @@ try {
         # Same rule as realizations: the flag is stamped by send.ps1 only after
         # the server confirms the batches, never here.
 
+        # --- goods receipts from suppliers, with their line items ---
+        #
+        # Dokument.PostuplenieTovarovUslug: 918 posted documents worth 27.19M
+        # UAH over twelve months (probe-coverage.ps1). The site has had the
+        # receiving end of this channel since the first sync commit and no
+        # producer at all, so PurchaseOrder stayed empty, the "Prihid" section
+        # showed only hand-typed invoices, and every purchase figure read zero.
+        #
+        # BEST-EFFORT on purpose, like debt and payments below. This channel is
+        # the newest and the only one whose optional header columns depend on a
+        # probe; it must never take orders, realizations and returns down with
+        # it. A failed read ships nothing, so send.ps1 stamps no flag and the
+        # whole window is simply read again next cycle.
+        Log "reading goods receipts..."
+        try {
+            $receiptsFrom = $docsFrom
+            if (-not $receiptsBackfilledAt) {
+                $bf = "2025-01-01"
+                if ($config.documents -and $config.documents.receiptsFrom) {
+                    $bf = [string]$config.documents.receiptsFrom
+                }
+                try {
+                    $receiptsFrom = ParseDay $bf
+                    Log ("receipts: one-off backfill from {0}" -f $bf)
+                } catch {
+                    Log ("receipts: bad receiptsFrom '" + $bf + "', using normal window")
+                    $receiptsFrom = $docsFrom
+                }
+            }
+            Log ("reading receipts since {0:yyyy-MM-dd}..." -f $receiptsFrom)
+
+            # Inline, not a helper -- see the note above RunQuery.
+            $receiptItemsByDoc = @{}
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.receiptItemsSince
+            $q.SetParameter([string]$queries.paramFrom, $receiptsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on receipt items query" }
+            $r = $rs.Choose()
+            $itemRows = 0
+            while ($r.Next()) {
+                $docId  = RefId $ib $r.Get(0)
+                $prodId = RefId $ib $r.Get(1)
+                # A line without a product is a service or comment row -- the
+                # delivery charge on the invoice, typically. No warehouse value,
+                # and the server would reject it anyway.
+                if (-not $docId -or -not $prodId) { continue }
+
+                if (-not $receiptItemsByDoc.ContainsKey($docId)) {
+                    $receiptItemsByDoc[$docId] = New-Object Collections.Generic.List[object]
+                }
+                [void]$receiptItemsByDoc[$docId].Add([ordered]@{
+                    productExternalId = $prodId
+                    quantity          = Num $r.Get(2)
+                    price             = Num $r.Get(3)
+                    lineNo            = Num $r.Get(5)
+                })
+                $itemRows++
+            }
+            Log ("  receipt items: {0} rows in {1} documents" -f $itemRows, $receiptItemsByDoc.Count)
+
+            $w = NewWriter (Join-Path $OutDir "purchase_doc.ndjson")
+            $n = 0
+            $q = $ib.NewObject("Query")
+            $q.Text = [string]$queries.receiptsSince
+            $q.SetParameter([string]$queries.paramFrom, $receiptsFrom)
+            $rs = $q.Execute()
+            if ($null -eq $rs) { throw "Execute() returned null on receipts query" }
+            $r = $rs.Choose()
+            while ($r.Next()) {
+                $id = RefId $ib $r.Get(0)
+                if (-not $id) { continue }
+                $rec = [ordered]@{
+                    externalId = $id
+                    number     = Str $r.Get(1)
+                    date       = IsoDate $r.Get(2)
+                    posted     = [bool]$r.Get(5)
+                    deleted    = [bool]$r.Get(6)
+                }
+                $cp = RefId $ib $r.Get(3)
+                if ($cp) { $rec.counterpartyExternalId = $cp }
+                $rec.totalAmount = Num $r.Get(4)
+
+                # Optional columns: present only once probe-receipts.ps1 has
+                # proven them on this base and they were appended to
+                # receiptsSince. Reading past the end of the row is not an
+                # error here -- Get() throws, and the catch leaves the field
+                # out, which the contract reads as "1C did not say".
+                try {
+                    $wh = RefId $ib $r.Get(7)
+                    if ($wh) { $rec.warehouseExternalId = $wh }
+                } catch { }
+                try {
+                    $cur = Str $r.Get(8)
+                    # 980 is the hryvnia: sending it would make every ordinary
+                    # invoice look like a currency document on the site.
+                    if ($cur -and $cur -ne "980") {
+                        $rec.currencyCode = $cur
+                        # Rate divided by its multiplier, exactly as the price
+                        # channel does it -- 1C quotes some currencies per 10
+                        # or per 100 units.
+                        $rate = Num $r.Get(9)
+                        $mult = Num $r.Get(10)
+                        if ($mult -le 0) { $mult = 1 }
+                        if ($rate -gt 0) { $rec.currencyRate = $rate / $mult }
+                    }
+                } catch { }
+
+                if ($null -ne $receiptItemsByDoc -and $receiptItemsByDoc.ContainsKey($id)) {
+                    $rec.items = $receiptItemsByDoc[$id].ToArray()
+                }
+                WriteRecord $w $rec
+                $n++
+            }
+            $w.Close()
+            $stats.receipts = $n
+            Log "receipts: $n"
+        }
+        catch {
+            if ($w) { try { $w.Close() } catch { } }
+            # Half a file is worse than none: send.ps1 ships whatever is on
+            # disk, and a truncated backfill would look like a complete one.
+            Remove-Item (Join-Path $OutDir "purchase_doc.ndjson") -Force -EA 0
+            if (IsConnectionLost $_) {
+                Log ("receipts: connection lost -- aborting attempt")
+                throw
+            }
+            $stats.receiptsFailed = $_.Exception.Message
+            Log ("receipts: SKIPPED -- " + $_.Exception.Message)
+        }
+
         # --- debt balances ---
         # Debt is best-effort: several phrasings of this query fail on this
         # build with a bare NullReferenceException, and losing the balances is
@@ -1447,6 +1599,9 @@ try {
     }
     if ($costBackfilledAt) {
         $newState.costBackfilledAt = $costBackfilledAt
+    }
+    if ($receiptsBackfilledAt) {
+        $newState.receiptsBackfilledAt = $receiptsBackfilledAt
     }
     [IO.File]::WriteAllText(
         $statePath,

@@ -19,6 +19,7 @@ import RoutePlanPanel from "@/components/routes/RoutePlanPanel";
 import { Badge } from "@/components/ui/Badge";
 import { formatPrice } from "@/lib/utils";
 import { STEP_LABELS, type StepNumber, type StepState } from "@/lib/routes/progress";
+import { points } from "@/lib/routes/driver-message";
 import type { StatusKey } from "@/lib/analytics/colors";
 import { ROUTE_STATUS_LABELS, type DayDriver, type FreeOrder, type RouteItem } from "./types";
 
@@ -181,7 +182,7 @@ export default function RouteCard({
           </span>
 
           <span className="mt-1 block text-[13px] text-g500">
-            {route.driver?.name ?? "Водія не обрано"} · {progress.stopsTotal} точок
+            {route.driver?.name ?? "Водія не обрано"} · {points(progress.stopsTotal)}
             {progress.stopsTotal - progress.withCoords > 0 &&
               ` · ${progress.stopsTotal - progress.withCoords} без координат`}
             {route.vehicleInfo && ` · ${route.vehicleInfo}`}

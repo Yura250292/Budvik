@@ -41,6 +41,9 @@ export default withAuth(
          // Закупівлі — робоче місце закупівельника (ADMIN/MANAGER):
          // торговому нема чого бачити закупівельні ціни й дефіцит складу.
          pathname.startsWith("/admin/procurement") ||
+         // Прихід — той самий закупівельний контур: накладні від
+         // постачальників із цінами закупівлі.
+         pathname.startsWith("/admin/erp/purchase-orders") ||
          pathname.startsWith("/admin/warehouse-reports") ||
          // Водії — зарплата чужих людей і трек по місту. Торговому туди
          // нема чого: розділ виїхав із «Аналітики торгових», де він жив

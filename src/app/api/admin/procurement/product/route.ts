@@ -85,6 +85,29 @@ export async function GET(req: NextRequest) {
     GROUP BY 1 ORDER BY 2 DESC LIMIT 5
   `;
 
+  // Останні надходження: у кого й по чому цей товар брали.
+  //
+  // Доти закупівельник бачив лише продажі — тобто половину картини. Питання
+  // «у кого замовляти» доводилось нести в 1С, хоча відповідь тепер є на сайті:
+  // канал purchase_doc привозить прихідні накладні з постачальником і ціною.
+  const receipts = await prisma.purchaseOrderItem.findMany({
+    where: { productId: id, purchaseOrder: { status: "CONFIRMED" } },
+    select: {
+      quantity: true,
+      purchasePrice: true,
+      purchaseOrder: {
+        select: {
+          id: true,
+          number: true,
+          createdAt: true,
+          supplier: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { purchaseOrder: { createdAt: "desc" } },
+    take: 5,
+  });
+
   const text = product.description ? htmlToText(product.description) : "";
   return NextResponse.json({
     product: {
@@ -95,5 +118,13 @@ export async function GET(req: NextRequest) {
     },
     months: recent.map((r) => ({ month: r.month, sold: Number(r.sold) })),
     buyers: buyers.map((b) => ({ name: b.name, sold: Number(b.sold), last: b.last })),
+    receipts: receipts.map((r) => ({
+      id: r.purchaseOrder.id,
+      number: r.purchaseOrder.number,
+      date: r.purchaseOrder.createdAt,
+      supplier: r.purchaseOrder.supplier?.name ?? "—",
+      quantity: r.quantity,
+      price: r.purchasePrice,
+    })),
   });
 }

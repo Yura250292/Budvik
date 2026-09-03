@@ -420,8 +420,8 @@ model Product {
   powerSource String?
   /// Напруга акумулятора, В — 12, 18, 20, 36… Визначає сумісність із батареєю.
   voltageV    Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   categoryId String
   category   Category          @relation(fields: [categoryId], references: [id])
@@ -802,6 +802,19 @@ model SupplierProduct {
   @@unique([supplierId, productId])
 }
 
+/// Прихідна накладна: надходження товару від постачальника.
+///
+/// Два джерела в одній таблиці, і розрізняє їх `externalId`:
+///   - документ з 1С (`ПоступлениеТоваровУслуг`) — externalId заповнений,
+///     на сайті лише для перегляду: проводить і скасовує його 1С;
+///   - документ сайту (ручний, AI-скан, файловий імпорт) — externalId null.
+///
+/// `createdAt` = дата документа (для 1С її ставить обмін), тому фільтри
+/// й звіти за періодом ідуть саме по ній — так само, як у SalesDocument.
+///
+/// Залишок товару ця таблиця НЕ рухає: його веде 1С через LocationStock
+/// (див. apply-stock.ts). Інкремент Product.stock, який тут колись робило
+/// підтвердження, жив до наступного циклу обміну і лише плутав.
 model PurchaseOrder {
   id          String         @id @default(cuid())
   number      String         @unique
@@ -816,9 +829,26 @@ model PurchaseOrder {
 
   externalId String? @unique // Ref_Key документа надходження в 1С
 
-  supplier  Counterparty        @relation(fields: [supplierId], references: [id])
-  createdBy User                @relation("purchaseOrderCreator", fields: [createdById], references: [id])
-  items     PurchaseOrderItem[]
+  /// Склад надходження з шапки документа 1С. Null для документів сайту
+  /// і для тих надходжень, де реквізит складу не приїхав.
+  stockLocationId String?
+
+  /// Валюта документа в 1С (код: 840 USD, 978 EUR). Порожня для гривневих.
+  /// Ціни й сума в базі ЗАВЖДИ в гривні — курс застосовує прийом; ці два
+  /// поля лишаються, щоб картка могла показати «за курсом».
+  currencyCode String?
+  currencyRate Float?
+
+  /// Коли обмін востаннє підтвердив цей документ з 1С.
+  syncedAt DateTime?
+
+  supplier      Counterparty        @relation(fields: [supplierId], references: [id])
+  stockLocation StockLocation?      @relation(fields: [stockLocationId], references: [id], onDelete: SetNull)
+  createdBy     User                @relation("purchaseOrderCreator", fields: [createdById], references: [id])
+  items         PurchaseOrderItem[]
+
+  @@index([createdAt])
+  @@index([supplierId, createdAt])
 }
 
 model PurchaseOrderItem {
@@ -828,8 +858,17 @@ model PurchaseOrderItem {
   quantity        Int
   purchasePrice   Float
 
+  /// Номер рядка в табличній частині 1С — єдине, що задає порядок позицій
+  /// (свого ідентифікатора рядок документа в 1С не має). Null для рядків,
+  /// набраних на сайті, і для документів, що приїхали до появи поля.
+  lineNo Int?
+
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   product       Product       @relation(fields: [productId], references: [id])
+
+  @@index([purchaseOrderId])
+  /// Для «останнього надходження» по товару в закупівлях.
+  @@index([productId])
 }
 
 model SalesDocument {
@@ -1180,7 +1219,8 @@ model StockLocation {
   // висіли у вітрині як звичайний товар.
   isService Boolean @default(false)
 
-  stocks LocationStock[]
+  stocks         LocationStock[]
+  purchaseOrders PurchaseOrder[]
 }
 
 model LocationStock {
@@ -2772,7 +2812,7 @@ model DeviceHeartbeat {
   reportedAt DateTime?
 
   /// Чи працює служба відстеження цієї миті.
-  tracking  Boolean @default(false)
+  tracking Boolean @default(false)
 
   /// Чи підтверджує САМА система, що підписка на локацію жива.
   ///
@@ -2783,10 +2823,10 @@ model DeviceHeartbeat {
   /// на цьому згоріли дві години розбору.
   subscribed Boolean?
   /// SHIFT | AFTER_SHIFT | IDLE — у якому режимі вона зараз.
-  mode      String?
+  mode       String?
   /// Чи відкрита зміна за даними пристрою. Розбіжність із сервером
   /// означає, що планшет живе застарілою картиною.
-  shiftOpen Boolean @default(false)
+  shiftOpen  Boolean  @default(false)
 
   /// Скільки точок чекає відправки. Росте — зв'язку немає, але трек
   /// пишеться; стоїть на нулі при мертвому GPS — фіксів немає взагалі.
@@ -3011,6 +3051,7 @@ model Shift {
 
   // --- Звірка наступного дня ---
   /**
+   * /**
    * /**
    * Коли автоматично (або заднім числом) закриту зміну визнали правдою.
    * Потрібне саме окреме поле, а не статус: пробіг такої зміни доїжджає

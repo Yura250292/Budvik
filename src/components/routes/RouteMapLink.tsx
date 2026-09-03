@@ -237,7 +237,14 @@ export default function RouteMapLink({
               ? "У водія не підключений Telegram — відкриється «Поділитися»"
               : undefined
           }
-          className="min-h-[36px] cursor-pointer rounded-[8px] bg-primary px-3 text-[13px] font-bold text-bk hover:bg-primary-hover disabled:opacity-60"
+          className={`min-h-[36px] cursor-pointer rounded-[8px] px-3 text-[13px] font-bold text-bk disabled:opacity-60 ${
+            // Жовтим — лише коли надсилати справді час. У чернетці ця кнопка
+            // сперечалася б за увагу з «Передати водію», хоча її черга настане
+            // тільки після передачі.
+            canSend && !sentAt
+              ? "bg-primary hover:bg-primary-hover"
+              : "border border-g200 bg-white font-semibold hover:bg-g50"
+          }`}
         >
           {sending ? "Надсилаю…" : sentAt ? "Надіслати ще раз" : "Надіслати водію"}
         </button>

@@ -152,6 +152,9 @@ $plan = @(
     @{ file = "sales_doc.ndjson";    entity = "sales_doc"    },
     @{ file = "realization_doc.ndjson"; entity = "realization_doc" },
     @{ file = "return_doc.ndjson";   entity = "return_doc"   },
+    # Goods receipts after counterparties for the same reason documents follow
+    # them: a receipt whose supplier the site has never seen is rejected.
+    @{ file = "purchase_doc.ndjson"; entity = "purchase_doc" },
     @{ file = "debt.ndjson";         entity = "debt"         },
     @{ file = "payment.ndjson";      entity = "payment"      },
     @{ file = "route_sheet.ndjson";  entity = "route_sheet"  },
@@ -163,6 +166,7 @@ $plan = @(
 $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrepancies = 0 }
 $realizationsSent = 0
 $returnsSent = 0
+$receiptsSent = 0
 $seq = 0
 $sendError = $null
 
@@ -189,7 +193,7 @@ try {
         # be tens of thousands of rows of JSON. Smaller batches keep each
         # request well inside the server's body limit.
         $stepBatch = $batchSize
-        if ($step.entity -in @("sales_doc", "realization_doc")) {
+        if ($step.entity -in @("sales_doc", "realization_doc", "return_doc", "purchase_doc")) {
             $stepBatch = [Math]::Min($batchSize, 100)
         }
 
@@ -266,6 +270,7 @@ try {
         }
         if ($step.entity -eq "realization_doc") { $realizationsSent = $sent }
         if ($step.entity -eq "return_doc") { $returnsSent = $sent }
+        if ($step.entity -eq "purchase_doc") { $receiptsSent = $sent }
         Log ("{0}: {1} records sent" -f $step.entity, $sent)
     }
 }
@@ -310,7 +315,8 @@ if (-not $sendError -and $complete.status -eq "completed") {
     $backfills = @(
         @{ flag = "realizationsBackfilledAt"; sent = $realizationsSent; label = "realization" },
         @{ flag = "returnsBackfilledAt";      sent = $returnsSent;      label = "returns"     },
-        @{ flag = "costBackfilledAt";         sent = $realizationsSent; label = "cost of sales" }
+        @{ flag = "costBackfilledAt";         sent = $realizationsSent; label = "cost of sales" },
+        @{ flag = "receiptsBackfilledAt";     sent = $receiptsSent;     label = "goods receipts" }
     )
     foreach ($bf in $backfills) {
         if ($bf.sent -le 0) { continue }

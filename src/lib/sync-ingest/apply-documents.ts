@@ -544,6 +544,28 @@ export async function applySalesDocuments(
   }
 }
 
+/**
+ * Надходження товару з 1С (`ПоступлениеТоваровУслуг`) → PurchaseOrder.
+ *
+ * Дзеркало applySalesDocuments, з трьома відмінностями, і кожна має причину:
+ *
+ *  1. **Постачальник обов'язковий** — у схемі PurchaseOrder.supplierId не
+ *     nullable, тож документ без зіставленого контрагента створити нема як.
+ *     Такий іде в журнал розбіжностей, а не мовчки зникає.
+ *  2. **Залишок не рухаємо.** Прихід на сайті нічого не додає до Product.stock:
+ *     залишок веде 1С через регістр (apply-stock.ts перераховує його з
+ *     LocationStock щоп'ять хвилин). Інкремент тут жив би до наступного
+ *     циклу й лише розходився б із 1С.
+ *  3. **Валюта.** Ціни й сума приходять у валюті документа, тож перед записом
+ *     множимо на курс із шапки. Без курсу — числа лишаємо як є й пишемо
+ *     розбіжність: мовчазна сума в доларах поруч із гривневими гірша за
+ *     видиму невідповідність.
+ *
+ * Стани документа — ті самі, що для продажів (див. docs/1c-sync.md):
+ * проведений → CONFIRMED, розпроведений або помічений на видалення →
+ * CANCELLED, непроведений і небачений раніше → пропускаємо (це чернетка,
+ * яку офіс ще набирає).
+ */
 export async function applyPurchaseDocuments(
   records: DocumentRecord[],
   ctx: ApplyContext
@@ -552,7 +574,7 @@ export async function applyPurchaseDocuments(
 
   const existing = await prisma.purchaseOrder.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
-    select: { id: true, externalId: true, number: true },
+    select: { id: true, externalId: true, number: true, status: true },
   });
   const byExternalId = new Map(existing.map((d) => [d.externalId!, d]));
 
@@ -563,19 +585,32 @@ export async function applyPurchaseDocuments(
     supplierExternalIds.length > 0
       ? await prisma.counterparty.findMany({
           where: { externalId: { in: supplierExternalIds } },
+          select: { id: true, externalId: true, type: true },
+        })
+      : [];
+  const supplierByExternalId = new Map(suppliers.map((c) => [c.externalId!, c]));
+
+  // Склади документів цього батча — одним запитом, а не по одному на документ.
+  const warehouseExternalIds = [
+    ...new Set(records.map((r) => r.warehouseExternalId).filter((w): w is string => !!w)),
+  ];
+  const warehouses =
+    warehouseExternalIds.length > 0
+      ? await prisma.stockLocation.findMany({
+          where: { externalId: { in: warehouseExternalIds } },
           select: { id: true, externalId: true },
         })
       : [];
-  const supplierByExternalId = new Map(suppliers.map((c) => [c.externalId!, c.id]));
+  const warehouseByExternalId = new Map(warehouses.map((w) => [w.externalId!, w.id]));
 
   for (const rec of records) {
-    const supplierId = rec.counterpartyExternalId
+    const supplier = rec.counterpartyExternalId
       ? supplierByExternalId.get(rec.counterpartyExternalId)
       : undefined;
 
     // На відміну від реалізації, постачальник у PurchaseOrder обов'язковий —
     // без нього документ створити неможливо.
-    if (!supplierId) {
+    if (!supplier) {
       ctx.discrepancy({
         entityType: "purchase_doc",
         entityRef: rec.number,
@@ -588,64 +623,240 @@ export async function applyPurchaseDocuments(
       continue;
     }
 
+    const found = byExternalId.get(rec.externalId);
+
+    // Поле опційне: агент старішої версії його не шле. Відсутнє = проведений,
+    // як і для документів продажу.
+    const posted = rec.posted ?? true;
+    const deleted = rec.deleted ?? false;
+
+    // Непроведене надходження, якого в нас ще немає, — це чернетка, яку офіс
+    // набирає просто зараз. Її кількості ще поїдуть, а на сайті вона читалась
+    // би як реальний прихід. Уже наявний непроведений документ — навпаки,
+    // розпроведення, і воно мусить доїхати (nextStatus нижче).
+    if (!posted && !found) {
+      ctx.skipped++;
+      continue;
+    }
+    if (deleted && !found) {
+      ctx.skipped++;
+      continue;
+    }
+
     if (ctx.isPreview) {
-      byExternalId.has(rec.externalId) ? ctx.updated++ : ctx.created++;
+      found ? ctx.updated++ : ctx.created++;
       continue;
     }
 
     const items = await resolveItems(rec.items ?? [], ctx, rec.number);
-    const totalAmount =
-      rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0);
 
-    const found = byExternalId.get(rec.externalId);
+    // Валютний документ: ціни рядків і сума лежать у валюті договору, а сайт
+    // рахує все в гривні. Курс приходить із шапки того самого документа —
+    // єдиний курс, який тут можна застосувати чесно (сьогоднішній для
+    // березневої накладної був би вигаданим числом).
+    const rate = currencyRateOf(rec, ctx);
+    const priced = rate === 1 ? items : items.map((i) => ({ ...i, price: round2(i.price * rate) }));
+    const totalAmount = round2(
+      (rec.totalAmount ?? items.reduce((sum, i) => sum + i.quantity * i.price, 0)) * rate
+    );
+
+    const stockLocationId = rec.warehouseExternalId
+      ? warehouseByExternalId.get(rec.warehouseExternalId) ?? null
+      : null;
+
+    // Номер документа 1С унікальний лише в межах року, а PurchaseOrder.number
+    // унікальний глобально — той самий перебір, що й для продажів. Суфікс
+    // детермінований, тож повторний прогін влучає в той самий запис.
+    const numberCandidates = [
+      rec.number,
+      `${rec.number}/${new Date(rec.date).getFullYear()}`,
+      `${rec.number}/${rec.externalId.slice(0, 8)}`,
+    ];
+
+    const nextStatus = posted && !deleted ? ("CONFIRMED" as const) : ("CANCELLED" as const);
 
     try {
       if (!found) {
         const createdById = await ensureSyncUser();
-        await prisma.purchaseOrder.create({
-          data: {
-            externalId: rec.externalId,
-            number: rec.number,
-            supplierId,
-            status: rec.posted ? "CONFIRMED" : "DRAFT",
-            totalAmount,
-            createdById,
-            createdAt: new Date(rec.date),
-            confirmedAt: rec.posted ? new Date(rec.date) : null,
-            items: {
-              create: items.map((i) => ({
-                productId: i.productId,
-                quantity: i.quantity,
-                purchasePrice: i.price,
-              })),
-            },
+        const baseData = {
+          externalId: rec.externalId,
+          supplierId: supplier.id,
+          stockLocationId,
+          status: nextStatus,
+          totalAmount,
+          currencyCode: rate === 1 ? null : rec.currencyCode ?? null,
+          currencyRate: rate === 1 ? null : rate,
+          createdById,
+          createdAt: new Date(rec.date),
+          confirmedAt: nextStatus === "CONFIRMED" ? new Date(rec.date) : null,
+          syncedAt: new Date(),
+          items: {
+            create: priced.map((i) => ({
+              productId: i.productId,
+              quantity: i.quantity,
+              purchasePrice: i.price,
+              lineNo: i.lineNo,
+            })),
           },
-        });
+        };
+        for (let c = 0; c < numberCandidates.length; c++) {
+          try {
+            await prisma.purchaseOrder.create({
+              data: { ...baseData, number: numberCandidates[c] },
+            });
+            break;
+          } catch (e) {
+            if (!isNumberCollision(e) || c === numberCandidates.length - 1) throw e;
+          }
+        }
         ctx.created++;
       } else {
-        await prisma.$transaction([
-          prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: found.id } }),
-          prisma.purchaseOrder.update({
-            where: { id: found.id },
-            data: {
-              number: rec.number,
-              supplierId,
-              status: rec.posted ? "CONFIRMED" : "DRAFT",
-              totalAmount,
-              items: {
-                create: items.map((i) => ({
-                  productId: i.productId,
-                  quantity: i.quantity,
-                  purchasePrice: i.price,
-                })),
-              },
-            },
-          }),
-        ]);
+        const baseUpdate = {
+          supplierId: supplier.id,
+          stockLocationId,
+          status: nextStatus,
+          totalAmount,
+          currencyCode: rate === 1 ? null : rec.currencyCode ?? null,
+          currencyRate: rate === 1 ? null : rate,
+          // Дату проведення ставимо лише при переході в CONFIRMED: у вже
+          // проведеного вона й так дорівнює даті документа, а переставляти її
+          // щопрогону означало б рухати документ у звітах за періодом.
+          ...(nextStatus === "CONFIRMED" && found.status !== "CONFIRMED"
+            ? { confirmedAt: new Date(rec.date) }
+            : {}),
+          createdAt: new Date(rec.date),
+          syncedAt: new Date(),
+          items: {
+            create: priced.map((i) => ({
+              productId: i.productId,
+              quantity: i.quantity,
+              purchasePrice: i.price,
+              lineNo: i.lineNo,
+            })),
+          },
+        };
+        // Табличну частину перезаписуємо цілком (див. коментар угорі файлу).
+        for (let c = 0; c < numberCandidates.length; c++) {
+          try {
+            await prisma.$transaction([
+              prisma.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: found.id } }),
+              prisma.purchaseOrder.update({
+                where: { id: found.id },
+                data: { ...baseUpdate, number: numberCandidates[c] },
+              }),
+            ]);
+            break;
+          } catch (e) {
+            if (!isNumberCollision(e) || c === numberCandidates.length - 1) throw e;
+          }
+        }
         ctx.updated++;
+      }
+
+      // Постачальник, якого 1С не позначила прапорцем «Поставщик», лишався б
+      // у типі CUSTOMER — і зник би зі списку постачальників на сайті, хоча
+      // накладна від нього щойно приїхала. Документ важить більше за прапорець.
+      if (supplier.type === "CUSTOMER") {
+        await prisma.counterparty.update({ where: { id: supplier.id }, data: { type: "BOTH" } });
+        supplier.type = "BOTH";
+      }
+
+      if (nextStatus === "CONFIRMED") {
+        await refreshSupplierPrices(supplier.id, new Date(rec.date), priced, ctx, rec.number);
       }
     } catch (e) {
       ctx.fail(`надходження ${rec.number}`, e);
     }
+  }
+}
+
+/** Гроші округлюємо до копійки: множення на курс дає хвіст на 12 знаків. */
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/**
+ * Курс документа, на який множаться ціни рядків і сума.
+ *
+ * 1 означає «нічого не робимо»: документ гривневий або валюта без курсу.
+ * Другий випадок окремо потрапляє в журнал — інакше сума в доларах лягла б
+ * у ті самі звіти, що й гривневі, і ніхто б цього не побачив.
+ */
+function currencyRateOf(rec: DocumentRecord, ctx: ApplyContext): number {
+  const code = rec.currencyCode?.trim();
+  if (!code || code === BASE_CURRENCY_CODE) return 1;
+
+  const rate = rec.currencyRate;
+  if (Number.isFinite(rate) && (rate as number) > 0) return rate as number;
+
+  ctx.discrepancy({
+    entityType: "purchase_doc",
+    entityRef: rec.number,
+    entityName: `Надходження ${rec.number}`,
+    field: "FOREIGN_CURRENCY_NO_RATE",
+    value1C: `валюта ${code}, курс не надано`,
+    valueBudvik: "суму записано як є, без перерахунку в гривню",
+  });
+  return 1;
+}
+
+/** Код гривні в 1С. */
+const BASE_CURRENCY_CODE = "980";
+
+/**
+ * Остання ціна закупівлі по парі «постачальник + товар».
+ *
+ * Таблиця SupplierProduct до появи цього каналу була порожня, тож зв'язку
+ * «товар → у кого беремо і по чому» в системі не існувало взагалі — саме
+ * її не вистачало закупівельнику в розділі дефіциту.
+ *
+ * Виграє НОВІШИЙ документ, а не останній записаний: бекфіл читає історію
+ * без гарантованого порядку, і без цієї перевірки накладна 2025 року
+ * затирала б ціну з 2026-го.
+ *
+ * Збій тут не має валити документ: ціна постачальника — довідка, а сам
+ * прихід уже збережений.
+ */
+async function refreshSupplierPrices(
+  supplierId: string,
+  docDate: Date,
+  items: { productId: string; price: number }[],
+  ctx: ApplyContext,
+  documentNumber: string
+): Promise<void> {
+  const withPrice = items.filter((i) => i.price > 0);
+  if (withPrice.length === 0) return;
+
+  try {
+    const productIds = [...new Set(withPrice.map((i) => i.productId))];
+    const known = await prisma.supplierProduct.findMany({
+      where: { supplierId, productId: { in: productIds } },
+      select: { id: true, productId: true, lastUpdated: true },
+    });
+    const byProduct = new Map(known.map((k) => [k.productId, k]));
+
+    for (const item of withPrice) {
+      const existing = byProduct.get(item.productId);
+      if (!existing) {
+        await prisma.supplierProduct.create({
+          data: {
+            supplierId,
+            productId: item.productId,
+            purchasePrice: item.price,
+            lastUpdated: docDate,
+          },
+        });
+        continue;
+      }
+      if (existing.lastUpdated > docDate) continue;
+      await prisma.supplierProduct.update({
+        where: { id: existing.id },
+        data: { purchasePrice: item.price, lastUpdated: docDate },
+      });
+    }
+  } catch (e) {
+    ctx.errors.push(
+      `ціни постачальника за надходженням ${documentNumber}: ${e instanceof Error ? e.message : String(e)}`
+    );
   }
 }

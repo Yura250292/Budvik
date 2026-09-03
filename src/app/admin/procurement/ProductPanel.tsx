@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import useSWR from "swr";
 
 /**
- * Панель товару: фото, опис, історія продажів і хто брав.
+ * Панель товару: фото, опис, історія продажів, хто брав і звідки приходить.
  *
  * Висувається збоку, а не модалкою по центру: закупівельник відкриває картку
  * прямо посеред роботи зі списком, і список має лишатись перед очима —
@@ -24,6 +24,14 @@ type Detail = {
   };
   months: Array<{ month: string; sold: number }>;
   buyers: Array<{ name: string; sold: number; last: string }>;
+  receipts: Array<{
+    id: string;
+    number: string;
+    date: string;
+    supplier: string;
+    quantity: number;
+    price: number;
+  }>;
 };
 
 const fetcher = (url: string) =>
@@ -146,6 +154,32 @@ export function ProductPanel({ id, onClose }: { id: string; onClose: () => void 
                         <span className="truncate">{b.name}</span>
                         <span className="shrink-0 text-g400">
                           {b.sold} шт · {new Date(b.last).toLocaleDateString("uk-UA")}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {(data.receipts?.length ?? 0) > 0 && (
+                <section>
+                  <h3 className="mb-2 text-sm font-bold">Останні надходження</h3>
+                  <ul className="space-y-1 text-sm">
+                    {data.receipts.map((r) => (
+                      <li key={r.id + r.number} className="flex justify-between gap-3 border-b border-g100 pb-1">
+                        <a
+                          href={`/admin/erp/purchase-orders/${r.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="truncate text-blue-700 hover:underline"
+                          title={`Накладна ${r.number}`}
+                        >
+                          {r.supplier}
+                        </a>
+                        <span className="shrink-0 text-g400">
+                          {r.quantity} шт ×{" "}
+                          {r.price.toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ₴ ·{" "}
+                          {new Date(r.date).toLocaleDateString("uk-UA")}
                         </span>
                       </li>
                     ))}

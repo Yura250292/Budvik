@@ -26,6 +26,22 @@ import { getBrandTree } from "@/lib/catalog/brand-tree";
  *
  * Живе всередині /sales, а не в загальному /catalog, бо кореневий layout
  * підставляє шапку й нижнє меню магазину — торговий втратив би навігацію.
+ *
+ * Усі посилання звідси — prefetch={false}. На сторінці їх близько 250, і
+ * всі ведуть у /sales/catalog/list, який через searchParams рендериться
+ * наживо. З типовим prefetch Next смикає кожне посилання, щойно воно
+ * потрапляє в екран: одне відкриття змісту й прокрутка давали під дві
+ * сотні запитів у динамічний роут за кілька секунд. У цьому залпі тонув
+ * запит /api/auth/session, а next-auth будь-яку невдалу відповідь читає як
+ * «сесії немає» — торгового викидало на «Потрібен вхід» із живою кукою.
+ *
+ * У Next 16 false вимикає префетч цілком, разом із наведенням
+ * (prefetchEnabled у next/dist/client/app-dir/link.js), тож список
+ * відкривається холодним. Платимо за це свідомо: показує його /sales/loading,
+ * а альтернатива — двісті запитів на кожне відкриття змісту.
+ *
+ * Порівняй /catalog/zmist: там ті самі 250 посилань, але цілі статичні
+ * (ISR), і залп упирається в CDN, а не в функцію з базою.
  */
 export default async function SalesCatalogPage() {
   const [toc, tree] = await Promise.all([getCatalogToc(), getBrandTree()]);
@@ -82,6 +98,7 @@ export default async function SalesCatalogPage() {
                   фільтр шукає підрядок і дає більше, ніж сума рядків */}
               <Link
                 href={`/sales/catalog/list?section=${encodeURIComponent(section.id)}`}
+                prefetch={false}
                 className="mb-2 flex min-h-11 items-center gap-2 border-b border-[#F1F1EF] pb-1.5 active:bg-[#FFD600]/10"
               >
                 <span className="text-base">{section.icon}</span>
@@ -96,6 +113,7 @@ export default async function SalesCatalogPage() {
                   <li key={line.key}>
                     <Link
                       href={`/sales/catalog/list?type=${encodeURIComponent(line.key)}`}
+                      prefetch={false}
                       className="flex min-h-11 items-baseline gap-2 rounded px-1.5 py-1 active:bg-[#FFD600]/15"
                     >
                       <span className="self-center text-sm text-[#1A1A1A]">{line.label}</span>
@@ -119,6 +137,7 @@ export default async function SalesCatalogPage() {
                   <li key={line.key}>
                     <Link
                       href={`/sales/catalog/list?type=${encodeURIComponent(line.key)}`}
+                      prefetch={false}
                       className="flex min-h-11 items-baseline gap-2 rounded px-1.5 py-1 active:bg-[#FFD600]/15"
                     >
                       <span className="self-center text-sm text-[#1A1A1A]">{line.label}</span>
@@ -140,6 +159,7 @@ export default async function SalesCatalogPage() {
               <Link
                 key={b.id}
                 href={`/sales/catalog/list?brand=${b.slug}`}
+                prefetch={false}
                 className="flex min-h-11 items-center rounded-lg border border-[#F1F1EF] bg-cab-bg px-3 text-sm text-[#1A1A1A] active:bg-[#FFD600]/20"
               >
                 {b.name}
@@ -148,6 +168,7 @@ export default async function SalesCatalogPage() {
             ))}
             <Link
               href="/sales/catalog/list?brand=none"
+              prefetch={false}
               className="flex min-h-11 items-center rounded-lg border border-cab-line px-3 text-sm font-medium text-cab-t2 active:bg-cab-bg"
             >
               Без бренда

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useGateSession } from "@/lib/useGateSession";
 
 /**
  * Роль-гейт кабінету торгового — один на всю секцію.
@@ -22,6 +22,10 @@ import { useSession } from "next-auth/react";
  * показники й заробіток конкретного торгового. Але окремі екрани — як
  * каталог — самі по собі нічого приватного не показують, тож вони
  * передають ширший `allow` своїм layout-ом.
+ *
+ * Сесію беремо не з useSession, а з useGateSession: голий useSession
+ * оголошує «не увійшов» на будь-якій невдалій відповіді /api/auth/session,
+ * і кабінет вигонив торгового з живою кукою — див. коментар у хуці.
  */
 
 const ALLOWED = ["SALES", "ADMIN"];
@@ -34,7 +38,7 @@ export default function SalesGate({
   /** Ролі, яким відкрито цю частину секції. За замовчуванням SALES + ADMIN. */
   allow?: readonly string[];
 }) {
-  const { data: session, status } = useSession();
+  const { session, status } = useGateSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
 
   if (status === "loading") {

@@ -45,18 +45,35 @@ type Stop = MessageStop & {
 };
 
 export default function RouteMapLink({
+  routeId,
   number,
   date,
   driverName,
   stops,
+  canSend = false,
+  hasTelegram = false,
+  sentAt = null,
+  sentVia = null,
+  onSent,
 }: {
+  routeId: string;
   number: string;
   date: string;
   driverName: string | null;
   stops: Stop[];
+  /** Маршрут уже в водія — сервер може надіслати посилання сам. */
+  canSend?: boolean;
+  /** У водія привʼязаний Telegram: інакше одразу шторка «Поділитися». */
+  hasTelegram?: boolean;
+  sentAt?: string | null;
+  sentVia?: string | null;
+  onSent?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  /** Результат останньої спроби: зелений рядок або бурштинова підказка. */
+  const [notice, setNotice] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
   /** Буфер обміну недоступний (не https, заборона браузера) — показуємо текст. */
   const [fallback, setFallback] = useState<string | null>(null);
 
@@ -93,18 +110,95 @@ export default function RouteMapLink({
     }
   };
 
-  const share = async () => {
+  /**
+   * Ручна передача: шторка «Поділитися», а без неї — буфер обміну.
+   * Повертає true, якщо логіст справді щось зробив, — тоді ставимо штамп.
+   */
+  const shareManually = async (text: string): Promise<boolean> => {
     const nav = navigator as Navigator & {
       share?: (data: { title?: string; text?: string }) => Promise<void>;
     };
-    if (!nav.share) {
-      copy(messageText, "text");
-      return;
+    if (nav.share) {
+      try {
+        await nav.share({ title: `Маршрут ${number}`, text });
+        return true;
+      } catch {
+        // Користувач закрив шторку — це не помилка й не привід ставити штамп.
+        return false;
+      }
     }
     try {
-      await nav.share({ title: `Маршрут ${number}`, text: messageText });
+      await navigator.clipboard.writeText(text);
+      setCopied("text");
+      setTimeout(() => setCopied(null), 2000);
+      return true;
     } catch {
-      // Користувач закрив шторку «поділитися» — це не помилка.
+      setFallback(text);
+      return false;
+    }
+  };
+
+  /** Позначити на сервері, що посилання таки пішло водієві вручну. */
+  const stampShared = async () => {
+    try {
+      await fetch(`/api/erp/delivery-routes/${routeId}/send-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: "SHARE" }),
+      });
+      onSent?.();
+    } catch {
+      // Слід — не головне: посилання водій уже отримав.
+    }
+  };
+
+  const send = async () => {
+    // Чернетку сервер не надсилає, та й водій її не бачить: лишається ручна
+    // передача тим самим текстом.
+    if (!canSend) {
+      if (await shareManually(messageText)) {
+        setNotice({ tone: "ok", text: "Посилання передано вручну" });
+      }
+      return;
+    }
+
+    setSending(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/erp/delivery-routes/${routeId}/send-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data?.sent) {
+        setNotice({ tone: "ok", text: "Надіслано в Telegram" });
+        onSent?.();
+        return;
+      }
+
+      // Кожна невдача повертає готовий текст — той самий, що надіслав би
+      // сервер. Логіст передає його вручну, не збираючи повідомлення заново.
+      const text: string = data?.text ?? messageText;
+      const reason: string = data?.reason ?? "";
+      const hint =
+        reason === "NO_TELEGRAM"
+          ? "Telegram водія не підключено — передайте посилання вручну"
+          : reason === "BLOCKED"
+            ? "Водій заблокував бота — передайте посилання вручну"
+            : reason === "NO_COORDS"
+              ? "Немає двох точок з координатами — нема з чого скласти посилання"
+              : data?.error || "Telegram не відповів — передайте посилання вручну";
+
+      setNotice({ tone: "warn", text: hint });
+      if (reason === "NO_TELEGRAM" || reason === "BLOCKED" || reason === "TELEGRAM_ERROR") {
+        if (await shareManually(text)) await stampShared();
+      }
+    } catch {
+      setNotice({ tone: "warn", text: "Немає зв'язку — спробуйте ще раз" });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -136,10 +230,16 @@ export default function RouteMapLink({
         </button>
         <button
           type="button"
-          onClick={share}
-          className="cursor-pointer rounded-[8px] bg-primary px-3 py-1.5 text-[13px] font-bold text-bk hover:bg-primary-hover"
+          onClick={send}
+          disabled={sending}
+          title={
+            canSend && !hasTelegram
+              ? "У водія не підключений Telegram — відкриється «Поділитися»"
+              : undefined
+          }
+          className="min-h-[36px] cursor-pointer rounded-[8px] bg-primary px-3 text-[13px] font-bold text-bk hover:bg-primary-hover disabled:opacity-60"
         >
-          Надіслати водію
+          {sending ? "Надсилаю…" : sentAt ? "Надіслати ще раз" : "Надіслати водію"}
         </button>
 
         <span className="text-[12px] text-g500">
@@ -156,6 +256,16 @@ export default function RouteMapLink({
           </span>
         )}
       </div>
+
+      {(notice || sentAt) && (
+        <p
+          className="mt-2 text-[12px]"
+          style={{ color: notice?.tone === "warn" ? "#92400E" : "#166534" }}
+        >
+          {notice?.text ??
+            `${sentVia === "TELEGRAM" ? "Надіслано в Telegram" : "Посилання передано"} о ${new Date(sentAt!).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`}
+        </p>
+      )}
 
       {open && (
         <div className="mt-3 rounded-[8px] border border-g200 bg-white p-3">

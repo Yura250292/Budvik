@@ -28,6 +28,10 @@ export default function RoutePlanPanel({
   editable,
   availableOrders,
   onChanged,
+  canSend,
+  hasTelegram,
+  sentAt,
+  sentVia,
 }: {
   routeId: string;
   /** Номер маршруту — їде в текст, який пересилають водієві */
@@ -35,6 +39,11 @@ export default function RoutePlanPanel({
   driverId: string | null;
   driverName: string | null;
   date: string;
+  /** Маршрут уже в водія: сервер може надіслати посилання сам */
+  canSend?: boolean;
+  hasTelegram?: boolean;
+  sentAt?: string | null;
+  sentVia?: string | null;
   stops: Stop[];
   /** false — водій уже в дорозі: точки лише для перегляду */
   editable: boolean;
@@ -65,7 +74,18 @@ export default function RoutePlanPanel({
       )}
       {/* Готовий обʼїзд одним посиланням: водієві його пересилають у
           месенджер, тому порядок беремо збережений, а не запропонований. */}
-      <RouteMapLink number={number} date={date} driverName={driverName} stops={stops} />
+      <RouteMapLink
+        routeId={routeId}
+        number={number}
+        date={date}
+        driverName={driverName}
+        stops={stops}
+        canSend={canSend}
+        hasTelegram={hasTelegram}
+        sentAt={sentAt}
+        sentVia={sentVia}
+        onSent={onChanged}
+      />
       <RouteStopsEditor
         routeId={routeId}
         stops={stops}

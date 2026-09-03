@@ -14,10 +14,13 @@
  * Правило беремо звідти ж, а не переписуємо: два списки порогів розійшлися б, і
  * скрипт чистив би не те, що відсіює прийом.
  *
- * Чого скрипт НЕ робить: не перераховує `distanceKm` сесії. Ці стрибки в
- * кілометри й не входили, а перерахунок дня з нуля дає інше число з іншої
- * причини (пробіг накопичується пачками, з іншими опорами) — і питання, чи
- * переписувати історичний пробіг, вирішує власник, а не прибирання сміття.
+ * Пробіг ЗАКРИТОЇ зміни перераховує — інакше прибирання виглядає так, наче
+ * не спрацювало: карта вже правильна, а число під нею лишається старим.
+ *
+ * Чого скрипт НЕ робить: не чіпає `distanceKm` сесії. Ці стрибки в неї й не
+ * входили, а перерахунок дня з нуля дає інше число з іншої причини (пробіг
+ * накопичується пачками, з іншими опорами) — і питання, чи переписувати
+ * історичний пробіг, вирішує власник, а не прибирання сміття.
  *
  * Запуск:
  *   npx tsx scripts/drop-impossible-points.mts            # лише показати
@@ -29,6 +32,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { isImpossibleFix, haversineM } from "../src/lib/track/geo";
 import { kyivDayStart } from "../src/lib/date/kyiv";
+import { gpsKmBetween } from "../src/lib/shift/late-close";
 
 const hm = (d: Date) =>
   d.toLocaleString("uk-UA", { timeZone: "Europe/Kyiv", hour12: false });
@@ -40,7 +44,7 @@ async function main() {
   const sessions = await prisma.trackSession.findMany({
     where: day ? { day: kyivDayStart(day) } : {},
     orderBy: { day: "asc" },
-    select: { id: true, day: true, pointsCount: true, user: { select: { name: true } } },
+    select: { id: true, userId: true, day: true, pointsCount: true, user: { select: { name: true } } },
   });
 
   let totalDropped = 0;
@@ -121,6 +125,36 @@ async function main() {
         data: { pointsCount: kept.length, roadPath: Prisma.DbNull, roadPathPoints: null },
       });
     });
+
+    /**
+     * Пробіг зміни перерахувати ОБОВ'ЯЗКОВО, і це не дрібниця.
+     *
+     * `Shift.gpsDistanceKm` рахується один раз — коли зміну закривають — і далі
+     * лежить числом. Ігор закрив зміну о 17:58, коли Ліма ще була в базі, тож у
+     * картці зміни лишилося 23 817 км і після того, як самі точки зникли. Карта
+     * показувала правильний маршрут, а число під нею — ні, і виглядало це так,
+     * наче прибирання не спрацювало.
+     *
+     * Чіпаємо лише те, що вже пораховане: у відкритої зміни числа ще немає, і
+     * виставляти його зараз означало б закрити її наполовину.
+     */
+    const shifts = await prisma.shift.findMany({
+      where: {
+        userId: session.userId,
+        gpsDistanceKm: { not: null },
+        points: { some: { sessionId: session.id } },
+      },
+      select: { id: true, startedAt: true, endedAt: true, gpsDistanceKm: true },
+    });
+    for (const shift of shifts) {
+      const workKm = await gpsKmBetween(shift.id, shift.startedAt, shift.endedAt);
+      const afterWorkKm = shift.endedAt ? await gpsKmBetween(shift.id, shift.endedAt, null) : null;
+      await prisma.shift.update({
+        where: { id: shift.id },
+        data: { gpsDistanceKm: workKm, ...(shift.endedAt ? { afterWorkKm } : {}) },
+      });
+      console.log(`    пробіг зміни: ${shift.gpsDistanceKm} → ${workKm} км`);
+    }
   }
 
   console.log(

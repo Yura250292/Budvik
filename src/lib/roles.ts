@@ -7,7 +7,7 @@ import type { Role } from "@prisma/client";
  * roleLabels/roleColors були продубльовані в кожній сторінці, і списки
  * ролей розходилися: у списку користувачів не було WAREHOUSE, у whitelist
  * PATCH — DRIVER, хоча водіїв очікують /admin/erp/delivery-routes і
- * /manager/routes.
+ * /admin/erp/delivery-routes.
  *
  * Enforcement лишається на сервері (api/admin/users/*), тут — шар UI.
  */

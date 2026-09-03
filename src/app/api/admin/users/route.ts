@@ -11,7 +11,7 @@ import { CREATABLE_ROLES } from "@/lib/roles";
  *
  * Форму відповіді можна лише доповнювати: цей ендпоінт читають ще
  * /admin/erp/delivery-routes, /admin/erp/commissions/rates,
- * /admin/erp/sales/[id], /admin/sales-reps, /manager/orders, /manager/routes
+ * /admin/erp/sales/[id], /admin/sales-reps, /manager/orders, /admin/erp/delivery-routes
  * і віджети дашборда. Перейменування поля тут ламає їх усі.
  */
 export async function GET() {

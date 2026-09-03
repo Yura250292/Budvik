@@ -245,7 +245,7 @@ export default function ManagerDashboard() {
 
         {/* Confirmed orders ready for route */}
         {!loading && stats && stats.confirmed > 0 && (
-          <Link href="/manager/routes" style={{ textDecoration: "none", display: "block", marginBottom: "16px" }}>
+          <Link href="/admin/erp/delivery-routes" style={{ textDecoration: "none", display: "block", marginBottom: "16px" }}>
             <div style={{
               background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
               borderRadius: "16px", padding: "16px 20px",
@@ -355,7 +355,7 @@ export default function ManagerDashboard() {
             }
           />
           <MenuItem
-            href="/manager/routes"
+            href="/admin/erp/delivery-routes"
             gradient="linear-gradient(135deg, #F59E0B, #D97706)"
             title="Дорожні листи"
             desc="Формувати маршрути, AI-оптимізація на карті"

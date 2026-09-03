@@ -399,7 +399,7 @@ function OrdersContent() {
                                 </>
                               )}
                               {doc.status === "CONFIRMED" && (
-                                <Link href="/manager/routes"
+                                <Link href="/admin/erp/delivery-routes"
                                   style={{
                                     padding: "10px 20px", borderRadius: "10px", fontSize: "13px", fontWeight: 700,
                                     background: "#F59E0B", color: "white", textDecoration: "none",

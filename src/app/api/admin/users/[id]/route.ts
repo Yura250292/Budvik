@@ -132,7 +132,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   // ADMIN свідомо поза списком: роздача адмінських прав через випадаючий
   // список — шлях ескалації. DRIVER, навпаки, доданий — його очікують
-  // /admin/erp/delivery-routes і /manager/routes, а завести водія з адмінки
+  // /admin/erp/delivery-routes, а завести водія з адмінки
   // досі було неможливо.
   if (!role || !(ASSIGNABLE_ROLES as string[]).includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });

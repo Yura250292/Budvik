@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
+import { attachVisits, resolveDriverDay, resolveDriverRoute } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { handoversForDay } from "@/lib/drivers/cash";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
@@ -28,8 +28,9 @@ export async function GET(req: NextRequest) {
   const me = auth.me;
 
   const url = new URL(req.url);
-  const day = url.searchParams.get("day") || kyivDate(new Date());
-  const dayStart = kyivDayStart(day);
+  const requestedDay = url.searchParams.get("day") || kyivDate(new Date());
+  /** Конкретний лист із кабінету водія — сильніший за дату. */
+  const routeKey = url.searchParams.get("route");
 
   // Водій завжди дивиться свій день; адмін може підглянути чужий, щоб
   // розібрати ситуацію постфактум.
@@ -38,8 +39,22 @@ export async function GET(req: NextRequest) {
       ? me.userId
       : url.searchParams.get("userId") || me.userId;
 
-  const [route, visits, trackSession, points, handovers] = await Promise.all([
-    resolveDriverDay(userId, day),
+  /**
+   * Маршрут читаємо ПЕРШИМ, а не в загальному Promise.all.
+   *
+   * Коли відкривають конкретний лист, доба береться з нього, а не з
+   * запиту: інакше вчорашній маршрут показувався б із сьогоднішніми
+   * відмітками, треком і касою — тобто з чужими числами, які виглядають
+   * як свої.
+   */
+  const route = routeKey
+    ? await resolveDriverRoute(userId, routeKey)
+    : await resolveDriverDay(userId, requestedDay);
+
+  const day = route.day ?? requestedDay;
+  const dayStart = kyivDayStart(day);
+
+  const [visits, trackSession, points, handovers] = await Promise.all([
     prisma.visit.findMany({
       where: { userId, day: dayStart },
       select: {

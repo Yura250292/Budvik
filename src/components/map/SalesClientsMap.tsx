@@ -77,6 +77,77 @@ export type SalesRoute = {
   stops: Array<{ settlement: string; lat: number; lng: number; seq: number }>;
 } | null;
 
+/**
+ * Маршрутний лист, розкладений на карті.
+ *
+ * Окремо від `route` вище, і не косметично: там напрямок торгового —
+ * ланцюжок населених пунктів без сум і без стану. Тут документ доставки,
+ * у якого кожна точка має номер у черзі, гроші й відмітку. Малювати їх
+ * однаково означало б втратити саме те, заради чого водій маршрут і
+ * відкриває: у якому порядку їхати і де він уже був.
+ */
+export type PlanStop = {
+  key: string;
+  seq: number;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  amount: number;
+  debt: number;
+  /** DONE / MISSED — відмітка вже стоїть; PENDING — ще їхати */
+  status: "DONE" | "MISSED" | "PENDING";
+  /** Бонусна поїздка (забрати товар, пошта) — без товару й без інкасації */
+  errand: boolean;
+  /** Дорога до цієї точки в Google Maps */
+  mapUrl: string | null;
+};
+
+export type DayPlan = {
+  number: string | null;
+  geometry: { type: string; coordinates: [number, number][] } | null;
+  stops: PlanStop[];
+} | null;
+
+/**
+ * Точки маршруту, які справді лежать поруч.
+ *
+ * Денний маршрут — це область і сусідні райони. Але серед координат
+ * трапляються вилетілі: клієнт, геокодований лише до назви міста, яких в
+ * Україні кілька, стає піном за 400 км. Одного такого досить, щоб
+ * fitBounds розтягнув карту на пів країни — водій відкриває маршрут і
+ * бачить не свій обʼїзд, а Європу.
+ *
+ * Тому вікно рахуємо по тих, хто в межах ~130 км від медіани, а вилетілі
+ * лишаємо намальованими: вони не зникають, просто не командують масштабом.
+ * Медіана, а не середнє: середнє саме поїде за викидом.
+ *
+ * Те саме правило рахує підказку «N точок стоять далеко» на екрані водія —
+ * тому воно й експортоване, а не сховане в компоненті.
+ */
+export function planCore<T extends { lat: number; lng: number }>(stops: T[]): T[] {
+  if (stops.length < 3) return stops;
+
+  const median = (xs: number[]) => {
+    const sorted = [...xs].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  };
+  const lat0 = median(stops.map((s) => s.lat));
+  const lng0 = median(stops.map((s) => s.lng));
+
+  // 1.2° широти ≈ 130 км; по довготі на широті України градус коротший,
+  // тому вікно ширше — 1.8°.
+  const near = stops.filter((s) => Math.abs(s.lat - lat0) <= 1.2 && Math.abs(s.lng - lng0) <= 1.8);
+  return near.length >= 2 ? near : stops;
+}
+
+/** Колір номерного піна за станом точки. */
+const PLAN_COLORS: Record<PlanStop["status"], { bg: string; fg: string }> = {
+  DONE: { bg: "#16A34A", fg: "#fff" },
+  MISSED: { bg: "#DC2626", fg: "#fff" },
+  PENDING: { bg: "#0A0A0A", fg: "#FFD600" },
+};
+
 function escapeHtml(v: string): string {
   return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -145,6 +216,67 @@ function popupButton(action: string, id: string, label: string, primary: boolean
      font-weight:600;font-size:13px;cursor:pointer">${escapeHtml(label)}</button>`;
 }
 
+/**
+ * Номерний пін точки маршруту.
+ *
+ * Квадрат, а не коло: круглі маркери на цій карті вже зайняті клієнтами, і
+ * два кола різного змісту поруч читаються як одне скупчення. Квадрат із
+ * номером видно як «черга», навіть не читаючи легенди.
+ */
+function planIcon(stop: PlanStop): L.DivIcon {
+  const { bg, fg } = PLAN_COLORS[stop.status];
+  const label = stop.errand ? "+" : String(stop.seq);
+  return L.divIcon({
+    className: "",
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15],
+    html: `<div style="
+      width:30px;height:30px;border-radius:9px;
+      background:${bg};color:${fg};
+      display:flex;align-items:center;justify-content:center;
+      font-weight:800;font-size:13px;font-family:system-ui,sans-serif;
+      border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35)
+    ">${escapeHtml(label)}</div>`,
+  });
+}
+
+const PLAN_STATUS_LABEL: Record<PlanStop["status"], string> = {
+  DONE: "Відмічено",
+  MISSED: "Не потрапив",
+  PENDING: "Ще їхати",
+};
+
+function planPopupHtml(stop: PlanStop): string {
+  const { bg } = PLAN_COLORS[stop.status];
+  const money_ =
+    stop.amount > 0
+      ? `<div style="color:#0A0A0A;font-weight:600">Накладна ${escapeHtml(money.format(stop.amount))} грн</div>`
+      : "";
+  const debt =
+    stop.debt > 0
+      ? `<div style="color:#D97706">Забрати борг ${escapeHtml(money.format(stop.debt))} грн</div>`
+      : "";
+  const road = stop.mapUrl
+    ? `<a href="${escapeHtml(stop.mapUrl)}" target="_blank" rel="noopener"
+         style="display:block;margin-top:6px;padding:9px;text-align:center;
+         background:#2563EB;color:#fff;border-radius:8px;text-decoration:none;
+         font-weight:700;font-size:13px">Дорога сюди</a>`
+    : "";
+
+  return `<div style="font-family:system-ui;font-size:14px;min-width:190px;max-width:250px">
+    <span style="display:inline-block;margin-bottom:4px;padding:2px 8px;border-radius:10px;
+      background:${bg};color:#fff;font-size:11px;font-weight:700">
+      ${stop.errand ? "Додаткова поїздка" : `Точка ${stop.seq}`} · ${escapeHtml(PLAN_STATUS_LABEL[stop.status])}
+    </span>
+    <strong style="display:block;font-size:15px">${escapeHtml(stop.name)}</strong>
+    ${stop.address ? `<div style="color:#6B7280;font-size:12px;margin-top:2px">${escapeHtml(stop.address)}</div>` : ""}
+    ${money_}
+    ${debt}
+    ${road}
+  </div>`;
+}
+
 function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
   const meta = CLIENT_STATE[c.state];
   // Чужий клієнт — не заборона, а попередження: перш ніж їхати, варто
@@ -209,6 +341,7 @@ function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
 export default function SalesClientsMap({
   clients,
   route,
+  plan = null,
   me,
   onAction,
   extras = { clientCardHref: "/sales/clients/" },
@@ -219,6 +352,8 @@ export default function SalesClientsMap({
 }: {
   clients: SalesClientPoint[];
   route: SalesRoute;
+  /** Відкритий маршрутний лист: номерні піни, лінія плану, стан точок. */
+  plan?: DayPlan;
   /** Де зараз торговий — щоб бачити, хто поряд. */
   me?: { lat: number; lng: number } | null;
   onAction?: (action: SalesMapAction) => void;
@@ -236,8 +371,12 @@ export default function SalesClientsMap({
   const layersRef = useRef<L.LayerGroup | null>(null);
   const meRef = useRef<L.CircleMarker | null>(null);
   const fittedRef = useRef(false);
-  /** id → маркер: пошук має не лише підлетіти, а й розкрити потрібну точку. */
-  const markersRef = useRef(new Map<string, L.CircleMarker>());
+  /**
+   * id → маркер: пошук має не лише підлетіти, а й розкрити потрібну точку.
+   * Тут же живуть номерні піни маршруту під своїми ключами (`ds:`/`rs:`) —
+   * тап по рядку в списку точок мусить розкривати саме той пін.
+   */
+  const markersRef = useRef(new Map<string, L.Marker | L.CircleMarker>());
   /** Колбек у ref: інакше кожен новий рендер сторінки перемальовував би точки. */
   const actionRef = useRef(onAction);
   actionRef.current = onAction;
@@ -279,8 +418,13 @@ export default function SalesClientsMap({
         .join("|") +
       "#" +
       (route?.name ?? "") +
-      (route?.stops.length ?? 0),
-    [clients, route]
+      (route?.stops.length ?? 0) +
+      // Лист теж у ключі: відкрили інший маршрут — піни мусять
+      // перемалюватися, а відмітка точки одразу перефарбувати номер.
+      "#" +
+      (plan?.number ?? "") +
+      plan?.stops.map((s) => `${s.key}:${s.status}`).join(",") ,
+    [clients, route, plan]
   );
 
   useEffect(() => {
@@ -350,6 +494,19 @@ export default function SalesClientsMap({
       bounds.extend([s.lat, s.lng]);
     });
 
+    /**
+     * Лінія плану під точками, номери — поверх усього.
+     *
+     * Порядок саме такий: маршрут це фон, по якому їдуть, а номерні піни —
+     * те, що водій шукає очима. Клієнтські кола малюються між ними, тож
+     * номер ніколи не ховається під сусіднім магазином.
+     */
+    if (plan?.geometry?.coordinates?.length) {
+      const line = plan.geometry.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+      L.polyline(line, { color: "#2563EB", weight: 5, opacity: 0.55 }).addTo(group);
+      line.forEach((c) => bounds.extend(c));
+    }
+
     markersRef.current.clear();
     // Свої малюються ОСТАННІМИ — у Leaflet це означає «поверх». Інакше в
     // режимі «всі» власний магазин ховається під сусідньою чужою точкою
@@ -374,7 +531,25 @@ export default function SalesClientsMap({
       bounds.extend([c.lat, c.lng]);
     });
 
-    if (!fittedRef.current && bounds.isValid()) {
+    plan?.stops.forEach((stop) => {
+      const marker = L.marker([stop.lat, stop.lng], { icon: planIcon(stop), zIndexOffset: 1000 })
+        .bindPopup(planPopupHtml(stop), { minWidth: 190 })
+        .addTo(group);
+      markersRef.current.set(stop.key, marker);
+      bounds.extend([stop.lat, stop.lng]);
+    });
+
+    /**
+     * Загальне вікно ставимо, лише коли маршруту немає.
+     *
+     * Інакше два fitBounds їдуть майже одночасно — цей і той, що нижче
+     * ставить вікно по маршруту, — і Leaflet другий просто ковтає:
+     * анімація першого ще йде, і setView під час неї не застосовується.
+     * Хто виграє, залежало від того, чия відповідь приїхала першою, тож
+     * водій то бачив свій маршрут, то всю Україну. Вікно маршруту
+     * головніше, і власник у нього один.
+     */
+    if (!fittedRef.current && bounds.isValid() && !plan) {
       map.fitBounds(coreBounds(clients) ?? bounds, { padding: [30, 30], maxZoom: 13 });
       fittedRef.current = true;
     }
@@ -404,6 +579,29 @@ export default function SalesClientsMap({
         .addTo(map);
     }
   }, [me]);
+
+  /**
+   * Відкрили маршрут — карта показує саме його.
+   *
+   * Окремо від загального fitBounds, який спрацьовує один раз при першому
+   * завантаженні. Без цього водій, обравши позавчорашній лист по сусідній
+   * області, лишався б дивитися на порожній шматок карти й вирішив би, що
+   * маршрут не завантажився.
+   *
+   * Ключ ефекту — склад точок, а не сам об'єкт: перемальовка після
+   * відмітки візиту не має смикати вікно карти.
+   */
+  const planKey = plan?.stops.map((s) => s.key).join(",") ?? "";
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !plan || plan.stops.length === 0) return;
+    const core = planCore(plan.stops);
+    const bounds = L.latLngBounds(core.map((s) => [s.lat, s.lng] as [number, number]));
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    // Перше вікно вже показане маршрутом — загальний fitBounds більше не потрібен.
+    fittedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey]);
 
   // Політ до знайденого пошуком клієнта.
   useEffect(() => {

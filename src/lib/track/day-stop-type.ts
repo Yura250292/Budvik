@@ -20,5 +20,15 @@ export type DayStop = {
   /** PICKUP/ERRAND — бонусна поїздка: без товару й без інкасації */
   kind: "DELIVERY" | "PICKUP" | "ERRAND";
   notes: string | null;
-  visit: { status: string; money: string; collectedAmount: number | null } | null;
+  /**
+   * Коментар лишається в типі, хоч у списку дня його й не видно: саме він
+   * пояснює минулу відмітку, коли водій відкриває чужий за часом день і
+   * питає себе, чому точка червона.
+   */
+  visit: {
+    status: string;
+    money: string;
+    collectedAmount: number | null;
+    comment?: string | null;
+  } | null;
 };

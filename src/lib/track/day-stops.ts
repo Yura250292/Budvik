@@ -29,7 +29,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 
 /** Відмітка, приклеєна до точки маршруту. */
 export type StopVisit = {
@@ -83,6 +83,15 @@ export type DayStop = {
 
 export type DayRoute = {
   source: "ROUTE_SHEET" | "DELIVERY_ROUTE" | "NONE";
+  /**
+   * Ключ маршруту з префіксом джерела: `dr:<id>` або `rs:<id>`.
+   *
+   * Саме ним водій відкриває минулий або завтрашній лист — без нього
+   * єдиною адресою дня була дата, а на одну дату маршрутів буває два.
+   */
+  id: string | null;
+  /** Київська доба маршруту, YYYY-MM-DD. Дата відкритого листа, не «сьогодні». */
+  day: string | null;
   /** Номер листа/маршруту — водій називає його диспетчеру */
   number: string | null;
   vehicle: string | null;
@@ -95,6 +104,8 @@ export type DayRoute = {
 
 const EMPTY: DayRoute = {
   source: "NONE",
+  id: null,
+  day: null,
   number: null,
   vehicle: null,
   plannedKm: null,
@@ -140,32 +151,59 @@ function mergeByAddress(stops: DayStop[]): DayStop[] {
   return [...byKey.values()].sort((a, b) => a.sequence - b.sequence);
 }
 
-/** Маршрутний лист 1С на цей день. */
-async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute | null> {
-  const sheet = await prisma.routeSheet.findFirst({
-    where: { driverId, date: { gte: kyivDayStart(day), lte: kyivDayEnd(day) } },
-    orderBy: { number: "asc" },
+/** Що треба підтягнути до листа 1С, щоб зібрати з нього точки дня. */
+const SHEET_INCLUDE = {
+  stops: {
+    /**
+     * Прибрана руками точка не їде водієві.
+     *
+     * Так її і задумували (див. RouteSheetStop.hidden у схемі), і саме так
+     * її вже рахує зарплата (payroll-facts.ts). Тут фільтра не було: офіс
+     * прибирав точку з листа, платити за неї переставали — а водій усе
+     * одно бачив її в дні й міг поїхати.
+     */
+    where: { hidden: false },
+    orderBy: { sequence: "asc" },
     include: {
-      stops: {
-        orderBy: { sequence: "asc" },
-        include: {
-          counterparty: {
-            select: {
-              id: true,
-              name: true,
-              address: true,
-              deliveryAddress: true,
-              deliveryLat: true,
-              deliveryLng: true,
-              geoSource: true,
-            },
-          },
+      counterparty: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          deliveryAddress: true,
+          deliveryLat: true,
+          deliveryLng: true,
+          geoSource: true,
         },
       },
     },
+  },
+} as const;
+
+type SheetRecord = NonNullable<
+  Awaited<ReturnType<typeof prisma.routeSheet.findFirst<{ include: typeof SHEET_INCLUDE }>>>
+>;
+
+/** Маршрутний лист 1С на цей день. */
+async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute | null> {
+  const sheet = await prisma.routeSheet.findFirst({
+    // Порожній лист пропускаємо: у 1С їх вистачає (шапка є, рядків немає), і
+    // такий лист, узятий за номером першим, перекривав сусідній із точками —
+    // водій бачив «маршруту немає» при живому маршруті.
+    where: {
+      driverId,
+      date: { gte: kyivDayStart(day), lte: kyivDayEnd(day) },
+      stops: { some: { hidden: false } },
+    },
+    orderBy: { number: "asc" },
+    include: SHEET_INCLUDE,
   });
 
-  if (!sheet || sheet.stops.length === 0) return null;
+  return sheet ? mapRouteSheet(sheet) : null;
+}
+
+function mapRouteSheet(sheet: SheetRecord): DayRoute | null {
+  if (sheet.stops.length === 0) return null;
 
   const stops: DayStop[] = sheet.stops.map((s, i) => ({
     key: `rs:${s.id}`,
@@ -188,6 +226,8 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
 
   return {
     source: "ROUTE_SHEET",
+    id: `rs:${sheet.id}`,
+    day: kyivDate(sheet.date),
     number: sheet.number,
     vehicle: sheet.vehicle,
     plannedKm: sheet.distanceKm || null,
@@ -196,6 +236,41 @@ async function fromRouteSheet(driverId: string, day: string): Promise<DayRoute |
     stops: mergeByAddress(stops),
   };
 }
+
+const ROUTE_INCLUDE = {
+  stops: {
+    orderBy: { sequence: "asc" },
+    include: {
+      counterparty: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          deliveryAddress: true,
+          deliveryLat: true,
+          deliveryLng: true,
+          geoSource: true,
+          receivableBalance: true,
+        },
+      },
+      salesDocument: { select: { totalAmount: true, number: true } },
+    },
+  },
+} as const;
+
+type RouteRecord = NonNullable<
+  Awaited<ReturnType<typeof prisma.deliveryRoute.findFirst<{ include: typeof ROUTE_INCLUDE }>>>
+>;
+
+/**
+ * Статуси, які водієві видно.
+ *
+ * PLANNED — чернетка логіста: він ще складає точки, і водієві її
+ * показувати зарано. До появи статусу ASSIGNED планшет брав будь-який
+ * PLANNED, і водій бачив недороблене. Виняток — сам логіст
+ * (includePlanned): він оптимізує порядок точок саме в чернетці.
+ */
+export const DRIVER_VISIBLE_STATUSES = ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] as const;
 
 /** Плановий маршрут сайту на цей день. */
 async function fromDeliveryRoute(
@@ -207,37 +282,22 @@ async function fromDeliveryRoute(
     where: {
       driverId,
       date: { gte: kyivDayStart(day), lte: kyivDayEnd(day) },
-      // Тільки передані маршрути. PLANNED — чернетка логіста: він ще
-      // складає точки, і водієві її показувати зарано. До появи статусу
-      // ASSIGNED планшет брав будь-який PLANNED, і водій бачив недороблене.
-      // Виняток — сам логіст (includePlanned): він оптимізує порядок точок
-      // саме в чернетці, до передачі водієві.
-      status: { in: includePlanned ? ["PLANNED", "ASSIGNED", "IN_PROGRESS", "COMPLETED"] : ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
+      status: {
+        in: includePlanned ? ["PLANNED", ...DRIVER_VISIBLE_STATUSES] : [...DRIVER_VISIBLE_STATUSES],
+      },
+      // Та сама причина, що й у листа нижче: маршрут без точок не має
+      // перекривати той, у якому вони є.
+      stops: { some: {} },
     },
     orderBy: { createdAt: "desc" },
-    include: {
-      stops: {
-        orderBy: { sequence: "asc" },
-        include: {
-          counterparty: {
-            select: {
-              id: true,
-              name: true,
-              address: true,
-              deliveryAddress: true,
-              deliveryLat: true,
-              deliveryLng: true,
-              geoSource: true,
-              receivableBalance: true,
-            },
-          },
-          salesDocument: { select: { totalAmount: true, number: true } },
-        },
-      },
-    },
+    include: ROUTE_INCLUDE,
   });
 
-  if (!route || route.stops.length === 0) return null;
+  return route ? mapDeliveryRoute(route) : null;
+}
+
+function mapDeliveryRoute(route: RouteRecord): DayRoute | null {
+  if (route.stops.length === 0) return null;
 
   const stops: DayStop[] = route.stops.map((s, i) => {
     const isErrand = s.kind !== "DELIVERY";
@@ -293,6 +353,8 @@ async function fromDeliveryRoute(
   const geometry = route.routeGeometry as DayRoute["geometry"];
   return {
     source: "DELIVERY_ROUTE",
+    id: `dr:${route.id}`,
+    day: kyivDate(route.date),
     number: route.number,
     vehicle: route.vehicleInfo,
     plannedKm: route.totalDistanceKm,
@@ -312,6 +374,42 @@ export async function resolveDriverDay(
 
   const sheet = await fromRouteSheet(driverId, day);
   if (sheet) return sheet;
+
+  return EMPTY;
+}
+
+/**
+ * Конкретний маршрутний лист водія — той, який він сам обрав у кабінеті.
+ *
+ * Окремо від resolveDriverDay, бо адреса тут інша: не «доба», а сам
+ * документ. Різниця не косметична — на одну дату маршрутів буває два
+ * (підміна, другий рейс), і день як адреса показав би лише один із них,
+ * мовчки. Ключ приходить із префіксом джерела, бо `dr:` і `rs:` живуть у
+ * різних таблицях і id між ними не унікальні.
+ *
+ * Чужий лист не відкриється: driverId у WHERE, а не перевіркою після
+ * читання. Порожній результат означає і «немає такого», і «не ваш» —
+ * навмисно, щоб з відповіді не можна було дізнатися про чужі маршрути.
+ */
+export async function resolveDriverRoute(driverId: string, key: string): Promise<DayRoute> {
+  const id = key.slice(3);
+  if (!id) return EMPTY;
+
+  if (key.startsWith("dr:")) {
+    const route = await prisma.deliveryRoute.findFirst({
+      where: { id, driverId, status: { in: [...DRIVER_VISIBLE_STATUSES] } },
+      include: ROUTE_INCLUDE,
+    });
+    return (route && mapDeliveryRoute(route)) ?? EMPTY;
+  }
+
+  if (key.startsWith("rs:")) {
+    const sheet = await prisma.routeSheet.findFirst({
+      where: { id, driverId },
+      include: SHEET_INCLUDE,
+    });
+    return (sheet && mapRouteSheet(sheet)) ?? EMPTY;
+  }
 
   return EMPTY;
 }

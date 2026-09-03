@@ -11,7 +11,9 @@
  * Кнопки великі: у них цілять пальцем, іноді на ходу.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import {
   flushPendingVisits,
@@ -22,6 +24,8 @@ import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { googleMapsLinks, pointUrl } from "@/lib/maps/google-links";
+import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
+import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
 
 type Handover = {
@@ -38,6 +42,9 @@ type DayResp = {
   role: string;
   route: {
     source: "ROUTE_SHEET" | "DELIVERY_ROUTE" | "NONE";
+    /** Ключ листа для адреси й карти: `dr:<id>` / `rs:<id>` */
+    id: string | null;
+    day: string | null;
     number: string | null;
     vehicle: string | null;
     plannedKm: number | null;
@@ -82,7 +89,36 @@ const TRACK_BADGE: Record<string, { dot: string; label: string }> = {
   idle: { dot: "#9CA3AF", label: "Трек вимкнено" },
 };
 
+/**
+ * Suspense обов'язковий: екран читає відкритий маршрут із адреси
+ * (useSearchParams), а без межі очікування Next вимагає рендерити
+ * динамічно всю сторінку.
+ */
 export default function DriverDayPage() {
+  return (
+    <Suspense
+      fallback={
+        <p className="px-4 py-6" style={{ color: "#9CA3AF", fontSize: "14px" }}>
+          Завантаження…
+        </p>
+      }
+    >
+      <DriverDayScreen />
+    </Suspense>
+  );
+}
+
+function DriverDayScreen() {
+  const router = useRouter();
+  const params = useSearchParams();
+  /** null — сьогоднішній маршрут, який сервер знайде сам. */
+  const routeKey = params.get("route");
+  /**
+   * Доба без номера листа — так приходять з історії маршрутів, де рядок
+   * знає лише дату. Ключ маршруту сильніший: якщо він є, дата зайва.
+   */
+  const dayKey = routeKey ? null : params.get("day");
+
   const [data, setData] = useState<DayResp | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openStop, setOpenStop] = useState<string | null>(null);
@@ -98,9 +134,17 @@ export default function DriverDayPage() {
   const track = useTrackRecorder({ enabled: !isApp });
   const build = useBuildVersion();
 
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/tablet/day");
+      const res = await fetch(
+        routeKey
+          ? `/api/tablet/day?route=${encodeURIComponent(routeKey)}`
+          : dayKey
+            ? `/api/tablet/day?day=${encodeURIComponent(dayKey)}`
+            : "/api/tablet/day"
+      );
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
       setData(json as DayResp);
@@ -108,7 +152,7 @@ export default function DriverDayPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося завантажити день");
     }
-  }, []);
+  }, [routeKey, dayKey]);
 
   /**
    * Чергу віддаємо ПЕРЕД завантаженням дня.
@@ -213,6 +257,17 @@ export default function DriverDayPage() {
   );
 
   const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
+  const today = kyivToday();
+  /**
+   * Відкритий день не сьогоднішній — відмітки лише читаються.
+   *
+   * Не формальність: кнопка «Приїхав» пише візит у ту добу, яка відкрита
+   * на екрані. Водій, що зайшов подивитися вчорашній лист і забув
+   * повернутися, відмічав би сьогоднішні доставки вчорашнім числом — і
+   * помітили б це аж на розрахунку. Виправити минуле може офіс, як і в
+   * історії маршрутів.
+   */
+  const readOnly = !!data && !!data.day && data.day !== today;
   // useMemo, а не ?? []: новий порожній масив на кожен рендер перезапускав
   // би розрахунок посилань нижче.
   const stops = useMemo(() => data?.route.stops ?? [], [data?.route.stops]);
@@ -245,31 +300,35 @@ export default function DriverDayPage() {
         }}
       >
         <div className="flex items-center gap-3 px-4" style={{ height: "56px" }}>
-          <div className="min-w-0">
-            <p
-              className="truncate"
-              style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.2 }}
-            >
-              {data?.route.number ? `Маршрут ${data.route.number}` : "Маршрут на сьогодні"}
-            </p>
-            {data && data.progress.total > 0 && (
-              <p style={{ fontSize: "12px", color: "#9CA3AF", lineHeight: 1.3 }}>
-                {data.progress.done + data.progress.missed} з {data.progress.total} точок
-                {data.progress.debtPlanned > 0 && (
-                  <>
-                    {" · "}
-                    <span style={{ color: "#4ADE80" }}>
-                      {formatPrice(data.progress.collected)}
-                    </span>
-                    {" / "}
-                    {formatPrice(data.progress.debtPlanned)}
-                  </>
-                )}
-              </p>
-            )}
-          </div>
+          {/*
+            Заголовок став кнопкою вибору: досі він писав «Маршрут на
+            сьогодні» і нічого, крім сьогодні, відкрити не давав. Тепер
+            водій тапає по ньому і бере будь-який свій лист — учорашній,
+            щоб звірити відмітки, або переданий на завтра.
+          */}
+          <RouteChip
+            dark
+            title={
+              data?.route.number
+                ? `Маршрут ${data.route.number}`
+                : data
+                  ? "Маршруту немає"
+                  : "Завантаження…"
+            }
+            subtitle={
+              data && data.progress.total > 0
+                ? `${formatRouteDay(data.day, today)} · ${data.progress.done + data.progress.missed} з ${data.progress.total} точок` +
+                  (data.progress.debtPlanned > 0
+                    ? ` · ${formatPrice(data.progress.collected)} / ${formatPrice(data.progress.debtPlanned)}`
+                    : "")
+                : data
+                  ? "Оберіть маршрутний лист"
+                  : null
+            }
+            onClick={() => setPickerOpen(true)}
+          />
 
-          <div className="ml-auto flex items-center gap-3 text-right">
+          <div className="flex shrink-0 items-center gap-3 text-right">
             <div>
               <p style={{ fontSize: "17px", fontWeight: 700, lineHeight: 1.1 }}>
                 {track.distanceKm || data?.track.distanceKm || 0}
@@ -351,6 +410,39 @@ export default function DriverDayPage() {
         </button>
       )}
 
+      {/*
+        Смуга дня, який не сьогодні. Стоїть під шапкою, а не всередині
+        списку: водій має побачити її раніше, ніж дотягнеться пальцем до
+        першої точки.
+      */}
+      {readOnly && (
+        <div
+          className="flex items-center gap-2 px-4 py-2.5"
+          style={{ background: "#EFF6FF", borderBottom: "1px solid #BFDBFE" }}
+        >
+          <p className="min-w-0 flex-1" style={{ fontSize: "13px", color: "#1D4ED8", lineHeight: 1.4 }}>
+            <span style={{ fontWeight: 700 }}>{formatRouteDay(data!.day, today)}</span> — лише
+            перегляд. Відмітити можна тільки поточний день; минуле виправляє офіс.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.replace("/driver/tablet")}
+            className="shrink-0 cursor-pointer rounded-lg"
+            style={{
+              minHeight: "36px",
+              padding: "0 12px",
+              border: "none",
+              background: "#2563EB",
+              color: "#fff",
+              fontSize: "13px",
+              fontWeight: 700,
+            }}
+          >
+            До сьогодні
+          </button>
+        </div>
+      )}
+
       {queued.length > 0 && (
         <div className="px-4 py-2.5" style={{ background: "#FEF3C7", borderBottom: "1px solid #FDE68A" }}>
           <p style={{ fontSize: "13.5px", fontWeight: 600, color: "#92400E" }}>
@@ -394,12 +486,35 @@ export default function DriverDayPage() {
       ) : stops.length === 0 ? (
         <div className="px-4 py-6">
           <p style={{ fontSize: "15px", fontWeight: 600, color: "#0A0A0A" }}>
-            Маршрут на сьогодні ще не передано
+            {routeKey
+              ? "У цьому листі немає точок"
+              : dayKey
+                ? "Того дня маршруту не було"
+                : "Маршрут на сьогодні ще не передано"}
           </p>
           <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "6px", lineHeight: 1.5 }}>
-            Логіст ще складає список. Точки зʼявляться, щойно маршрут передадуть
-            вам — трек тим часом усе одно записується.
+            {routeKey
+              ? "Схоже, лист уже прибрали або точки з нього перенесли в інший маршрут. Оберіть інший лист угорі."
+              : dayKey
+                ? "Ні маршруту сайту, ні листа 1С на цю дату немає. Оберіть інший лист угорі."
+                : "Логіст ще складає список. Точки зʼявляться, щойно маршрут передадуть вам — трек тим часом усе одно записується."}
           </p>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="mt-3 cursor-pointer rounded-xl"
+            style={{
+              minHeight: "44px",
+              padding: "0 16px",
+              border: "1px solid #E5E7EB",
+              background: "#fff",
+              color: "#0A0A0A",
+              fontSize: "14px",
+              fontWeight: 700,
+            }}
+          >
+            Обрати маршрутний лист
+          </button>
         </div>
       ) : (
         <>
@@ -451,7 +566,26 @@ export default function DriverDayPage() {
             </section>
           )}
 
-          <div style={{ background: "#fff", marginTop: mapLinks.length > 0 ? "8px" : 0 }}>
+          {/* Той самий лист на карті: список каже, що везти, карта — куди
+              їхати і в якому порядку. Посилання несе ключ маршруту, тож
+              карта відкриє саме цей день, а не сьогоднішній. */}
+          <Link
+            href={data.route.id ? `/driver/map?route=${encodeURIComponent(data.route.id)}` : "/driver/map"}
+            className="block"
+            style={{
+              margin: "8px 0 0",
+              padding: "13px 16px",
+              background: "#fff",
+              color: "#2563EB",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            Показати маршрут на карті →
+          </Link>
+
+          <div style={{ background: "#fff", marginTop: "8px" }}>
             {stops.map((s) => (
               <StopRow
                 key={s.key}
@@ -459,14 +593,31 @@ export default function DriverDayPage() {
                 open={openStop === s.key}
                 saving={saving === s.key}
                 pending={queued.includes(s.key)}
+                readOnly={readOnly}
                 onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
                 onMark={mark}
               />
             ))}
           </div>
 
-          <CashPanel cash={data.cash} day={data.day} onSaved={load} onError={setError} />
+          <CashPanel
+            cash={data.cash}
+            day={data.day}
+            readOnly={readOnly}
+            onSaved={load}
+            onError={setError}
+          />
         </>
+      )}
+
+      {pickerOpen && (
+        <RouteSheet
+          current={routeKey}
+          onPick={(key) =>
+            router.replace(key ? `/driver/tablet?route=${encodeURIComponent(key)}` : "/driver/tablet")
+          }
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );
@@ -481,11 +632,14 @@ export default function DriverDayPage() {
 function CashPanel({
   cash,
   day,
+  readOnly,
   onSaved,
   onError,
 }: {
   cash: DayResp["cash"];
   day: string;
+  /** Минулий день: числа видно, а здавати й скасовувати вже не можна. */
+  readOnly: boolean;
   onSaved: () => Promise<void> | void;
   onError: (message: string | null) => void;
 }) {
@@ -555,7 +709,7 @@ function CashPanel({
           letterSpacing: "0.03em",
         }}
       >
-        Каса за сьогодні
+        {readOnly ? "Каса за той день" : "Каса за сьогодні"}
       </p>
 
       <div className="mt-2 flex items-baseline gap-3">
@@ -612,7 +766,7 @@ function CashPanel({
               </span>
               {/* Скасувати можна лише непідтверджену: після прийому це вже
                   документ про гроші, і прибирати його водієві не можна. */}
-              {!h.confirmedAt && (
+              {!h.confirmedAt && !readOnly && (
                 <button
                   type="button"
                   disabled={saving}
@@ -636,7 +790,7 @@ function CashPanel({
         </ul>
       )}
 
-      {!open ? (
+      {readOnly ? null : !open ? (
         <button
           type="button"
           disabled={cash.onHands <= 0}
@@ -747,6 +901,7 @@ function StopRow({
   open,
   saving,
   pending,
+  readOnly,
   onToggle,
   onMark,
 }: {
@@ -755,6 +910,8 @@ function StopRow({
   saving: boolean;
   /** Відмітка збережена на пристрої, але ще не доїхала на сервер. */
   pending: boolean;
+  /** Відкрито минулий день: точку видно, а відмітити її вже не можна. */
+  readOnly: boolean;
   onToggle: () => void;
   onMark: (
     stop: DayStop,
@@ -863,7 +1020,43 @@ function StopRow({
         </span>
       </button>
 
-      {open && (
+      {open && readOnly && (
+        <div className="px-4 pb-4">
+          <p style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+            {stop.visit?.comment
+              ? `Ваш коментар того дня: «${stop.visit.comment}»`
+              : done
+                ? "Точку відмічено як пройдену."
+                : missed
+                  ? "Того дня в точку не потрапили."
+                  : "Відмітки за цю точку немає."}
+          </p>
+          {stop.lat != null && stop.lng != null && (
+            <a
+              href={pointUrl({ lat: stop.lat, lng: stop.lng })}
+              target="_blank"
+              rel="noopener"
+              className="w-full cursor-pointer"
+              style={{
+                display: "block",
+                marginTop: "8px",
+                padding: "12px",
+                borderRadius: "10px",
+                background: "#2563EB",
+                color: "#fff",
+                textAlign: "center",
+                fontSize: "14px",
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              Відкрити в Google Maps
+            </a>
+          )}
+        </div>
+      )}
+
+      {open && !readOnly && (
         <div className="px-4 pb-4">
           {/* Головні дві кнопки — великі, поруч: приїхав / не потрапив */}
           <div className="flex gap-2">

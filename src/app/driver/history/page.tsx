@@ -8,10 +8,12 @@
  * перед розрахунком, керівникові — привід поставити питання.
  *
  * Тільки перегляд: виправити день може лише офіс, бо з цих чисел рахується
- * зарплата. Тому тут немає жодної кнопки, крім виходу в сьогоднішній маршрут.
+ * зарплата. Кнопки в рядку нічого не міняють — вони лише відкривають той
+ * день на карті й у списку точок, бо самих цифр мало, щоб згадати поїздку.
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, Note, Page } from "@/components/cabinet/ui";
 
@@ -141,6 +143,26 @@ export default function DriverHistoryPage() {
 
             {d.trackKm === 0 && d.visits > 0 && (
               <Note tone="warn">Треку немає — того дня застосунок не писав маршрут</Note>
+            )}
+
+            {/* Вихід у той день: досі історія була глухим кутом — цифри є, а
+                подивитися, куди саме він тоді їздив, не було де. */}
+            {(d.plannedStops > 0 || d.visits > 0) && (
+              <div className="flex gap-2">
+                <Link
+                  href={`/driver/map?day=${d.day}`}
+                  className="flex-1 rounded-xl py-2.5 text-center text-[13px] font-bold text-white"
+                  style={{ background: "#2563EB" }}
+                >
+                  На карті
+                </Link>
+                <Link
+                  href={`/driver/tablet?day=${d.day}`}
+                  className="flex-1 rounded-xl border border-cab-line py-2.5 text-center text-[13px] font-bold text-bk"
+                >
+                  Точки дня
+                </Link>
+              </div>
             )}
           </Card>
         ))}

@@ -187,6 +187,28 @@ export default function DriverPage() {
                     </div>
                   </button>
 
+                  {open && (
+                    /* Два виходи з картки маршруту: карта — щоб побачити
+                       порядок обʼїзду, відмітки — щоб працювати по ньому.
+                       Обидва несуть ключ листа, тож відкриється саме він, а
+                       не сьогоднішній день. */
+                    <div className="flex gap-2 border-t border-[#F1F1EF] px-3.5 py-2.5">
+                      <Link
+                        href={`/driver/map?route=dr:${route.id}`}
+                        className="flex-1 rounded-xl py-2.5 text-center text-[13px] font-bold text-white"
+                        style={{ background: "#2563EB" }}
+                      >
+                        На карті
+                      </Link>
+                      <Link
+                        href={`/driver/tablet?route=dr:${route.id}`}
+                        className="flex-1 rounded-xl border border-cab-line py-2.5 text-center text-[13px] font-bold text-bk"
+                      >
+                        Відмітки
+                      </Link>
+                    </div>
+                  )}
+
                   {open &&
                     stops.map((stop: any, idx: number) => {
                       const delivered = stop.status === "DELIVERED";
@@ -246,12 +268,17 @@ export default function DriverPage() {
               <>
                 <Eyebrow>Завершені</Eyebrow>
                 {completedRoutes.map((route) => (
-                  <Card key={route.id} className="flex items-center justify-between gap-2">
+                  <Link
+                    key={route.id}
+                    href={`/driver/map?route=dr:${route.id}`}
+                    className="flex items-center justify-between gap-2 rounded-2xl border border-cab-line bg-white px-3.5 py-3"
+                  >
                     <span className="min-w-0 truncate text-[15px] font-semibold text-bk">{route.number}</span>
                     <span className="shrink-0 whitespace-nowrap text-[13px] text-cab-t2">
                       {formatDayDate(route.date)} · {route.stops?.length || 0} зупинок
                     </span>
-                  </Card>
+                    <ChevronRight size={18} className="shrink-0 text-cab-t3" />
+                  </Link>
                 ))}
               </>
             )}

@@ -87,11 +87,36 @@ export async function addPoint(p: BufferedPoint): Promise<void> {
   }
 }
 
-/** Найстаріші точки — саме в тому порядку, в якому їх чекає сервер. */
-export async function oldestPoints(limit: number): Promise<BufferedPoint[]> {
+/**
+ * Найстаріші точки ПІСЛЯ вказаної мітки — саме в тому порядку, в якому їх
+ * чекає сервер.
+ *
+ * Мітка тут не для економії, а через 03.09. Відправка зависала після того, як
+ * сервер уже прийняв пачку, і видалення надісланого не відбувалося ніколи.
+ * Буфер через те не порожнів, а кожна наступна спроба читала його з початку —
+ * тобто везла серверу те, що він годину тому вже записав. Поки буфер був
+ * менший за пачку, свіжий хвіст усе-таки їхав разом зі старим і день на карті
+ * ріс. А коли буфер переріс пачку (200 точок), у кожній відправці не лишалося
+ * НІ ОДНОЇ нової точки — і трек завмирав на години при живому зв'язку,
+ * робочому GPS і планшеті, який щохвилини звітував про себе. Так у Ігоря
+ * зникли 11:09–13:13 і 15:52–16:48.
+ *
+ * `null` — читати з початку буфера: рівно те, що робилось досі.
+ */
+export async function pointsAfter(
+  mark: string | null,
+  limit: number
+): Promise<BufferedPoint[]> {
   const db = await open();
+  if (mark == null) {
+    return db.getAllAsync<BufferedPoint>(
+      "SELECT * FROM points ORDER BY recordedAt ASC LIMIT ?",
+      limit
+    );
+  }
   return db.getAllAsync<BufferedPoint>(
-    "SELECT * FROM points ORDER BY recordedAt ASC LIMIT ?",
+    "SELECT * FROM points WHERE recordedAt > ? ORDER BY recordedAt ASC LIMIT ?",
+    mark,
     limit
   );
 }
@@ -116,6 +141,26 @@ export async function dropPoints(points: BufferedPoint[]): Promise<void> {
 export async function bufferedCount(): Promise<number> {
   const db = await open();
   const row = await db.getFirstAsync<{ n: number }>("SELECT COUNT(*) AS n FROM points");
+  return row?.n ?? 0;
+}
+
+/**
+ * Скільки точок сервер ЩЕ НЕ БАЧИВ.
+ *
+ * Саме це число має сенс у пульсі: «скільки чекає відправки». Рядки, які
+ * сервер прийняв, а видалення їх не дочекалося, чекають уже нічого — і поки
+ * вони рахувалися разом з усіма, пульс показував буфер, що росте годинами, а
+ * діагноз казав «немає зв'язку» при бездоганному зв'язку.
+ */
+export async function unsentCount(mark: string | null): Promise<number> {
+  const db = await open();
+  const row =
+    mark == null
+      ? await db.getFirstAsync<{ n: number }>("SELECT COUNT(*) AS n FROM points")
+      : await db.getFirstAsync<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM points WHERE recordedAt > ?",
+          mark
+        );
   return row?.n ?? 0;
 }
 

@@ -13,7 +13,8 @@ import { cancelCloseReminders } from "./reminder";
 import {
   bufferedCount,
   dropPoints,
-  oldestPoints,
+  pointsAfter,
+  unsentCount,
   type BufferedPoint,
 } from "./db";
 import {
@@ -61,6 +62,33 @@ let flushing = false;
 let flushProgressAt = 0;
 /** Хто тримає замок: зависла спроба не має знімати його з-під живої. */
 let flushOwner = 0;
+
+/**
+ * Мітка часу останньої точки, яку ми вже ВІДДАЛИ серверу в цьому процесі.
+ *
+ * Головне виправлення 03.09. Досі поступ відправки існував лише у вигляді
+ * порожнього буфера: точки зникали з нього після підтвердження, і наступна
+ * спроба читала те, що лишилось. Виглядало надійно — і трималося рівно до
+ * дня, коли відправка почала зависати ПІСЛЯ того, як сервер пачку прийняв.
+ *
+ * Тоді видалення не відбувалося, буфер не порожнів, і кожна нова спроба
+ * везла те саме. Поки буфер був менший за пачку, разом зі старим їхав і
+ * свіжий хвіст, тож збою ніхто не бачив. А коли переріс — у пачці не
+ * лишалося жодної нової точки, і трек на карті ставав. Планшет при цьому
+ * щохвилини звітував «пишу, зв'язок є» — і був правий.
+ *
+ * Курсор рухається ПЕРЕД відправкою, а не після підтвердження: сервер або
+ * прийняв пачку (тоді повторювати нічого), або відповів помилкою — і тоді
+ * курсор вертається на місце тут же, у catch. Зависання лишається єдиним
+ * випадком, коли ми не знаємо відповіді, і саме там дорожча помилка —
+ * тиснути серверу те саме, замість того щоб везти нове.
+ *
+ * У пам'яті, а не у сховищі, і це навмисно: після перезапуску процесу
+ * курсор порожній, буфер віддається з початку, а сервер відсіює повтори сам
+ * (`recordedAt` — унікальний ключ у межах доби). Збережений курсор у тій
+ * самій ситуації міг би пропустити точки, яких сервер так і не отримав.
+ */
+let sentThrough: string | null = null;
 
 /**
  * Скільки відправка може стояти без поступу, перш ніж її визнають зависною.
@@ -174,8 +202,20 @@ export async function flush(force = false): Promise<void> {
         await note(`Злив зупинено на ${MAX_ROUNDS} пачках — буфер не порожніє`);
         break;
       }
-      const slice = await step("читання буфера", 20_000, () => oldestPoints(batchSize));
-      if (slice.length === 0) break;
+      const slice = await step("читання буфера", 20_000, () => pointsAfter(sentThrough, batchSize));
+      if (slice.length === 0) {
+        /**
+         * Нових точок немає, а буфер не порожній — значить, підтвердження
+         * попередніх пачок загубилися разом із зависанням, і рядки лишилися
+         * лежати. Сервер їх найімовірніше має, але певності немає, тож
+         * віддаємо ще раз: повтор він відсіє сам, а втрачений день — ні.
+         */
+        if (sentThrough != null && (await bufferedCount()) > 0) {
+          sentThrough = null;
+          continue;
+        }
+        break;
+      }
 
       /**
        * Фаза їде одна на пачку, а буфер може містити межу закриття зміни:
@@ -186,6 +226,20 @@ export async function flush(force = false): Promise<void> {
       const phase = slice[0]?.phase ?? undefined;
       const cut = slice.findIndex((p: BufferedPoint) => (p.phase ?? undefined) !== phase);
       const batch = cut === -1 ? slice : slice.slice(0, cut);
+
+      /**
+       * Курсор рухаємо ДО відправки — див. sentThrough. Попереднє значення
+       * тримаємо, щоб на явній відмові сервера вернути його назад.
+       */
+      const markBefore = sentThrough;
+      sentThrough = batch[batch.length - 1]?.recordedAt ?? sentThrough;
+      /**
+       * Чи дійшла пачка. Далі в тому самому try падають ще й видалення та
+       * позначки — а вони трапляються ПІСЛЯ того, як сервер пачку взяв.
+       * Вертати на них курсор означало б знову везти серверу те, що він уже
+       * має, тобто рівно та поведінка, від якої ми тут і лікуємось.
+       */
+      let landed = false;
 
       try {
         await step("відправка пачки", 120_000, () =>
@@ -203,6 +257,7 @@ export async function flush(force = false): Promise<void> {
             phase: phase ?? undefined,
           })
         );
+        landed = true;
         await step("видалення надісланого", 20_000, () => dropPoints(batch));
         await note(null);
         /**
@@ -230,6 +285,13 @@ export async function flush(force = false): Promise<void> {
         const status = e instanceof StaffApiError ? e.status : 0;
 
         /**
+         * Впала сама відправка — отже пачки в сервера немає (або він її не
+         * візьме). Курсор вертається на місце: наступна спроба почне саме з
+         * неї. Якщо ж пачка вже долетіла, курсор лишається зрушеним.
+         */
+        if (!landed) sentThrough = markBefore;
+
+        /**
          * 401 обробляє сам клієнт (стирає токен і зупиняє службу) — тут лишаємо
          * буфер недоторканим: людина увійде знову, і день доїде.
          */
@@ -242,6 +304,8 @@ export async function flush(force = false): Promise<void> {
          */
         if (status >= 400 && status < 500 && status !== 403 && status !== 429) {
           await step("видалення відхиленого", 20_000, () => dropPoints(batch)).catch(() => {});
+          // Пачку викинуто назавжди — вертати на неї курсор нема сенсу.
+          sentThrough = batch[batch.length - 1]?.recordedAt ?? sentThrough;
           await note(`Пачку відхилено (${status})`);
           flushProgressAt = Date.now();
           continue;
@@ -283,7 +347,7 @@ export async function flush(force = false): Promise<void> {
 
 /** Чи час відправляти: або назбиралося, або минув інтервал. */
 export async function maybeFlush(): Promise<void> {
-  const [count, last] = await Promise.all([bufferedCount(), getLastFlushAt()]);
+  const [count, last] = await Promise.all([unsentCount(sentThrough), getLastFlushAt()]);
   if (count === 0) return;
   if (count >= FLUSH_AT_POINTS || Date.now() - last >= FLUSH_INTERVAL_MS) {
     await flush();
@@ -306,7 +370,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
 
   const [buffered, mode, shiftOpen, fix, fixAt, lastError, startError, lastSync, device] =
     await Promise.all([
-      bufferedCount(),
+      unsentCount(sentThrough),
       getMode(),
       isShiftOpen(),
       getLastFix(),

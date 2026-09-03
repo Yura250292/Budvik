@@ -22,62 +22,27 @@
  * замість шести й дізнався б про шосту хіба ввечері. Тепер у тексті всі точки
  * в порядку маршруту, з тією ж нумерацією, що в чек-листі водія, а ті, яких
  * Google не веде, помічені: до них їдуть за адресою словами.
+ *
+ * Сам текст будує lib/routes/driver-message.ts — той самий модуль, яким
+ * користується сервер, коли надсилає маршрут у Telegram. Двох копій тут бути
+ * не може: водій порівняє повідомлення з кнопкою й повірить свіжішому.
  */
 
 import { useState } from "react";
+import { Map as MapIcon } from "lucide-react";
+import { MAX_POINTS_PER_LINK } from "@/lib/maps/google-links";
 import {
-  googleMapsPathLinks,
-  MAX_POINTS_PER_LINK,
-  type MapPoint,
-} from "@/lib/maps/google-links";
+  buildDriverMessage,
+  plural,
+  points,
+  type MessageStop,
+} from "@/lib/routes/driver-message";
+import { kyivDate } from "@/lib/date/kyiv";
 
-type Stop = {
+type Stop = MessageStop & {
   id: string;
   sequence: number;
-  kind: "DELIVERY" | "PICKUP" | "ERRAND";
-  title: string | null;
-  address: string | null;
-  lat?: number | null;
-  lng?: number | null;
-  counterparty?: {
-    name: string;
-    deliveryLat?: number | null;
-    deliveryLng?: number | null;
-  } | null;
 };
-
-/**
- * Координата точки: спершу картка клієнта, потім власна координата точки.
- *
- * Той самий порядок, що в екрані дня водія (lib/track/day-stops.ts). Пін
- * клієнта пріоритетніший, бо його уточнюють руками, і уточнення має діяти
- * на всі маршрути; власні lat/lng є лише в поїздок без контрагента.
- */
-function coordsOf(s: Stop): MapPoint | null {
-  const lat = s.counterparty?.deliveryLat ?? s.lat ?? null;
-  const lng = s.counterparty?.deliveryLng ?? s.lng ?? null;
-  return lat == null || lng == null ? null : { lat, lng };
-}
-
-function nameOf(s: Stop): string {
-  return s.title || s.counterparty?.name || s.address || "Точка";
-}
-
-/**
- * Українська форма числа: 1 точка, 2 точки, 5 точок.
- *
- * Дрібниця, але цей текст читає не сервер, а водій у месенджері, і «4 точок»
- * у повідомленні з офісу виглядає так само, як помилка в накладній.
- */
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
-}
-
-const points = (n: number) => `${n} ${plural(n, "точка", "точки", "точок")}`;
 
 export default function RouteMapLink({
   number,
@@ -95,9 +60,14 @@ export default function RouteMapLink({
   /** Буфер обміну недоступний (не https, заборона браузера) — показуємо текст. */
   const [fallback, setFallback] = useState<string | null>(null);
 
-  const withCoords = stops.filter((s) => coordsOf(s));
-  const missing = stops.length - withCoords.length;
-  const links = googleMapsPathLinks(withCoords.map((s) => coordsOf(s)!));
+  // Київська доба маршруту: дата зберігається як 00:00 UTC, і на сервері
+  // (він у UTC) наївне форматування дало б сусідній день.
+  const { text: messageText, links, withCoords, missing } = buildDriverMessage({
+    number,
+    day: kyivDate(new Date(date)),
+    driverName,
+    stops,
+  });
 
   // Одна точка маршруту не робить: Google нема через що вести дорогу.
   if (links.length === 0) {
@@ -109,37 +79,6 @@ export default function RouteMapLink({
       </div>
     );
   }
-
-  /**
-   * Те, що вставляють у Viber.
-   *
-   * Нумерація — за порядком у маршруті, тобто та сама, що в чек-листі водія:
-   * якщо в тексті «4. Мацигін», то в застосунку це теж четверта точка.
-   * Рахувати лише ті, що ввійшли в посилання, означало б дати водієві другу
-   * нумерацію й посварити її з першою.
-   */
-  const messageText = [
-    `Маршрут ${number} · ${new Date(date).toLocaleDateString("uk-UA")}${driverName ? ` · ${driverName}` : ""}`,
-    ...stops.map((s, i) => {
-      const addr = s.address ? ` — ${s.address}` : "";
-      const noPin = coordsOf(s) ? "" : " ⚠ немає точки на карті, їхати за адресою";
-      return `${i + 1}. ${nameOf(s)}${addr}${noPin}`;
-    }),
-    "",
-    // Частини нумеруємо «1/2», а не просто «1»: водій, який побачив лише
-    // «частина 1», не знає, що є продовження, і поїде за обірваним обʼїздом.
-    ...links.map((l, i) =>
-      links.length === 1
-        ? `Google Maps: ${l.url}`
-        : `Google Maps, частина ${i + 1}/${links.length} (${points(l.points)}): ${l.url}`
-    ),
-    ...(missing > 0
-      ? [
-          "",
-          `Увага: ${points(missing)} без координат — у посиланні ${missing === 1 ? "її" : "їх"} немає, дивіться адресу в списку вище.`,
-        ]
-      : []),
-  ].join("\n");
 
   const copy = async (text: string, tag: string) => {
     try {
@@ -175,9 +114,10 @@ export default function RouteMapLink({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="cursor-pointer rounded-[8px] border border-g200 bg-white px-3 py-1.5 text-[13px] font-semibold text-bk hover:bg-g50"
+          className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-g200 bg-white px-3 py-1.5 text-[13px] font-semibold text-bk hover:bg-g50"
         >
-          🗺 Маршрут у Google Maps
+          <MapIcon className="h-4 w-4" aria-hidden />
+          Маршрут у Google Maps
         </button>
         <a
           href={links[0].url}
@@ -203,7 +143,7 @@ export default function RouteMapLink({
         </button>
 
         <span className="text-[12px] text-g500">
-          {points(withCoords.length)}
+          {points(withCoords)}
           {links.length > 1 &&
             ` · ${links.length} ${plural(links.length, "частина", "частини", "частин")} по ${MAX_POINTS_PER_LINK}`}
         </span>

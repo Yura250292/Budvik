@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { formatPrice, formatDate } from "@/lib/utils";
+import { formatPrice, formatDayDate } from "@/lib/utils";
 import RoutePlanPanel from "@/components/routes/RoutePlanPanel";
 import AssignDriverBar from "@/components/routes/AssignDriverBar";
 import ClientSearch, { pinState, pinUnusable, type FoundClient } from "@/components/routes/ClientSearch";
@@ -362,7 +362,7 @@ export default function DeliveryRoutesPage() {
                     </Badge>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-bk">{formatDate(r.date)}</p>
+                    <p className="text-sm font-semibold text-bk">{formatDayDate(r.date)}</p>
                     <p className="text-[13px] text-g500">
                       Водій: {r.driver?.name || "—"} | {r._count?.stops || 0} зупинок
                     </p>

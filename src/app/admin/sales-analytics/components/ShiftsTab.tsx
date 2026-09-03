@@ -88,7 +88,14 @@ type Detail = {
   }>;
   attempts: { start: number; end: number };
   track: {
-    shift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
+    shift: {
+      points: Array<{ lat: number; lng: number }>;
+      path: Array<[number, number]>;
+      /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
+      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number }>;
+      movement?: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
+      pointsCount: number;
+    };
     afterShift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
   };
   plan: {
@@ -274,6 +281,14 @@ export function ShiftsTab({
     overrunning: number;
   } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  /**
+   * Класти трек на дороги чи лишати ламаною.
+   *
+   * Вимкнено за замовчуванням навмисно: розрахунок коштує десятка запитів
+   * до OSRM, а картку відкривають десятки разів на день. Вмикають його
+   * тоді, коли справді розбирають маршрут.
+   */
+  const [onRoads, setOnRoads] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   /** Клієнт, на якому тримають курсор у списку — його кільце на карті більшає. */
   const [hoverOrder, setHoverOrder] = useState<string | null>(null);
@@ -322,7 +337,7 @@ export function ShiftsTab({
     }
     let alive = true;
     (async () => {
-      const res = await fetch(`/api/admin/shifts/${selected}`);
+      const res = await fetch(`/api/admin/shifts/${selected}${onRoads ? "?roads=1" : ""}`);
       const json = await res.json().catch(() => null);
       if (!alive || !res.ok) return;
       setDetail(json);
@@ -339,7 +354,7 @@ export function ShiftsTab({
     return () => {
       alive = false;
     };
-  }, [selected]);
+  }, [selected, onRoads]);
 
   /**
    * Зміни, згруповані за київською добою. Порядок від нових до старих
@@ -694,7 +709,18 @@ export function ShiftsTab({
               value={
                 detail.shift.gpsDistanceKm != null ? `${detail.shift.gpsDistanceKm} км` : "—"
               }
-              hint={`${detail.track.shift.pointsCount} точок`}
+              /*
+                Розклад по способу пересування, а не самі точки. «За треком»
+                рахує всі метри підряд, і в них сидить ходьба по ринку та
+                двору клієнта — тобто кілометри, яких машина не їхала. Поки
+                число одне, зрозуміти, скільки з нього справжня дорога,
+                неможливо.
+              */
+              hint={
+                detail.track.shift.movement
+                  ? `автом ${detail.track.shift.movement.DRIVE.km} км · пішки ${detail.track.shift.movement.WALK.km} км`
+                  : `${detail.track.shift.pointsCount} точок`
+              }
             />
             <Metric
               label="Одометр / трек"
@@ -806,8 +832,25 @@ export function ShiftsTab({
               detail.track.afterShift.pointsCount > 0 ||
               detail.orders.dots.length > 0 ? (
                 <>
+                  {/*
+                    Сирий трек лишається за замовчуванням навмисно. Прив'язка
+                    до доріг згладжує саме те, за чим сюди й приходять: де
+                    приймач брехав і чи людина справді там була. Краса —
+                    другим кроком, на прохання.
+                  */}
+                  <label className="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-g600">
+                    <input
+                      type="checkbox"
+                      checked={onRoads}
+                      onChange={(e) => setOnRoads(e.target.checked)}
+                      className="cursor-pointer accent-primary-dark"
+                    />
+                    По дорогах
+                    <span className="text-g500">— ходьбу й стоянки не чіпає</span>
+                  </label>
                   <ShiftTrackMap
                     shiftPath={detail.track.shift.path}
+                    shiftParts={detail.track.shift.parts}
                     afterShiftPath={detail.track.afterShift.path}
                     planGeometry={detail.plan.route?.geometry ?? null}
                     planStops={detail.plan.route?.stops ?? []}

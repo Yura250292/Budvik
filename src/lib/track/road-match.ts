@@ -28,6 +28,7 @@
 
 import { matchTrace } from "@/lib/geo/osrm";
 import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
+import { classifyMovement } from "@/lib/track/movement";
 
 /**
  * Скільки координат ідуть в один запит.
@@ -60,7 +61,16 @@ const BUDGET_MS = 12_000;
 /** Ближчі за це точки матчеру нічого не додають, лише з'їдають ліміт. */
 const MIN_STEP_M = 8;
 
-export type TrackVertex = { lat: number; lng: number; accuracyM?: number | null };
+export type TrackVertex = {
+  lat: number;
+  lng: number;
+  accuracyM?: number | null;
+  /**
+   * Час фікса. Без нього поділ на їзду й ходьбу неможливий, і прив'язка
+   * поводиться як раніше — кладе на дороги весь слід підряд.
+   */
+  recordedAt?: Date;
+};
 
 /**
  * Проріджує слід перед матчингом.
@@ -83,13 +93,51 @@ function thin(points: TrackVertex[]): TrackVertex[] {
  * прив'язувати нічого.
  */
 export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number, number]> | null> {
-  const trusted = thin(
-    points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M)
-  );
+  const trusted = points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M);
   if (trusted.length < 2) return null;
 
   const started = Date.now();
+
+  /**
+   * На дороги кладемо ЛИШЕ їзду — і це головне тут після самого матчингу.
+   *
+   * Матчер шукає послідовність доріг, якою людина найімовірніше проїхала. На
+   * пішому сліді він робить рівно те, що вміє: чесно веде вулицями петлю,
+   * яку торговий обійшов ногами по ринку. Виходить намальована поїздка, якої
+   * не було, і саме вона давала «хвости» на карті. Стоянка ще гірша: три
+   * години тремтіння приймача на місці матчер розкладає в клубок проїздів.
+   *
+   * Тому ходьба лишається сирою ламаною, а стоянка стискається в одну точку.
+   */
+  const withTime = trusted.every((p) => p.recordedAt instanceof Date);
+  if (withTime) {
+    const segments = classifyMovement(
+      trusted as Array<TrackVertex & { recordedAt: Date }>
+    );
+    const out: Array<[number, number]> = [];
+    for (const seg of segments) {
+      const part = trusted.slice(seg.start, seg.end + 1);
+      const line =
+        seg.mode === "STOP"
+          ? [[part[0].lat, part[0].lng] as [number, number]]
+          : seg.mode === "WALK"
+            ? thin(part).map((p) => [p.lat, p.lng] as [number, number])
+            : await matchRun(thin(part), started);
+      for (const v of out.length > 0 ? line.slice(1) : line) out.push(v);
+    }
+    return out.length >= 2 ? out : null;
+  }
+
+  return matchRun(thin(trusted), started).then((line) => (line.length >= 2 ? line : null));
+}
+
+/** Кладе на дороги один суцільний відрізок їзди. */
+async function matchRun(
+  trusted: TrackVertex[],
+  started: number
+): Promise<Array<[number, number]>> {
   const out: Array<[number, number]> = [];
+  if (trusted.length < 2) return trusted.map((p) => [p.lat, p.lng] as [number, number]);
 
   for (let i = 0; i < trusted.length - 1; i += CHUNK - 1) {
     const chunk = trusted.slice(i, i + CHUNK);
@@ -122,5 +170,5 @@ export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number
     for (const v of out.length > 0 ? line.slice(1) : line) out.push(v);
   }
 
-  return out.length >= 2 ? out : null;
+  return out;
 }

@@ -15,6 +15,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTrackPath } from "@/lib/track/gaps";
+import { classifyMovement, movementTotals, type MoveSegment } from "@/lib/track/movement";
+import { matchDayPath } from "@/lib/track/road-match";
 import { kyivDate, kyivTime } from "@/lib/date/kyiv";
 import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
@@ -43,6 +45,11 @@ export async function GET(
   }
 
   const { id } = await params;
+  /**
+   * «По дорогах» — на прохання, а не завжди: розрахунок коштує десятка
+   * запитів до OSRM, а картку зміни відкривають десятки разів на день.
+   */
+  const onRoads = req.nextUrl.searchParams.get("roads") === "1";
 
   const shift = await prisma.shift.findUnique({
     where: { id },
@@ -185,6 +192,13 @@ export async function GET(
       shift: {
         points: shiftPoints,
         path: buildTrackPath(shiftPoints),
+        /**
+         * Той самий трек, поділений за способом пересування. `path` вище
+         * лишається цілим навмисно — по ньому карта рахує межі й будує
+         * підказки, і рвати його заради стилю було б обміном шила на мило.
+         */
+        parts: await splitByMovement(shiftPoints, onRoads),
+        movement: movementTotals(classifyMovement(shiftPoints)),
         pointsCount: shiftPoints.length,
       },
       afterShift: {
@@ -335,4 +349,60 @@ export async function PATCH(
   }
 
   return NextResponse.json({ shift });
+}
+
+/**
+ * Ріже трек на шматки за способом пересування — під різні стилі на карті.
+ *
+ * Сусідні шматки ділять спільну точку (кінець одного = початок наступного),
+ * тож лінія лишається суцільною: між двома поїздками видно, як людина дійшла
+ * ногами, а не діра.
+ *
+ * Кожен шматок проходить через buildTrackPath окремо — інакше геометрія
+ * розриву, яка висить на точці-кінці, лягла б не в той шматок.
+ */
+async function splitByMovement(
+  points: Array<{
+    lat: number;
+    lng: number;
+    recordedAt: Date;
+    accuracyM?: number | null;
+    gapGeometry?: unknown;
+  }>,
+  onRoads: boolean
+): Promise<
+  Array<{ mode: MoveSegment["mode"]; path: Array<[number, number]>; km: number; minutes: number }>
+> {
+  const segments = classifyMovement(points);
+  const parts: Array<{
+    mode: MoveSegment["mode"];
+    path: Array<[number, number]>;
+    km: number;
+    minutes: number;
+  }> = [];
+
+  for (const seg of segments) {
+    const slice = points.slice(seg.start, seg.end + 1);
+    /**
+     * По дорогах кладемо лише їзду й лише на прохання.
+     *
+     * Прохання — бо кожен такий розрахунок коштує десятка запитів до OSRM, а
+     * картку зміни відкривають десятки разів на день; лише їзду — бо матчер на
+     * пішому сліді малює поїздку, якої не було (див. road-match).
+     *
+     * Не вдалося — лишається та сама ламана, що й досі: це малюнок, і його
+     * відсутність нікому нічого не псує.
+     */
+    const path =
+      onRoads && seg.mode === "DRIVE"
+        ? ((await matchDayPath(slice).catch(() => null)) ?? buildTrackPath(slice))
+        : buildTrackPath(slice);
+    parts.push({
+      mode: seg.mode,
+      path,
+      km: Math.round(seg.meters / 100) / 10,
+      minutes: seg.minutes,
+    });
+  }
+  return parts;
 }

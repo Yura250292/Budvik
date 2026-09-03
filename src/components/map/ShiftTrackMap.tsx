@@ -8,6 +8,14 @@
  * призначили: він лежить ПІД треком, бо це підкладка-лінійка, а не факт.
  * Злиті в одну лінію, вони давали б хибне враження довгого робочого дня.
  *
+ * Робочий трек ще й поділений за способом пересування, і це не оформлення.
+ * Власника цікавить швидке пересування — воно і є маршрут; а торговий
+ * півдня ходить ногами по ринку, двору й складу клієнта. Намальовані тією
+ * самою синьою лінією, ці метри й давали «хвости»: людина обійшла ринок, а
+ * карта показала зигзаг через квартал. Тепер ходьба — тонкий бурштиновий
+ * пунктир, а стоянка не малюється взагалі: людина нікуди не йшла, і
+ * тремтіння приймача на місці не має вдавати шлях.
+ *
  * Червоні кола — епізоди, коли трек надовго пішов за межі коридору
  * маршруту. Коло, а не маркер: епізод — це область і тривалість.
  */
@@ -86,6 +94,7 @@ export type OrderDot = {
 
 export default function ShiftTrackMap({
   shiftPath,
+  shiftParts = [],
   afterShiftPath,
   planGeometry = null,
   planStops = [],
@@ -96,6 +105,18 @@ export default function ShiftTrackMap({
   height = "420px",
 }: {
   shiftPath: Array<[number, number]>;
+  /**
+   * Той самий трек, поділений на їзду, ходьбу й стоянки.
+   *
+   * Порожній масив — стара поведінка: суцільна синя лінія. Так карта
+   * лишається робочою і там, куди поділ ще не довели.
+   */
+  shiftParts?: Array<{
+    mode: "DRIVE" | "WALK" | "STOP";
+    path: Array<[number, number]>;
+    km: number;
+    minutes: number;
+  }>;
   afterShiftPath: Array<[number, number]>;
   /** GeoJSON LineString від OSRM; без неї пункти з'єднуються прямою */
   planGeometry?: { type?: string; coordinates?: [number, number][] } | null;
@@ -205,7 +226,33 @@ export default function ShiftTrackMap({
     });
 
     if (shiftPath.length > 1) {
-      L.polyline(shiftPath, { color: "#2563EB", weight: 4, opacity: 0.85 }).addTo(group);
+      if (shiftParts.length > 0) {
+        for (const part of shiftParts) {
+          if (part.path.length < 2) continue;
+          /**
+           * Стоянку не малюємо зовсім. За день її набігає по три-чотири
+           * години, і весь цей час приймач тремтить на місці, вимальовуючи
+           * клубки там, де людина просто стояла у клієнта.
+           */
+          if (part.mode === "STOP") continue;
+          const walk = part.mode === "WALK";
+          L.polyline(part.path, {
+            color: walk ? "#D97706" : "#2563EB",
+            weight: walk ? 3 : 4,
+            opacity: walk ? 0.9 : 0.85,
+            ...(walk ? { dashArray: "2 6", lineCap: "round" as const } : {}),
+          })
+            .bindTooltip(
+              walk
+                ? `Пішки ${part.km} км, ${part.minutes} хв`
+                : `Автом ${part.km} км, ${part.minutes} хв`,
+              { sticky: true }
+            )
+            .addTo(group);
+        }
+      } else {
+        L.polyline(shiftPath, { color: "#2563EB", weight: 4, opacity: 0.85 }).addTo(group);
+      }
       shiftPath.forEach((c) => bounds.extend(c));
 
       // Початок і кінець робочої зміни — щоб було видно, з якого краю
@@ -291,7 +338,7 @@ export default function ShiftTrackMap({
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [shiftPath, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
+  }, [shiftPath, shiftParts, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
 
   /**
    * Наведення на рядок у списку підсвічує його точку.

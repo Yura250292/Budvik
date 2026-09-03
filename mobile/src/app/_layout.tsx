@@ -30,6 +30,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { isBiometricEnabled, unlock, clearToken, getScope } from "@/lib/auth-store";
 import { useNotificationTaps } from "@/track/notification-taps";
 import { useTrackHealth } from "@/track/use-track-health";
+import { useAutoUpdate } from "@/lib/use-auto-update";
 import { colors, space, radius } from "@/theme";
 
 /**
@@ -206,6 +207,11 @@ export default function RootLayout() {
    * де трек і губиться.
    */
   useTrackHealth();
+  /**
+   * Оновлення застосовується саме, коли застосунок пішов з екрана, — щоб не
+   * просити п'ятьох людей вийти й зайти після кожної публікації.
+   */
+  useAutoUpdate();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

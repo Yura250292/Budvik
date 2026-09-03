@@ -20,6 +20,7 @@ import {
   directionsUrl,
   fromHereUrl,
   pointUrl,
+  navigateUrl,
   MAX_POINTS_PER_LINK,
   type MapPoint,
 } from "../src/lib/google-links";
@@ -99,6 +100,19 @@ check(
 );
 check("fromHereUrl однаковий", site.fromHereUrl(many.slice(0, 4)) === fromHereUrl(many.slice(0, 4)));
 check("pointUrl однаковий", site.pointUrl(many[0]) === pointUrl(many[0]));
+check(
+  "navigateUrl (Google) однаковий",
+  site.navigateUrl(many[0], "google") === navigateUrl(many[0], "google")
+);
+check(
+  "navigateUrl (Waze) однаковий",
+  site.navigateUrl(many[0], "waze") === navigateUrl(many[0], "waze")
+);
+check(
+  "Waze веде саме в навігацію",
+  navigateUrl(many[0], "waze").includes("navigate=yes"),
+  navigateUrl(many[0], "waze")
+);
 
 /** Кожна наступна частина мусить стартувати там, де скінчилася попередня. */
 const links = googleMapsLinks(many);

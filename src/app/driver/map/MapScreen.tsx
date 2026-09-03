@@ -24,7 +24,8 @@ import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientO
 import { ClientCommentsModal } from "@/app/admin/sales-analytics/components/ClientCommentsModal";
 import { DriverPinModal } from "@/components/driver/DriverPinModal";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
-import { pointUrl } from "@/lib/maps/google-links";
+import { navigateUrl } from "@/lib/maps/google-links";
+import { useNavApp } from "@/lib/maps/use-nav-app";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
 import { planCore } from "@/components/map/SalesClientsMap";
@@ -113,6 +114,8 @@ export default function DriverMapScreen() {
   const [orderFor, setOrderFor] = useState<{ id: string; name: string; state: ClientStateKey } | null>(null);
   const [commentsFor, setCommentsFor] = useState<{ id: string; name: string } | null>(null);
   const [pinFor, setPinFor] = useState<DriverClient | null>(null);
+  // Той самий вибір, що на екрані дня: обрав Waze один раз — він Waze усюди.
+  const [navApp] = useNavApp();
 
   // Тягнемо завжди повний набір: 379 точок — одна відповідь, а перемикання
   // «маршрут / мої / всі» після цього миттєве, без походу в мережу.
@@ -201,9 +204,9 @@ export default function DriverMapScreen() {
           debt: s.debtAmount,
           status: planStatus(s),
           errand: s.kind !== "DELIVERY",
-          mapUrl: pointUrl({ lat: s.lat as number, lng: s.lng as number }),
+          mapUrl: navigateUrl({ lat: s.lat as number, lng: s.lng as number }, navApp),
         })),
-    [day?.route.stops]
+    [day?.route.stops, navApp]
   );
 
   const plan = useMemo<DayPlan>(

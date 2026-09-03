@@ -23,7 +23,8 @@ import {
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
-import { googleMapsLinksFromHere, pointUrl } from "@/lib/maps/google-links";
+import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/maps/google-links";
+import { useNavApp } from "@/lib/maps/use-nav-app";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
@@ -135,6 +136,12 @@ function DriverDayScreen() {
   const build = useBuildVersion();
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  /**
+   * Чим водій їде. Живе на пристрої, а не в профілі: це звичка конкретної
+   * людини за конкретним кермом, і синхронізувати її між планшетом і
+   * телефоном немає навіщо.
+   */
+  const [navApp, chooseNav] = useNavApp();
 
   const load = useCallback(async () => {
     try {
@@ -293,6 +300,19 @@ function DriverDayScreen() {
 
     return googleMapsLinksFromHere(pending);
   }, [stops, queued]);
+
+  /**
+   * Наступна точка — та, куди водій їде ЗАРАЗ.
+   *
+   * Перша невідмічена за порядком обʼїзду. Саме вона й замінила «дорогу
+   * частинами»: коли ведеш по одній точці, ліміт Google ні до чого
+   * прикласти, а наступну підставляє застосунок, щойно попередню відмічено.
+   */
+  const nextStop = useMemo(
+    () => stops.find((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null),
+    [stops, queued]
+  );
+
 
   return (
     <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
@@ -525,51 +545,14 @@ function DriverDayScreen() {
         </div>
       ) : (
         <>
-          {mapLinks.length > 0 && (
-            <section className="px-4 py-3" style={{ background: "#fff" }}>
-              <p
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  color: "#6B7280",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.03em",
-                }}
-              >
-                Дорога в Google Maps
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {mapLinks.map((link, idx) => (
-                  <a
-                    key={link.url}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener"
-                    className="cursor-pointer transition-colors duration-200"
-                    style={{
-                      flex: mapLinks.length === 1 ? "1 1 100%" : "1 1 45%",
-                      padding: "13px 14px",
-                      borderRadius: "12px",
-                      background: idx === 0 ? "#2563EB" : "#EFF6FF",
-                      color: idx === 0 ? "#fff" : "#1D4ED8",
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      textAlign: "center",
-                      textDecoration: "none",
-                    }}
-                  >
-                    {mapLinks.length === 1
-                      ? `Відкрити маршрут · ${pointsLabel(link.points)}`
-                      : `Частина ${idx + 1} · ${pointsLabel(link.points)}`}
-                  </a>
-                ))}
-              </div>
-              <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
-                {mapLinks.length > 1
-                  ? "Перша частина веде від того місця, де ви зараз. Google бере щонайбільше 10 точок за раз — доїхали до кінця частини, відкривайте наступну, вона починається там само."
-                  : "Дорога почнеться від того місця, де ви зараз."}
-              </p>
-            </section>
+          {!!nextStop && !readOnly && (
+            <NextStopCard
+              stop={nextStop}
+              left={data.progress.left}
+              navApp={navApp}
+              onChooseNav={chooseNav}
+              wholeRoute={mapLinks}
+            />
           )}
 
           {/* Той самий лист на карті: список каже, що везти, карта — куди
@@ -626,6 +609,176 @@ function DriverDayScreen() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Куди їхати просто зараз.
+ *
+ * Замінила «дорогу частинами». Та була наслідком чужого обмеження:
+ * посилання Google бере щонайбільше девʼять проміжних точок, тож день на
+ * 25 адрес різався на три шматки, і між ними водій мусив САМ згадати, що
+ * треба повернутися в кабінет і відкрити наступний. За кермом про це не
+ * згадують — відкривали перший шматок і далі їхали навмання.
+ *
+ * По одній точці ліміту немає взагалі: наступну підставляє сам застосунок,
+ * щойно попередню відмічено. І навігатор тоді байдуже який — Waze приймає
+ * рівно одну точку, і саме тому тут він рівноправний із Google.
+ *
+ * Весь маршрут частинами лишився нижче дрібним посиланням: хтось звик
+ * завантажити девʼять точок і не торкатися планшета до кінця пачки.
+ */
+function NextStopCard({
+  stop,
+  left,
+  navApp,
+  onChooseNav,
+  wholeRoute,
+}: {
+  stop: DayStop;
+  /** Скільки точок ще не відмічено, разом із цією */
+  left: number;
+  navApp: NavApp;
+  onChooseNav: (app: NavApp) => void;
+  wholeRoute: Array<{ url: string; points: number }>;
+}) {
+  const [showWhole, setShowWhole] = useState(false);
+  const isErrand = stop.kind !== "DELIVERY";
+
+  return (
+    <section className="px-4 py-3" style={{ background: "#fff" }}>
+      <div className="flex items-center gap-2">
+        <p
+          style={{
+            fontSize: "12px",
+            fontWeight: 700,
+            color: "#6B7280",
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+          }}
+        >
+          Наступна точка
+        </p>
+        <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
+          {/* Скільки лишиться ПІСЛЯ цієї: «ще 32 точки», коли попереду
+              рівно 32 разом із поточною, читається як помилка в рахунку. */}
+          {left > 1 ? `далі ще ${pointsLabel(left - 1)}` : "остання"}
+        </span>
+
+        {/* Вибір навігатора — тут, а не в налаштуваннях: його міняють раз у
+            житті, але саме в ту мить, коли вперше тиснуть «Їхати». */}
+        <div className="ml-auto flex gap-1 rounded-full p-0.5" style={{ background: "#F3F4F6" }}>
+          {(["google", "waze"] as NavApp[]).map((app) => (
+            <button
+              key={app}
+              type="button"
+              onClick={() => onChooseNav(app)}
+              aria-pressed={navApp === app}
+              className="cursor-pointer rounded-full transition-colors duration-200"
+              style={{
+                minHeight: "32px",
+                padding: "0 12px",
+                border: "none",
+                background: navApp === app ? "#0A0A0A" : "transparent",
+                color: navApp === app ? "#fff" : "#6B7280",
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              {app === "google" ? "Google" : "Waze"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p
+        className="truncate"
+        style={{ fontSize: "17px", fontWeight: 700, color: "#0A0A0A", marginTop: "6px" }}
+      >
+        {isErrand && <span style={{ marginRight: "5px" }}>{stop.kind === "PICKUP" ? "↩️" : "✳️"}</span>}
+        {stop.name}
+      </p>
+      {!!stop.address && (
+        <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "2px", lineHeight: 1.4 }}>
+          {stop.address}
+        </p>
+      )}
+
+      <a
+        href={navigateUrl({ lat: stop.lat as number, lng: stop.lng as number }, navApp)}
+        target="_blank"
+        rel="noopener"
+        className="cursor-pointer transition-colors duration-200"
+        style={{
+          display: "block",
+          marginTop: "10px",
+          padding: "16px",
+          borderRadius: "12px",
+          background: "#2563EB",
+          color: "#fff",
+          fontSize: "16px",
+          fontWeight: 700,
+          textAlign: "center",
+          textDecoration: "none",
+        }}
+      >
+        Їхати в {navApp === "waze" ? "Waze" : "Google Maps"}
+      </a>
+
+      <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
+        Дорога почнеться там, де ви зараз. Відмітили точку — тут зʼявиться наступна.
+      </p>
+
+      {wholeRoute.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowWhole((v) => !v)}
+            className="cursor-pointer"
+            style={{
+              marginTop: "4px",
+              padding: "6px 0",
+              border: "none",
+              background: "none",
+              color: "#6B7280",
+              fontSize: "12px",
+              textDecoration: "underline",
+            }}
+          >
+            {showWhole ? "Сховати" : "Завантажити весь маршрут частинами"}
+          </button>
+
+          {showWhole && (
+            <div className="flex flex-wrap gap-2">
+              {wholeRoute.map((link, idx) => (
+                <a
+                  key={link.url}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener"
+                  className="cursor-pointer"
+                  style={{
+                    flex: wholeRoute.length === 1 ? "1 1 100%" : "1 1 45%",
+                    padding: "11px 12px",
+                    borderRadius: "10px",
+                    background: "#EFF6FF",
+                    color: "#1D4ED8",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    textAlign: "center",
+                    textDecoration: "none",
+                  }}
+                >
+                  {wholeRoute.length === 1
+                    ? `Весь маршрут · ${pointsLabel(link.points)}`
+                    : `Частина ${idx + 1} · ${pointsLabel(link.points)}`}
+                </a>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

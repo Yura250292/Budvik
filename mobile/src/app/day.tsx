@@ -54,7 +54,8 @@ import { UpdateBar } from "@/ui/UpdateBar";
 import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
-import { googleMapsLinksFromHere, pointUrl } from "@/lib/google-links";
+import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/google-links";
+import { getNavApp, setNavApp } from "@/lib/nav-app";
 import { within, PROBE_MS } from "@/lib/within";
 import { formatTime } from "@/lib/format-date";
 
@@ -85,6 +86,21 @@ export default function DayScreen() {
 
   const [queued, setQueued] = useState<PendingVisit[]>([]);
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [navApp, setNav] = useState<NavApp>("google");
+  const [showWholeRoute, setShowWholeRoute] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void getNavApp().then((app) => alive && setNav(app));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const chooseNav = useCallback((app: NavApp) => {
+    setNav(app);
+    void setNavApp(app);
+  }, []);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
   const [buffered, setBuffered] = useState(0);
@@ -155,6 +171,18 @@ export default function DayScreen() {
       .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
     return googleMapsLinksFromHere(pending);
   }, [stops, isMarked]);
+
+  /**
+   * Точка, куди водій їде ЗАРАЗ — перша невідмічена за порядком обʼїзду.
+   *
+   * Вона й замінила «дорогу частинами»: коли ведеш по одній точці, ліміт
+   * Google ні до чого прикласти, а наступну підставляє сам застосунок,
+   * щойно попередню відмічено.
+   */
+  const nextStop = useMemo(
+    () => stops.find((st) => !isMarked(st) && st.lat != null && st.lng != null),
+    [stops, isMarked]
+  );
 
   const mark = useCallback(
     async (
@@ -257,28 +285,96 @@ export default function DayScreen() {
         </View>
       )}
 
-      {mapLinks.length > 0 && (
+      {/*
+        Куди їхати просто зараз.
+        Замість «дороги частинами», яка була наслідком чужого обмеження:
+        посилання Google бере щонайбільше девʼять проміжних точок, тож день
+        на 25 адрес різався на три шматки, і між ними водій мусив САМ
+        згадати, що треба повернутися сюди й відкрити наступний. За кермом
+        про це не згадують.
+      */}
+      {!!nextStop && (
         <View style={[s.block, s.headBlock]}>
-          <Eyebrow>Дорога в Google Maps</Eyebrow>
-          <View style={s.mapLinks}>
-            {mapLinks.map((l, i) => (
-              <Pressable
-                key={i}
-                style={[s.mapLink, i === 0 ? s.mapLinkPrimary : s.mapLinkSecondary]}
-                onPress={() => Linking.openURL(l.url)}
-              >
-                <Icon name="navigation" size={16} color={i === 0 ? c.onDark : c.infoFg} />
-                <Text style={[s.mapLinkLabel, { color: i === 0 ? c.onDark : c.infoFg }]}>
-                  {mapLinks.length > 1 ? `Частина ${i + 1} · ${l.points} точок` : "Прокласти дорогу"}
+          <View style={s.nextHead}>
+            <Eyebrow>Наступна точка</Eyebrow>
+            {/* Скільки лишиться ПІСЛЯ цієї: «ще 32», коли попереду рівно 32
+                разом із поточною, читається як помилка в рахунку. */}
+            <Text style={s.nextLeft}>
+              {(p?.left ?? 0) > 1 ? `далі ще ${p!.left - 1}` : "остання"}
+            </Text>
+            {/* Вибір навігатора тут, а не в налаштуваннях: його міняють раз у
+                житті, але саме тоді, коли вперше тиснуть «Їхати». */}
+            <View style={s.navPick}>
+              {(["google", "waze"] as NavApp[]).map((app) => (
+                <Pressable
+                  key={app}
+                  onPress={() => chooseNav(app)}
+                  accessibilityState={{ selected: navApp === app }}
+                  style={[s.navPickItem, navApp === app && s.navPickItemOn]}
+                >
+                  <Text style={[s.navPickLabel, navApp === app && s.navPickLabelOn]}>
+                    {app === "google" ? "Google" : "Waze"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <Text style={s.nextName} numberOfLines={2}>
+            {nextStop.name}
+          </Text>
+          {!!nextStop.address && (
+            <Text style={s.nextAddress} numberOfLines={2}>
+              {nextStop.address}
+            </Text>
+          )}
+
+          <Pressable
+            style={[s.mapLink, s.mapLinkPrimary]}
+            onPress={() =>
+              Linking.openURL(
+                navigateUrl(
+                  { lat: nextStop.lat as number, lng: nextStop.lng as number },
+                  navApp
+                )
+              )
+            }
+          >
+            <Icon name="navigation" size={16} color={c.onDark} />
+            <Text style={[s.mapLinkLabel, { color: c.onDark }]}>
+              Їхати в {navApp === "waze" ? "Waze" : "Google Maps"}
+            </Text>
+          </Pressable>
+
+          <Note>
+            Дорога почнеться там, де ви зараз. Відмітили точку — тут зʼявиться наступна.
+          </Note>
+
+          {mapLinks.length > 0 && (
+            <>
+              <Pressable onPress={() => setShowWholeRoute((v) => !v)} style={s.wholeToggle}>
+                <Text style={s.wholeToggleLabel}>
+                  {showWholeRoute ? "Сховати" : "Завантажити весь маршрут частинами"}
                 </Text>
               </Pressable>
-            ))}
-          </View>
-          <Note>
-            {mapLinks.length > 1
-              ? "Перша частина веде від того місця, де ви зараз. Google бере щонайбільше 10 точок за раз — доїхали до кінця частини, відкривайте наступну, вона починається там само. Відмічені точки в дорогу не входять."
-              : "Дорога почнеться від того місця, де ви зараз. Відмічені точки в неї не входять."}
-          </Note>
+
+              {showWholeRoute && (
+                <View style={s.mapLinks}>
+                  {mapLinks.map((l, i) => (
+                    <Pressable
+                      key={i}
+                      style={[s.mapLink, s.mapLinkSecondary]}
+                      onPress={() => Linking.openURL(l.url)}
+                    >
+                      <Text style={[s.mapLinkLabel, { color: c.infoFg }]}>
+                        {mapLinks.length > 1 ? `Частина ${i + 1} · ${l.points}` : "Весь маршрут"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
         </View>
       )}
     </>
@@ -836,6 +932,18 @@ const s = StyleSheet.create({
   queueCard: { padding: sp.gap },
   queueRow: { flexDirection: "row", gap: sp.gap },
   queueText: { flex: 1, gap: 3 },
+
+  nextHead: { flexDirection: "row", alignItems: "center", gap: sp.xs },
+  nextLeft: { fontSize: 12, color: c.text3 },
+  navPick: { marginLeft: "auto", flexDirection: "row", gap: 2, padding: 2, borderRadius: 999, backgroundColor: c.bg },
+  navPickItem: { paddingHorizontal: 12, height: 32, justifyContent: "center", borderRadius: 999 },
+  navPickItemOn: { backgroundColor: c.text },
+  navPickLabel: { fontSize: 12, fontWeight: "700", color: c.text2 },
+  navPickLabelOn: { color: c.onDark },
+  nextName: { fontSize: 17, fontWeight: "700", color: c.text },
+  nextAddress: { fontSize: 13, color: c.text2, lineHeight: 18 },
+  wholeToggle: { paddingVertical: 6 },
+  wholeToggleLabel: { fontSize: 12, color: c.text3, textDecorationLine: "underline" },
 
   mapLinks: { flexDirection: "row", gap: sp.sm },
   mapLink: {

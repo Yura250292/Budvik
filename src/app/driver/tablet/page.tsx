@@ -23,7 +23,7 @@ import {
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
-import { googleMapsLinks, pointUrl } from "@/lib/maps/google-links";
+import { googleMapsLinksFromHere, pointUrl } from "@/lib/maps/google-links";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
@@ -276,16 +276,23 @@ function DriverDayScreen() {
    * Дорога в Google Maps: від того місця, де водій зараз, через ще не
    * відмічені точки. Відмічені навмисно пропускаємо — везти водія туди,
    * де він уже був, немає сенсу.
+   *
+   * Стартову точку НЕ задаємо взагалі — тоді Google сам підставляє «Ваше
+   * місцезнаходження». Раніше сюди клали координату з веб-рекордера, і
+   * виходило гірше в обидва боки: у застосунку рекордер вимкнений
+   * (useTrackRecorder({ enabled: !isApp })), позиції немає — і маршрут
+   * починався з ПЕРШОЇ ТОЧКИ, тобто Google рахував, ніби водій уже там; а
+   * в браузері підставлялася координата, зафіксована колись раніше,
+   * замість живої. Те саме правило вже діє в посиланні, яке логіст шле в
+   * месенджер (lib/routes/driver-message.ts).
    */
   const mapLinks = useMemo(() => {
     const pending = stops
       .filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null)
       .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
-    if (pending.length === 0) return [];
 
-    const from = track.position ? [{ lat: track.position.lat, lng: track.position.lng }] : [];
-    return googleMapsLinks([...from, ...pending]);
-  }, [stops, track.position, queued]);
+    return googleMapsLinksFromHere(pending);
+  }, [stops, queued]);
 
   return (
     <div style={{ background: "#F3F4F6", minHeight: "100vh" }}>
@@ -557,12 +564,11 @@ function DriverDayScreen() {
                   </a>
                 ))}
               </div>
-              {mapLinks.length > 1 && (
-                <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
-                  Google веде щонайбільше 10 точок за раз. Доїхали до кінця першої
-                  частини — відкривайте наступну, вона починається там само.
-                </p>
-              )}
+              <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
+                {mapLinks.length > 1
+                  ? "Перша частина веде від того місця, де ви зараз. Google бере щонайбільше 10 точок за раз — доїхали до кінця частини, відкривайте наступну, вона починається там само."
+                  : "Дорога почнеться від того місця, де ви зараз."}
+              </p>
             </section>
           )}
 

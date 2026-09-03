@@ -54,7 +54,7 @@ import { UpdateBar } from "@/ui/UpdateBar";
 import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
-import { googleMapsLinks, pointUrl } from "@/lib/google-links";
+import { googleMapsLinksFromHere, pointUrl } from "@/lib/google-links";
 import { within, PROBE_MS } from "@/lib/within";
 import { formatTime } from "@/lib/format-date";
 
@@ -140,13 +140,21 @@ export default function DayScreen() {
     [queuedKeys]
   );
 
+  /**
+   * Дорога починається там, де водій зараз, — і це вирішує Google, а не ми.
+   *
+   * Тут стояла остання відома координата з нативного трека. У машині вона
+   * застаріває швидше, ніж людина встигає натиснути кнопку, а коли фікса
+   * ще не було, маршрут починався з ПЕРШОЇ ТОЧКИ — тобто Google вів так,
+   * ніби водій уже стоїть у Миколаєві. Без origin Google сам підставляє
+   * живе «Ваше місцезнаходження».
+   */
   const mapLinks = useMemo(() => {
     const pending = stops
       .filter((s) => !isMarked(s) && s.lat != null && s.lng != null)
       .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
-    if (pending.length === 0) return [];
-    return googleMapsLinks(pos ? [pos, ...pending] : pending);
-  }, [stops, pos, isMarked]);
+    return googleMapsLinksFromHere(pending);
+  }, [stops, isMarked]);
 
   const mark = useCallback(
     async (
@@ -267,8 +275,9 @@ export default function DayScreen() {
             ))}
           </View>
           <Note>
-            Google веде щонайбільше 10 точок за раз. Доїхали до кінця першої частини —
-            відкривайте наступну, вона починається там само. Відмічені точки в дорогу не входять.
+            {mapLinks.length > 1
+              ? "Перша частина веде від того місця, де ви зараз. Google бере щонайбільше 10 точок за раз — доїхали до кінця частини, відкривайте наступну, вона починається там само. Відмічені точки в дорогу не входять."
+              : "Дорога почнеться від того місця, де ви зараз. Відмічені точки в неї не входять."}
           </Note>
         </View>
       )}

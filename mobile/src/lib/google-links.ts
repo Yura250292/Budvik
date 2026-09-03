@@ -28,11 +28,66 @@ export type MapLink = { url: string; points: number };
  * Менше двох точок — порожній масив: маршруту з однієї точки не буває.
  */
 export function googleMapsLinks(points: MapPoint[]): MapLink[] {
+  return splitIntoLinks(points, directionsUrl);
+}
+
+/**
+ * Маршрут, який починається ТАМ, ДЕ ЗАРАЗ ВОДІЙ.
+ *
+ * Стартову точку не задаємо взагалі, і Google підставляє «Ваше
+ * місцезнаходження» — живе, а не те, яке пристрій зловив кілька хвилин
+ * тому. Раніше сюди клали останню відому координату: у машині, що вже
+ * рушила, вона застаріває швидше, ніж водій встигає натиснути кнопку, а
+ * коли координати не було зовсім, дорога починалася з ПЕРШОЇ ТОЧКИ —
+ * Google рахував, ніби водій уже там стоїть.
+ *
+ * Порожній сегмент у формі-шляху (`/dir//точка/точка`) цього НЕ дає —
+ * Google його ігнорує. Текст «My+Location» теж не годиться: він
+ * геокодується як назва й веде в випадкове місто. Працює лише api=1 без
+ * origin.
+ *
+ * Перша частина везе на одну точку менше: стартову позицію Google рахує
+ * своєю, а ліміт у десять точок на посилання від цього не зростає.
+ */
+export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
+  if (points.length === 0) return [];
+
+  const head = points.slice(0, MAX_POINTS_PER_LINK - 1);
+  const links: MapLink[] = [{ url: fromHereUrl(head), points: head.length }];
+
+  // Хвіст їде звичайними частинами: кожна стартує з останньої точки
+  // попередньої, щоб дорога не рвалася.
+  const rest = points.slice(head.length - 1);
+  if (rest.length > 1) links.push(...splitIntoLinks(rest, directionsUrl));
+
+  return links;
+}
+
+/** Дорога від поточного місця водія через усі задані точки по порядку. */
+export function fromHereUrl(points: MapPoint[]): string {
+  const dest = points[points.length - 1];
+  const waypoints = points
+    .slice(0, -1)
+    .map((p) => `${round(p.lat)},${round(p.lng)}`)
+    .join("|");
+
+  return (
+    `https://www.google.com/maps/dir/?api=1` +
+    `&destination=${round(dest.lat)},${round(dest.lng)}` +
+    (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
+    `&travelmode=driving`
+  );
+}
+
+function splitIntoLinks(
+  points: MapPoint[],
+  build: (chunk: MapPoint[]) => string
+): MapLink[] {
   const links: MapLink[] = [];
   let i = 0;
   while (i < points.length - 1) {
     const chunk = points.slice(i, i + MAX_POINTS_PER_LINK);
-    links.push({ url: directionsUrl(chunk), points: chunk.length });
+    links.push({ url: build(chunk), points: chunk.length });
     i += MAX_POINTS_PER_LINK - 1;
   }
   return links;
@@ -53,6 +108,16 @@ export function directionsUrl(points: MapPoint[]): string {
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`
   );
+}
+
+/**
+ * Шість знаків після коми — приблизно 0,1 метра.
+ *
+ * Довші хвости точності не додають, зате роблять посилання таким, що його
+ * ламають месенджери при перенесенні рядка (те саме правило, що на сайті).
+ */
+function round(v: number): number {
+  return Number(v.toFixed(6));
 }
 
 /** Посилання на одну точку — «довези мене сюди». */

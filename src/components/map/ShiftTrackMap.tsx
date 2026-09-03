@@ -18,6 +18,12 @@
  *
  * Червоні кола — епізоди, коли трек надовго пішов за межі коридору
  * маршруту. Коло, а не маркер: епізод — це область і тривалість.
+ *
+ * Чорні нумеровані кружки — зупинки, і це головне на карті. Питання «де були
+ * торгові» лінією відповідається погано за побудовою: між двома фіксами вона
+ * мусить щось намалювати, і це завжди здогад — звідси й «хвости». Зупинка
+ * здогадів не потребує: це місце, з якого людина не виходила, і час, який
+ * вона там пробула. Режим «тільки зупинки» ховає лінію зовсім.
  */
 
 import { useEffect, useRef } from "react";
@@ -81,6 +87,48 @@ function planPin(seq: number): L.DivIcon {
   });
 }
 
+/** Колір зупинки: темний графіт, щоб не сперечався ні з треком, ні з планом. */
+const STOP_COLOR = "#111827";
+
+/**
+ * Кругла нумерована мітка зупинки.
+ *
+ * Кругла — на противагу квадратній мітці плану: план це намір, зупинка це
+ * факт, і плутати їх на одній карті не можна. Номер — порядок за днем, тобто
+ * маршрут читається пінами навіть із вимкненою лінією.
+ */
+function stopPin(seq: number, minutes: number): L.DivIcon {
+  // Довші зупинки помітніші: 5 хвилин і година мають різну вагу для того,
+  // хто дивиться на день згори.
+  const size = minutes >= 30 ? 30 : minutes >= 15 ? 26 : 22;
+  return L.divIcon({
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+    html: `<div style="
+      width:${size}px;height:${size}px;border-radius:50%;
+      background:${STOP_COLOR};color:#fff;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:800;font-size:${size >= 30 ? 13 : 11}px;
+      border:2px solid white;
+      box-shadow:0 2px 8px rgba(0,0,0,0.35);
+      font-family:system-ui,sans-serif;
+    ">${seq}</div>`,
+  });
+}
+
+export type TrackStopDot = {
+  seq: number;
+  lat: number;
+  lng: number;
+  minutes: number;
+  /** Час уже відформатований сервером — «HH:MM». */
+  fromTime: string;
+  toTime: string;
+  counterpartyName: string | null;
+};
+
 export type OrderDot = {
   counterpartyId: string;
   name: string;
@@ -95,6 +143,8 @@ export type OrderDot = {
 export default function ShiftTrackMap({
   shiftPath,
   shiftParts = [],
+  stops = [],
+  onlyStops = false,
   afterShiftPath,
   planGeometry = null,
   planStops = [],
@@ -117,6 +167,15 @@ export default function ShiftTrackMap({
     km: number;
     minutes: number;
   }>;
+  /** Де людина стояла довше кількох хвилин — головна відповідь на «де був». */
+  stops?: TrackStopDot[];
+  /**
+   * Сховати лінію зовсім і лишити самі зупинки.
+   *
+   * Найчистіша відповідь на питання «де були торгові»: жодної інтерпольованої
+   * геометрії, лише виміряні місця й час у них.
+   */
+  onlyStops?: boolean;
   afterShiftPath: Array<[number, number]>;
   /** GeoJSON LineString від OSRM; без неї пункти з'єднуються прямою */
   planGeometry?: { type?: string; coordinates?: [number, number][] } | null;
@@ -226,7 +285,11 @@ export default function ShiftTrackMap({
     });
 
     if (shiftPath.length > 1) {
-      if (shiftParts.length > 0) {
+      if (onlyStops) {
+        // Лінії немає, але межі карти тримає той самий трек: інакше день
+        // із двома зупинками показував би пів області.
+        shiftPath.forEach((c) => bounds.extend(c));
+      } else if (shiftParts.length > 0) {
         for (const part of shiftParts) {
           if (part.path.length < 2) continue;
           /**
@@ -270,7 +333,7 @@ export default function ShiftTrackMap({
         .addTo(group);
     }
 
-    if (afterShiftPath.length > 1) {
+    if (afterShiftPath.length > 1 && !onlyStops) {
       // Пунктир: це вже не робочий маршрут, і лінія має читатися інакше
       // навіть без легенди.
       L.polyline(afterShiftPath, {
@@ -318,6 +381,23 @@ export default function ShiftTrackMap({
      * Порожнє кільце означає документ, який офіс іще не провів: робота
      * зроблена, грошей у звіті ще немає.
      */
+    /**
+     * Зупинки — поверх лінії й під замовленнями.
+     *
+     * Порядок навмисний: лінія це шлях, зупинка це місце, замовлення це
+     * результат. Читається згори вниз саме в такому порядку.
+     */
+    stops.forEach((stop) => {
+      L.marker([stop.lat, stop.lng], { icon: stopPin(stop.seq, stop.minutes) })
+        .bindTooltip(
+          `<b>${stop.fromTime}–${stop.toTime} · ${stop.minutes} хв</b>` +
+            (stop.counterpartyName ? `<br/>${escapeHtml(stop.counterpartyName)}` : ""),
+          { direction: "top" }
+        )
+        .addTo(group);
+      bounds.extend([stop.lat, stop.lng]);
+    });
+
     orders.forEach((o) => {
       const marker = L.circleMarker([o.lat, o.lng], {
         radius: 8,
@@ -338,7 +418,7 @@ export default function ShiftTrackMap({
     });
 
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [shiftPath, shiftParts, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
+  }, [shiftPath, shiftParts, stops, onlyStops, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
 
   /**
    * Наведення на рядок у списку підсвічує його точку.

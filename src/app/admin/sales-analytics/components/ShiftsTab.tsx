@@ -94,6 +94,16 @@ type Detail = {
       /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
       parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number }>;
       movement?: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
+      /** Де людина стояла довше п'яти хвилин — головна відповідь на «де був». */
+      stops?: Array<{
+        seq: number;
+        lat: number;
+        lng: number;
+        minutes: number;
+        fromTime: string;
+        toTime: string;
+        counterpartyName: string | null;
+      }>;
       pointsCount: number;
     };
     afterShift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
@@ -289,6 +299,14 @@ export function ShiftsTab({
    * тоді, коли справді розбирають маршрут.
    */
   const [onRoads, setOnRoads] = useState(false);
+  /**
+   * Сховати лінію й лишити самі зупинки.
+   *
+   * Найчистіша відповідь на «де були торгові»: жодної інтерпольованої
+   * геометрії, лише виміряні місця й час у них. Лінія відповідає на інше
+   * питання — «як їхав», — і саме вона приносить на карту «хвости».
+   */
+  const [onlyStops, setOnlyStops] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   /** Клієнт, на якому тримають курсор у списку — його кільце на карті більшає. */
   const [hoverOrder, setHoverOrder] = useState<string | null>(null);
@@ -849,9 +867,21 @@ export function ShiftsTab({
                     По дорогах
                     <span className="text-g500">— ходьбу й стоянки не чіпає</span>
                   </label>
+                  <label className="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-g600">
+                    <input
+                      type="checkbox"
+                      checked={onlyStops}
+                      onChange={(e) => setOnlyStops(e.target.checked)}
+                      className="cursor-pointer accent-primary-dark"
+                    />
+                    Тільки зупинки
+                    <span className="text-g500">— без лінії маршруту</span>
+                  </label>
                   <ShiftTrackMap
                     shiftPath={detail.track.shift.path}
                     shiftParts={detail.track.shift.parts}
+                    stops={detail.track.shift.stops}
+                    onlyStops={onlyStops}
                     afterShiftPath={detail.track.afterShift.path}
                     planGeometry={detail.plan.route?.geometry ?? null}
                     planStops={detail.plan.route?.stops ?? []}
@@ -874,6 +904,12 @@ export function ShiftsTab({
                         Після зміни ({detail.track.afterShift.pointsCount} точок)
                       </span>
                     )}
+                    {(detail.track.shift.stops?.length ?? 0) > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", background: "#111827", verticalAlign: "middle", marginRight: 6 }} />
+                        Зупинки ({detail.track.shift.stops!.length})
+                      </span>
+                    )}
                     {detail.orders.dots.length > 0 && (
                       <span>
                         <span style={{ display: "inline-block", width: 11, height: 11, borderRadius: "50%", background: "#7C3AED", verticalAlign: "middle", marginRight: 6 }} />
@@ -894,6 +930,49 @@ export function ShiftsTab({
                       </span>
                     )}
                   </div>
+
+                  {/*
+                    Список зупинок — той самий день, прочитаний як
+                    послідовність місць. Саме на це питання («де були
+                    торгові») лінія відповідає гірше за все: між фіксами вона
+                    мусить щось намалювати, і це завжди здогад. Тут здогадів
+                    немає — лише виміряні місця, час і тривалість.
+                  */}
+                  {(detail.track.shift.stops?.length ?? 0) > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                        Зупинки довші за 5 хвилин
+                      </p>
+                      <div className="flex flex-col" style={{ gap: 2 }}>
+                        {detail.track.shift.stops!.map((stop) => (
+                          <div
+                            key={stop.seq}
+                            className="flex items-center gap-2 rounded-md px-2 py-1"
+                            style={{ fontSize: 13, background: stop.seq % 2 ? "#F9FAFB" : undefined }}
+                          >
+                            <span
+                              style={{
+                                width: 20, height: 20, borderRadius: "50%", background: "#111827",
+                                color: "#fff", fontSize: 11, fontWeight: 800, flexShrink: 0,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}
+                            >
+                              {stop.seq}
+                            </span>
+                            <span style={{ fontVariantNumeric: "tabular-nums", color: "#374151" }}>
+                              {stop.fromTime}–{stop.toTime}
+                            </span>
+                            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 52 }}>
+                              {stop.minutes} хв
+                            </span>
+                            <span className="truncate" style={{ color: stop.counterpartyName ? "#111827" : "#9CA3AF" }}>
+                              {stop.counterpartyName ?? "клієнта поруч немає"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div

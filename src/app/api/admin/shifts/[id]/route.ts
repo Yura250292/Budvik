@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { classifyMovement, movementTotals, type MoveSegment } from "@/lib/track/movement";
 import { matchDayPath } from "@/lib/track/road-match";
+import { findStops } from "@/lib/track/stops";
 import { kyivDate, kyivTime } from "@/lib/date/kyiv";
 import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
@@ -199,6 +200,19 @@ export async function GET(
          */
         parts: await splitByMovement(shiftPoints, onRoads),
         movement: movementTotals(classifyMovement(shiftPoints)),
+        /**
+         * Де людина СТОЯЛА — і це головна відповідь на питання «де були
+         * торгові». Лінія відповідає на нього погано за побудовою: між двома
+         * фіксами вона мусить щось намалювати, і це завжди здогад. Зупинка
+         * здогадів не потребує.
+         */
+        stops: findStops(shiftPoints, orders.dots).map((stop) => ({
+          ...stop,
+          // Час форматує сервер — так само, як для епізодів відхилення:
+          // київська доба одна, а браузер бухгалтера буває в іншій зоні.
+          fromTime: kyivTime(stop.from),
+          toTime: kyivTime(stop.to),
+        })),
         pointsCount: shiftPoints.length,
       },
       afterShift: {

@@ -139,7 +139,7 @@ async function main() {
   const flat = await post("/api/erp/delivery-routes", { date: today, driverId: driver.id, notes: MARK, counterpartyIds: [noPin.id] });
   await post(`/api/erp/delivery-routes/${flat.body.id}/assign`, { driverId: driver.id, date: today, force: true });
   const noCoords = await post(`/api/erp/delivery-routes/${flat.body.id}/send-link`, {});
-  check("Без двох координат → 422 NO_COORDS",
+  check("Без жодної координати → 422 NO_COORDS",
     noCoords.status === 422 && noCoords.body?.reason === "NO_COORDS", noCoords);
 
   // --- День: маршрути сайту й листи 1С разом ---

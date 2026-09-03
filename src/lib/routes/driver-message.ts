@@ -18,7 +18,7 @@
  */
 
 import {
-  googleMapsPathLinks,
+  googleMapsLinksFromHere,
   type MapLink,
   type MapPoint,
 } from "@/lib/maps/google-links";
@@ -103,7 +103,9 @@ export function buildDriverMessage({
 }): DriverMessage {
   const withCoords = stops.filter((s) => coordsOf(s));
   const missing = stops.length - withCoords.length;
-  const links = googleMapsPathLinks(withCoords.map((s) => coordsOf(s)!));
+  // Стартом Google візьме поточне місце водія: до першого клієнта теж треба
+  // доїхати, а раніше посилання вдавало, ніби він уже там стоїть.
+  const links = googleMapsLinksFromHere(withCoords.map((s) => coordsOf(s)!));
 
   const text = [
     `Маршрут ${number} · ${formatDayUa(day)}${driverName ? ` · ${driverName}` : ""}`,
@@ -115,8 +117,10 @@ export function buildDriverMessage({
     "",
     ...links.map((l, i) =>
       links.length === 1
-        ? `Google Maps: ${l.url}`
-        : `Google Maps, частина ${i + 1}/${links.length} (${points(l.points)}): ${l.url}`
+        ? `Google Maps (від вашого місця): ${l.url}`
+        : i === 0
+          ? `Google Maps, частина 1/${links.length} — від вашого місця (${points(l.points)}): ${l.url}`
+          : `Google Maps, частина ${i + 1}/${links.length} (${points(l.points)}): ${l.url}`
     ),
     ...(missing > 0
       ? [

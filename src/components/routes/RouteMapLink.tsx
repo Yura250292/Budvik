@@ -86,12 +86,12 @@ export default function RouteMapLink({
     stops,
   });
 
-  // Одна точка маршруту не робить: Google нема через що вести дорогу.
+  // Стартом Google бере місце водія, тож навіть одна точка з координатою вже
+  // маршрут. Порожньо тут лише тоді, коли координат немає в жодної.
   if (links.length === 0) {
     return (
       <div className="border-t border-g100 px-5 py-3 text-[12.5px] text-g500">
-        Маршрут у Google Maps з’явиться, коли в ньому буде хоча б дві точки з
-        координатами
+        Маршрут у Google Maps з’явиться, коли хоч в однієї точки буде координата
         {missing > 0 && ` (зараз без координат: ${points(missing)})`}.
       </div>
     );
@@ -252,7 +252,7 @@ export default function RouteMapLink({
         <span className="text-[12px] text-g500">
           {points(withCoords)}
           {links.length > 1 &&
-            ` · ${links.length} ${plural(links.length, "частина", "частини", "частин")} по ${MAX_POINTS_PER_LINK}`}
+            ` · ${links.length} ${plural(links.length, "частина", "частини", "частин")} (ліміт Google — ${MAX_POINTS_PER_LINK} на посилання)`}
         </span>
         {missing > 0 && (
           <span

@@ -30,9 +30,52 @@ export function googleMapsLinks(points: MapPoint[]): MapLink[] {
   return splitIntoLinks(points, directionsUrl);
 }
 
-/** Те саме, але посиланнями-шляхами — форма для пересилання водієві. */
-export function googleMapsPathLinks(points: MapPoint[]): MapLink[] {
-  return splitIntoLinks(points, pathDirectionsUrl);
+/**
+ * Маршрут, який починається ТАМ, ДЕ ЗАРАЗ ВОДІЙ.
+ *
+ * Досі перша точка була і стартом: водій відкривав посилання й бачив дорогу
+ * «Миколаїв → Стрий → …», але не бачив, як дістатися до Миколаєва — Google
+ * рахував, ніби він уже там. Тепер стартову точку не задаємо взагалі, і
+ * Google підставляє «Ваше місцезнаходження»: перевірено 03.09 у Chrome із
+ * підміненою геолокацією — у полі старту зʼявилося саме воно, а в адресі
+ * рядка Google сам дописав координати пристрою.
+ *
+ * Порожній сегмент у формі-шляху (`/dir//точка/точка`) цього НЕ дає — Google
+ * його просто ігнорує й починає з першої точки. Текст «My+Location» теж не
+ * годиться: він геокодується як назва й веде в випадкове місто. Працює лише
+ * api=1 без origin.
+ *
+ * Перша частина везе на одну точку менше: стартову позицію Google рахує
+ * своєю, а ліміт у десять точок на посилання від цього не зростає.
+ */
+export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
+  if (points.length === 0) return [];
+
+  const head = points.slice(0, MAX_POINTS_PER_LINK - 1);
+  const links: MapLink[] = [{ url: fromHereUrl(head), points: head.length }];
+
+  // Хвіст їде звичайними частинами: кожна стартує з останньої точки
+  // попередньої, щоб дорога не рвалася.
+  const rest = points.slice(head.length - 1);
+  if (rest.length > 1) links.push(...splitIntoLinks(rest, directionsUrl));
+
+  return links;
+}
+
+/** Дорога від поточного місця водія через усі задані точки по порядку. */
+export function fromHereUrl(points: MapPoint[]): string {
+  const dest = points[points.length - 1];
+  const waypoints = points
+    .slice(0, -1)
+    .map((p) => `${round(p.lat)},${round(p.lng)}`)
+    .join("|");
+
+  return (
+    `https://www.google.com/maps/dir/?api=1` +
+    `&destination=${round(dest.lat)},${round(dest.lng)}` +
+    (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
+    `&travelmode=driving`
+  );
 }
 
 function splitIntoLinks(
@@ -67,25 +110,11 @@ export function directionsUrl(points: MapPoint[]): string {
 }
 
 /**
- * Посилання-шлях: /maps/dir/точка/точка/…
+ * Шість знаків після коми — приблизно 0,1 метра.
  *
- * Друга форма того самого маршруту, і саме її ми даємо людині в руки.
- * Причина проста: 02.09 власник перевірив обидві на своєму телефоні, і
- * дорогу через усі шість точок побудувала ця. Форма з api=1 лишається для
- * застосунку й планувальника — там посилання відкриває сам застосунок, а
- * не месенджер.
- *
- * Координати ріжемо до шести знаків (≈0,1 м): довші хвости точності не
- * додають, зате роблять посилання таким, що месенджери його переносять.
+ * Довші хвости точності не додають, зате роблять посилання таким, що його
+ * ламають месенджери при перенесенні рядка.
  */
-export function pathDirectionsUrl(points: MapPoint[]): string {
-  return (
-    "https://www.google.com/maps/dir/" +
-    points.map((p) => `${round(p.lat)},${round(p.lng)}`).join("/")
-  );
-}
-
-/** Шість знаків після коми — приблизно 0,1 метра. */
 function round(v: number): number {
   return Number(v.toFixed(6));
 }

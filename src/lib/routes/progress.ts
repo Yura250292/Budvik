@@ -103,7 +103,10 @@ export function routeProgress(route: {
     blocker = !route.driverId ? "NO_DRIVER" : null;
     cta = blocker ? null : "ASSIGN";
   } else if (current === 4) {
-    blocker = withCoords < 2 ? "NO_COORDS" : null;
+    // Для надсилання досить однієї координати: стартом Google бере місце
+    // водія, тож «я тут → клієнт» — уже маршрут. Оптимізатору (крок 2) двох
+    // точок і далі мало не буде: там дорогу рахує OSRM між нашими точками.
+    blocker = withCoords < 1 ? "NO_COORDS" : null;
     cta = blocker ? null : resend ? "RESEND" : "SEND";
   }
 

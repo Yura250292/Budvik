@@ -102,7 +102,7 @@ check("У списку ВСІ точки, включно з безпінною",
 check("Точка без піна помічена", lines[2].includes("⚠ немає точки на карті"), lines[2]);
 check("Нумерація за маршрутом, не за координатами", lines[3].startsWith("3. Налисник"), lines[3]);
 check("У посилання пішли лише точки з координатами", msg.withCoords === 2 && msg.missing === 1, msg);
-check("Одне посилання — без нумерації частин", msg.text.includes("Google Maps: https://"), true);
+check("Одне посилання — без нумерації частин", msg.text.includes("Google Maps (від вашого місця): https://"), true);
 check("Підсумок про точки без координат", msg.text.includes("Увага: 1 точка без координат"), msg.text.slice(-120));
 
 const many = buildDriverMessage({
@@ -111,13 +111,23 @@ const many = buildDriverMessage({
   driverName: null,
   stops: Array.from({ length: 11 }, (_, i) => pinned(`Клієнт ${i + 1}`, 49.5 + i / 100, 24 + i / 100)),
 });
-check("11 точок → дві частини 10 + 2", many.links.length === 2 && many.links[0].points === 10 && many.links[1].points === 2, many.links.map((l) => l.points));
+// Перша частина везе 9 наших точок: десяту позицію Google віддає під місце
+// водія. Хвіст стартує з останньої точки першої частини, щоб дорога не рвалася.
+check("11 точок → дві частини 9 + 3", many.links.length === 2 && many.links[0].points === 9 && many.links[1].points === 3, many.links.map((l) => l.points));
 check("Частини підписані «1/2» і «2/2»", many.text.includes("частина 1/2") && many.text.includes("частина 2/2"), true);
-check("Відмінки: «2 точки», не «2 точок»", many.text.includes("(2 точки)"), many.text.slice(-160));
+check("Перша частина названа стартом від водія", many.text.includes("частина 1/2 — від вашого місця"), many.text.slice(-260));
+check("Стик частин: кінець першої = початок другої", many.links[1].url.includes("origin=49.58,24.08"), many.links[1].url.slice(0, 90));
+check("Відмінки: «3 точки», не «3 точок»", many.text.includes("(3 точки)"), many.text.slice(-160));
 check("Без водія — шапка без хвоста", many.text.startsWith("Маршрут МР-000004 · 03.09.2026\n"), many.text.slice(0, 40));
 
+// Одна точка — теж маршрут: «я тут → клієнт». Доти посилання не будувалося
+// взагалі, бо стартом була сама ж ця точка.
 const single = buildDriverMessage({ number: "МР-1", day: "2026-09-03", driverName: null, stops: [pinned("Один")] });
-check("Одна точка — маршруту немає, посилань нуль", single.links.length === 0, single.links);
+check("Одна точка — посилання від місця водія до неї", single.links.length === 1 && single.links[0].points === 1, single.links);
+check("У ньому немає origin — його підставить Google", !single.links[0].url.includes("origin="), single.links[0].url);
+
+const noCoords = buildDriverMessage({ number: "МР-2", day: "2026-09-03", driverName: null, stops: [noPin("Без піна")] });
+check("Без жодної координати посилань немає", noCoords.links.length === 0, noCoords.links);
 
 // --- Telegram HTML ---
 const risky = buildDriverMessage({

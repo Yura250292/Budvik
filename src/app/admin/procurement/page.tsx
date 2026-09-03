@@ -463,7 +463,9 @@ function GroupRows({
   onOpen: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const cols = showBrand ? 10 : 9;
+  // Колонок стало на одну більше — додався «Прихід». Число тут задає ширину
+  // рядка-заголовка групи; розійшовшись із шапкою, він обрізав би таблицю.
+  const cols = showBrand ? 11 : 10;
   return (
     <>
       <tr onClick={() => setOpen((v) => !v)} style={{ background: "#EEF2FA", borderBottom: "1px solid #F3F4F6", cursor: "pointer" }}>

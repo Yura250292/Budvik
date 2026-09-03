@@ -49,7 +49,16 @@ export function useGateSession(): { session: Session | null; status: GateStatus 
 
     let alive = true;
     const timer = setTimeout(() => {
-      getSession()
+      /*
+        broadcast: false — обовʼязково.
+
+        Типово getSession розсилає подію іншим вкладкам, а SessionProvider
+        на неї перечитує сесію запитом. Тобто наша спроба врятувати кабінет
+        у одній вкладці змушувала б адмінку в сусідній піти по той самий
+        /api/auth/session — той, що зараз падає, — і вибити з сесії вже її.
+        Ми рятуємо свій гейт, а не сповіщаємо світ.
+      */
+      getSession({ broadcast: false })
         .then((s) => {
           if (alive && s?.user) setRescued(s);
         })

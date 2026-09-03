@@ -15,6 +15,28 @@ import type { Session } from "next-auth";
  * Адмінка й так динамічна (за middleware-авторизацією), тож тут сесію
  * можна читати на сервері безкоштовно: useSession() одразу
  * "authenticated", і дані їдуть з першого кадру.
+ *
+ * refetchOnWindowFocus вимкнено — і це не оптимізація, а лікування.
+ *
+ * Готова сесія рятує адмінку лише на завантаженні: запиту немає, отже
+ * немає й чого провалити. Але типово next-auth перечитує сесію щоразу,
+ * коли людина повертається у вкладку, і ось той запит уже нічим не
+ * прикритий. А провалля він не розрізняє: fetchData робить res.json() до
+ * перевірки res.ok, тож 429 від захисту Vercel, 503 чи обрив стають null.
+ * Далі setSession(null) — і всі три десятки сторінок адмінки, кожна зі
+ * своєю перевіркою `!session?.user`, одночасно показують «Потрібен вхід»
+ * людині з живою кукою. Гірше: після цього провайдер більше не пробує
+ * (перевірка `_session === null`), тож екран залипає до перезавантаження.
+ *
+ * Полагодити можна було двома шляхами: перевести три десятки сторінок на
+ * useGateSession або зняти сам тригер тут. Обрано друге — один рядок
+ * замість тридцяти файлів у дереві, яке ділять кілька сесій.
+ *
+ * Чому це не діра. Перечитування на фокус тут майже нічого не давало:
+ * у JWT лежить зліпок на момент входу (свіже профільне бере useProfile),
+ * а право на дію перевіряє сервер на КОЖЕН запит — resolveIdentity у
+ * src/lib/app/identity.ts і middleware. Застаріла сесія в клієнті малює
+ * хіба що зайвий пункт меню; дані по ньому не приїдуть.
  */
 export default function AdminSessionProvider({
   session,
@@ -23,5 +45,9 @@ export default function AdminSessionProvider({
   session: Session | null;
   children: React.ReactNode;
 }) {
-  return <SessionProvider session={session}>{children}</SessionProvider>;
+  return (
+    <SessionProvider session={session} refetchOnWindowFocus={false}>
+      {children}
+    </SessionProvider>
+  );
 }

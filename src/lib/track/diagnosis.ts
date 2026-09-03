@@ -33,6 +33,40 @@ export const BUFFER_ALARM = 50;
  */
 export const INDOOR_ACCURACY_M = 200;
 
+/**
+ * Яким рядком проба приймача називає себе в пульсі.
+ *
+ * Той самий префікс перевіряє й сам застосунок (uploader: разова проба не
+ * має видаватися за невдачу запуску), тож це вже контракт між двома
+ * сторонами, а не збіг тексту. Тримати його в одному місці обов'язково:
+ * розійдуться — і діагноз почне читати пробу як звичайну помилку.
+ */
+const PROBE_PREFIX = "проба приймача";
+
+/**
+ * Похибка проби, вище якої вона нічого не доводить.
+ *
+ * Проба на ±2000 м — це вежа, і з неї не випливає, що небо є: підписка
+ * мовчить не тому, що координати не доходять, а тому, що їх немає. Межа та
+ * сама, що для «у приміщенні»: вище неї ми не знаємо про небо нічого.
+ */
+const PROBE_USEFUL_M = INDOOR_ACCURACY_M;
+
+/** Скільки хвилин тиші підписки роблять пробу вироком, а не збігом. */
+const SUBSCRIPTION_DEAD_MIN = 20;
+
+/** Що сказала разова проба приймача, якщо вона взагалі була. */
+function readProbe(lastError: string | null | undefined): {
+  failed: boolean;
+  accuracyM: number | null;
+} | null {
+  if (!lastError || !lastError.startsWith(PROBE_PREFIX)) return null;
+  if (lastError.includes("впала")) return { failed: true, accuracyM: null };
+  const m = lastError.match(/±\s*(-?\d+)/);
+  const accuracyM = m ? Number(m[1]) : null;
+  return { failed: false, accuracyM: accuracyM != null && accuracyM >= 0 ? accuracyM : null };
+}
+
 export type DeviceBeat = {
   /** Хвилин тому прийшов останній пульс. */
   minutesAgo: number | null;
@@ -147,6 +181,53 @@ export function diagnose({
     beat.lastFixAccuracyM > INDOOR_ACCURACY_M
   ) {
     return `У приміщенні: приймач дає лише ±${beat.lastFixAccuracyM} м, тому трек стоїть`;
+  }
+
+  /**
+   * Проба приймача бачить небо, а підписка мовчить — координати не доходять
+   * САМЕ ДО НАС.
+   *
+   * Заради цієї відповіді пробу й додали: з сервера «приймач не бачить неба»
+   * і «система не віддає координат застосунку» виглядають однаково — точок
+   * немає в обох випадках. Але лікуються вони протилежно, і 03.09 різниця
+   * коштувала Валентину двох робочих днів. У нього tracking і subscribed
+   * стояли true, дозвіл значився ALWAYS, батарея не душила, проба давала
+   * ±4…8 м — а lastFixAt цілий день показував учорашній вечір. Єдина точка
+   * за день записалася в ту мить, коли людина відкрила застосунок на екрані:
+   * у передньому плані координата прийшла негайно.
+   *
+   * Тобто фоновий дозвіл фактично не діяв, хоч і звався ALWAYS (Android
+   * віддає це значення й тоді, коли насправді обрано «лише під час
+   * використання»). Сповіщення тоді казало «GPS не дає координат» і посилало
+   * перевіряти антену, тоді як антена була справна.
+   *
+   * Порядок важливий: ця гілка стоїть перед загальним «GPS не дає координат»,
+   * бо вона знає БІЛЬШЕ — не лише що координат немає, а й що небо є.
+   */
+  const probe = readProbe(beat.lastError);
+  if (
+    probe?.failed &&
+    beat.tracking &&
+    beat.lastFixMinutesAgo != null &&
+    beat.lastFixMinutesAgo > FIX_WINDOW_MIN
+  ) {
+    // Система відмовила навпростець — це вже не здогадка про дозвіл.
+    return `Система не дає координат застосунку: проба приймача впала, а точок немає ${beat.lastFixMinutesAgo} хв`;
+  }
+  if (
+    probe &&
+    !probe.failed &&
+    probe.accuracyM != null &&
+    probe.accuracyM <= PROBE_USEFUL_M &&
+    beat.tracking &&
+    beat.lastFixMinutesAgo != null &&
+    beat.lastFixMinutesAgo > SUBSCRIPTION_DEAD_MIN
+  ) {
+    return (
+      `Небо є (проба ±${probe.accuracyM} м), а підписка не дає точок ` +
+      `${beat.lastFixMinutesAgo} хв — координати не доходять до застосунку. ` +
+      `Перевірте дозвіл «Дозволити весь час» і автозапуск застосунку`
+    );
   }
 
   if (beat.lastFixMinutesAgo != null && beat.lastFixMinutesAgo > FIX_WINDOW_MIN) {

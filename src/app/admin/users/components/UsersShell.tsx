@@ -28,6 +28,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { TableScroll } from "@/components/ui/TableScroll";
 import { RoleSelect } from "@/components/admin/RoleSelect";
 import { TelegramBadge } from "@/components/admin/TelegramBadge";
+import { DriverTelegramCell } from "./DriverTelegramCell";
 import { LinkRequestCard, type LinkRequest } from "@/components/admin/LinkRequestCard";
 import { CreateUserModal } from "@/components/admin/CreateUserModal";
 import { CredentialsPanel } from "@/components/admin/CredentialsPanel";
@@ -457,7 +458,17 @@ export function UsersShell() {
 
                             {showTelegram && (
                               <td className="px-3 py-2.5">
-                                {u.telegramId || u.role === "WAREHOUSE" || u.role === "SALES" ? (
+                                {/* Водієві Telegram проставляють руками: бот заявок
+                                    для цієї ролі не веде, а без id маршрут не
+                                    надішлеш. */}
+                                {u.role === "DRIVER" ? (
+                                  <DriverTelegramCell
+                                    userId={u.id}
+                                    userName={u.name}
+                                    telegramId={u.telegramId}
+                                    onChanged={(telegramId) => patchUser(u.id, { telegramId })}
+                                  />
+                                ) : u.telegramId || u.role === "WAREHOUSE" || u.role === "SALES" ? (
                                   <TelegramBadge
                                     userId={u.id}
                                     userName={u.name}

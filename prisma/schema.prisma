@@ -1036,6 +1036,17 @@ model DeliveryRoute {
   /// не бачить, і логіст може правити склад точок скільки завгодно.
   assignedAt      DateTime?
   assignedById    String?
+  /// Коли водієві пішло посилання Google Maps на цей маршрут. null — ще не
+  /// надсилали. Окремо від assignedAt навмисно: передати маршрут і дати
+  /// водієві дорогу — дві різні дії, і друга часто відстає (логіст спершу
+  /// правив порядок). Саме це поле каже, чи лишився ще крок.
+  linkSentAt      DateTime?
+  /// "TELEGRAM" — надіслав сервер; "SHARE" — логіст поділився з телефона.
+  /// Рядок, а не enum: два значення не варті міграції типу.
+  linkSentVia     String?
+  /// Скільки точок було в мить надсилання — щоб побачити, що маршрут відтоді
+  /// правили, і запропонувати надіслати ще раз.
+  linkSentStops   Int?
   createdById     String
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt

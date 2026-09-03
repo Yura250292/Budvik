@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   const totals = {
     accepted: 0,
     untrusted: 0,
-    rejected: { accuracy: 0, stale: 0, malformed: malformedAtTop },
+    rejected: { accuracy: 0, stale: 0, malformed: malformedAtTop, impossible: 0 },
   };
   let latest: { day: string; distanceKm: number; pointsCount: number } | null = null;
 
@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
     totals.rejected.accuracy += result.rejected.accuracy;
     totals.rejected.stale += result.rejected.stale;
     totals.rejected.malformed += result.rejected.malformed;
+    totals.rejected.impossible += result.rejected.impossible;
     // Планшет показує пробіг поточного дня — віддаємо найсвіжіший.
     if (!latest || day > latest.day) {
       latest = { day, distanceKm: result.distanceKm, pointsCount: result.pointsCount };
@@ -149,7 +150,7 @@ async function ingestDay(
 ): Promise<{
   accepted: number;
   untrusted: number;
-  rejected: { accuracy: number; stale: number; malformed: number };
+  rejected: { accuracy: number; stale: number; malformed: number; impossible: number };
   distanceKm: number;
   pointsCount: number;
 }> {

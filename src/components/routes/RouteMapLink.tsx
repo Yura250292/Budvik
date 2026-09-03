@@ -16,6 +16,12 @@
  * Точки без координати в посилання не потрапляють узагалі: Google на них
  * поставив би найближчий збіг за назвою, і водій поїхав би не туди. Скільки
  * їх — сказано вголос, поруч із кнопкою.
+ *
+ * Але з ТЕКСТУ вони не зникають. Спершу текст перелічував лише те, що ввійшло
+ * в посилання, — і клієнт без піна пропадав тихо: водій отримував п'ять точок
+ * замість шести й дізнався б про шосту хіба ввечері. Тепер у тексті всі точки
+ * в порядку маршруту, з тією ж нумерацією, що в чек-листі водія, а ті, яких
+ * Google не веде, помічені: до них їдуть за адресою словами.
  */
 
 import { useState } from "react";
@@ -57,6 +63,22 @@ function nameOf(s: Stop): string {
   return s.title || s.counterparty?.name || s.address || "Точка";
 }
 
+/**
+ * Українська форма числа: 1 точка, 2 точки, 5 точок.
+ *
+ * Дрібниця, але цей текст читає не сервер, а водій у месенджері, і «4 точок»
+ * у повідомленні з офісу виглядає так само, як помилка в накладній.
+ */
+function plural(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+const points = (n: number) => `${n} ${plural(n, "точка", "точки", "точок")}`;
+
 export default function RouteMapLink({
   number,
   date,
@@ -83,24 +105,40 @@ export default function RouteMapLink({
       <div className="border-t border-g100 px-5 py-3 text-[12.5px] text-g500">
         Маршрут у Google Maps з’явиться, коли в ньому буде хоча б дві точки з
         координатами
-        {missing > 0 && ` (зараз без координат: ${missing})`}.
+        {missing > 0 && ` (зараз без координат: ${points(missing)})`}.
       </div>
     );
   }
 
-  /** Те, що вставляють у Viber: список точок і посилання під ним. */
+  /**
+   * Те, що вставляють у Viber.
+   *
+   * Нумерація — за порядком у маршруті, тобто та сама, що в чек-листі водія:
+   * якщо в тексті «4. Мацигін», то в застосунку це теж четверта точка.
+   * Рахувати лише ті, що ввійшли в посилання, означало б дати водієві другу
+   * нумерацію й посварити її з першою.
+   */
   const messageText = [
     `Маршрут ${number} · ${new Date(date).toLocaleDateString("uk-UA")}${driverName ? ` · ${driverName}` : ""}`,
-    ...withCoords.map((s, i) => {
+    ...stops.map((s, i) => {
       const addr = s.address ? ` — ${s.address}` : "";
-      return `${i + 1}. ${nameOf(s)}${addr}`;
+      const noPin = coordsOf(s) ? "" : " ⚠ немає точки на карті, їхати за адресою";
+      return `${i + 1}. ${nameOf(s)}${addr}${noPin}`;
     }),
     "",
+    // Частини нумеруємо «1/2», а не просто «1»: водій, який побачив лише
+    // «частина 1», не знає, що є продовження, і поїде за обірваним обʼїздом.
     ...links.map((l, i) =>
       links.length === 1
         ? `Google Maps: ${l.url}`
-        : `Google Maps, частина ${i + 1} (${l.points} точок): ${l.url}`
+        : `Google Maps, частина ${i + 1}/${links.length} (${points(l.points)}): ${l.url}`
     ),
+    ...(missing > 0
+      ? [
+          "",
+          `Увага: ${points(missing)} без координат — у посиланні ${missing === 1 ? "її" : "їх"} немає, дивіться адресу в списку вище.`,
+        ]
+      : []),
   ].join("\n");
 
   const copy = async (text: string, tag: string) => {
@@ -165,8 +203,9 @@ export default function RouteMapLink({
         </button>
 
         <span className="text-[12px] text-g500">
-          {withCoords.length} точок
-          {links.length > 1 && ` · ${links.length} частини по ${MAX_POINTS_PER_LINK}`}
+          {points(withCoords.length)}
+          {links.length > 1 &&
+            ` · ${links.length} ${plural(links.length, "частина", "частини", "частин")} по ${MAX_POINTS_PER_LINK}`}
         </span>
         {missing > 0 && (
           <span
@@ -187,7 +226,7 @@ export default function RouteMapLink({
                 // частини; кожна наступна стартує з останньої точки
                 // попередньої, щоб дорога не рвалася.
                 <p className="mb-1 text-[12px] font-semibold text-g500">
-                  Частина {i + 1} · {l.points} точок
+                  Частина {i + 1} з {links.length} · {points(l.points)}
                 </p>
               )}
               <a

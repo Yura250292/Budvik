@@ -81,8 +81,12 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       // Водії живуть в «Аналітиці та звітах» поруч із торговими — тут лишається
       // сама логістика: куди їхати й чим возити.
-      { href: "/admin/erp/delivery-routes", title: "Маршрути доставки", desc: "Шляхові листи для водіїв", iconKey: "truck", roles: AM },
-      { href: "/admin/erp/route-planner", title: "Планувальник маршрутів", desc: "Побудова маршруту на карті", iconKey: "truck", roles: AM },
+      // Один пункт замість трьох екранів: день (листи 1С і маршрути),
+      // журнал і карта — вкладки всередині. Старі адреси живі як редіректи:
+      //   /admin/erp/route-planner   → ?tab=map
+      //   /admin/drivers?tab=sheets  → ?tab=journal
+      //   /manager/routes            → сама сторінка
+      { href: "/admin/erp/delivery-routes", title: "Маршрути", desc: "Листи 1С, планування, передача водіям", iconKey: "truck", roles: AM },
       { href: "/admin/stock-locations", title: "Склади та залишки", desc: "Управління складами", iconKey: "warehouse", roles: AM },
       { href: "/admin/client-folders", title: "Папки клієнтів", desc: "Шаблони напрямків для торгових", iconKey: "folder", roles: AM },
     ],

@@ -18,7 +18,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPicker";
 import { PayrollTab } from "./PayrollTab";
-import { RouteJournal } from "@/components/routes/RouteJournal";
 import { SettingsTab } from "./SettingsTab";
 import { LiveTrackTab } from "./LiveTrackTab";
 import { CashTab } from "./CashTab";
@@ -28,7 +27,6 @@ const TABS = [
   { key: "payroll", label: "Зарплата", period: true },
   { key: "live", label: "На маршруті", period: false },
   { key: "cash", label: "Інкасація", period: true },
-  { key: "sheets", label: "Маршрутні листи", period: true },
   { key: "settings", label: "Налаштування", period: false },
 ] as const;
 
@@ -36,8 +34,8 @@ type TabKey = (typeof TABS)[number]["key"];
 
 /** Сусідні сторінки того ж процесу: спланувати → видати лист → оплатити. */
 const LINKS = [
-  { href: "/admin/erp/route-planner", label: "Планувальник" },
-  { href: "/admin/erp/delivery-routes", label: "Маршрути доставки" },
+  { href: "/admin/erp/delivery-routes", label: "Маршрути" },
+  { href: "/admin/erp/delivery-routes?tab=journal", label: "Журнал листів" },
 ] as const;
 
 function defaultPeriod(): Period {
@@ -67,16 +65,29 @@ export function DriversShell() {
    */
   const [initialDriver] = useState(() => searchParams.get("driver"));
 
+  /**
+   * Старе посилання на вкладку листів. Журнал переїхав до маршрутів, а
+   * закладки на «серпень по листах» лишилися в чатах — ведемо їх у нове
+   * місце разом із періодом, а не на загальну зарплату.
+   */
+  const [leaving] = useState(() => searchParams.get("tab") === "sheets");
+  useEffect(() => {
+    if (!leaving) return;
+    const params = new URLSearchParams({ tab: "journal", from: period.from, to: period.to });
+    router.replace(`/admin/erp/delivery-routes?${params.toString()}`);
+  }, [leaving, period, router]);
+
   // Стан у querystring, щоб посилання на «серпень по листах» можна було
   // переслати. replace, а не push: інакше кожна зміна фільтра лягала б
   // в історію і «Назад» гортало б власні кліки.
   useEffect(() => {
+    if (leaving) return;
     const params = new URLSearchParams();
     if (tab !== "payroll") params.set("tab", tab);
     params.set("from", period.from);
     params.set("to", period.to);
     router.replace(`/admin/drivers?${params.toString()}`, { scroll: false });
-  }, [tab, period, router]);
+  }, [tab, period, router, leaving]);
 
   const onPeriodChange = useCallback((p: Period) => setPeriod(p), []);
 
@@ -140,7 +151,6 @@ export function DriversShell() {
       )}
       {tab === "live" && <LiveTrackTab />}
       {tab === "cash" && <CashTab period={period} />}
-      {tab === "sheets" && <RouteJournal period={period} />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );

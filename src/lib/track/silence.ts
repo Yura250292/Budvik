@@ -1,5 +1,5 @@
 /**
- * «Зміна відкрита, а треку немає» — сповіщення, поки день ще можна врятувати.
+ * «Трек не йде» — сповіщення, поки день ще можна врятувати.
  *
  * Досі про мертвий трек дізнавалися ввечері або наступного дня: людина
  * відкривала зміну, планшет мовчав, і жодного сигналу про це не було
@@ -12,11 +12,31 @@
  * навмисно не маленький — 25 хвилин без точки в місті трапляється
  * (підземний паркінг, глухий склад), а от година вже означає, що день
  * пишеться в нікуди.
+ *
+ * ГОЛОВНЕ РОЗРІЗНЕННЯ (03.09). Два стани виглядають однаково з боку бази
+ * — точок немає, — але означають протилежне:
+ *
+ *   Дані ВТРАЧАЮТЬСЯ. Планшет не пише нічого: служба вбита, дозвіл знято,
+ *   геолокація вимкнена. Кілометри цієї години не існуватимуть ніколи, і
+ *   дзвонити треба зараз.
+ *
+ *   Дані ЧЕКАЮТЬ. Планшет пише справно, буфер росте, але пачки не
+ *   долітають. Кілометри цілі, вони доїдуть самі — сьогодні, ввечері чи
+ *   після перезапуску застосунку. Термінового в цьому нічого.
+ *
+ * Обидва довго йшли під заголовком «Трек не пишеться», і 03.09 власник
+ * сказав прямо: заважає. Він мав рацію двічі. По-перше, заголовок брехав
+ * — у трьох торгових саме тоді в планшетах лежало по 300-400 записаних
+ * точок. По-друге, п'ять окремих повідомлень про одну спільну причину —
+ * це не сигнал, а шум, і читати його починають по діагоналі.
+ *
+ * Тому тепер: два стани — два заголовки, і всі люди одного стану йдуть
+ * ОДНИМ повідомленням.
  */
 
 import { prisma } from "@/lib/prisma";
 import { sendTelegramMessage } from "@/lib/telegram/notify";
-import { diagnose } from "@/lib/track/diagnosis";
+import { diagnose, BUFFER_ALARM, HEARTBEAT_WINDOW_MIN } from "@/lib/track/diagnosis";
 
 /** Скільки хвилин без жодної точки при відкритій зміні вважати аварією. */
 const SILENT_MINUTES = 25;
@@ -30,11 +50,36 @@ const SILENT_MINUTES = 25;
  */
 const GRACE_MINUTES = 15;
 
-/** Не повторювати сповіщення про ту саму людину частіше, ніж раз на стільки. */
-const COOLDOWN_MS = 2 * 60 * 60_000;
+/**
+ * Не повторювати про ту саму людину частіше, ніж раз на стільки.
+ *
+ * Два числа, бо терміновість різна. Втрата даних незворотна, і про неї
+ * нагадати вдруге за зміну доречно. Затримка доставки сама собою нічого
+ * не псує, тож удруге про неї варто сказати хіба надвечір — інакше один
+ * поганий канал зв'язку дає чотири однакові повідомлення за день.
+ */
+const COOLDOWN_LOST_MS = 2 * 60 * 60_000;
+const COOLDOWN_DELAYED_MS = 6 * 60 * 60_000;
 
 /** Ключ тротлу в спільному сховищі станів. */
 const alertKey = (userId: string) => `track:silentAlert:${userId}`;
+
+/** Що саме сталося: дані гинуть чи чекають у планшеті. */
+type Kind = "LOST" | "DELAYED";
+
+type Trouble = {
+  userId: string;
+  name: string;
+  kind: Kind;
+  reason: string;
+  silentMin: number;
+  buffered: number;
+  startedAt: Date;
+  lastPointAt: Date | null;
+};
+
+const clock = (d: Date) =>
+  d.toLocaleTimeString("uk-UA", { timeZone: "Europe/Kyiv", hour: "2-digit", minute: "2-digit" });
 
 async function alert(text: string): Promise<void> {
   const chatId = process.env.SYNC_ALERT_CHAT_ID;
@@ -46,8 +91,8 @@ async function alert(text: string): Promise<void> {
 /**
  * Одна перевірка по всіх відкритих змінах.
  *
- * Повертає, скільки сповіщень надіслано — воркеру це потрібно лише для
- * логу, рішень за цим числом ніхто не ухвалює.
+ * Повертає, скільки людей потрапило в сповіщення — воркеру це потрібно
+ * лише для логу, рішень за цим числом ніхто не ухвалює.
  */
 export async function checkTrackSilence(): Promise<number> {
   const now = Date.now();
@@ -63,7 +108,7 @@ export async function checkTrackSilence(): Promise<number> {
   });
   if (shifts.length === 0) return 0;
 
-  let sent = 0;
+  const troubles: Trouble[] = [];
 
   for (const shift of shifts) {
     /**
@@ -92,6 +137,7 @@ export async function checkTrackSilence(): Promise<number> {
           locationPermission: true,
           locationMode: true,
           batteryOptimized: true,
+          appVersion: true,
         },
       }),
       prisma.deviceToken.findFirst({
@@ -106,11 +152,43 @@ export async function checkTrackSilence(): Promise<number> {
     );
     if (silentMin < SILENT_MINUTES) continue;
 
-    const lastAlertMs = throttled ? Date.parse(throttled.value) : 0;
-    if (Number.isFinite(lastAlertMs) && now - lastAlertMs < COOLDOWN_MS) continue;
-
     const minutesSince = (d: Date | null | undefined) =>
       d ? Math.floor((now - d.getTime()) / 60_000) : null;
+
+    const beatAgo = minutesSince(lastBeat?.at);
+    const buffered = lastBeat?.buffered ?? 0;
+
+    /**
+     * Межа між «гине» і «чекає» — саме буфер, а не причина словами.
+     *
+     * Точки лежать у планшеті й пульс свіжий: значить, застосунок живий,
+     * пише і намагається віддати. Все інше — від вимкненої геолокації до
+     * вбитої служби — лишає буфер порожнім, бо писати нічого.
+     *
+     * Пульс мусить бути свіжим окремо: старий каже лише те, яким стан був
+     * пів години тому, а за цей час застосунок могли й прибити разом із
+     * буфером.
+     */
+    const delayed =
+      buffered > BUFFER_ALARM &&
+      !!lastBeat?.tracking &&
+      beatAgo != null &&
+      beatAgo <= HEARTBEAT_WINDOW_MIN;
+    const kind: Kind = delayed ? "DELAYED" : "LOST";
+
+    /**
+     * Тротл пам'ятає не лише час, а й стан.
+     *
+     * Погіршення «чекають» → «гинуть» мусить пройти негайно, навіть якщо
+     * про затримку писали десять хвилин тому: це вже інша новина, і
+     * шестигодинна пауза сховала б саме те, заради чого все це є.
+     */
+    const prev = throttled?.value ?? "";
+    const [prevKind, prevAt] = prev.includes("|") ? prev.split("|") : ["LOST", prev];
+    const lastAlertMs = Date.parse(prevAt);
+    const cooldown = kind === "LOST" ? COOLDOWN_LOST_MS : COOLDOWN_DELAYED_MS;
+    const worsened = prevKind === "DELAYED" && kind === "LOST";
+    if (!worsened && Number.isFinite(lastAlertMs) && now - lastAlertMs < cooldown) continue;
 
     // Та сама фраза, що й на карті: людина, яка прочитає сповіщення й
     // відкриє «На маршруті», має побачити те саме пояснення.
@@ -119,7 +197,7 @@ export async function checkTrackSilence(): Promise<number> {
       shiftOpen: true,
       beat: lastBeat
         ? {
-            minutesAgo: minutesSince(lastBeat.at),
+            minutesAgo: beatAgo,
             tracking: lastBeat.tracking,
             buffered: lastBeat.buffered,
             lastFixMinutesAgo: minutesSince(lastBeat.lastFixAt),
@@ -132,36 +210,72 @@ export async function checkTrackSilence(): Promise<number> {
         : null,
     });
 
-    /**
-     * «У приміщенні» — не привід будити офіс.
-     *
-     * Приймач живий і чесно віддає позицію по вежі; ми свідомо не пишемо її в
-     * трек, бо це коло на пів села, а не місце. Людина при цьому просто в
-     * клієнта або на складі — і сповіщення «трек не пишеться» тут лише вчить
-     * ігнорувати сповіщення. Стан видно на карті у «На маршруті», і цього
-     * досить: там він поруч із рештою картини, а не серед ночі в Telegram.
-     */
-    if (reason?.startsWith("У приміщенні")) continue;
-
-    const hoursOpen = Math.floor((now - shift.startedAt.getTime()) / 60_000 / 60);
-
-    await alert(
-      `📍 <b>Трек не пишеться</b>\n` +
-        `${shift.user.name ?? "Без імені"} — зміна відкрита ${hoursOpen ? `${hoursOpen} год ` : ""}` +
-        `(з ${shift.startedAt.toLocaleTimeString("uk-UA", { timeZone: "Europe/Kyiv", hour: "2-digit", minute: "2-digit" })})\n` +
-        (lastPoint
-          ? `Остання точка ${silentMin} хв тому.\n`
-          : `Жодної точки за всю зміну.\n`) +
-        (reason ? `\nПричина: ${reason}` : `\nПланшет на зв'язку — схоже, GPS не бачить неба.`)
-    );
-
-    await prisma.syncState.upsert({
-      where: { key: alertKey(shift.userId) },
-      create: { key: alertKey(shift.userId), value: new Date(now).toISOString() },
-      update: { value: new Date(now).toISOString() },
+    troubles.push({
+      userId: shift.userId,
+      name: shift.user.name ?? "Без імені",
+      kind,
+      reason: reason ?? "Планшет на зв'язку — схоже, GPS не бачить неба",
+      silentMin,
+      buffered,
+      startedAt: shift.startedAt,
+      lastPointAt: lastPoint?.recordedAt ?? null,
     });
-    sent++;
   }
 
-  return sent;
+  if (troubles.length === 0) return 0;
+
+  const lost = troubles.filter((t) => t.kind === "LOST");
+  const delayed = troubles.filter((t) => t.kind === "DELAYED");
+
+  /**
+   * Втрата йде першою і окремим повідомленням.
+   *
+   * Її читають, щоб зараз зателефонувати, — і вона не має ділити місце з
+   * тим, що можна подивитися ввечері.
+   */
+  if (lost.length > 0) {
+    await alert(
+      `📍 <b>Трек не пишеться</b>${lost.length > 1 ? ` — ${lost.length}` : ""}\n` +
+        `Кілометри цього часу не збережуться ніде.\n\n` +
+        lost
+          .map(
+            (t) =>
+              `• <b>${t.name}</b> — зміна з ${clock(t.startedAt)}, ` +
+              (t.lastPointAt
+                ? `остання точка ${t.silentMin} хв тому\n`
+                : `жодної точки за зміну\n`) +
+              `  ${t.reason}`
+          )
+          .join("\n\n")
+    );
+  }
+
+  if (delayed.length > 0) {
+    await alert(
+      `📡 <b>Точки не доїжджають</b>${delayed.length > 1 ? ` — ${delayed.length}` : ""}\n` +
+        `Записані й лежать у планшетах. Дані цілі, маршрут відновиться, ` +
+        `щойно пачки долетять.\n\n` +
+        delayed
+          .map(
+            (t) =>
+              `• <b>${t.name}</b> — ${t.buffered} точок у буфері, ` +
+              (t.lastPointAt ? `останнє доїхало ${clock(t.lastPointAt)}` : `нічого не доїхало`)
+          )
+          .join("\n") +
+        `\n\nЯкщо до вечора не розсмокчеться — перезапустити застосунок на планшеті.`
+    );
+  }
+
+  const stamp = new Date(now).toISOString();
+  await Promise.all(
+    troubles.map((t) =>
+      prisma.syncState.upsert({
+        where: { key: alertKey(t.userId) },
+        create: { key: alertKey(t.userId), value: `${t.kind}|${stamp}` },
+        update: { value: `${t.kind}|${stamp}` },
+      })
+    )
+  );
+
+  return troubles.length;
 }

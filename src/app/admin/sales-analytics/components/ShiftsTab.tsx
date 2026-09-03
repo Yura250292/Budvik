@@ -718,7 +718,8 @@ export function ShiftsTab({
               */
               hint={
                 detail.track.shift.movement
-                  ? `автом ${detail.track.shift.movement.DRIVE.km} км · пішки ${detail.track.shift.movement.WALK.km} км`
+                  ? `автом ${detail.track.shift.movement.DRIVE.km} км · пішки й на місці ` +
+                    `${Math.round((detail.track.shift.movement.WALK.km + detail.track.shift.movement.STOP.km) * 10) / 10} км`
                   : `${detail.track.shift.pointsCount} точок`
               }
             />

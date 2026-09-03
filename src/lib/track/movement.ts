@@ -54,15 +54,6 @@ const STOP_KMH = 1;
  */
 const WALK_KMH = 7;
 
-/**
- * Пік у межах відрізка, вище якого це вже не ходьба.
- *
- * Медіана згладжує, і хвилина в заторі цілком може дати медіану 5 км/год.
- * Але щоб уся ділянка НІ РАЗУ не перевищила 10 км/год, машина має стояти —
- * а тоді це не затор, а зупинка.
- */
-const WALK_PEAK_KMH = 10;
-
 /** Вікно згладжування: менше — і кожен світлофор стає окремим відрізком. */
 const SMOOTH_MS = 90_000;
 
@@ -81,6 +72,23 @@ const MIN_STOP_MS = 2 * 60_000;
  * не бачили. Такі проміжки завжди їзда: саме їх добиває дорога з OSRM.
  */
 const MAX_TRUSTED_GAP_MS = 5 * 60_000;
+
+/** Зрушив за паузу далі — значить їхав; ближче — стояв на місці. */
+const GAP_MOVED_M = 200;
+
+/**
+ * Наскільки широко треба розійтися, щоб це вважалося рухом.
+ *
+ * Найважливіший поріг тут, і взятий він із виміру, а не зі стелі. 03.09 у
+ * Олександра три ділянки по пів години виглядали ходьбою: шлях 1,2–2,1 км,
+ * середня 4 км/год. Насправді планшет не рухався взагалі — усі точки лежали
+ * в коробці 60–80 метрів, а сам пристрій усі ті пів години звітував нульову
+ * швидкість. Ці кілометри намалювало тремтіння приймача на місці.
+ *
+ * Сума відрізків для стоянки не показник у принципі: за пів години дрібних
+ * стрибків набігає скільки завгодно. Показник — чи вийшла людина за коло.
+ */
+const STOP_SPREAD_M = 120;
 
 const EARTH_R = 6_371_000;
 
@@ -133,25 +141,81 @@ export function classifyMovement(points: MovePoint[]): MoveSegment[] {
   const raw = gapSpeeds(points);
   const med = smooth(points, raw);
 
-  const label = raw.map((gap, i): MoveMode => {
-    // Довга пауза не свідчить про швидкість — там поїздка, якої не видно.
-    if (gap.ms > MAX_TRUSTED_GAP_MS) return "DRIVE";
+  /**
+   * «GAP» — службова мітка довгої паузи, яка не доживає до результату.
+   *
+   * Потрібна, щоб пауза не приклеїлася до сусідів. Планшет Передрія 03.09
+   * віддавав фікси раз на десять хвилин: між ними людина проїжджала
+   * кілометри, а по прямій виходило 5 км/год — і півтори години дороги
+   * ставали «ходьбою». Пауза мусить рахуватися окремо й за іншим правилом,
+   * тому вона розриває ділянку, а не тоне в її середній швидкості.
+   */
+  const label = raw.map((gap, i): MoveMode | "GAP" => {
+    if (gap.ms > MAX_TRUSTED_GAP_MS) return "GAP";
     if (med[i] < STOP_KMH) return "STOP";
     return med[i] < WALK_KMH ? "WALK" : "DRIVE";
   });
 
-  /**
-   * Пік усередині ділянки вирішує суперечку «ходьба чи затор».
-   *
-   * Рахуємо його по СИРІЙ швидкості: медіана для того й потрібна, щоб
-   * прибрати сплески, а тут саме сплеск і є доказом.
-   */
   const runs = toRuns(label);
+
+  /**
+   * Остаточне слово — за СЕРЕДНЬОЮ швидкістю всієї ділянки, а не за
+   * найшвидшою миттю в ній.
+   *
+   * Спершу тут стояв пік: мовляв, пішохід ніколи не проскочить 10 км/год, а
+   * машина в заторі проскочить. Правило виявилося крихким рівно там, де
+   * найдорожче. Один хибний фікс усередині — і дев'ять хвилин ходьби по
+   * ринку ставали «їздою», яку матчер потім чесно розкладав вулицями. Саме
+   * звідси бралася плутанина ліній у Винниках: 0,39 км за 9 хвилин, тобто
+   * 2,6 км/год, намальовані як проїзд кварталами.
+   *
+   * Середня такого не вміє: щоб вона впала до 3 км/год, стояти має вся
+   * ділянка, а не одна мить у ній.
+   */
   for (const run of runs) {
-    if (run.mode !== "WALK") continue;
-    let peak = 0;
-    for (let i = run.start; i <= run.end; i++) peak = Math.max(peak, raw[i].kmh);
-    if (peak > WALK_PEAK_KMH) run.mode = "DRIVE";
+    let meters = 0;
+    for (let i = run.start; i <= run.end; i++) meters += raw[i].meters;
+    /**
+     * Пауза судиться не швидкістю, а відстанню: за пів години можна і
+     * проїхати двадцять кілометрів, і простояти на місці, а середня по
+     * прямій в обох випадках бреше.
+     */
+    if (run.mode === "GAP") {
+      run.mode = meters >= GAP_MOVED_M ? "DRIVE" : "STOP";
+      continue;
+    }
+
+    /**
+     * Спершу — чи взагалі зрушили з місця, і аж потім швидкість. Порядок
+     * тут і є виправленням: за середньою швидкістю тремтіння на місці
+     * впевнено видає себе за ходьбу.
+     */
+    if (spreadM(points, run.start, run.end + 1) < STOP_SPREAD_M) {
+      run.mode = "STOP";
+      continue;
+    }
+
+    const ms = points[run.end + 1].recordedAt.getTime() - points[run.start].recordedAt.getTime();
+    const kmh = ms > 0 ? (meters / ms) * 3_600_000 / 1000 : 0;
+    run.mode = kmh < STOP_KMH ? "STOP" : kmh < WALK_KMH ? "WALK" : "DRIVE";
+  }
+
+  /**
+   * Затор — це їзда, і ось як він відрізняється від ходьби.
+   *
+   * Не швидкістю: бус у корку повзе тими самими 5 км/год, що й пішохід. А
+   * тим, що навколо. Корок — це середина поїздки: до нього їхали і після
+   * нього поїхали, машина не зупинялася. Ходьба ж завжди між зупинками —
+   * людина спершу стала, вийшла, і аж тоді пішла.
+   *
+   * Тому повільна ділянка, ЗАТИСНУТА їздою з обох боків, лишається їздою.
+   * Край дня рахуємо як зупинку: день починається й закінчується на місці.
+   */
+  for (let i = 0; i < runs.length; i++) {
+    if (runs[i].mode !== "WALK") continue;
+    const before = runs[i - 1]?.mode ?? "STOP";
+    const after = runs[i + 1]?.mode ?? "STOP";
+    if (before === "DRIVE" && after === "DRIVE") runs[i].mode = "DRIVE";
   }
 
   // Короткі ділянки — не спосіб пересування, а частина сусідньої.
@@ -162,7 +226,7 @@ export function classifyMovement(points: MovePoint[]): MoveSegment[] {
     else if (run.mode === "STOP" && spanMs(run) < MIN_STOP_MS) run.mode = "DRIVE";
   }
 
-  return merge(runs).map((run) => {
+  return merge(runs as Array<Run & { mode: MoveMode }>).map((run) => {
     let meters = 0;
     for (let i = run.start; i <= run.end; i++) meters += raw[i].meters;
     const from = points[run.start].recordedAt;
@@ -179,9 +243,31 @@ export function classifyMovement(points: MovePoint[]): MoveSegment[] {
   });
 }
 
-type Run = { mode: MoveMode; start: number; end: number };
+/**
+ * Наскільки широко розкидані точки ділянки — діагональ коробки, що їх
+ * охоплює. Саме це відрізняє «стояв» від «йшов»: сума дрібних стрибків
+ * росте й на місці, а коробка — ні.
+ */
+function spreadM(points: MovePoint[], from: number, to: number): number {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  for (let i = from; i <= to; i++) {
+    minLat = Math.min(minLat, points[i].lat);
+    maxLat = Math.max(maxLat, points[i].lat);
+    minLng = Math.min(minLng, points[i].lng);
+    maxLng = Math.max(maxLng, points[i].lng);
+  }
+  return haversineM(
+    { lat: minLat, lng: minLng, recordedAt: points[from].recordedAt },
+    { lat: maxLat, lng: maxLng, recordedAt: points[from].recordedAt }
+  );
+}
 
-function toRuns(label: MoveMode[]): Run[] {
+type Run = { mode: MoveMode | "GAP"; start: number; end: number };
+
+function toRuns(label: Array<MoveMode | "GAP">): Run[] {
   const runs: Run[] = [];
   for (let i = 0; i < label.length; i++) {
     const last = runs[runs.length - 1];
@@ -192,8 +278,8 @@ function toRuns(label: MoveMode[]): Run[] {
 }
 
 /** Склеює сусідів, які після переоцінки стали однаковими. */
-function merge(runs: Run[]): Run[] {
-  const out: Run[] = [];
+function merge(runs: Array<Run & { mode: MoveMode }>): Array<Run & { mode: MoveMode }> {
+  const out: Array<Run & { mode: MoveMode }> = [];
   for (const run of runs) {
     const last = out[out.length - 1];
     if (last && last.mode === run.mode) last.end = run.end;

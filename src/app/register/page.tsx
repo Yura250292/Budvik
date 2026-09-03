@@ -4,14 +4,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
-import { safeRelativePath } from "@/lib/utils";
+import { callbackPath } from "@/lib/utils";
 
 function RegisterForm() {
   const router = useRouter();
   const { data: session } = useSession();
   // Прийшов з кошика — туди й повертаємо: товари лежать у localStorage
   // і чекають, лишалось тільки довести людину назад
-  const callbackUrl = safeRelativePath(useSearchParams().get("callbackUrl"));
+  const callbackUrl = callbackPath(useSearchParams().get("callbackUrl"));
   const target = callbackUrl ?? "/dashboard";
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirmPassword: "" });
   const [error, setError] = useState("");

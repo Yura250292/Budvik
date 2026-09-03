@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useGateSession } from "@/lib/useGateSession";
 import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPicker";
 import { SummaryTab } from "./SummaryTab";
 import { OverviewTab } from "./OverviewTab";
@@ -201,7 +201,7 @@ function defaultPeriod(): Period {
 }
 
 export function AnalyticsShell() {
-  const { data: session, status } = useSession();
+  const { session, status } = useGateSession();
   const router = useRouter();
   const searchParams = useSearchParams();
 

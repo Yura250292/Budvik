@@ -163,3 +163,41 @@ export function safeRelativePath(raw: string | null | undefined): string | null 
   if (!raw) return null;
   return /^\/(?!\/)/.test(raw) ? raw : null;
 }
+
+/**
+ * Те саме, але приймає ще й повну адресу свого ж сайту.
+ *
+ * Навіщо окремо від safeRelativePath. Коли людину відсіває middleware,
+ * посилання на вхід складає не наш код, а next-auth, і callbackUrl там
+ * завжди абсолютний: /sales/catalog перетворюється на
+ * `/login?callbackUrl=https%3A%2F%2Fwww.budvik27.com%2Fsales%2Fcatalog`.
+ * Для safeRelativePath це «не шлях», тож він віддавав null — і після входу
+ * людина опинялась на головній своєї ролі, а не там, куди йшла. Найчастіше
+ * це бачив торговий: пішов у каталог, увійшов, отямився на показниках.
+ *
+ * Чому не послабили safeRelativePath. Він лишається вузьким і придатним
+ * там, де вікна немає (його двійник живе в api/device/session). Тут же
+ * походження звіряємо з реальним походженням сторінки, а не з константою:
+ * сайт відповідає і на apex, і на www, і зашитий домен відкидав би
+ * половину випадків.
+ *
+ * Чужий домен, `//evil.com` і протокол javascript: не проходять: URL
+ * розкриває їх у повну адресу, і origin не збігається.
+ */
+export function callbackPath(raw: string | null | undefined): string | null {
+  const relative = safeRelativePath(raw);
+  if (relative) return relative;
+  if (!raw || typeof window === "undefined") return null;
+
+  try {
+    // Навмисно без бази: з нею будь-яке сміття добудувалося б до нашого ж
+    // домену, і `?callbackUrl=abc` після входу вело б на 404 замість
+    // домівки за роллю. Без бази відносне й неадреса кидають виняток —
+    // тобто сюди доходить лише те, що справді є повною адресою.
+    const url = new URL(raw);
+    if (url.origin !== window.location.origin) return null;
+    return safeRelativePath(`${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    return null;
+  }
+}

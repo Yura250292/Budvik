@@ -4,7 +4,7 @@ import { signIn, useSession, getSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { safeRelativePath } from "@/lib/utils";
+import { callbackPath } from "@/lib/utils";
 
 /** Куди веде роль після входу. Порожня роль — звичайний покупець. */
 function homeForRole(role: unknown): string {
@@ -21,7 +21,7 @@ function LoginForm() {
   const { data: session } = useSession();
   // Куди повертатись після входу: кошик надсилає сюди ?callbackUrl=/cart,
   // щоб покупець не шукав свій кошик знову після реєстрації
-  const callbackUrl = safeRelativePath(useSearchParams().get("callbackUrl"));
+  const callbackUrl = callbackPath(useSearchParams().get("callbackUrl"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");

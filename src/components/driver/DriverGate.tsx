@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useGateSession } from "@/lib/useGateSession";
 
 /**
  * Роль-гейт кабінету водія — один на всю секцію.
@@ -13,12 +13,19 @@ import { useSession } from "next-auth/react";
  * ADMIN і MANAGER пускаємо навмисно — щоб керівник міг подивитися на
  * маршрут очима водія, не заводячи собі окремий обліковий запис. Той
  * самий підхід, що в SalesGate.
+ *
+ * Сесію беремо з useGateSession, а не з голого useSession: той оголошує
+ * «не увійшов» на будь-якій невдалій відповіді /api/auth/session, і планшет
+ * у машині показував би вхід людині з живою кукою — див. коментар у хуці.
+ * Тут це болючіше, ніж у торгового: сам трек не спиниться (роль лежить
+ * локально, пише фонове завдання), але водій, побачивши екран входу,
+ * натисне «Вийти» — а це вже logoutAndStop, і день обірветься.
  */
 
 const ALLOWED = ["DRIVER", "ADMIN", "MANAGER"];
 
 export default function DriverGate({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession();
+  const { session, status } = useGateSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
 
   if (status === "loading") {

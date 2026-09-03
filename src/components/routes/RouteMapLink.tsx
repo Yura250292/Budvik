@@ -69,6 +69,9 @@ export default function RouteMapLink({
   sentVia?: string | null;
   onSent?: () => void;
 }) {
+  // Одна частина ховається за кнопкою, кілька — показуються одразу: інакше
+  // «Відкрити» тихо веде в частину 1, і маршрут на 31 точку виглядає як
+  // маршрут на девʼять. Саме на цьому 03.09 спіткнувся власник.
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -208,6 +211,7 @@ export default function RouteMapLink({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          aria-expanded={open || links.length > 1}
           className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-g200 bg-white px-3 py-1.5 text-[13px] font-semibold text-bk hover:bg-g50"
         >
           <MapIcon className="h-4 w-4" aria-hidden />
@@ -219,7 +223,7 @@ export default function RouteMapLink({
           rel="noopener noreferrer"
           className="cursor-pointer rounded-[8px] border border-g200 bg-white px-3 py-1.5 text-[13px] font-semibold text-bk hover:bg-g50"
         >
-          Відкрити
+          {links.length > 1 ? `Відкрити 1/${links.length}` : "Відкрити"}
         </a>
         <button
           type="button"
@@ -274,8 +278,16 @@ export default function RouteMapLink({
         </p>
       )}
 
-      {open && (
+      {(open || links.length > 1) && (
         <div className="mt-3 rounded-[8px] border border-g200 bg-white p-3">
+          {links.length > 1 && (
+            <p className="mb-2 text-[12px] text-g500">
+              Google веде щонайбільше {MAX_POINTS_PER_LINK} точок за раз, а тут{" "}
+              {points(withCoords)} — тому маршрут поділено на {links.length}{" "}
+              {plural(links.length, "частину", "частини", "частин")}. Кожна
+              наступна починається там, де закінчилася попередня.
+            </p>
+          )}
           {links.map((l, i) => (
             <div key={l.url} className="mb-2 last:mb-0">
               {links.length > 1 && (

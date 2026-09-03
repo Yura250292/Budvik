@@ -18,7 +18,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { PeriodPicker, kyivToday, type Period } from "@/components/ui/PeriodPicker";
 import { PayrollTab } from "./PayrollTab";
-import { SheetsTab } from "./SheetsTab";
+import { RouteJournal } from "@/components/routes/RouteJournal";
 import { SettingsTab } from "./SettingsTab";
 import { LiveTrackTab } from "./LiveTrackTab";
 import { CashTab } from "./CashTab";
@@ -140,7 +140,7 @@ export function DriversShell() {
       )}
       {tab === "live" && <LiveTrackTab />}
       {tab === "cash" && <CashTab period={period} />}
-      {tab === "sheets" && <SheetsTab period={period} />}
+      {tab === "sheets" && <RouteJournal period={period} />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );

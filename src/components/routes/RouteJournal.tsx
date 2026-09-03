@@ -14,6 +14,11 @@ import { TableScroll } from "@/components/ui/TableScroll";
 /**
  * Журнал маршрутних листів: маршрути планувальника сайту + листи 1С.
  *
+ * Вкладка «Журнал» сторінки «Маршрути». Була вкладкою в розділі водіїв —
+ * поруч із зарплатою й інкасацією, тобто там, де рахують гроші, а не там,
+ * де планують день. Логіст шукав її в іншому меню, ніж маршрути, з якими
+ * вона про одне й те саме.
+ *
  * Головне джерело — маршрут сайту (у 1С лист — лише шапка без точок).
  * Для нього адмін вводить фактичний пробіг: у 1С кілометражу немає, тому
  * поки поле порожнє, розрахунок бере планові км OSRM і показує «≈».
@@ -161,7 +166,7 @@ function ActualKmEditor({
   );
 }
 
-export function SheetsTab({ period }: { period: Period }) {
+export function RouteJournal({ period }: { period: Period }) {
   // 1С виписує маршрутний лист на завтрашній день доставки, а PeriodPicker
   // не дає вибрати майбутню дату — без розширення завтрашній лист було б
   // неможливо побачити взагалі. Тому «живий» період (що впирається в
@@ -495,7 +500,7 @@ export function SheetsTab({ period }: { period: Period }) {
                               {r.convertedRoute ? (
                                 <>
                                   <Link
-                                    href="/admin/erp/delivery-routes"
+                                    href={`/admin/erp/delivery-routes?day=${r.day}&routeId=${r.convertedRoute.id}`}
                                     className="cursor-pointer rounded-[var(--radius-badge)] bg-bk px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
                                   >
                                     Відкрити маршрут {r.convertedRoute.number}

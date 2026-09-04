@@ -30,31 +30,49 @@ export function loadGoogleMaps(): Promise<typeof google.maps> {
 
   loading = new Promise((resolve, reject) => {
     // Скрипт міг уже приїхати (перехід між екранами) — тоді нічого не робимо.
-    if (typeof google !== "undefined" && google.maps) {
+    if (typeof google !== "undefined" && google.maps?.Map) {
       resolve(google.maps);
       return;
     }
+
+    /**
+     * Чекаємо на CALLBACK, а не на `onload`.
+     *
+     * З `loading=async` (а без нього Google сипле попередженням і блокує
+     * розбір сторінки) на момент `onload` конструкторів ще немає:
+     * `google.maps` існує, а `google.maps.Map` — ні, і створення карти
+     * падає з «maps.Map is not a constructor». `importLibrary` теж не
+     * допомагає: його додає вбудований bootstrap-снипет Google, а не
+     * звичайний тег script.
+     *
+     * Тому єдиний робочий шлях для тега — параметр `callback`: Google сам
+     * викличе нашу функцію, коли API справді готове.
+     */
+    const done = `__budvikMapsReady${Date.now()}`;
+    const w = window as unknown as Record<string, unknown>;
+    w[done] = () => {
+      delete w[done];
+      if (typeof google === "undefined" || !google.maps?.Map) {
+        reject(new Error("Google Maps готовий, але без конструкторів"));
+        return;
+      }
+      resolve(google.maps);
+    };
 
     const script = document.createElement("script");
     /*
       `language=uk` — щоб підписи були українською незалежно від того, як
       налаштований планшет; `region=UA` впливає на межі й на те, які назви
-      Google вважає основними.
-
-      `loading=async` — рекомендований Google спосіб: без нього консоль
-      сипле попередженням, а сам скрипт блокує розбір сторінки.
+      Google вважає основними. `libraries=marker` — заради класичного
+      `google.maps.Marker`.
     */
     script.src =
       `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(KEY)}` +
-      `&language=uk&region=UA&loading=async&libraries=marker`;
+      `&language=uk&region=UA&loading=async&libraries=marker&callback=${done}`;
     script.async = true;
-    script.onerror = () => reject(new Error("Не вдалося завантажити Google Maps"));
-    script.onload = () => {
-      if (typeof google === "undefined" || !google.maps) {
-        reject(new Error("Google Maps завантажився без maps"));
-        return;
-      }
-      resolve(google.maps);
+    script.onerror = () => {
+      delete w[done];
+      reject(new Error("Не вдалося завантажити Google Maps"));
     };
     document.head.appendChild(script);
   });

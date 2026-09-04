@@ -28,13 +28,28 @@ import { useNavApp } from "@/lib/maps/use-nav-app";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
 import { planCore } from "@/lib/maps/plan-core";
+import { hasGoogleMaps } from "@/lib/maps/google-loader";
 import RoutePanel, { type Horizon, type PanelStop, type RouteOrder } from "./RoutePanel";
 import type { DayPlan, PlanStop, SalesClientPoint } from "@/components/map/SalesClientsMap";
 
-const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
+/**
+ * Яку карту малювати.
+ *
+ * Є ключ Google — його; немає — нашу, на OpenStreetMap. Водії знають
+ * картинку Google напам'ять, і в селі під Львовом читають її швидше:
+ * інші підписи, більше орієнтирів у приватному секторі. Обидві реалізації
+ * мають однаковий інтерфейс, тож вибір — один рядок, а не дві гілки в
+ * коді екрана.
+ */
+const LeafletMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
   ssr: false,
   loading: () => <div style={{ height: "100%", width: "100%", background: "#E5E7EB" }} />,
 });
+const GoogleMap = dynamic(() => import("@/components/map/DriverGoogleMap"), {
+  ssr: false,
+  loading: () => <div style={{ height: "100%", width: "100%", background: "#E5E7EB" }} />,
+});
+const RouteMap = hasGoogleMaps ? GoogleMap : LeafletMap;
 
 type DriverClient = SalesClientPoint & {
   visits: number;
@@ -568,7 +583,7 @@ export default function DriverMapScreen() {
       }}
     >
       <div className="absolute inset-0">
-        <SalesClientsMap
+        <RouteMap
           clients={visible}
           route={null}
           plan={plan}

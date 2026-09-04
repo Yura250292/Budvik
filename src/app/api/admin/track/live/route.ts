@@ -189,6 +189,10 @@ export async function GET(req: NextRequest) {
       hasDevice,
       shiftOpen,
       installedVersion,
+      // Точки — головний доказ того, що трек живий; пульс лише пояснює
+      // їхню відсутність. Обидва числа вже пораховані вище.
+      lastPointMinutesAgo: minutesAgo,
+      lastPointSpeedKmh: point?.speedKmh ?? null,
       beat: beat
         ? {
             minutesAgo: beatAgo,

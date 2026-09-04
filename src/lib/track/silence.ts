@@ -122,7 +122,7 @@ export async function checkTrackSilence(): Promise<number> {
       prisma.trackPoint.findFirst({
         where: { userId: shift.userId, recordedAt: { gte: shift.startedAt } },
         orderBy: { recordedAt: "desc" },
-        select: { recordedAt: true },
+        select: { recordedAt: true, speedKmh: true },
       }),
       prisma.deviceHeartbeat.findFirst({
         where: { userId: shift.userId },
@@ -195,6 +195,8 @@ export async function checkTrackSilence(): Promise<number> {
     const reason = diagnose({
       hasDevice: !!device,
       shiftOpen: true,
+      lastPointMinutesAgo: lastPoint ? silentMin : null,
+      lastPointSpeedKmh: lastPoint?.speedKmh ?? null,
       beat: lastBeat
         ? {
             minutesAgo: beatAgo,

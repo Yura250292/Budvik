@@ -41,6 +41,8 @@ type Body = {
   appVersion?: string;
   osVersion?: string;
   osBuild?: string;
+  watchdogAt?: string;
+  watchdogStatus?: string;
 };
 
 /** Дата з тіла запиту або null: сміття в полі не має валити весь пульс. */
@@ -115,6 +117,12 @@ export async function POST(req: NextRequest) {
        */
       osVersion: text(body.osVersion, 20),
       osBuild: text(body.osBuild, 200),
+      /**
+       * Стан сторожа. Без нього мовчання пульсу не має адреси: сплячий
+       * сторож при живому треку й мертвий застосунок виглядають однаково.
+       */
+      watchdogAt: date(body.watchdogAt),
+      watchdogStatus: text(body.watchdogStatus, 20),
     },
   });
 

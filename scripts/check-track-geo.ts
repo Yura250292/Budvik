@@ -43,11 +43,17 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
   check("Перша точка без metersFromPrev", r.points[0].metersFromPrev, null);
   check("Перша точка не рахується в пробіг", r.points[0].countsToDistance, false);
   near("Пробіг пачки, км", r.addedKm, 13.5, 2);
-  check("Немає відкинутих", r.rejected, { accuracy: 0, stale: 0, malformed: 0 });
+  check("Немає відкинутих", r.rejected, { accuracy: 0, stale: 0, malformed: 0, impossible: 0 });
   check("Усі точки надійні", r.points.every((x) => x.trusted), true);
 }
 
 // --- Стрибок GPS ---
+//
+// Стрибки бувають двох сортів, і поводяться з ними по-різному. Неможливий
+// (десятки кілометрів за хвилину) не зберігається взагалі: така точка не
+// свідчить ні про що, а на карті тягне лінію через півкраїни. Неправдоподібний,
+// але фізично мислимий, зберігається — бо може виявитися правдою, — але в
+// пробіг не йде.
 {
   const raw: RawPoint[] = [
     { lat: 49.8419, lng: 24.0315, accuracyM: 10, recordedAt: at(0) },
@@ -55,9 +61,22 @@ near("Нульова відстань", haversineM(49.84, 24.03, 49.84, 24.03), 
     { lat: 50.2836, lng: 24.6383, accuracyM: 20, recordedAt: at(1) },
   ];
   const r = preparePoints(raw, null);
-  check("Стрибок збережено як точку", r.points.length, 2);
-  check("Стрибок НЕ додано до пробігу", r.points[1].countsToDistance, false);
+  check("Неможливий стрибок не збережено", r.points.length, 1);
+  check("Його полічено відкинутим", r.rejected.impossible, 1);
   near("Пробіг не зріс від стрибка", r.addedKm, 0, 0.001);
+}
+
+// --- Задорога швидко, але не неможливо ---
+{
+  const raw: RawPoint[] = [
+    { lat: 49.8419, lng: 24.0315, accuracyM: 10, recordedAt: at(0) },
+    // ~5,5 км за хвилину — це 330 км/год: не буває, але й не телепорт
+    { lat: 49.8919, lng: 24.0315, accuracyM: 20, recordedAt: at(1) },
+  ];
+  const r = preparePoints(raw, null);
+  check("Неправдоподібний стрибок збережено", r.points.length, 2);
+  check("Але в пробіг не пішов", r.points[1].countsToDistance, false);
+  near("Пробіг не зріс", r.addedKm, 0, 0.001);
 }
 
 // --- Дрейф на стоянці ---

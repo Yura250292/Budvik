@@ -158,3 +158,20 @@ export function navigateUrl(point: MapPoint, app: NavApp = "google"): string {
   }
   return pointUrl(point);
 }
+
+/**
+ * Android-намір, який ВЕДЕ одразу.
+ *
+ * Звичайне посилання `maps/dir/?api=1` відкриває Google Maps на екрані
+ * попереднього перегляду: водій бачить дорогу й мусить ще раз натиснути
+ * «Почати». За кермом це зайвий дотик рівно в ту мить, коли руки зайняті.
+ * Намір `google.navigation:` запускає покрокову навігацію без цього кроку.
+ *
+ * Тільки в застосунку і тільки для ОДНІЄЇ точки: схема не приймає
+ * проміжних, тож пачка з трьох чи пʼяти лишається на звичайному посиланні.
+ * На сайті її теж немає — браузер таку схему не відкриє, а у WebView наш
+ * же перехоплювач її заблокує.
+ */
+export function navIntentUrl(point: MapPoint): string {
+  return `google.navigation:q=${round(point.lat)},${round(point.lng)}&mode=d`;
+}

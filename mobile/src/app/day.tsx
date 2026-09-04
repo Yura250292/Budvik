@@ -54,7 +54,13 @@ import { UpdateBar } from "@/ui/UpdateBar";
 import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
-import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/google-links";
+import {
+  googleMapsLinksFromHere,
+  navIntentUrl,
+  navigateUrl,
+  pointUrl,
+  type NavApp,
+} from "@/lib/google-links";
 import { NAV_BATCHES, getNavApp, getNavBatch, setNavApp, setNavBatch, type NavBatch } from "@/lib/nav-app";
 import { within, PROBE_MS } from "@/lib/within";
 import { formatTime, kyivToday } from "@/lib/format-date";
@@ -236,6 +242,29 @@ export default function DayScreen() {
       )[0]?.url ?? ""
     );
   }, [chunk, navApp]);
+
+  /**
+   * Поїхали.
+   *
+   * Для однієї точки в Google спершу пробуємо намір `google.navigation:` —
+   * він запускає покрокову навігацію без екрана «Почати». Не вийшло (немає
+   * Google Maps, інша прошивка) — відкриваємо звичайне посилання, як і
+   * досі. Пачка з кількох точок наміром не їде: схема приймає лише одну.
+   */
+  const drive = useCallback(async () => {
+    if (!driveUrl) return;
+    if (navApp === "google" && chunk.length === 1) {
+      try {
+        await Linking.openURL(
+          navIntentUrl({ lat: chunk[0].lat as number, lng: chunk[0].lng as number })
+        );
+        return;
+      } catch {
+        // Падаємо на звичайне посилання нижче.
+      }
+    }
+    void Linking.openURL(driveUrl);
+  }, [driveUrl, navApp, chunk]);
 
   const mark = useCallback(
     async (
@@ -435,7 +464,7 @@ export default function DayScreen() {
 
           <Pressable
             style={[s.mapLink, s.mapLinkPrimary]}
-            onPress={() => Linking.openURL(driveUrl)}
+            onPress={() => void drive()}
           >
             <Icon name="navigation" size={16} color={c.onDark} />
             <Text style={[s.mapLinkLabel, { color: c.onDark }]}>

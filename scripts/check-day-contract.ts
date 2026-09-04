@@ -36,6 +36,18 @@ const DAY_FIELDS: Record<string, (v: unknown) => boolean> = {
 const PROGRESS_FIELDS = ["total", "done", "missed", "left", "collected", "debtPlanned"];
 const TRACK_FIELDS = ["distanceKm", "pointsCount", "lastPointAt"];
 const CASH_FIELDS = ["collected", "handed", "onHands", "handovers"];
+/**
+ * Поля маршруту, які читає застосунок.
+ *
+ * `mine` і `driverName` тут не заради повноти: відколи водій бачить листи
+ * колег, саме вони вирішують, показувати кнопки відміток і касу чи ні.
+ * Зникни вони з відповіді — застосунок мовчки вважав би чужий лист своїм.
+ */
+const ROUTE_FIELDS = [
+  "source", "id", "day", "number", "vehicle", "plannedKm", "geometry",
+  "driverId", "driverName", "mine", "myOrder", "stops",
+];
+
 const STOP_FIELDS = [
   "key", "counterpartyId", "name", "address", "lat", "lng", "geoSource",
   "sequence", "amount", "debtAmount", "kind", "notes", "visit",
@@ -63,6 +75,14 @@ async function cleanup() {
   const sheets = await p.routeSheet.findMany({ where: { externalId: { startsWith: MARK } }, select: { id: true } });
   await p.routeSheetStop.deleteMany({ where: { routeSheetId: { in: sheets.map((s) => s.id) } } });
   await p.routeSheet.deleteMany({ where: { id: { in: sheets.map((s) => s.id) } } });
+  // Візити прибираємо ПЕРШИМИ: якби запобіжник на чужий лист не спрацював,
+  // відмітка створилася б, і видалення клієнта впало б на зовнішньому ключі —
+  // тобто перевірка лишила б по собі сміття саме тоді, коли провалилась.
+  const clients = await p.counterparty.findMany({
+    where: { name: { startsWith: MARK } },
+    select: { id: true },
+  });
+  await p.visit.deleteMany({ where: { counterpartyId: { in: clients.map((c) => c.id) } } });
   await p.counterparty.deleteMany({ where: { name: { startsWith: MARK } } });
   await p.deviceToken.deleteMany({ where: { userId: { in: ids } } });
   await p.user.deleteMany({ where: { id: { in: ids } } });
@@ -86,7 +106,7 @@ async function main() {
   });
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
-  await p.routeSheet.create({
+  const mySheet = await p.routeSheet.create({
     data: {
       externalId: `${MARK}sheet`,
       number: `${MARK}МЛ-9`,
@@ -97,6 +117,25 @@ async function main() {
       stops: {
         create: [
           { sequence: 1, counterpartyId: client.id, address: "вул. Тестова, 1", amount: 5000, debtAmount: 1200 },
+        ],
+      },
+    },
+  });
+
+  /** Другий водій із власним листом — щоб перевірити «чуже». */
+  const mate = await p.user.create({
+    data: { email: `${MARK}mate@test.local`, name: `${MARK} Колега`, role: "DRIVER" },
+  });
+  const foreignSheet = await p.routeSheet.create({
+    data: {
+      externalId: `${MARK}sheet-mate`,
+      number: `${MARK}МЛ-10`,
+      date: new Date(`${today}T09:00:00Z`),
+      driverId: mate.id,
+      driverName1C: "Колега",
+      stops: {
+        create: [
+          { sequence: 1, counterpartyId: client.id, address: "вул. Тестова, 2", amount: 700, debtAmount: 0 },
         ],
       },
     },
@@ -132,7 +171,12 @@ async function main() {
   for (const f of CASH_FIELDS) check(`cash.${f} присутнє`, f in (cash ?? {}), cash?.[f]);
   check("cash.handovers — масив", Array.isArray(cash?.handovers), cash?.handovers);
 
-  const route = body.route as { number?: unknown; stops?: unknown } | null;
+  const route = body.route as Record<string, unknown> | null;
+  for (const f of ROUTE_FIELDS) {
+    check(`route.${f} присутнє`, !!route && f in route, route?.[f]);
+  }
+  check("route.mine — булеве", typeof route?.mine === "boolean", route?.mine);
+  check("Свій лист позначено як свій", route?.mine === true, route?.mine);
   check("route.stops — масив", Array.isArray(route?.stops), route?.stops);
   const stop = (route?.stops as Record<string, unknown>[])?.[0];
   check("У дні є наша точка", !!stop, stop);
@@ -181,6 +225,72 @@ async function main() {
       });
     }
   }
+
+  /**
+   * Лист колеги: відкрити можна, відмітити — ні.
+   *
+   * Найдорожча помилка цієї доробки виглядала б так: чужий лист приїжджає
+   * без ознаки «чужий», застосунок показує кнопки відміток, і два водії
+   * пишуть візити одному клієнту. Тому перевіряємо обидва боки — і що лист
+   * ВІДКРИВАЄТЬСЯ (інакше вся доробка марна), і що сервер не приймає в
+   * нього відмітку.
+   */
+  const foreignRes = await fetch(
+    `${BASE}/api/tablet/day?route=rs:${foreignSheet.id}`,
+    { headers: { Authorization: `Bearer ${token}`, "x-budvik-app": "staff/10100" } }
+  );
+  const foreignBody = (await foreignRes.json().catch(() => null)) as Record<string, unknown> | null;
+  const foreignRoute = foreignBody?.route as Record<string, unknown> | undefined;
+
+  check("Чужий лист відкривається", foreignRes.status === 200, foreignRes.status);
+  check("Чужий лист позначено чужим", foreignRoute?.mine === false, foreignRoute?.mine);
+  check(
+    "Видно, чий це лист",
+    typeof foreignRoute?.driverName === "string" && String(foreignRoute.driverName).includes(MARK),
+    foreignRoute?.driverName
+  );
+  check("Точки чужого листа приїхали", (foreignRoute?.stops as unknown[])?.length === 1, foreignRoute?.stops);
+  check(
+    "Каса чужого дня не показується як своя",
+    (foreignBody?.cash as { collected?: number })?.collected === 0,
+    foreignBody?.cash
+  );
+  check("Візити поза планом на чужому листі порожні", (foreignBody?.extraVisits as unknown[])?.length === 0);
+
+  const foreignStopId = (
+    await p.routeSheetStop.findFirst({ where: { routeSheetId: foreignSheet.id }, select: { id: true } })
+  )?.id;
+  const markRes = await fetch(`${BASE}/api/visits`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "x-budvik-app": "staff/10100",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      counterpartyId: client.id,
+      status: "DONE",
+      money: "NONE",
+      routeSheetStopId: foreignStopId,
+    }),
+  });
+  check("Відмітка в чужому листі відхилена (403)", markRes.status === 403, markRes.status);
+
+  /** Список листів: обидва видно, свій вище чужого того самого дня. */
+  const listRes = await fetch(`${BASE}/api/driver/routes`, {
+    headers: { Authorization: `Bearer ${token}`, "x-budvik-app": "staff/10100" },
+  });
+  const list = (await listRes.json().catch(() => null)) as
+    | { items?: Array<Record<string, unknown>> }
+    | null;
+  const mineAt = list?.items?.findIndex((i) => i.key === `rs:${mySheet.id}`) ?? -1;
+  const foreignAt = list?.items?.findIndex((i) => i.key === `rs:${foreignSheet.id}`) ?? -1;
+  check("У списку є свій лист", mineAt >= 0, mineAt);
+  check("У списку є чужий лист", foreignAt >= 0, foreignAt);
+  check("Свій лист стоїть вище чужого", mineAt >= 0 && foreignAt >= 0 && mineAt < foreignAt, {
+    свій: mineAt,
+    чужий: foreignAt,
+  });
 
   await cleanup();
   const leftovers = await p.user.count({ where: { email: { startsWith: MARK } } });

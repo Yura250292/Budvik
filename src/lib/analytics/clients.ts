@@ -209,7 +209,16 @@ const DAY_MS = 86_400_000;
  * виглядав у липні, інакше при погляді назад усі поспіль виявляться
  * втраченими.
  */
-function classify(row: PortfolioRow, period: Period): ClientState {
+export type ClientRhythmRow = {
+  firstDocAt: Date;
+  lastDocAt: Date;
+  /** Документів за всю історію — без них LOST не відрізнити від разової покупки */
+  historyDocs: number;
+  /** Різних ДНІВ із покупками за історію — по них рахується ритм */
+  historyDays: number;
+};
+
+export function classifyClient(row: ClientRhythmRow, period: Period): ClientState {
   const asOf = period.to.getTime();
   const daysSinceLast = Math.floor((asOf - row.lastDocAt.getTime()) / DAY_MS);
 
@@ -234,7 +243,7 @@ function classify(row: PortfolioRow, period: Period): ClientState {
   return "ACTIVE";
 }
 
-function avgIntervalDays(row: PortfolioRow): number {
+export function avgIntervalDays(row: Pick<ClientRhythmRow, "firstDocAt" | "lastDocAt" | "historyDays">): number {
   if (row.historyDays <= 1) return 0;
   const spanDays = (row.lastDocAt.getTime() - row.firstDocAt.getTime()) / DAY_MS;
   return spanDays / (row.historyDays - 1);
@@ -261,7 +270,7 @@ export async function clientPortfolio(repId: string, period: Period): Promise<Re
   const aging = await agingByCounterparty(rows.map((r) => r.counterpartyId));
 
   const clients: PortfolioClient[] = rows.map((row) => {
-    const state = classify(row, period);
+    const state = classifyClient(row, period);
     counts[state] += 1;
     if (state === "NEW") newRevenue += row.amount;
     if (state === "LOST") lostRevenue += row.amount;
@@ -323,7 +332,7 @@ type MapRow = PortfolioRow & {
  * (у 1С торговий проставлений не всюди). Інакше з карти зникали б саме
  * ті точки, які найбільше треба комусь віддати.
  *
- * Класифікація навмисно та сама функція classify(), а не копія порогів:
+ * Класифікація навмисно та сама функція classifyClient(), а не копія порогів:
  * колір на карті мусить збігатися зі станом у картці торгового.
  */
 export async function clientPortfolioAll(period: Period): Promise<ClientMapPortfolio> {
@@ -405,7 +414,7 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
   const aging = await agingByCounterparty(null);
 
   const clients = rows.map((row) => {
-    const state = classify(row, period);
+    const state = classifyClient(row, period);
     counts[state] += 1;
 
     return {
@@ -509,7 +518,7 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
       map.get(row.repId) ??
       { repId: row.repId, newClients: 0, lostClients: 0, slippingClients: 0, activeClients: 0, totalClients: 0 };
 
-    const state = classify(row, period);
+    const state = classifyClient(row, period);
     if (state === "NEW") acc.newClients += 1;
     else if (state === "LOST") acc.lostClients += 1;
     else if (state === "SLIPPING") acc.slippingClients += 1;

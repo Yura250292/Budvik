@@ -65,7 +65,7 @@ export function ordersSince(months: OrderMonths | number): Date {
  * одного циклу половина товарів потрапляла б у список за день до того, як
  * клієнт і сам би зателефонував. Запас у 20% прибирає цей шум.
  */
-const OVERDUE_MIN = 1.2;
+export const OVERDUE_MIN = 1.2;
 
 /**
  * Понад стільки циклів — це вже не «пора», а «перестав брати».
@@ -73,7 +73,7 @@ const OVERDUE_MIN = 1.2;
  * Різні приводи для розмови: у першому випадку торговий нагадує, у другому
  * має з'ясувати, куди клієнт пішов. Тому це не один список, а два.
  */
-const OVERDUE_DROPPED = 4;
+export const OVERDUE_DROPPED = 4;
 
 /** Мінімум схожих клієнтів, щоб бренд потрапив у пораду. */
 const PEER_SUPPORT = 3;
@@ -105,8 +105,8 @@ function plural(n: number, one: string, few: string, many: string): string {
   return many;
 }
 
-const times = (n: number) => `${n} ${plural(n, "раз", "рази", "разів")}`;
-const days = (n: number) => `${n} ${plural(n, "день", "дні", "днів")}`;
+export const times = (n: number) => `${n} ${plural(n, "раз", "рази", "разів")}`;
+export const days = (n: number) => `${n} ${plural(n, "день", "дні", "днів")}`;
 
 export type LastOrderItem = {
   productId: string;
@@ -162,7 +162,7 @@ export type Recommendation = {
  * Сервісні склади (брак, майстерня) виключені — там товар фізично є, але
  * продати його не можна.
  */
-const FREE_STOCK = (alias: string) => Prisma.raw(`
+export const FREE_STOCK = (alias: string) => Prisma.raw(`
       JOIN LATERAL (
         SELECT COALESCE(SUM(ls.available), 0)::int AS free
         FROM "LocationStock" ls
@@ -286,7 +286,7 @@ export async function orderSummary(counterpartyId: string, since: Date): Promise
   };
 }
 
-type ReplenishRow = {
+export type ReplenishRow = {
   productId: string;
   name: string;
   sku: string | null;
@@ -302,16 +302,18 @@ type ReplenishRow = {
 };
 
 /**
- * Товари, які клієнт бере регулярно, але цього разу затримався.
+ * Ритм закупівель клієнта по кожному товару: як часто бере і коли брав востаннє.
+ *
+ * Винесено з replenishment() окремою функцією, бо ту саму відповідь питає
+ * помічник торгового, коли добирає гачок для входу («що він і так бере, і
+ * саме зараз має закінчуватись»). Дві копії цього запиту неминуче
+ * розійшлися б у порогах, і порада помічника суперечила б картці клієнта.
  *
  * Повернення виключені (docType <> 'RETURN'): повернутий товар — це не факт
  * попиту, і пропонувати його «повторити» було б знущанням.
- *
- * Пороги лишаються в TypeScript, а не в SQL, — як classify() у clients.ts:
- * так вони в одному місці й читаються без запуску запиту.
  */
-async function replenishment(counterpartyId: string): Promise<Recommendation[]> {
-  const rows = await prisma.$queryRaw<ReplenishRow[]>`
+export async function clientProductRhythm(counterpartyId: string): Promise<ReplenishRow[]> {
+  return prisma.$queryRaw<ReplenishRow[]>`
     WITH lines AS (
       SELECT
         i."productId",
@@ -359,6 +361,16 @@ async function replenishment(counterpartyId: string): Promise<Recommendation[]> 
     -- price > 0 з тієї ж причини: у 486 активних позицій ціни просто немає.
     WHERE p."isActive" AND p.price > 0 AND st.free > 0
   `;
+}
+
+/**
+ * Товари, які клієнт бере регулярно, але цього разу затримався.
+ *
+ * Пороги лишаються в TypeScript, а не в SQL, — як classifyClient() у
+ * clients.ts: так вони в одному місці й читаються без запуску запиту.
+ */
+async function replenishment(counterpartyId: string): Promise<Recommendation[]> {
+  const rows = await clientProductRhythm(counterpartyId);
 
   const out: Recommendation[] = [];
   for (const r of rows) {

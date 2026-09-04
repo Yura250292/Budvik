@@ -400,6 +400,17 @@ export default function DriverMapScreen() {
       return;
     }
     let alive = true;
+    /**
+     * Своя межа терпіння понад `timeout` браузера.
+     *
+     * `timeout` у getCurrentPosition відлічує ЗАПИТ, а не роздуми людини:
+     * поки висить діалог «дозволити доступ до місця», жоден із двох
+     * колбеків не спрацює. Водій, який просто не тапнув по діалогу,
+     * лишився б із картою без дороги взагалі — і без жодного натяку чому.
+     * Через сім секунд рахуємо від складу; приїде відповідь пізніше —
+     * дорога перерахується від нього.
+     */
+    const giveUp = window.setTimeout(() => alive && setLocated(true), 7000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         if (!alive) return;
@@ -411,6 +422,7 @@ export default function DriverMapScreen() {
     );
     return () => {
       alive = false;
+      window.clearTimeout(giveUp);
     };
   }, []);
 

@@ -19,6 +19,8 @@ import {
 import { formatPrice, formatDate } from "@/lib/utils";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Body, Card, Note, Page } from "@/components/cabinet/ui";
+import { Section, SectionRow } from "@/components/sales/ClientSection";
+import ClientMemorySection from "@/components/sales/ClientMemorySection";
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -34,56 +36,6 @@ const STATUS_COLOR: Record<string, string> = {
   DRAFT: "#D97706", CONFIRMED: "#2563EB", PACKING: "#9333EA",
   IN_TRANSIT: "#D97706", DELIVERED: "#16A34A", CANCELLED: "#DC2626",
 };
-
-/**
- * Картка-секція зі своєю шапкою і рядками через лінію.
- *
- * Оплати, товари, замовлення й повернення — чотири однакові за формою блоки:
- * заголовок ліворуч, підсумок праворуч, далі рядки. Поки кожен був окремим
- * набором інлайнових стилів, у них розійшлися і відступи, і товщина ліній.
- */
-function Section({
-  title,
-  right,
-  icon,
-  tone = "plain",
-  children,
-}: {
-  title: string;
-  right?: ReactNode;
-  icon?: ReactNode;
-  tone?: "plain" | "bad";
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className={`overflow-hidden rounded-2xl border bg-white ${
-        tone === "bad" ? "border-bad-line" : "border-cab-line"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2 border-b border-cab-line px-4 py-3">
-        <span className="flex min-w-0 items-center gap-2">
-          {icon}
-          <span className="truncate text-sm font-semibold text-bk">{title}</span>
-        </span>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** Рядок секції: усі, крім першого, відокремлені лінією. */
-function SectionRow({ children, href }: { children: ReactNode; href?: string }) {
-  const cls = "block px-4 py-2.5 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-[#F1F1EF]";
-  return href ? (
-    <Link href={href} className={`${cls} active:opacity-70`}>
-      {children}
-    </Link>
-  ) : (
-    <div className={cls}>{children}</div>
-  );
-}
 
 /** Квадратик під іконку контакту: колір каже про стан, а не про тип. */
 function Tile({ bg, children }: { bg: string; children: ReactNode }) {
@@ -233,6 +185,10 @@ export default function ClientDetailPage() {
             {debt.syncedAt ? `За даними 1С, оновлено ${formatDate(debt.syncedAt)}` : "За даними 1С"}
           </Note>
         </div>
+
+        {/* Памʼять про клієнта — одразу під боргом: обидва блоки про те,
+            як із цією точкою працювати, а не скільки вона купила. */}
+        <ClientMemorySection counterpartyId={id} clientName={cp.name} />
 
         {/* Оплати — ПКО з 1С, які зменшують борг вище */}
         <Section

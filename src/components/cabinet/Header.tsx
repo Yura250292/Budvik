@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Sparkles } from "lucide-react";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 /**
@@ -27,6 +28,7 @@ export function CabinetHeader({
   backTo,
   right,
   sticky = true,
+  hideAssistant = false,
 }: {
   title: string;
   /** Дрібний рядок над заголовком: роль, стан, кількість. */
@@ -41,8 +43,24 @@ export function CabinetHeader({
    * списком, повертатися доводилось прокруткою на початок.
    */
   sticky?: boolean;
+  /**
+   * Сховати кнопку помічника. Потрібно рівно на одному екрані — його
+   * власному, де вона вела б сама в себе.
+   */
+  hideAssistant?: boolean;
 }) {
   const isApp = useIsNativeApp();
+  const pathname = usePathname();
+
+  /**
+   * Помічник лежить у своїй секції, а не в спільній.
+   *
+   * Адреса вирішує двоє: під /driver сторінка успадковує гейт водія і
+   * нижню панель водія, під /sales — торгового. Одна спільна сторінка
+   * лишила б людину без навігації назад, а це на телефоні глухий кут.
+   */
+  const assistantHref = pathname.startsWith("/driver") ? "/driver/assistant" : "/sales/assistant";
+  const showAssistant = !hideAssistant && !pathname.endsWith("/assistant");
 
   return (
     <header
@@ -103,7 +121,27 @@ export function CabinetHeader({
           </h1>
         </div>
 
-        {!!right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+        <div className="flex shrink-0 items-center gap-1">
+          {/*
+            Помічник у шапці, а не плиткою на головній: питання «скільки він
+            винен» виникає посеред екрана клієнтів або маршруту, а не там,
+            звідки день починався. Шапка — єдине місце, спільне для всіх
+            екранів обох кабінетів.
+          */}
+          {showAssistant && (
+            <Link
+              href={assistantHref}
+              aria-label="Помічник"
+              // Без плашки й трохи менша за сусідів: на головній торгового
+              // праворуч уже стоять дзвінок, вихід і аватар, і четверта
+              // кнопка з фоном з'їдала заголовок до трьох літер.
+              className="flex h-10 w-9 items-center justify-center"
+            >
+              <Sparkles size={20} color="#FFD600" />
+            </Link>
+          )}
+          {right}
+        </div>
       </div>
     </header>
   );

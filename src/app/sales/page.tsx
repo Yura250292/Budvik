@@ -15,6 +15,7 @@ import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { OverdueAlert } from "./analytics/components/OverdueAlert";
 import { MetricGrid } from "./analytics/components/MetricGrid";
+import AssistantTile from "@/components/sales/assistant/AssistantTile";
 import {
   monthLabel,
   useMySummary,
@@ -231,6 +232,10 @@ function Home() {
           </Card>
         )}
 
+        {/* Без метрик помічник потрібен не менше: клієнти, борги й склад
+            він читає незалежно від того, чи зібралась зведена. */}
+        {data && !row && <AssistantTile />}
+
         {data && row && (
           <>
             <HeroPlan
@@ -242,6 +247,8 @@ function Home() {
             {/* Прострочка — одразу під планом: це не показник, а борг, який
                 щодня дорожчає. Наприкінці екрана її просто не гортали. */}
             <OverdueAlert row={row} href={withPeriod("/sales/analytics/money", period)} />
+
+            <AssistantTile />
 
             <MetricGrid row={row} moneyHref={withPeriod("/sales/analytics/money", period)} />
 

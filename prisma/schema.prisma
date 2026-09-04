@@ -303,10 +303,10 @@ model User {
   /// перепризначень (той самий підхід, що counterpartyId вище).
   driver1CExternalId String? @unique
 
-  routeSheets          RouteSheet[]  @relation("driverRouteSheets")
-  driverBonuses        DriverBonus[] @relation("driverBonusDriver")
+  routeSheets          RouteSheet[]       @relation("driverRouteSheets")
+  driverBonuses        DriverBonus[]      @relation("driverBonusDriver")
   driverRouteOrders    DriverRouteOrder[] @relation("driverRouteOrders")
-  driverBonusesCreated DriverBonus[] @relation("driverBonusAuthor")
+  driverBonusesCreated DriverBonus[]      @relation("driverBonusAuthor")
 
   dashboardLayout UserDashboardLayout?
   dashboardNotes  UserDashboardNote[]
@@ -326,6 +326,11 @@ model User {
   // Інкасація: свої здачі та підтвердження чужих
   cashHandovers     CashHandover[] @relation("cashHandoverDriver")
   cashConfirmations CashHandover[] @relation("cashHandoverConfirmedBy")
+
+  // Помічник торгового
+  assistantThreads      AssistantThread[] @relation("assistantThreadUser")
+  assistantThreadsAsRep AssistantThread[] @relation("assistantThreadRep")
+  clientMemories        ClientMemory[]    @relation("clientMemoryAuthor")
 
   @@index([referredBySalesRepId])
 }
@@ -778,6 +783,7 @@ model Counterparty {
   prospect        ProspectClient?
   comments        ClientComment[]
   visits          Visit[]
+  memories        ClientMemory[]
 
   purchaseOrders    PurchaseOrder[]
   salesDocuments    SalesDocument[]
@@ -2894,6 +2900,19 @@ model DeviceHeartbeat {
   /// Версія збірки: без неї «у нас це вже виправлено» неперевірне.
   appVersion String?
 
+  /// Версія Android і збірка прошивки планшета.
+  ///
+  /// Знадобилися 04.09, коли трек стояв у двох торгових із семи, і обидва
+  /// планшети виявилися однієї моделі. Модель ми знали (DeviceToken), а от
+  /// прошивку — ні, і питання «чи справа в ній» не було чим закрити. Оболонки
+  /// виробників різняться саме керуванням фоном: те, що на одній збірці
+  /// працює, на іншій присипляється за хвилину.
+  ///
+  /// `osBuild` — повний відбиток збірки (Build.FINGERPRINT), у ньому і модель,
+  /// і версія оболонки, і дата складання.
+  osVersion  String?
+  osBuild    String?
+
   user  User         @relation("heartbeatUser", fields: [userId], references: [id], onDelete: Cascade)
   token DeviceToken? @relation("heartbeatToken", fields: [tokenId], references: [id], onDelete: SetNull)
 
@@ -3094,6 +3113,7 @@ model Shift {
   /**
    * /**
    * /**
+   * /**
    * Коли автоматично (або заднім числом) закриту зміну визнали правдою.
    * Потрібне саме окреме поле, а не статус: пробіг такої зміни доїжджає
    * зранку зі стартового фото, тобто вона вже «закрита», але ще не
@@ -3249,4 +3269,130 @@ model SiteDailyStat {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Роль повідомлення в розмові з помічником торгового.
+///
+/// TOOL — це не «ще одна репліка», а результат інструмента: JSON, який
+/// пішов моделі назад. Зберігаємо його разом із рештою, бо без нього
+/// неможливо ні відтворити хід думки, ні перевірити, звідки взялося
+/// число у відповіді. Користувачу такі рядки не показуються.
+enum AssistantRole {
+  USER
+  ASSISTANT
+  TOOL
+}
+
+/// Про що факт у пам'яті клієнта. Вид, а не вільний тег: список коротких
+/// категорій сортується й читається, а теги за півроку перетворюються на
+/// сотню синонімів одного й того самого.
+enum ClientMemoryKind {
+  PAYMENT // як платить, чому не віддає борг
+  RELATIONSHIP // характер, з ким говорити, як заходити
+  PREFERENCE // що бере, чого не бере принципово
+  LOGISTICS // коли приймає товар, куди заїжджати
+  COMPETITOR // хто ще возить і чим бере
+  OTHER
+}
+
+/// Хто записав факт: торговий руками чи помічник на прохання торгового.
+/// Показується на картці, бо довіра до цих двох джерел різна.
+enum ClientMemorySource {
+  REP
+  ASSISTANT
+}
+
+/// Розмова торгового з помічником.
+///
+/// Окремо від AiChatHistory навмисно: та таблиця — плоский лог чату
+/// магазину без гілок, без викликів інструментів і без прив'язки до
+/// торгового, чиї дані читає модель.
+///
+/// repId відповідає на питання «чиї це дані»: у торгового це він сам, а
+/// керівник, відкриваючи помічника, обирає, за кого дивиться. Тримати це
+/// в розмові, а не в запиті, — щоб половина діалогу не виявилась раптом
+/// про іншу людину.
+model AssistantThread {
+  id     String @id @default(cuid())
+  userId String
+  repId  String
+
+  /// Перші слова першого питання — підпис у списку розмов.
+  title       String?
+  totalTokens Int     @default(0)
+
+  /// Замок на час формування відповіді: другий запит у ту саму розмову
+  /// поки перший ще думає зіпсував би порядок повідомлень.
+  busyUntil     DateTime?
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User               @relation("assistantThreadUser", fields: [userId], references: [id], onDelete: Cascade)
+  rep      User               @relation("assistantThreadRep", fields: [repId], references: [id], onDelete: Cascade)
+  messages AssistantMessage[]
+
+  @@index([userId, lastMessageAt(sort: Desc)])
+}
+
+/// Одне повідомлення розмови: питання, відповідь або результат інструмента.
+model AssistantMessage {
+  id       String        @id @default(cuid())
+  threadId String
+  role     AssistantRole
+
+  /// Текст (USER/ASSISTANT) або JSON результату інструмента (TOOL).
+  content String
+
+  /// ASSISTANT: [{ id, name, arguments }] — те, що модель попросила викликати.
+  toolCalls  Json?
+  /// TOOL: на який саме виклик це відповідь.
+  toolCallId String?
+  toolName   String?
+
+  /// Ідентифікатори клієнтів і товарів, які були у видачі інструмента.
+  /// Саме за цим списком перевіряються посилання у відповіді: модель не
+  /// може послатися на клієнта, якого їй ніхто не показував.
+  entityIds String[] @default([])
+
+  promptTokens     Int     @default(0)
+  completionTokens Int     @default(0)
+  durationMs       Int?
+  error            String?
+
+  createdAt DateTime @default(now())
+
+  thread AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+/// Пам'ять про клієнта: те, чого немає в жодному документі.
+///
+/// Чому окремо від ClientComment: коментар — це подія на дату («заїжджав,
+/// зачинено»), і стрічка з них розпухає. Факт живе далі («платить лише
+/// готівкою після 15-го»), його редагують, а не дописують знизу, і саме
+/// його читає помічник, коли готує розмову з клієнтом.
+///
+/// Видалення м'яке: факт, що втратив чинність, зникає зі списку, але
+/// лишається в базі — інакше «а хто це стер і чому» відповіді не має.
+model ClientMemory {
+  id             String  @id @default(cuid())
+  counterpartyId String
+  /// Хто записав. Для source=ASSISTANT — торговий, у чиїй розмові це сталося.
+  authorId       String?
+
+  kind   ClientMemoryKind   @default(OTHER)
+  text   String
+  source ClientMemorySource @default(REP)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+  author       User?        @relation("clientMemoryAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([counterpartyId, archivedAt, createdAt(sort: Desc)])
 }

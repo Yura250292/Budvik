@@ -429,6 +429,10 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       batteryPct: device.batteryPct ?? undefined,
       batteryOptimized: device.batteryOptimized ?? undefined,
       appVersion: APP_BUILD,
+      // Прошивка планшета: різні оболонки по-різному душать фон, і без цього
+      // рядка кожен розбір «чому в нього не пише» починається з дзвінка.
+      osVersion: device.osVersion ?? undefined,
+      osBuild: device.osBuild ?? undefined,
     });
     await setLastHeartbeatAt(Date.now());
 

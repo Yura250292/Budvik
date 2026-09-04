@@ -11,6 +11,7 @@
  * шкалу, а не дві.
  */
 
+import { Platform } from "react-native";
 import * as Location from "expo-location";
 import * as Battery from "expo-battery";
 
@@ -29,7 +30,34 @@ export type DeviceState = {
    * розриви по кілька годин у маршрутах.
    */
   batteryOptimized: boolean | null;
+  /**
+   * Версія Android і відбиток прошивки.
+   *
+   * Беремо з `Platform.constants`, а не з expo-device, свідомо: там усе вже
+   * є, і нової нативної залежності не треба — тобто це доїжджає повітрям, а
+   * не наступною збіркою. Саме тоді, коли відповідь потрібна сьогодні.
+   */
+  osVersion: string | null;
+  osBuild: string | null;
 };
+
+/** Що Android розповідає про себе самого. Поза Android — порожньо. */
+function firmware(): { osVersion: string | null; osBuild: string | null } {
+  if (Platform.OS !== "android") return { osVersion: null, osBuild: null };
+  const c = Platform.constants as unknown as {
+    Release?: string;
+    Fingerprint?: string;
+    Model?: string;
+    Manufacturer?: string;
+  };
+  const model = [c.Manufacturer, c.Model].filter(Boolean).join(" ");
+  return {
+    osVersion: c.Release ? `Android ${c.Release}` : null,
+    // Відбиток інформативніший за модель, але модель у ньому не завжди
+    // читається оком — тому склеюємо: спершу людське, потім технічне.
+    osBuild: [model, c.Fingerprint].filter(Boolean).join(" · ") || null,
+  };
+}
 
 export async function readDeviceState(): Promise<DeviceState> {
   const [fg, bg, provider, pct, optimized] = await Promise.all([
@@ -52,6 +80,7 @@ export async function readDeviceState(): Promise<DeviceState> {
         : "OFF";
 
   return {
+    ...firmware(),
     locationPermission,
     locationMode,
     // getBatteryLevelAsync віддає частку 0..1 або -1, коли система мовчить.

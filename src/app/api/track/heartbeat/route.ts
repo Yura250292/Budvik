@@ -39,6 +39,8 @@ type Body = {
   batteryPct?: number;
   locationMode?: string;
   appVersion?: string;
+  osVersion?: string;
+  osBuild?: string;
 };
 
 /** Дата з тіла запиту або null: сміття в полі не має валити весь пульс. */
@@ -107,6 +109,12 @@ export async function POST(req: NextRequest) {
       batteryPct: int(body.batteryPct, 0, 100),
       locationMode: text(body.locationMode, 20),
       appVersion: text(body.appVersion, 40),
+      /**
+       * Прошивка планшета. Довжина під `Build.FINGERPRINT` — він буває
+       * довгим (виробник/модель/версія/дата/ключі одним рядком).
+       */
+      osVersion: text(body.osVersion, 20),
+      osBuild: text(body.osBuild, 200),
     },
   });
 

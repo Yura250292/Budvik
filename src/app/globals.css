@@ -1017,6 +1017,43 @@ input:focus, select:focus, textarea:focus {
 }
 
 /*
+/**
+ * Точка, до якої водій їде ЗАРАЗ.
+ *
+ * На карті дня всі піни однакові, і серед тридцяти квадратів «наступний»
+ * не знайти поглядом за кермом. Пульсуюче кільце — єдине, що читається
+ * боковим зором, і воно ж повторюється рядком у списку.
+ *
+ * Кільце окремим елементом під піном, а не тінню самого піна: тінь пульсує
+ * разом із номером, і цифра починає «дихати», тобто гірше читається.
+ * Глобальний вимикач руху нижче накриває й це.
+ */
+@keyframes driver-target-pulse {
+  0%   { transform: scale(0.75); opacity: 0.75; }
+  70%  { transform: scale(1.9);  opacity: 0; }
+  100% { transform: scale(1.9);  opacity: 0; }
+}
+
+.driver-target-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 12px;
+  background: #2563EB;
+  animation: driver-target-pulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+/** Рядок цієї ж точки в списку — той самий сигнал, тільки тихіший. */
+@keyframes driver-target-row {
+  0%, 100% { background: #EFF6FF; }
+  50%      { background: #DBEAFE; }
+}
+
+.driver-target-row {
+  animation: driver-target-row 2.4s ease-in-out infinite;
+}
+
+/**
  * Глобальний вимикач руху. Один шар накриває все: лого-пульс, маркізу,
  * герой, reveal, шимер — і все, що додасться потім. Тривалість 0.01ms
  * замість none: анімації з fill-mode одразу стрибають у фінальний стан,

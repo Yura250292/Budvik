@@ -63,8 +63,14 @@ export async function GET(req: NextRequest) {
   if (!routeKey) {
     return NextResponse.json({ error: "Не вказано маршрут" }, { status: 400 });
   }
-  /** sheet — як у листі; optimal — найкоротший обʼїзд тих самих точок. */
-  const wantOptimal = url.searchParams.get("order") === "optimal";
+  /**
+   * sheet — як у листі; optimal — найкоротший обʼїзд тих самих точок;
+   * custom — порядок, який водій перетягнув собі (ключі приходять у `keys`).
+   */
+  const orderParam = url.searchParams.get("order");
+  const wantOptimal = orderParam === "optimal";
+  const customKeys =
+    orderParam === "custom" ? (url.searchParams.get("keys") ?? "").split(",").filter(Boolean) : [];
 
   const route = await resolveDriverRoute(auth.me.userId, routeKey);
   const withCoords = route.stops
@@ -82,13 +88,27 @@ export async function GET(req: NextRequest) {
    * Те саме правило, що звужує вікно карти (lib/maps/plan-core.ts), тож
    * лінія проходить рівно по тому, що видно на екрані.
    */
-  const stops = planCore(withCoords);
+  let stops = planCore(withCoords);
+
+  /**
+   * Свій порядок водія розкладаємо ТУТ, а не рахуємо заново.
+   *
+   * Ключі приходять із панелі, де він щойно перетягнув рядки; сервер лише
+   * бере ті, що справді є в маршруті, і додає в хвіст ті, яких водій не
+   * чіпав (маршрут могли поповнити після того, як він зберіг порядок).
+   */
+  if (customKeys.length > 0) {
+    const byKey = new Map(stops.map((st) => [st.key, st]));
+    const picked = customKeys.map((k) => byKey.get(k)).filter((st): st is (typeof stops)[number] => !!st);
+    const used = new Set(picked.map((st) => st.key));
+    stops = [...picked, ...stops.filter((st) => !used.has(st.key))];
+  }
 
   // Одна точка — не маршрут. Порожня відповідь, а не помилка: карта просто
   // намалює пін без лінії.
   if (stops.length < 2) {
     return NextResponse.json({
-      order: wantOptimal ? "optimal" : "sheet",
+      order: orderParam ?? "sheet",
       geometry: null,
       totalKm: null,
       totalMin: null,
@@ -128,7 +148,7 @@ export async function GET(req: NextRequest) {
     }
 
     const body = {
-      order: wantOptimal ? "optimal" : "sheet",
+      order: orderParam ?? "sheet",
       geometry: res.geometry,
       totalKm: res.totalDistanceKm,
       totalMin: res.totalDurationMin,
@@ -155,7 +175,7 @@ export async function GET(req: NextRequest) {
      * з нього видно так само, а от відстані — ні, тому їх не вигадуємо.
      */
     return NextResponse.json({
-      order: wantOptimal ? "optimal" : "sheet",
+      order: orderParam ?? "sheet",
       geometry: null,
       totalKm: null,
       totalMin: null,

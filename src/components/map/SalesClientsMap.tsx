@@ -102,6 +102,13 @@ export type PlanStop = {
   errand: boolean;
   /** Дорога до цієї точки в Google Maps */
   mapUrl: string | null;
+  /**
+   * До цієї точки водій їде просто зараз.
+   *
+   * Рівно одна на маршрут. Пульсує кільцем — серед тридцяти однакових
+   * квадратів «наступна» інакше не знаходиться поглядом за кермом.
+   */
+  current?: boolean;
 };
 
 export type DayPlan = {
@@ -195,18 +202,25 @@ function popupButton(action: string, id: string, label: string, primary: boolean
 function planIcon(stop: PlanStop): L.DivIcon {
   const { bg, fg } = PLAN_COLORS[stop.status];
   const label = stop.errand ? "+" : String(stop.seq);
+  // Поточна ціль — синя, як і дорога до неї, і з пульсуючим кільцем під піном.
+  const bgNow = stop.current ? "#2563EB" : bg;
+  const fgNow = stop.current ? "#fff" : fg;
+
   return L.divIcon({
     className: "",
     iconSize: [30, 30],
     iconAnchor: [15, 15],
     popupAnchor: [0, -15],
-    html: `<div style="
-      width:30px;height:30px;border-radius:9px;
-      background:${bg};color:${fg};
-      display:flex;align-items:center;justify-content:center;
-      font-weight:800;font-size:13px;font-family:system-ui,sans-serif;
-      border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35)
-    ">${escapeHtml(label)}</div>`,
+    html: `<div style="position:relative;width:30px;height:30px">
+      ${stop.current ? `<span class="driver-target-ring"></span>` : ""}
+      <div style="
+        position:relative;width:30px;height:30px;border-radius:9px;
+        background:${bgNow};color:${fgNow};
+        display:flex;align-items:center;justify-content:center;
+        font-weight:800;font-size:13px;font-family:system-ui,sans-serif;
+        border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35)
+      ">${escapeHtml(label)}</div>
+    </div>`,
   });
 }
 
@@ -236,7 +250,7 @@ function planPopupHtml(stop: PlanStop): string {
   return `<div style="font-family:system-ui;font-size:14px;min-width:190px;max-width:250px">
     <span style="display:inline-block;margin-bottom:4px;padding:2px 8px;border-radius:10px;
       background:${bg};color:#fff;font-size:11px;font-weight:700">
-      ${stop.errand ? "Додаткова поїздка" : `Точка ${stop.seq}`} · ${escapeHtml(PLAN_STATUS_LABEL[stop.status])}
+      ${stop.current ? "Їдете сюди" : stop.errand ? "Додаткова поїздка" : `Точка ${stop.seq}`} · ${escapeHtml(PLAN_STATUS_LABEL[stop.status])}
     </span>
     <strong style="display:block;font-size:15px">${escapeHtml(stop.name)}</strong>
     ${stop.address ? `<div style="color:#6B7280;font-size:12px;margin-top:2px">${escapeHtml(stop.address)}</div>` : ""}
@@ -392,7 +406,7 @@ export default function SalesClientsMap({
       // перемалюватися, а відмітка точки одразу перефарбувати номер.
       "#" +
       (plan?.number ?? "") +
-      plan?.stops.map((s) => `${s.key}:${s.status}`).join(",") ,
+      plan?.stops.map((s) => `${s.key}:${s.status}:${s.seq}:${s.current ? 1 : 0}`).join(",") ,
     [clients, route, plan]
   );
 
@@ -509,7 +523,10 @@ export default function SalesClientsMap({
      * менше, ніж є. Зсув — метрів тридцять; дорога від цього не міняється,
      * бо посилання в попапі несе СПРАВЖНЮ координату точки, а не зсунуту.
      */
-    spread(plan?.stops ?? []).forEach((stop) => {
+    const planPins = spread(plan?.stops ?? []).sort(
+      (a, b) => Number(!!a.current) - Number(!!b.current)
+    );
+    planPins.forEach((stop) => {
       const marker = L.marker([stop.lat, stop.lng], { icon: planIcon(stop), zIndexOffset: 1000 })
         .bindPopup(planPopupHtml(stop), { minWidth: 190 })
         .addTo(group);

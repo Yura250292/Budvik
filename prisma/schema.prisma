@@ -305,6 +305,7 @@ model User {
 
   routeSheets          RouteSheet[]  @relation("driverRouteSheets")
   driverBonuses        DriverBonus[] @relation("driverBonusDriver")
+  driverRouteOrders    DriverRouteOrder[] @relation("driverRouteOrders")
   driverBonusesCreated DriverBonus[] @relation("driverBonusAuthor")
 
   dashboardLayout UserDashboardLayout?
@@ -2386,6 +2387,46 @@ model DriverBonus {
 
   @@index([driverId, date])
   @@index([date])
+}
+
+/// Порядок обʼїзду, який водій склав СОБІ.
+///
+/// Окремою таблицею, а не полем sequence у точках, і причин дві.
+///
+/// RouteSheetStop приїжджає обміном із 1С: переписаний там порядок наступний
+/// же обмін затер би, і водій щоранку заново перетягував би ті самі рядки.
+/// А DeliveryStop.sequence належить логісту — саме його порядок він
+/// узгоджує з клієнтами й дивиться в звітах; тихо підмінювати його з
+/// планшета означало б, що офіс і водій говорять про різні маршрути,
+/// вважаючи, що про один.
+///
+/// Тому це особиста мітка: діє тільки в кабінеті цього водія і зникає
+/// кнопкою «скинути». Ключ маршруту з префіксом джерела (`dr:`/`rs:`) —
+/// той самий, яким кабінет відкриває лист.
+model DriverRouteOrder {
+  id       String @id @default(cuid())
+  driverId String
+  /// `dr:<id>` або `rs:<id>` — як у resolveDriverRoute
+  routeKey String
+
+  /// Ключі точок у порядку водія. Саме ключі, а не індекси: маршрут між
+  /// збереженням і читанням могли поправити, і індекси вказали б на чужі
+  /// точки. Невідомі ключі при читанні просто ігноруються, нові точки
+  /// доїжджають у хвіст.
+  ///
+  /// Ключі переживають обмін: прийом листів (apply-route-sheet-stops.ts)
+  /// зіставляє рядки за документом реалізації й ОНОВЛЮЄ їх, а не створює
+  /// заново. Виняток — рядки без документа: їх зіставляти нема за чим, тож
+  /// після обміну вони приїжджають новими id і падають у хвіст списку.
+  /// Таких у листах одиниці, і краще так, ніж мовчки переставити точку.
+  stopKeys String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  driver User @relation("driverRouteOrders", fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, routeKey])
 }
 
 /// Ставки зарплати водіїв — один рядок на всю систему.

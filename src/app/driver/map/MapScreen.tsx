@@ -17,7 +17,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
 import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
@@ -29,6 +28,7 @@ import { useNavApp } from "@/lib/maps/use-nav-app";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
 import { planCore } from "@/lib/maps/plan-core";
+import RoutePanel, { type Horizon, type PanelStop, type RouteOrder } from "./RoutePanel";
 import type { DayPlan, PlanStop, SalesClientPoint } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -88,8 +88,6 @@ type Scope = "route" | "mine" | "all";
 
 const LEGEND: ClientStateKey[] = ["ACTIVE", "NEW", "SLIPPING", "DORMANT", "LOST"];
 
-const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
-
 /** Стан точки маршруту так, як його малює карта. */
 function planStatus(stop: DayStop): PlanStop["status"] {
   if (stop.visit?.status === "DONE") return "DONE";
@@ -124,6 +122,7 @@ export default function DriverMapScreen() {
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [focus, setFocus] = useState<{ lat: number; lng: number; id?: string; nonce: number } | null>(null);
   const [orderFor, setOrderFor] = useState<{ id: string; name: string; state: ClientStateKey } | null>(null);
@@ -149,7 +148,21 @@ export default function DriverMapScreen() {
    * називає диспетчеру. Найкоротший — окремим перемикачем, бо це наша
    * порада, а не документ.
    */
-  const [order, setOrder] = useState<"sheet" | "optimal">("sheet");
+  /**
+   * Порядок за замовчуванням — логістичний, а не з листа.
+   *
+   * Номери рядків у документі 1С обʼїздом не є: той самий район вони
+   * обходять за 900 км замість двохсот. Водій, що бачить список уперше,
+   * має бачити дорогу, а не порядок набивання документа. Сам лист поруч,
+   * окремою кнопкою — його номери він називає в офіс.
+   */
+  const [order, setOrder] = useState<RouteOrder>("optimal");
+  /** Порядок, який водій перетягнув собі. null — ще не зберігав. */
+  const [myOrder, setMyOrder] = useState<string[] | null>(null);
+  const [horizon, setHorizon] = useState<Horizon>(null);
+  const [editing, setEditing] = useState(false);
+  /** Точка, до якої водій попросив побудувати дорогу — питаємо підтвердження. */
+  const [askFor, setAskFor] = useState<PanelStop | null>(null);
 
   // Тягнемо завжди повний набір: 379 точок — одна відповідь, а перемикання
   // «маршрут / мої / всі» після цього миттєве, без походу в мережу.
@@ -215,21 +228,53 @@ export default function DriverMapScreen() {
    * водій сам попросив найкоротший порядок: його в документі немає.
    */
   const needsLine = !!routeId && !(hasOwnGeometry && order === "sheet");
-  const lineKey = routeId ? `${routeId}:${order}` : "";
+  /**
+   * Свій порядок — окремим параметром: сервер не тримає його в памʼяті між
+   * запитами, а ключі водій щойно міг перетягнути.
+   */
+  const myKeysParam = order === "mine" && myOrder?.length ? myOrder.join(",") : "";
+  const lineKey = routeId ? `${routeId}:${order}:${myKeysParam}` : "";
   const activeLine = line?.for === lineKey ? line.data : null;
   const lineLoading = needsLine && line?.for !== lineKey;
 
   useEffect(() => {
     if (!needsLine) return;
     let alive = true;
-    fetch(`/api/driver/route-line?route=${encodeURIComponent(routeId!)}&order=${order}`)
+    fetch(
+      `/api/driver/route-line?route=${encodeURIComponent(routeId!)}` +
+        (order === "mine"
+          ? `&order=custom&keys=${encodeURIComponent(myKeysParam)}`
+          : `&order=${order}`)
+    )
       .then((r) => (r.ok ? (r.json() as Promise<LineResp>) : null))
       .then((j) => alive && setLine({ for: lineKey, data: j }))
       .catch(() => alive && setLine({ for: lineKey, data: null }));
     return () => {
       alive = false;
     };
-  }, [needsLine, routeId, order, lineKey]);
+  }, [needsLine, routeId, order, lineKey, myKeysParam]);
+
+  /**
+   * Свій порядок читаємо ОДИН раз на маршрут.
+   *
+   * Якщо він є — саме його й показуємо: водій його не просто так складав.
+   * Порядок сервера («логістичний») лишається поруч кнопкою.
+   */
+  useEffect(() => {
+    if (!routeId) return;
+    let alive = true;
+    fetch(`/api/driver/route-order?route=${encodeURIComponent(routeId)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ stopKeys: string[] | null }>) : null))
+      .then((j) => {
+        if (!alive || !j?.stopKeys?.length) return;
+        setMyOrder(j.stopKeys);
+        setOrder("mine");
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [routeId]);
 
   const locate = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -281,17 +326,35 @@ export default function DriverMapScreen() {
    * У порядку листа лишаємо номери документа: саме їх водій називає в офіс.
    */
   const orderedStops = useMemo<PlanStop[]>(() => {
-    if (order !== "optimal" || !activeLine?.stopKeys.length) return planStops;
+    // Порядок листа — номери документа, як їх набив 1С. Нічого не міняємо.
+    if (order === "sheet") return planStops;
+
+    // Свій порядок діє одразу, ще до того як приїде лінія: інакше після
+    // перетягування список на секунду стрибав би назад.
+    const keys = order === "mine" && myOrder?.length ? myOrder : activeLine?.stopKeys;
+    if (!keys?.length) return planStops;
+
     const byKey = new Map(planStops.map((s) => [s.key, s]));
-    const seq = activeLine.stopKeys
+    const seq = keys
       .map((k) => byKey.get(k))
       .filter((s): s is PlanStop => !!s)
       .map((s, i) => ({ ...s, seq: i + 1 }));
-    // Точки, які в дорогу не потрапили (криві координати), лишаються на
-    // карті без номера — інакше вони просто зникнуть, і водій їх не побачить.
-    const used = new Set(activeLine.stopKeys);
-    return [...seq, ...planStops.filter((s) => !used.has(s.key)).map((s) => ({ ...s, seq: 0 }))];
-  }, [order, activeLine, planStops]);
+    // Точки, які в дорогу не потрапили (криві координати) або зʼявилися
+    // після збереження порядку, їдуть у хвіст — інакше вони просто зникнуть.
+    const used = new Set(seq.map((s) => s.key));
+    const tail = planStops.filter((s) => !used.has(s.key));
+    return [...seq, ...tail.map((s, i) => ({ ...s, seq: seq.length + i + 1 }))];
+  }, [order, activeLine, planStops, myOrder]);
+
+  /**
+   * Точка, до якої водій їде ЗАРАЗ — перша невідмічена в поточному порядку.
+   *
+   * Одна на весь маршрут: саме її пульсує пін і підсвічує рядок.
+   */
+  const currentKey = useMemo(
+    () => orderedStops.find((s) => s.status === "PENDING")?.key ?? null,
+    [orderedStops]
+  );
 
   const plan = useMemo<DayPlan>(
     () =>
@@ -299,10 +362,10 @@ export default function DriverMapScreen() {
         ? {
             number: day?.route.number ?? null,
             geometry: activeLine?.geometry ?? day?.route.geometry ?? null,
-            stops: orderedStops,
+            stops: orderedStops.map((s) => ({ ...s, current: s.key === currentKey })),
           }
         : null,
-    [orderedStops, day?.route.number, day?.route.geometry, activeLine?.geometry]
+    [orderedStops, currentKey, day?.route.number, day?.route.geometry, activeLine?.geometry]
   );
 
   /** Клієнти відкритого листа — по них працює перший сегмент фільтра. */
@@ -378,6 +441,77 @@ export default function DriverMapScreen() {
     });
   }, [activeLine, orderedStops]);
 
+  /** Точки для панелі: з поточною ціллю й відстанню до наступної. */
+  const panelStops = useMemo<PanelStop[]>(
+    () =>
+      orderedStops.map((s, i) => ({
+        ...s,
+        current: s.key === currentKey,
+        legKm: legs[i]?.distanceKm ?? null,
+      })),
+    [orderedStops, currentKey, legs]
+  );
+
+  /** «Мій» зʼявляється в перемикачі, лише коли водій щось перетягнув. */
+  const availableOrders = useMemo<RouteOrder[]>(
+    () => (myOrder?.length ? ["mine", "optimal", "sheet"] : ["optimal", "sheet"]),
+    [myOrder]
+  );
+
+  /**
+   * Перетягнули рядок — зберігаємо одразу, без кнопки «зберегти».
+   *
+   * Стан міняємо ДО відповіді сервера: за кермом список мусить лягти на
+   * місце в ту ж мить, а не за секунду мобільного інтернету. Не збереглося
+   * — скажемо про це, і порядок лишиться до кінця дня в памʼяті вкладки.
+   */
+  const saveOrder = useCallback(
+    (keys: string[]) => {
+      setMyOrder(keys);
+      setOrder("mine");
+      if (!routeId) return;
+      void fetch("/api/driver/route-order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ route: routeId, stopKeys: keys }),
+      })
+        .then((r) => {
+          if (!r.ok) setError("Порядок не зберігся — він діятиме лише до перезавантаження");
+        })
+        .catch(() => setError("Порядок не зберігся — він діятиме лише до перезавантаження"));
+    },
+    [routeId]
+  );
+
+  /**
+   * Поставити точку наступною — не міняючи решти.
+   *
+   * Пересуваємо її перед першою невідміченою, а не на початок списку:
+   * відмічені точки лишаються там, де були, інакше пройдений день
+   * перемішався б заднім числом.
+   */
+  const makeNext = useCallback(
+    (stop: PanelStop) => {
+      const keys = orderedStops.map((s) => s.key).filter((k) => k !== stop.key);
+      const at = keys.findIndex(
+        (k) => orderedStops.find((s) => s.key === k)?.status === "PENDING"
+      );
+      keys.splice(at === -1 ? keys.length : at, 0, stop.key);
+      saveOrder(keys);
+    },
+    [orderedStops, saveOrder]
+  );
+
+  const resetOrder = useCallback(() => {
+    setMyOrder(null);
+    setOrder("optimal");
+    setEditing(false);
+    if (!routeId) return;
+    void fetch(`/api/driver/route-order?route=${encodeURIComponent(routeId)}`, {
+      method: "DELETE",
+    }).catch(() => {});
+  }, [routeId]);
+
   /** Скільки всього дороги — числом, яке видно в шапці панелі. */
   const totals = useMemo(() => {
     const km = activeLine?.totalKm ?? day?.route.plannedKm ?? null;
@@ -432,8 +566,10 @@ export default function DriverMapScreen() {
       </div>
 
       {/* Шапка поверх карти */}
+      {/* На планшеті шапка кінчається там, де починається список: інакше
+          сегмент «Всі» опиняється під панеллю й у нього не влучити. */}
       <div
-        className="absolute inset-x-0 top-0 z-[500] px-3"
+        className="absolute inset-x-0 top-0 z-[500] px-3 lg:right-[380px]"
         style={{
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
           paddingBottom: "10px",
@@ -524,11 +660,18 @@ export default function DriverMapScreen() {
         </div>
       )}
 
-      {/* Нижня панель: точки відкритого листа й легенда-фільтр */}
+      {/*
+        Список маршруту. На планшеті — колонкою праворуч від карти, на
+        телефоні — шторкою знизу. Один компонент на обидва: два списки
+        розійшлися б на першій же правці.
+      */}
       {data && (
-        <div className="absolute inset-x-0 bottom-0 z-[500] px-3 pb-3" style={{ pointerEvents: "none" }}>
+        <div
+          className="absolute inset-x-0 bottom-0 z-[500] px-3 pb-3 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-[380px] lg:px-0 lg:pb-0"
+          style={{ pointerEvents: "none" }}
+        >
           <div
-            className="rounded-2xl"
+            className="flex max-h-[70vh] flex-col rounded-2xl lg:h-full lg:max-h-none lg:rounded-none"
             style={{
               background: "#fff",
               boxShadow: "0 -1px 12px rgba(0,0,0,0.12)",
@@ -536,10 +679,12 @@ export default function DriverMapScreen() {
               overflow: "hidden",
             }}
           >
+            {/* Шапка-перемикач потрібна лише на телефоні: у колонці
+                праворуч список і так відкритий увесь час. */}
             <button
               type="button"
               onClick={() => setSheetOpen((v) => !v)}
-              className="flex w-full cursor-pointer items-center gap-2 px-4"
+              className="flex w-full cursor-pointer items-center gap-2 px-4 lg:hidden"
               style={{ background: "none", border: "none", minHeight: "48px" }}
             >
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
@@ -547,28 +692,8 @@ export default function DriverMapScreen() {
               </span>
               {routeCount > 0 && (
                 <span style={{ fontSize: "12px", color: "#6B7280" }}>
-                  {lineLoading
-                    ? "рахую дорогу…"
-                    : totals
-                      ? `${totals.km} км · ${totals.hours}`
-                      : ""}
+                  {lineLoading ? "рахую дорогу…" : totals ? `${totals.km} км · ${totals.hours}` : ""}
                 </span>
-              )}
-              {/* Про вилетілі точки кажемо, лише коли відкрито маршрут: у
-                  режимі перегляду бази число «приблизних» цікавить менше,
-                  а тут воно пояснює, чому пін стоїть за 400 км. */}
-              {routeCount > 0 ? (
-                strayCount > 0 && (
-                  <span style={{ fontSize: "12px", color: "#D97706" }}>
-                    {strayCount} далеко від решти
-                  </span>
-                )
-              ) : (
-                data.approximateCount > 0 && (
-                  <span style={{ fontSize: "12px", color: "#D97706" }}>
-                    {data.approximateCount} приблизних
-                  </span>
-                )
               )}
               <svg
                 className="ml-auto h-4 w-4"
@@ -582,179 +707,206 @@ export default function DriverMapScreen() {
               </svg>
             </button>
 
-            {sheetOpen && (
-              <div className="px-3 pb-3" style={{ maxHeight: "52vh", overflowY: "auto" }}>
-                {orderedStops.length > 0 && (
-                  <>
-                    {/* Порядок обʼїзду. Номери в листі 1С — це порядок РЯДКІВ
-                        У ДОКУМЕНТІ, а не дорога: той самий район вони
-                        обходять за 900 км замість двохсот. Досвідчений водій
-                        їде по-своєму, новий — читає номери як маршрут, тому
-                        поруч показуємо, скільки виходить найкоротшим. */}
-                    <div
-                      className="mt-2 flex gap-1 rounded-full p-1"
-                      style={{ background: "#F3F4F6" }}
-                    >
-                      {(
-                        [
-                          { key: "sheet", label: "Порядок листа" },
-                          { key: "optimal", label: "Найкоротший" },
-                        ] as Array<{ key: "sheet" | "optimal"; label: string }>
-                      ).map((o) => {
-                        const on = order === o.key;
+            <div className={`min-h-0 flex-1 flex-col ${sheetOpen ? "flex" : "hidden"} lg:flex`}>
+              {routeCount > 0 ? (
+                <RoutePanel
+                  stops={panelStops}
+                  order={order}
+                  orders={availableOrders}
+                  onOrderChange={setOrder}
+                  horizon={horizon}
+                  onHorizonChange={setHorizon}
+                  editing={editing}
+                  onEditingChange={setEditing}
+                  onReorder={saveOrder}
+                  onResetOrder={resetOrder}
+                  onPick={setAskFor}
+                  onFocus={(st) => setFocus({ lat: st.lat, lng: st.lng, id: st.key, nonce: Date.now() })}
+                  totals={totals}
+                  loading={lineLoading}
+                  strayCount={strayCount}
+                />
+              ) : (
+                <p className="px-4 py-4" style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
+                  Маршрут не відкрито. Оберіть маршрутний лист угорі — і тут зʼявиться список точок
+                  по черзі.
+                </p>
+              )}
+
+              {/* Легенда-фільтр з'їхала вниз і згорнута: вона про клієнтів
+                  на карті, а головне тут — маршрут. */}
+              <div style={{ borderTop: "1px solid #F1F1EF" }}>
+                <button
+                  type="button"
+                  onClick={() => setLegendOpen((v) => !v)}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3"
+                  style={{ background: "none", border: "none", minHeight: "42px" }}
+                >
+                  <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#6B7280" }}>
+                    Клієнти на карті
+                  </span>
+                  {data.approximateCount > 0 && (
+                    <span style={{ fontSize: "11.5px", color: "#D97706" }}>
+                      {data.approximateCount} приблизних
+                    </span>
+                  )}
+                  <svg
+                    className="ml-auto h-4 w-4"
+                    style={{
+                      transform: legendOpen ? "rotate(180deg)" : "none",
+                      transition: "transform .15s",
+                    }}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="#9CA3AF"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                  </svg>
+                </button>
+
+                {legendOpen && (
+                  <div className="px-3 pb-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {LEGEND.map((k) => {
+                        const off = hidden.has(k);
+                        const n = data.counts[k] ?? 0;
                         return (
                           <button
-                            key={o.key}
+                            key={k}
                             type="button"
-                            onClick={() => setOrder(o.key)}
-                            aria-pressed={on}
-                            className="flex-1 cursor-pointer rounded-full transition-colors duration-200"
+                            onClick={() => toggle(k)}
+                            aria-pressed={!off}
+                            className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 transition-colors duration-200"
                             style={{
-                              minHeight: "36px",
-                              border: "none",
-                              background: on ? "#0A0A0A" : "transparent",
-                              color: on ? "#fff" : "#374151",
-                              fontSize: "12.5px",
-                              fontWeight: on ? 700 : 500,
+                              minHeight: "38px",
+                              border: "1px solid #E5E7EB",
+                              background: off ? "#F3F4F6" : "#fff",
+                              opacity: off ? 0.55 : 1,
                             }}
                           >
-                            {o.label}
+                            <span
+                              aria-hidden
+                              style={{
+                                width: "9px",
+                                height: "9px",
+                                borderRadius: "50%",
+                                background: CLIENT_STATE[k].color,
+                              }}
+                            />
+                            <span style={{ fontSize: "12px", color: "#0A0A0A" }}>
+                              {CLIENT_STATE[k].label}
+                            </span>
+                            <span style={{ fontSize: "12px", color: "#9CA3AF" }}>{n}</span>
                           </button>
                         );
                       })}
                     </div>
-
-                    <div className="mt-2" style={{ borderTop: "1px solid #F1F1EF" }}>
-                      {orderedStops.map((s, i) => (
-                        <button
-                          key={s.key}
-                          type="button"
-                          onClick={() =>
-                            setFocus({ lat: s.lat, lng: s.lng, id: s.key, nonce: Date.now() })
-                          }
-                          className="flex w-full cursor-pointer items-center gap-2.5 text-left"
-                          style={{
-                            padding: "9px 4px",
-                            border: "none",
-                            borderBottom: "1px solid #F1F1EF",
-                            background: "none",
-                          }}
-                        >
-                          <span
-                            aria-hidden
-                            className="flex shrink-0 items-center justify-center"
-                            style={{
-                              width: "26px",
-                              height: "26px",
-                              borderRadius: "8px",
-                              fontSize: "12px",
-                              fontWeight: 800,
-                              background:
-                                s.status === "DONE" ? "#16A34A" : s.status === "MISSED" ? "#DC2626" : "#0A0A0A",
-                              color: s.status === "PENDING" ? "#FFD600" : "#fff",
-                            }}
-                          >
-                            {s.errand ? "+" : s.seq}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className="block truncate"
-                              style={{ fontSize: "13.5px", fontWeight: 600, color: "#0A0A0A" }}
-                            >
-                              {s.name}
-                            </span>
-                            {!!s.address && (
-                              <span className="block truncate" style={{ fontSize: "11.5px", color: "#9CA3AF" }}>
-                                {s.address}
-                              </span>
-                            )}
-                          </span>
-                          {s.amount > 0 && (
-                            <span
-                              className="shrink-0"
-                              style={{ fontSize: "12.5px", fontWeight: 600, color: "#374151" }}
-                            >
-                              {money.format(s.amount)} ₴
-                            </span>
-                          )}
-                          {/* Скільки їхати ДО НАСТУПНОЇ. Саме це питання
-                              ставить новий водій, дивлячись на список: не
-                              «скільки всього», а «встигну до обіду». */}
-                          {!!legs[i] && (
-                            <span
-                              className="shrink-0"
-                              style={{ fontSize: "11.5px", color: "#9CA3AF", marginLeft: "6px" }}
-                            >
-                              ↓ {legs[i].distanceKm} км
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-
-                    <Link
-                      href={
-                        day?.route.id
-                          ? `/driver/tablet?route=${encodeURIComponent(day.route.id)}`
-                          : "/driver/tablet"
-                      }
-                      className="mt-2.5 block rounded-xl text-center"
-                      style={{
-                        padding: "11px",
-                        background: "#0A0A0A",
-                        color: "#fff",
-                        fontSize: "13.5px",
-                        fontWeight: 700,
-                        textDecoration: "none",
-                      }}
-                    >
-                      Відмітки і каса цього дня
-                    </Link>
-                  </>
+                    <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
+                      Квадрати з номерами — точки маршруту, кола — клієнти. «Мої» — куди ви вже
+                      возили, «Всі» — уся база. Тапніть точку: борг, що клієнт брав, коментарі.
+                    </p>
+                  </div>
                 )}
-
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {LEGEND.map((k) => {
-                    const off = hidden.has(k);
-                    const n = data.counts[k] ?? 0;
-                    return (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => toggle(k)}
-                        aria-pressed={!off}
-                        className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 transition-colors duration-200"
-                        style={{
-                          minHeight: "40px",
-                          border: "1px solid #E5E7EB",
-                          background: off ? "#F3F4F6" : "#fff",
-                          opacity: off ? 0.55 : 1,
-                        }}
-                      >
-                        <span
-                          aria-hidden
-                          style={{
-                            width: "9px",
-                            height: "9px",
-                            borderRadius: "50%",
-                            background: CLIENT_STATE[k].color,
-                          }}
-                        />
-                        <span style={{ fontSize: "12px", color: "#0A0A0A" }}>{CLIENT_STATE[k].label}</span>
-                        <span style={{ fontSize: "12px", color: "#9CA3AF" }}>{n}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "8px", lineHeight: 1.4 }}>
-                  Квадрати з номерами — точки відкритого листа, кола — клієнти. «Мої» — куди ви вже
-                  возили, «Всі» — уся база компанії. Тапніть точку: борг, що клієнт брав, коментарі.
-                  Якщо стоїте біля магазину — уточніть точку, вона лишиться всім.
-                  {strayCount > 0 &&
-                    ` ${strayCount} точок маршруту стоять далеко від решти — там координати лише за назвою міста. Масштаб карти на них не зважає.`}
-                </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/*
+        Тап по клієнту в списку. Питаємо, а не ведемо одразу: палець за
+        кермом влучає не туди, і мовчазний перехід у Google Maps посеред
+        дороги — найгірше, що може статися з відкритим маршрутом.
+
+        Дві дії, бо «побудувати маршрут сюди» означає різне. Або «веди мене
+        туди зараз» — і тоді дорога від живого місця водія. Або «я поїду
+        туди наступною» — і тоді міняється сам порядок, а решта точок
+        лишається як була.
+      */}
+      {askFor && (
+        <div
+          className="fixed inset-0 z-[1000] flex flex-col justify-end"
+          style={{ background: "rgba(10,10,10,0.45)" }}
+          onClick={() => setAskFor(null)}
+        >
+          <div
+            className="rounded-t-2xl bg-white p-4"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ fontSize: "13px", color: "#6B7280" }}>Побудувати маршрут сюди?</p>
+            <p style={{ fontSize: "17px", fontWeight: 700, color: "#0A0A0A", marginTop: "2px" }}>
+              {askFor.name}
+            </p>
+            {!!askFor.address && (
+              <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "2px", lineHeight: 1.4 }}>
+                {askFor.address}
+              </p>
             )}
+
+            <a
+              href={navigateUrl({ lat: askFor.lat, lng: askFor.lng }, navApp)}
+              target="_blank"
+              rel="noopener"
+              onClick={() => setAskFor(null)}
+              className="cursor-pointer"
+              style={{
+                display: "block",
+                marginTop: "12px",
+                padding: "15px",
+                borderRadius: "12px",
+                background: "#2563EB",
+                color: "#fff",
+                fontSize: "16px",
+                fontWeight: 700,
+                textAlign: "center",
+                textDecoration: "none",
+              }}
+            >
+              Їхати сюди в {navApp === "waze" ? "Waze" : "Google Maps"}
+            </a>
+
+            {askFor.key !== currentKey && (
+              <button
+                type="button"
+                onClick={() => {
+                  makeNext(askFor);
+                  setAskFor(null);
+                }}
+                className="w-full cursor-pointer"
+                style={{
+                  marginTop: "8px",
+                  padding: "14px",
+                  borderRadius: "12px",
+                  border: "1px solid #E5E7EB",
+                  background: "#fff",
+                  color: "#0A0A0A",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                }}
+              >
+                Зробити наступною в списку
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setAskFor(null)}
+              className="w-full cursor-pointer"
+              style={{
+                marginTop: "8px",
+                padding: "12px",
+                border: "none",
+                background: "none",
+                color: "#6B7280",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+            >
+              Скасувати
+            </button>
           </div>
         </div>
       )}

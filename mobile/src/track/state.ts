@@ -59,11 +59,31 @@ export async function setLastFlushAt(ms: number): Promise<void> {
   await setMeta("lastFlushAt", String(ms));
 }
 
+/**
+ * Час останнього ВДАЛОГО пульсу. Екран зміни показує саме його як
+ * «зв'язок є», тож невдалу спробу сюди писати не можна: людина побачила б
+ * свіжий час і вирішила, що все гаразд.
+ */
 export async function getLastHeartbeatAt(): Promise<number> {
   return Number(await getMeta("lastHeartbeatAt")) || 0;
 }
 export async function setLastHeartbeatAt(ms: number): Promise<void> {
   await setMeta("lastHeartbeatAt", String(ms));
+}
+
+/**
+ * Час останньої СПРОБИ — окремо від успіху, і саме він стримує частоту.
+ *
+ * З того часу, як пульс іде ще й з рекордера, межу не можна рахувати від
+ * успіху: у селі без зв'язку жоден пульс не проходить, `lastHeartbeatAt`
+ * стоїть на місці, і планшет ломився б у мережу на КОЖНІЙ пачці фіксів —
+ * тобто раз на двадцять секунд замість разу на три хвилини.
+ */
+export async function getLastHeartbeatTryAt(): Promise<number> {
+  return Number(await getMeta("lastHeartbeatTryAt")) || 0;
+}
+export async function setLastHeartbeatTryAt(ms: number): Promise<void> {
+  await setMeta("lastHeartbeatTryAt", String(ms));
 }
 
 export async function getLastFix(): Promise<{ at: number; accuracyM: number | null } | null> {
@@ -120,6 +140,54 @@ export async function getStartError(): Promise<string | null> {
 
 export async function setStartError(message: string | null): Promise<void> {
   await setMeta("startError", message ? message.slice(0, 200) : null);
+  /**
+   * Разом із текстом — час і лічильник спроб.
+   *
+   * Без них рядок у пульсі не має віку: 02.09 у Олександра одна й та сама
+   * фраза приїхала 37 разів, і з бази неможливо було сказати, чи це одна
+   * відмова зранку, чи тридцять сім поспіль. Однакова помилка лічильник
+   * нарощує, нова — починає його з одиниці.
+   */
+  if (message == null) {
+    await Promise.all([setMeta("startErrorAt", null), setMeta("startErrorCount", null)]);
+    return;
+  }
+  const previous = await getMeta("startErrorText");
+  const count = previous === message ? Number(await getMeta("startErrorCount")) || 0 : 0;
+  await Promise.all([
+    setMeta("startErrorText", message),
+    setMeta("startErrorAt", String(Date.now())),
+    setMeta("startErrorCount", String(count + 1)),
+  ]);
+}
+
+/** Коли й скільки разів запис не піднімався — для пульсу. */
+export async function getStartErrorMeta(): Promise<{ at: number; count: number } | null> {
+  const [at, count] = await Promise.all([getMeta("startErrorAt"), getMeta("startErrorCount")]);
+  const ms = Number(at);
+  if (!ms) return null;
+  return { at: ms, count: Number(count) || 1 };
+}
+
+/**
+ * Коли сторож прокидався востаннє і що система про нього думає.
+ *
+ * Найдорожча сліпа пляма з усіх: пульс шле САМ сторож, тож коли він спить,
+ * із сервера це не відрізнити від мертвого застосунку. 04.09 Передрій написав
+ * 1845 точок і 2 пульси — сторож не працював, а виглядало це як поламка
+ * треку. Тепер стан сторожа їде окремим полем, і мовчання має адресу.
+ */
+export async function setWatchdogRun(at: number): Promise<void> {
+  await setMeta("watchdogAt", String(at));
+}
+export async function getWatchdogRun(): Promise<number | null> {
+  return Number(await getMeta("watchdogAt")) || null;
+}
+export async function setWatchdogStatus(status: string | null): Promise<void> {
+  await setMeta("watchdogStatus", status);
+}
+export async function getWatchdogStatus(): Promise<string | null> {
+  return getMeta("watchdogStatus");
 }
 
 /** Скидання всього стану — на виході з акаунта. */

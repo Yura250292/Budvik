@@ -15,6 +15,8 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { ensureFreshFixes } from "./health";
+import { ensureRecording, isTracking } from "./controller";
+import { isShiftOpen, getRole } from "./state";
 
 /** Рідше, ніж поріг тиші, — щоб перевірка не била в ту саму мить, що й фікс. */
 const CHECK_INTERVAL_MS = 2 * 60_000;
@@ -32,10 +34,33 @@ export function useTrackHealth(): void {
      * Повернення на екран — найцінніший момент перевірки: саме тоді людина
      * дивиться на застосунок, і саме тоді процес гарантовано живий після
      * можливого присипляння.
+     *
+     * І єдиний момент, коли запис можна ПІДНЯТИ. Android від 12-ї версії не
+     * дає стартувати службу переднього плану з фону, тож сторож, який
+     * прокидається щочверть години, у більшості випадків нічого вдіяти не
+     * може. А з переднього плану старт дозволений завжди — і це та мить,
+     * коли людина відкрила застосунок, часто саме тому, що їй прийшло
+     * сповіщення «Трек зупинився».
      */
+    const revive = async () => {
+      const [shiftOpen, role, tracking] = await Promise.all([
+        isShiftOpen(),
+        getRole(),
+        isTracking().catch(() => true),
+      ]);
+      if (!(shiftOpen || role === "DRIVER") || tracking) return;
+      await ensureRecording().catch(() => {});
+    };
+
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") check();
+      if (state !== "active") return;
+      check();
+      void revive();
     });
+
+    // І одразу на монтуванні: холодний старт по натиску на сповіщення теж
+    // мусить піднімати запис, а не лише перевіряти свіжість фіксів.
+    void revive();
 
     return () => {
       clearInterval(timer);

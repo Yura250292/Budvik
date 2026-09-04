@@ -13,7 +13,9 @@ import { cancelCloseReminders } from "./reminder";
 import {
   bufferedCount,
   dropPoints,
+  getMeta,
   pointsAfter,
+  setMeta,
   unsentCount,
   type BufferedPoint,
 } from "./db";
@@ -22,13 +24,17 @@ import {
   getLastFix,
   getLastFixAt,
   getLastFlushAt,
-  getLastHeartbeatAt,
+  getLastHeartbeatTryAt,
   getStartError,
+  getStartErrorMeta,
+  getWatchdogRun,
+  getWatchdogStatus,
   getMode,
   isShiftOpen,
   setLastError,
   setLastFlushAt,
   setLastHeartbeatAt,
+  setLastHeartbeatTryAt,
   setShiftOpen,
 } from "./state";
 
@@ -354,6 +360,24 @@ export async function maybeFlush(): Promise<void> {
   }
 }
 
+/** Не частіше ніж раз на стільки нагадуємо про вимкнену геолокацію. */
+const LOCATION_OFF_WARN_MS = 30 * 60_000;
+const LOCATION_OFF_KEY = "locationOffWarnedAt";
+
+/**
+ * Межа та сама, що й у попередження про зупинений запис: пульс іде раз на
+ * три хвилини, і без неї планшет дзвенів би двадцять разів на годину.
+ */
+async function warnLocationOff(): Promise<void> {
+  const last = Number(await getMeta(LOCATION_OFF_KEY).catch(() => null)) || 0;
+  if (Date.now() - last < LOCATION_OFF_WARN_MS) return;
+  await setMeta(LOCATION_OFF_KEY, String(Date.now())).catch(() => {});
+  await notifyNow(
+    "Геолокацію вимкнено",
+    "Маршрут пишеться приблизно, по вежах. Увімкніть визначення місця в налаштуваннях планшета."
+  );
+}
+
 /**
  * Пульс: сервер має бачити живий пристрій навіть тоді, коли точок немає.
  *
@@ -362,24 +386,42 @@ export async function maybeFlush(): Promise<void> {
  * і застосунок мусить дізнатися про це, а не малювати своє.
  */
 export async function heartbeat(force = false): Promise<{ shouldTrack: boolean } | null> {
-  const last = await getLastHeartbeatAt();
-  if (!force && Date.now() - last < HEARTBEAT_INTERVAL_MS) return null;
+  // Межу рахуємо від СПРОБИ, а не від успіху: без зв'язку успіху немає
+  // взагалі, і пульс ломився б у мережу на кожній пачці фіксів.
+  const lastTry = await getLastHeartbeatTryAt();
+  if (!force && Date.now() - lastTry < HEARTBEAT_INTERVAL_MS) return null;
+  await setLastHeartbeatTryAt(Date.now());
 
   const { isTracking } = await import("./controller");
   const subscribed = await isTracking().catch(() => null);
 
-  const [buffered, mode, shiftOpen, fix, fixAt, lastError, startError, lastSync, device] =
-    await Promise.all([
-      unsentCount(sentThrough),
-      getMode(),
-      isShiftOpen(),
-      getLastFix(),
-      getLastFixAt(),
-      getLastError(),
-      getStartError(),
-      getLastFlushAt(),
-      readDeviceState(),
-    ]);
+  const [
+    buffered,
+    mode,
+    shiftOpen,
+    fix,
+    fixAt,
+    lastError,
+    startError,
+    startErrorMeta,
+    lastSync,
+    device,
+    watchdogAt,
+    watchdogStatus,
+  ] = await Promise.all([
+    unsentCount(sentThrough),
+    getMode(),
+    isShiftOpen(),
+    getLastFix(),
+    getLastFixAt(),
+    getLastError(),
+    getStartError(),
+    getStartErrorMeta(),
+    getLastFlushAt(),
+    readDeviceState(),
+    getWatchdogRun(),
+    getWatchdogStatus(),
+  ]);
 
   /**
    * Коли запис не піднявся — це головніше за будь-яку скаргу буфера: там даних
@@ -393,11 +435,42 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
    * Читати ці рядки доводиться саме тоді, коли шукаєш поламку, і брехати вони
    * не мають права.
    */
+  /**
+   * До причини додаємо її вік і кількість спроб.
+   *
+   * Рядок без віку читається як свіжий, і саме так 02.09 тридцять сім
+   * однакових пульсів Олександра виглядали як тридцять сім відмов — тоді як
+   * це була одна, записана вранці. Час тут дорожчий за самий текст: він
+   * відповідає на питання «це зараз чи вже полагодилось».
+   */
+  const startErrorAge =
+    startErrorMeta && startError
+      ? ` (${new Date(startErrorMeta.at).toLocaleTimeString("uk-UA", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}` + (startErrorMeta.count > 1 ? `, спроб ${startErrorMeta.count})` : ")")
+      : "";
+
   const problem = startError
     ? startError.startsWith("проба приймача")
       ? startError
-      : `Запис не піднявся: ${startError}`
+      : `Запис не піднявся${startErrorAge}: ${startError}`
     : lastError;
+
+  /**
+   * Геолокацію вимкнули перемикачем — сказати про це НЕГАЙНО.
+   *
+   * Стан, у якому все виглядає справним: служба працює, картка в шторці
+   * висить, застосунок відкривається. А координати приходять по вежах із
+   * похибкою в сотні метрів, і день пишеться районами замість вулиць — у
+   * Валентина так минув майже весь серпень, і побачили ми це лише з бази.
+   *
+   * Офіс дізнається про це з пульсу, але офіс не в машині. Людина в машині
+   * дізнається лише звідси.
+   */
+  if (device.locationMode === "OFF" && (shiftOpen || (await getRole()) === "DRIVER")) {
+    await warnLocationOff().catch(() => {});
+  }
 
   try {
     const pulse = await staffApi.heartbeat({
@@ -433,6 +506,14 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       // рядка кожен розбір «чому в нього не пише» починається з дзвінка.
       osVersion: device.osVersion ?? undefined,
       osBuild: device.osBuild ?? undefined,
+      /**
+       * Коли сторож прокидався востаннє і чи дозволяє йому система працювати
+       * взагалі. Без цих двох полів «пульсу немає» означало і мертвий
+       * застосунок, і сплячий сторож при живому треку — тобто не означало
+       * нічого.
+       */
+      watchdogAt: watchdogAt ? new Date(watchdogAt).toISOString() : undefined,
+      watchdogStatus: watchdogStatus ?? undefined,
     });
     await setLastHeartbeatAt(Date.now());
 

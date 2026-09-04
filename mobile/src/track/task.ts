@@ -19,22 +19,41 @@ import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { AFTER_SHIFT_TASK, TRACK_TASK, WATCHDOG_TASK } from "./task-name";
 import { onLocations } from "./recorder";
 import { runWatchdog } from "./watchdog";
+import { setLastError } from "./state";
 
 if (IS_STAFF_BUILD) {
   TaskManager.defineTask<{ locations: LocationObject[] }>(
     TRACK_TASK,
     async ({ data, error }) => {
-      if (error) return;
+      /**
+       * Помилку самої системи теж записуємо, а не ковтаємо.
+       *
+       * Досі тут стояло голе `return`, і це була найтихіша з усіх поламок:
+       * система каже «локація недоступна», застосунок мовчить, пульс
+       * бездоганний, а дня немає.
+       */
+      if (error) {
+        await setLastError(`Запис: ${error.message ?? "система відмовила"}`).catch(() => {});
+        return;
+      }
       const locations = data?.locations ?? [];
       if (locations.length === 0) return;
       try {
         await onLocations(locations);
-      } catch {
+      } catch (e) {
         /**
-         * Виняток тут гасимо навмисно. Завдання, яке кинуло помилку, Android
-         * може перестати будити — тобто одна невдала відправка коштувала б
-         * усього подальшого дня. Причина осідає в lastError і їде з пульсом.
+         * Виняток гасимо навмисно: завдання, яке кинуло помилку, Android може
+         * перестати будити — одна невдала відправка коштувала б усього дня.
+         *
+         * Але ПРИЧИНУ записуємо. Коментар тут раніше обіцяв, що вона осяде в
+         * lastError, і для половини випадків обіцянка була порожня: усе, що
+         * падало поза внутрішнім catch у flush (читання буфера, запис у
+         * SQLite, позначка часу), гинуло саме тут. 03.09 це коштувало дня
+         * трьох торгових: у пульсі чотири години висіла фраза, записана
+         * зранку, буфери росли, а причини не знав ніхто.
          */
+        const message = e instanceof Error ? e.message : String(e);
+        await setLastError(`Запис: ${message}`).catch(() => {});
       }
     }
   );
@@ -58,8 +77,11 @@ if (IS_STAFF_BUILD) {
         // не додасть, зате може перезапустити запис посеред дороги.
         await disarmAfterShift();
         await startTracking("AFTER_SHIFT");
-      } catch {
-        // Мовчки: завдання, що кинуло помилку, Android може перестати будити.
+      } catch (e) {
+        // Не кидаємо далі (Android перестав би будити завдання), але причину
+        // лишаємо: без неї «дорога додому не записалась» не має пояснення.
+        const message = e instanceof Error ? e.message : String(e);
+        await setLastError(`Дозапис після зміни: ${message}`).catch(() => {});
       }
     }
   );
@@ -68,7 +90,9 @@ if (IS_STAFF_BUILD) {
     try {
       await runWatchdog();
       return BackgroundTask.BackgroundTaskResult.Success;
-    } catch {
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await setLastError(`Сторож: ${message}`).catch(() => {});
       return BackgroundTask.BackgroundTaskResult.Failed;
     }
   });

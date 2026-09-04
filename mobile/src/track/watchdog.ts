@@ -14,7 +14,14 @@
 import * as BackgroundTask from "expo-background-task";
 import { hasOfflineGuard, scheduleOfflineGuard, cancelOfflineGuard } from "@modules/track-guard";
 import { WATCHDOG_TASK } from "./task-name";
-import { getMode, getRole, isShiftOpen } from "./state";
+import {
+  getMode,
+  getRole,
+  isShiftOpen,
+  setLastError,
+  setWatchdogRun,
+  setWatchdogStatus,
+} from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
@@ -23,6 +30,16 @@ import { ensureFreshFixes } from "./health";
 import { checkJsUpdate } from "@/lib/self-update";
 
 export async function runWatchdog(): Promise<void> {
+  /**
+   * Найперше — відмітка «я прокинувся».
+   *
+   * Ставиться ДО будь-якої роботи навмисно: якщо сторож упаде на першому ж
+   * кроці, знати, що він взагалі запускався, важливіше за причину падіння.
+   * Саме цього числа бракувало, щоб відрізнити «сторож спить» від «застосунок
+   * мертвий» — з сервера обидва стани виглядали однаково.
+   */
+  await setWatchdogRun(Date.now()).catch(() => {});
+
   /**
    * Відкладена зміна — найперша: поки вона не пройшла, сервер не знає, що
    * людина на маршруті, і трек лягає в день без зміни.
@@ -83,7 +100,29 @@ export async function runWatchdog(): Promise<void> {
 
 export async function registerWatchdog(): Promise<void> {
   const status = await BackgroundTask.getStatusAsync().catch(() => null);
-  if (status === BackgroundTask.BackgroundTaskStatus.Restricted) return;
+
+  /**
+   * Стан фонових завдань їде в пульс — і це не діагностична дрібниця.
+   *
+   * `Restricted` означає, що система не даватиме сторожеві прокидатися
+   * взагалі: планшет потрапив в обмежений режим економії, і жодна наша
+   * страховка вже не працює. Досі ми в цьому випадку мовчки виходили, і
+   * планшет ставав невидимим для всіх перевірок — без єдиного сліду.
+   */
+  await setWatchdogStatus(
+    status === BackgroundTask.BackgroundTaskStatus.Restricted
+      ? "RESTRICTED"
+      : status === BackgroundTask.BackgroundTaskStatus.Available
+        ? "AVAILABLE"
+        : "UNKNOWN"
+  ).catch(() => {});
+
+  if (status === BackgroundTask.BackgroundTaskStatus.Restricted) {
+    await setLastError(
+      "Система заборонила фонові завдання — сторож треку не працюватиме"
+    ).catch(() => {});
+    return;
+  }
 
   await BackgroundTask.registerTaskAsync(WATCHDOG_TASK, {
     // 15 хвилин — мінімум, який дозволяє Android; менше просто ігнорується.

@@ -13,7 +13,7 @@
 import type { LocationObject } from "expo-location";
 import { addPoint } from "./db";
 import { getLastWritten, getMode, setLastFix, setLastWritten } from "./state";
-import { maybeFlush } from "./uploader";
+import { heartbeat, maybeFlush } from "./uploader";
 
 /** Гірше за кілометр — це не координата, а здогад базової станції. */
 const MAX_ACCURACY_M = 1000;
@@ -172,4 +172,18 @@ export async function onLocations(locations: LocationObject[]): Promise<void> {
   }
 
   await maybeFlush();
+
+  /**
+   * Пульс — звідси, а не лише зі сторожа.
+   *
+   * Досі пульс слали тільки сторож (раз на чверть години) і холодний старт.
+   * На планшетах Lenovo TB350XU сторож майже не прокидається: 04.09 Передрій
+   * написав 1845 точок і рівно 2 пульси, і карта весь день казала
+   * «застосунок мовчить» про планшет, який працював бездоганно.
+   *
+   * Тепер пульс іде звідти, де точно видно життя, — з обробки фіксів. Своя
+   * межа в три хвилини вже стоїть усередині heartbeat(), тож частота від
+   * цього не зростає.
+   */
+  await heartbeat().catch(() => {});
 }

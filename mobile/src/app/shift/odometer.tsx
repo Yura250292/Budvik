@@ -158,6 +158,7 @@ export default function OdometerScreen() {
     }
 
     setBusy(true);
+    let closeWarning: string | null = null;
     // Координати — необов'язкові: без мережі їх усе одно нікуди слати,
     // а зміну це блокувати не має.
     const pos = await Location.getCurrentPositionAsync({
@@ -176,7 +177,10 @@ export default function OdometerScreen() {
 
     try {
       if (isClosing) {
-        await staffApi.shiftClose(body);
+        const res = await staffApi.shiftClose(body);
+        // Трек не сходиться з одометром — сказати зараз, поки людина ще
+        // пам'ятає число на табло. Зміна вже закрита: це не перепона.
+        if (res?.warning) closeWarning = res.warning;
         await setShiftOpen(false);
         await cancelCloseReminders();
         /**
@@ -196,6 +200,12 @@ export default function OdometerScreen() {
         await startTracking("SHIFT");
       }
       invalidateShift();
+      if (closeWarning) {
+        Alert.alert("Перевірте одометр", closeWarning, [
+          { text: "Зрозуміло", onPress: () => router.back() },
+        ]);
+        return;
+      }
       router.back();
     } catch (e) {
       const status = e instanceof StaffApiError ? e.status : 0;
@@ -436,6 +446,8 @@ function confidenceLine(data: OdometerRecognized): string {
   }
   if (data.verdict.warnings.includes("few_digits")) parts.push("цифр замало — перевірте");
   if (data.verdict.warnings.includes("below_previous")) parts.push("менше за попереднє");
+  // Друга думка від треку: не забороняє, лише просить глянути ще раз.
+  if (data.verdict.warnings.includes("far_from_track")) parts.push("не сходиться з маршрутом");
   return parts.join(" · ");
 }
 

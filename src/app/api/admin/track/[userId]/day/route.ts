@@ -12,16 +12,32 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { attachVisits, resolveDriverDay } from "@/lib/track/day-stops";
+import { attachVisits, resolveDriverDay, type DayStop } from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
+import { classifyMovement, movementTotals } from "@/lib/track/movement";
+import { splitByMovement } from "@/lib/track/movement-parts";
+import { findStops, type StopCandidate } from "@/lib/track/stops";
 import { ordersTodayForRep } from "@/lib/track/orders-today";
 import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
 import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
 import { matchDayPath } from "@/lib/track/road-match";
+import { kyivTime } from "@/lib/date/kyiv";
 
 export const dynamic = "force-dynamic";
 
 const ALLOWED_ROLES = ["ADMIN", "MANAGER"];
+
+/**
+ * Через скільки нових точок перекладаємо трек на дороги заново.
+ *
+ * Умова була «кількість змінилася» — а на живому дні вона змінюється
+ * щохвилини, і сторінка опитує цей роут раз на пів хвилини. Тобто кожне
+ * відкриття вкладки «На маршруті» гнало десяток запитів у публічний OSRM,
+ * який лімітований, і робило це по колу весь день. Двадцять точок — це
+ * приблизно пʼять хвилин руху: хвіст за цей час домальовується сирою
+ * ламаною, і на око різниці немає.
+ */
+const REMATCH_EVERY_POINTS = 20;
 
 export async function GET(
   req: NextRequest,
@@ -39,6 +55,19 @@ export async function GET(
   const url = new URL(req.url);
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const dayStart = kyivDayStart(day);
+  /**
+   * Поділ треку на їзду й ходьбу — на прохання.
+   *
+   * Сам поділ дешевий (чиста арифметика), але з `roads=1` він тягне за
+   * собою OSRM, а сторінка перепитує цей роут раз на пів хвилини. Тому
+   * клієнт просить його лише тоді, коли людину обрано.
+   */
+  const wantParts = url.searchParams.get("parts") === "1";
+  /**
+   * Класти їзду на дороги — теж на прохання, як у картці зміни: розрахунок
+   * коштує десятка запитів до OSRM.
+   */
+  const onRoads = url.searchParams.get("roads") === "1";
 
   const [user, trackSession, points, visits, route, orders] = await Promise.all([
     prisma.user.findUnique({
@@ -120,7 +149,21 @@ export async function GET(
    */
   let roadPath: Array<[number, number]> | null = asPath(trackSession?.roadPath);
   const pointsNow = workPoints.length;
-  if (trackSession && pointsNow >= 2 && trackSession.roadPathPoints !== pointsNow) {
+  const cachedFor = trackSession?.roadPathPoints ?? null;
+  /**
+   * Перекладати заново варто, лише коли трек справді підріс.
+   *
+   * Було «кількість не збігається» — тобто на живому дні ІСТИННО завжди, і
+   * кожне з опитувань раз на пів хвилини гнало десяток запитів у публічний
+   * OSRM. Минулий день рахуємо один раз і назавжди; сьогоднішній — раз на
+   * двадцять нових точок, а хвіст між перерахунками домальовуємо сирою
+   * ламаною: на око це та сама лінія.
+   */
+  const isToday = day === kyivDate(new Date());
+  const stale =
+    cachedFor == null || (isToday ? pointsNow - cachedFor >= REMATCH_EVERY_POINTS : cachedFor !== pointsNow);
+
+  if (trackSession && pointsNow >= 2 && stale) {
     const matched = await matchDayPath(workPoints).catch(() => null);
     if (matched) {
       roadPath = matched;
@@ -131,7 +174,36 @@ export async function GET(
         })
         .catch(() => null);
     }
+  } else if (roadPath && cachedFor != null && cachedFor < pointsNow) {
+    // Хвіст після останнього перерахунку — сирою лінією, приклеєною до
+    // кешованої. Інакше свіжі кілометри просто не малювалися б, і виглядало
+    // б це рівно як «трек завис».
+    const tail = buildTrackPath(workPoints.slice(Math.max(0, cachedFor - 1)));
+    if (tail.length >= 2) roadPath = [...roadPath, ...tail.slice(1)];
   }
+
+  /**
+   * Де водій СТОЯВ — те саме, що вже рахується для торгового.
+   *
+   * Лінія відповідає на це погано за побудовою: між двома фіксами вона
+   * мусить щось намалювати, і це завжди здогад. Зупинка здогадів не
+   * потребує — це місце, з якого людина не виходила, і час, який вона там
+   * пробула. Для водія питання ще прямолінійніше: скільки він простояв на
+   * вивантаженні і в кого саме.
+   *
+   * Клієнтів для підпису беремо спершу з маршруту (там вони точно ті, до
+   * кого він мав заїхати), потім із замовлень дня.
+   */
+  const candidates = stopCandidates(route.stops, orders.dots);
+  const stops = findStops(workPoints, candidates).map((s) => ({
+    ...s,
+    // Час форматує сервер: київська доба одна, а браузер бухгалтера буває в
+    // іншій зоні.
+    fromTime: kyivTime(s.from),
+    toTime: kyivTime(s.to),
+  }));
+
+  const parts = wantParts ? await splitByMovement(workPoints, onRoads) : undefined;
 
   return NextResponse.json({
     day,
@@ -155,6 +227,18 @@ export async function GET(
        * видно, де приймач брехав, а прив'язка це якраз ховає.
        */
       roadPath,
+      /**
+       * Де людина стояла довше кількох хвилин — і в кого саме.
+       *
+       * Те саме, що на карті зміни торгового: питання «де були» лінією
+       * відповідається погано, а зупинка — це виміряне місце й час.
+       */
+      stops,
+      /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
+      parts,
+      partsOnRoads: onRoads,
+      /** Скільки з денного пробігу — їзда, скільки ходьба, скільки стоянка */
+      movement: movementTotals(classifyMovement(workPoints)),
       /** Скільки точок сховано як неробочі — щоб фільтр не був таємним */
       hiddenPoints,
       workHours: WORK_HOURS_LABEL,
@@ -183,6 +267,45 @@ export async function GET(
         }
       : null,
   });
+}
+
+/**
+ * Кого можна підписати під зупинкою.
+ *
+ * Спершу точки маршруту: до них водій і мав заїхати, і назва там та сама,
+ * що в дні. Потім клієнти із замовленнями дня — вони пояснюють зупинки, яких
+ * у маршруті не було. Один клієнт — один кандидат: якщо він і в маршруті, і
+ * в замовленнях, виграє маршрут.
+ *
+ * Бонусна поїздка клієнта не має взагалі («Пошта», «Забрати ремонт»), тож
+ * для неї ключем служить сама точка — інакше найпомітніша зупинка дня
+ * лишилася б без підпису.
+ */
+function stopCandidates(
+  routeStops: DayStop[],
+  dots: Array<{ counterpartyId: string; name: string; lat: number | null; lng: number | null }>
+): StopCandidate[] {
+  const byKey = new Map<string, StopCandidate>();
+
+  for (const s of routeStops) {
+    if (s.lat == null || s.lng == null) continue;
+    const key = s.counterpartyId ?? `ds:${s.deliveryStopId ?? s.key}`;
+    if (byKey.has(key)) continue;
+    byKey.set(key, { counterpartyId: key, name: s.name, lat: s.lat, lng: s.lng });
+  }
+
+  for (const d of dots) {
+    if (d.lat == null || d.lng == null) continue;
+    if (byKey.has(d.counterpartyId)) continue;
+    byKey.set(d.counterpartyId, {
+      counterpartyId: d.counterpartyId,
+      name: d.name,
+      lat: d.lat,
+      lng: d.lng,
+    });
+  }
+
+  return [...byKey.values()];
 }
 
 /** Обережне читання кеша: у Json могло лежати що завгодно зі старих версій. */

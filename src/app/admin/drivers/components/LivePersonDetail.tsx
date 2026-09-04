@@ -54,6 +54,13 @@ function MiniStat({
   );
 }
 
+/** «4 год 10 хв» — час на екрані читають боком, а не рахують у хвилинах. */
+function hm(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return h > 0 ? `${h} год ${m} хв` : `${m} хв`;
+}
+
 export function LivePersonDetail({
   detail,
   day,
@@ -64,12 +71,22 @@ export function LivePersonDetail({
   onClose: () => void;
 }) {
   const sheet = detail.sheet1C;
-  // Трек по прямій завжди коротший за дорогу, тому від'ємне відхилення —
-  // норма, а додатне питання.
-  const deviation =
-    sheet && sheet.distanceKm > 0
-      ? Math.round(((detail.track.distanceKm - sheet.distanceKm) / sheet.distanceKm) * 100)
+  const isDriver = detail.user.role === "DRIVER";
+  /**
+   * З чим порівнювати GPS.
+   *
+   * Маршрут сайту точніший за лист 1С: у ньому дорога порахована OSRM по
+   * реальних адресах, а в 1С кілометраж заповнений у двох листів із сорока.
+   * Тому план сайту головніший, а лист лишається запасним.
+   */
+  const plannedKm =
+    detail.route.source === "DELIVERY_ROUTE" && (detail.route.plannedKm ?? 0) > 0
+      ? (detail.route.plannedKm as number)
       : null;
+  const basis = plannedKm ?? (sheet && sheet.distanceKm > 0 ? sheet.distanceKm : null);
+  const deviation =
+    basis != null ? Math.round(((detail.track.distanceKm - basis) / basis) * 100) : null;
+  const move = detail.track.movement;
 
   return (
     <div className="space-y-4">
@@ -90,12 +107,35 @@ export function LivePersonDetail({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div
+          className={`grid grid-cols-2 gap-3 ${isDriver ? "sm:grid-cols-3 lg:grid-cols-6" : "sm:grid-cols-4"}`}
+        >
           <MiniStat
-            label="Трек"
+            label="Трек (GPS)"
             value={`${detail.track.distanceKm} км`}
-            hint={`${detail.track.pointsCount} точок`}
+            hint={
+              move ? `їзда ${move.DRIVE.km} км · ${detail.track.pointsCount} точок` : `${detail.track.pointsCount} точок`
+            }
           />
+          {/* Три різні відповіді на «скільки проїхав» стоять поруч
+              навмисно: план — намір, GPS — вимір, одометр — те, за що
+              платять. Раніше з них була видна лише одна. */}
+          {isDriver && (
+            <MiniStat
+              label="План OSRM"
+              value={plannedKm != null ? `${Math.round(plannedKm)} км` : "—"}
+              hint={
+                detail.route.number ? `маршрут ${detail.route.number}` : "маршруту сайту немає"
+              }
+            />
+          )}
+          {isDriver && (
+            <MiniStat
+              label="Одометр / вручну"
+              value={detail.route.actualKm != null ? `${Math.round(detail.route.actualKm)} км` : "—"}
+              hint={detail.route.actualKm != null ? "з журналу листів" : "не введено"}
+            />
+          )}
           <MiniStat
             label="Лист 1С"
             value={sheet ? `${sheet.distanceKm} км` : "—"}
@@ -105,7 +145,13 @@ export function LivePersonDetail({
             label="Відхилення"
             value={deviation != null ? `${deviation > 0 ? "+" : ""}${deviation}%` : "—"}
             tone={deviation != null && deviation > 0 ? "bad" : "muted"}
-            hint="трек по прямій — коротший за дорогу"
+            hint={
+              basis == null
+                ? "нема з чим порівняти"
+                : plannedKm != null
+                  ? "GPS проти плану OSRM"
+                  : "GPS проти листа 1С"
+            }
           />
           <MiniStat
             label="Зібрано"
@@ -113,6 +159,21 @@ export function LivePersonDetail({
             hint={sheet ? `з ${money.format(sheet.debtsTotal)} грн боргу` : undefined}
           />
         </div>
+
+        {/* Як саме склався пробіг: половина «зайвих» кілометрів у звітах —
+            це насправді ходьба по двору бази й ринку. */}
+        {!!move && detail.track.pointsCount > 0 && (
+          <p className="mt-3 text-[13px] text-g600">
+            їзда <b className="tabular-nums">{move.DRIVE.km} км</b> · {hm(move.DRIVE.minutes)}
+            {move.WALK.km > 0 && (
+              <>
+                {" · пішки "}
+                <b className="tabular-nums">{move.WALK.km} км</b> · {hm(move.WALK.minutes)}
+              </>
+            )}
+            {move.STOP.minutes > 0 && <> · стоянки {hm(move.STOP.minutes)}</>}
+          </p>
+        )}
       </Card>
 
       {detail.plan && (
@@ -187,6 +248,47 @@ export function LivePersonDetail({
         </Card>
       )}
 
+      {/*
+        Зупинки — головна відповідь на «де він був».
+        Лінія відповідає на це погано за побудовою: між двома фіксами вона
+        мусить щось намалювати, і це завжди здогад. Зупинка здогадів не
+        потребує — це місце, з якого людина не виходила, і час у ньому.
+      */}
+      {detail.track.stops.length > 0 && (
+        <Card>
+          <p className="mb-2 text-sm font-bold text-bk">
+            Зупинки довші за 5 хвилин: {detail.track.stops.length}
+          </p>
+          <div className="space-y-1.5">
+            {detail.track.stops.map((s) => (
+              <div key={s.seq} className="flex flex-wrap items-baseline gap-2 text-[13px]">
+                <span
+                  aria-hidden
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#111827] text-[11px] font-bold text-white"
+                >
+                  {s.seq}
+                </span>
+                <span className="tabular-nums text-g600">
+                  {s.fromTime}–{s.toTime}
+                </span>
+                <span className="font-semibold tabular-nums text-bk">{s.minutes} хв</span>
+                {s.counterpartyName ? (
+                  <span className="text-bk">{s.counterpartyName}</span>
+                ) : (
+                  <span className="text-g400">клієнта поруч немає</span>
+                )}
+                {s.distanceM != null && (
+                  <span className="text-g400">· {Math.round(s.distanceM)} м</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-g400">
+            Клієнта підставлено за близькістю (до 150 м) — це здогад, а не відмітка візиту.
+          </p>
+        </Card>
+      )}
+
       {detail.visits.length > 0 && (
         <Card>
           <p className="mb-2 text-sm font-bold text-bk">Відмітки</p>
@@ -238,9 +340,10 @@ export function LivePersonDetail({
           </p>
         )}
         <p>
-          Пробіг по треку рахується по прямій між точками, тому він завжди менший за
-          реальну дорогу — від&apos;ємне відхилення від 1С нормальне. Питання викликає
-          додатне: кілометри, яких немає в маршрутному листі.
+          Пробіг GPS складається з відрізків між фіксами, а розриви добиті дорогою — на
+          карті це видно як «По дорогах». Зрізи на поворотах усе одно трохи занижують
+          його проти одометра, тож невелике від&apos;ємне відхилення нормальне. Питання
+          викликає додатне: кілометри, яких немає в плані.
         </p>
       </div>
     </div>

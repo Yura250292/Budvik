@@ -21,7 +21,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { calculateRouteSheetPay } from "@/lib/drivers/payroll";
 import { getRates, loadPayrollRows, resolveStops, sheetToFacts } from "@/lib/drivers/payroll-facts";
 
@@ -102,6 +102,30 @@ export async function GET(req: NextRequest) {
       };
     });
 
+  /**
+   * Скільки водій справді проїхав за GPS — поруч із тим полем, куди офіс
+   * вбиває кілометри руками.
+   *
+   * Досі це число жило лише в «На маршруті», а вводили пробіг тут — і
+   * людина мусила тримати два екрани поруч. У розрахунок GPS не йде
+   * (зарплату рахує actualKm, як і раніше), він лише підказує.
+   *
+   * Одним запитом на весь період: по одному на рядок дало б N+1 на журнал.
+   */
+  const driverIds = [...new Set(rows.map((r) => r.driverId).filter((id): id is string => !!id))];
+  const sessions = driverIds.length
+    ? await prisma.trackSession.findMany({
+        where: {
+          userId: { in: driverIds },
+          day: { gte: kyivDayStart(period.fromDay), lte: kyivDayStart(period.toDay) },
+        },
+        select: { userId: true, day: true, distanceKm: true },
+      })
+    : [];
+  const trackByKey = new Map(
+    sessions.map((s) => [`${s.userId}|${kyivDate(s.day)}`, Math.round(s.distanceKm * 10) / 10])
+  );
+
   return NextResponse.json({
     period: { from: period.fromDay, to: period.toDay, days: period.days },
     canEdit: isFullAccess,
@@ -109,7 +133,11 @@ export async function GET(req: NextRequest) {
     // мовчки, тож лишається за адміністратором.
     canDelete: role === "ADMIN",
     rates,
-    rows,
+    rows: rows.map((r) => ({
+      ...r,
+      /** Пробіг за треком планшета за ЦЮ ДОБУ (не за рейс) */
+      trackKm: r.driverId ? (trackByKey.get(`${r.driverId}|${r.day}`) ?? null) : null,
+    })),
   });
 }
 

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useMapExpand, useWheelGate } from "./MapFrame";
+import { MOVE_COLOR, stopPin, stopTooltip, type TrackStopDot } from "./track-pins";
 
 export type TrackPerson = {
   userId: string;
@@ -67,6 +68,25 @@ export type TrackDetail = {
     time: string;
     draft: boolean;
   }>;
+  /**
+   * Той самий трек, поділений на їзду, ходьбу й стоянки.
+   *
+   * Порожньо — стара поведінка: суцільна синя лінія. Так карта лишається
+   * робочою і на днях, де поділу ще немає.
+   */
+  parts?: Array<{
+    mode: "DRIVE" | "WALK" | "STOP";
+    path: Array<[number, number]>;
+    km: number;
+    minutes: number;
+  }>;
+  /**
+   * Де людина стояла довше кількох хвилин — головна відповідь на «де був».
+   *
+   * Лінія відповідає на це погано за побудовою: між двома фіксами вона
+   * мусить щось намалювати, і це завжди здогад. Зупинка — виміряне місце.
+   */
+  trackStops?: TrackStopDot[];
   /** Епізоди виходу за коридор маршруту. */
   excursions?: Array<{
     from: string;
@@ -117,6 +137,7 @@ export default function TrackDayMap({
   people,
   selectedId,
   detail,
+  onlyStops = false,
   onSelect,
   /** За замовчуванням тягнеться на всю обгортку: висоту задає сторінка. */
   height = "100%",
@@ -124,6 +145,13 @@ export default function TrackDayMap({
   people: TrackPerson[];
   selectedId: string | null;
   detail: TrackDetail | null;
+  /**
+   * Сховати лінію зовсім і лишити самі зупинки.
+   *
+   * Найчистіша відповідь на «де він був»: жодної інтерпольованої геометрії,
+   * лише виміряні місця й час у них.
+   */
+  onlyStops?: boolean;
   onSelect: (id: string) => void;
   height?: string;
 }) {
@@ -152,6 +180,38 @@ export default function TrackDayMap({
     () => people.map((p) => `${p.userId}:${p.lat.toFixed(4)}:${p.lng.toFixed(4)}:${p.online}`).join("|"),
     [people]
   );
+
+  /**
+   * Ключ перемальовки деталей — замість самого об'єкта в залежностях.
+   *
+   * Сторінка збирає `detail` літералом на КОЖЕН свій рендер, тож ефект із
+   * `[detail]` очищав шар і будував сотні маркерів щоразу, коли в батьку
+   * змінилося будь-що: тикнули чекбокс, приїхав пульс, оновився список
+   * людей. Помітно це саме на дні водія, де маркерів найбільше.
+   */
+  const detailKey = useMemo(() => {
+    if (!detail) return "";
+    const line = detail.path ?? [];
+    return [
+      selectedId,
+      detail.points.length,
+      line.length,
+      line[0]?.join(",") ?? "",
+      line[line.length - 1]?.join(",") ?? "",
+      detail.parts?.length ?? 0,
+      detail.parts?.reduce((sum, p) => sum + p.path.length, 0) ?? 0,
+      detail.trackStops?.length ?? 0,
+      detail.stops.map((s) => s.visit?.status ?? "").join(""),
+      detail.orders?.length ?? 0,
+      detail.excursions?.length ?? 0,
+      detail.plan?.name ?? "",
+      onlyStops,
+    ].join("|");
+  }, [detail, selectedId, onlyStops]);
+
+  /** Свіжий об'єкт для ефекту, який на нього більше не підписаний. */
+  const detailRef = useRef(detail);
+  detailRef.current = detail;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -224,6 +284,7 @@ export default function TrackDayMap({
     const group = detailLayerRef.current;
     if (!map || !group) return;
 
+    const detail = detailRef.current;
     group.clearLayers();
     if (!detail) {
       // Вибір знято: наступного разу масштаб підганяємо заново.
@@ -283,20 +344,52 @@ export default function TrackDayMap({
         detail.path && detail.path.length > 1
           ? detail.path
           : detail.points.map((p) => [p.lat, p.lng] as [number, number]);
-      L.polyline(line, { color: "#2563EB", weight: 4, opacity: 0.8 }).addTo(group);
+
+      /**
+       * Ходьба окремо від їзди — і це не оформлення.
+       *
+       * Водій півгодини носить коробки по двору бази або обходить ринок;
+       * намальовані тією самою синьою лінією, ці метри виглядають як
+       * поїздка кварталом — саме звідси «хвости» на карті. Стоянка не
+       * малюється взагалі: людина нікуди не йшла, і тремтіння приймача на
+       * місці не має вдавати шлях.
+       */
+      if (onlyStops) {
+        // Лінію не малюємо, але межі карти лишаємо по ній: інакше вікно
+        // стрибало б до однієї зупинки замість дня.
+      } else if (detail.parts?.length) {
+        detail.parts.forEach((part) => {
+          if (part.mode === "STOP" || part.path.length < 2) return;
+          const walk = part.mode === "WALK";
+          L.polyline(part.path, {
+            color: walk ? MOVE_COLOR.WALK : MOVE_COLOR.DRIVE,
+            weight: walk ? 3 : 4,
+            opacity: walk ? 0.9 : 0.8,
+            dashArray: walk ? "2 6" : undefined,
+            lineCap: walk ? "round" : "butt",
+          })
+            .bindTooltip(`${walk ? "Пішки" : "Автом"} ${part.km} км · ${part.minutes} хв`, {
+              direction: "top",
+            })
+            .addTo(group);
+        });
+      } else {
+        L.polyline(line, { color: MOVE_COLOR.DRIVE, weight: 4, opacity: 0.8 }).addTo(group);
+      }
       line.forEach((c) => bounds.extend(c));
 
       // Початок дня окремим маркером: без нього неясно, з якого кінця
       // читати лінію.
-      L.circleMarker(line[0], {
+      if (!onlyStops)
+        L.circleMarker(line[0], {
         radius: 6,
         color: "#fff",
         weight: 2,
         fillColor: "#16A34A",
         fillOpacity: 1,
-      })
-        .bindTooltip("Початок", { direction: "top" })
-        .addTo(group);
+        })
+          .bindTooltip("Початок", { direction: "top" })
+          .addTo(group);
     }
 
     detail.stops.forEach((s) => {
@@ -313,6 +406,20 @@ export default function TrackDayMap({
         .bindTooltip(`${s.sequence}. ${s.name}`, { direction: "top" })
         .addTo(group);
       bounds.extend([s.lat, s.lng]);
+    });
+
+    /**
+     * Зупинки — поверх точок маршруту.
+     *
+     * Порядок навмисний: точка маршруту це намір («мав заїхати»), зупинка —
+     * факт («стояв тут двадцять хвилин»). Коли вони збігаються, зверху має
+     * бути факт.
+     */
+    (detail.trackStops ?? []).forEach((stop) => {
+      L.marker([stop.lat, stop.lng], { icon: stopPin(stop.seq, stop.minutes) })
+        .bindTooltip(stopTooltip(stop), { direction: "top" })
+        .addTo(group);
+      bounds.extend([stop.lat, stop.lng]);
     });
 
     /**
@@ -377,7 +484,10 @@ export default function TrackDayMap({
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
       fittedDetailRef.current = selectedId;
     }
-  }, [detail, selectedId]);
+    // detail читаємо з ref: підписка йде на ключ, а не на щоразу новий
+    // об'єкт; onlyStops уже входить у ключ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailKey, selectedId]);
 
   useEffect(() => {
     return () => {

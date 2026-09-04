@@ -91,6 +91,33 @@ export type DayDetail = {
      * null — коли прив'язати не вдалося; тоді малюємо сиру.
      */
     roadPath: Array<[number, number]> | null;
+    /**
+     * Де людина стояла довше кількох хвилин — і в кого саме.
+     *
+     * Те саме, що на карті зміни торгового. Питання «де був водій» лінією
+     * відповідається погано: між двома фіксами вона мусить щось намалювати.
+     */
+    stops: Array<{
+      seq: number;
+      lat: number;
+      lng: number;
+      minutes: number;
+      fromTime: string;
+      toTime: string;
+      counterpartyId: string | null;
+      counterpartyName: string | null;
+      distanceM: number | null;
+    }>;
+    /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
+    parts?: Array<{
+      mode: "DRIVE" | "WALK" | "STOP";
+      path: Array<[number, number]>;
+      km: number;
+      minutes: number;
+    }>;
+    partsOnRoads: boolean;
+    /** Скільки з денного пробігу — їзда, скільки ходьба, скільки стоянка */
+    movement: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
     /** Точки поза робочим вікном: записані, але не показані */
     hiddenPoints: number;
     workHours: string;
@@ -126,6 +153,10 @@ export type DayDetail = {
   route: {
     source: string;
     number: string | null;
+    /** Плановий пробіг маршруту сайту (OSRM). null — маршруту сайту немає. */
+    plannedKm: number | null;
+    /** Фактичний пробіг, який офіс вніс руками в журналі листів. */
+    actualKm: number | null;
     stops: Array<{
       key: string;
       name: string;
@@ -180,6 +211,14 @@ export function LiveTrackTab() {
   const [day, setDay] = useState(kyivToday);
   /** Малювати трек по вулицях, а не ламаною між фіксами. */
   const [onRoads, setOnRoads] = useState(true);
+  /**
+   * Сховати лінію й лишити самі зупинки.
+   *
+   * Найчистіша відповідь на «де він був»: жодної інтерпольованої геометрії,
+   * лише виміряні місця й час у них. Той самий перемикач, що в зміні
+   * торгового.
+   */
+  const [onlyStops, setOnlyStops] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<DayDetail | null>(null);
@@ -228,7 +267,11 @@ export function LiveTrackTab() {
     if (!selected) return;
     const token = ++detailReq.current;
     try {
-      const res = await fetch(`/api/admin/track/${selected}/day?day=${day}`);
+      // parts і roads просимо лише для обраної людини: поділ треку тягне
+      // за собою OSRM, а список опитується раз на пів хвилини.
+      const res = await fetch(
+        `/api/admin/track/${selected}/day?day=${day}&parts=1${onRoads ? "&roads=1" : ""}`
+      );
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
       if (token === detailReq.current) setDetail(json as DayDetail);
@@ -237,7 +280,7 @@ export function LiveTrackTab() {
         setError(e instanceof Error ? e.message : "Не вдалося завантажити день");
       }
     }
-  }, [selected, day]);
+  }, [selected, day, onRoads]);
 
   useEffect(() => {
     void loadDetail();
@@ -297,6 +340,16 @@ export function LiveTrackTab() {
           />
           По дорогах
         </label>
+        {/* Лише зупинки: коли треба відповісти «де стояв», а не «як їхав» */}
+        <label className="flex cursor-pointer items-center gap-2 text-[13px] text-g600">
+          <input
+            type="checkbox"
+            checked={onlyStops}
+            onChange={(e) => setOnlyStops(e.target.checked)}
+            className="cursor-pointer accent-primary-dark"
+          />
+          Тільки зупинки
+        </label>
         {isToday && <span className="text-[13px] text-g500">Оновлюється кожні 30 с</span>}
       </div>
 
@@ -334,6 +387,8 @@ export function LiveTrackTab() {
                           onRoads && shown.track.roadPath
                             ? shown.track.roadPath
                             : shown.track.path,
+                        parts: shown.track.parts,
+                        trackStops: shown.track.stops,
                         stops: shown.route.stops,
                         plan: shown.plan,
                         excursions: shown.deviation?.excursions ?? [],
@@ -341,6 +396,9 @@ export function LiveTrackTab() {
                       }
                     : null
                 }
+                // «Тільки зупинки» ховає лінію, але не піни: саме вони й
+                // лишаються відповіддю на питання «де був».
+                onlyStops={onlyStops}
                 onSelect={setSelected}
                 height="100%"
               />

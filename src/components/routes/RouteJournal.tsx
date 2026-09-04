@@ -68,6 +68,8 @@ type SheetsResponse = {
     distanceKm: number;
     plannedKm: number | null;
     actualKm: number | null;
+    /** Пробіг за треком планшета за цю добу. null — треку того дня не було. */
+    trackKm: number | null;
     ordersTotal: number;
     debtsTotal: number;
     stopsCount: number;
@@ -97,21 +99,24 @@ function ActualKmEditor({
   routeId,
   actualKm,
   plannedKm,
+  trackKm,
   onSaved,
   onError,
 }: {
   routeId: string;
   actualKm: number | null;
   plannedKm: number | null;
+  /** Пробіг за GPS того дня. Підказка, у розрахунок сам не йде. */
+  trackKm: number | null;
   onSaved: () => void;
   onError: (msg: string) => void;
 }) {
   const [draft, setDraft] = useState(actualKm != null ? String(actualKm) : "");
   const [saving, setSaving] = useState(false);
 
-  async function save() {
+  async function save(explicit?: number) {
     const trimmed = draft.trim().replace(",", ".");
-    const value = trimmed === "" ? null : Number(trimmed);
+    const value = explicit !== undefined ? explicit : trimmed === "" ? null : Number(trimmed);
     if (value !== null && (!Number.isFinite(value) || value < 0)) {
       onError("Пробіг має бути числом ≥ 0");
       return;
@@ -125,6 +130,7 @@ function ActualKmEditor({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Не вдалося зберегти пробіг");
+      if (explicit !== undefined) setDraft(String(explicit));
       onSaved();
     } catch (e) {
       onError(e instanceof Error ? e.message : "Помилка збереження");
@@ -141,7 +147,14 @@ function ActualKmEditor({
         inputMode="decimal"
         value={draft}
         disabled={saving}
-        placeholder={plannedKm != null ? `≈ ${Math.round(plannedKm)}` : "км"}
+        placeholder={
+          // GPS головніший за план: він міряний, а план — намір.
+          trackKm != null
+            ? `≈ GPS ${Math.round(trackKm)}`
+            : plannedKm != null
+              ? `≈ ${Math.round(plannedKm)}`
+              : "км"
+        }
         aria-label="Фактичний пробіг, км"
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
@@ -153,12 +166,25 @@ function ActualKmEditor({
       <button
         type="button"
         disabled={saving}
-        onClick={save}
+        onClick={() => save()}
         className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-1 font-medium text-g600 hover:bg-g50 disabled:opacity-50"
       >
         {saving ? "Зберігаю…" : "Зберегти"}
       </button>
+      {/* Один дотик замість переписування числа з сусіднього екрана: досі
+          GPS жив лише у вкладці «На маршруті», а вводили пробіг тут. */}
+      {trackKm != null && trackKm !== actualKm && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => save(trackKm)}
+          className="cursor-pointer rounded-[var(--radius-badge)] border border-g200 px-2 py-1 font-medium text-g600 hover:bg-g50 disabled:opacity-50"
+        >
+          Взяти GPS
+        </button>
+      )}
       <span className="text-g400">
+        {trackKm != null ? `GPS ${Math.round(trackKm)} км · ` : ""}
         {plannedKm != null ? `план OSRM ≈ ${Math.round(plannedKm)} км · ` : ""}
         порожнє поле — рахуємо за планом
       </span>
@@ -293,7 +319,9 @@ export function RouteJournal({ period }: { period: Period }) {
             <p className="mt-1.5 leading-relaxed">
               Листи на найближчі дні показуються наперед — з них можна одразу зробити
               маршрут. Точки з однаковою адресою оплачуються як одна. Пробіг «≈» —
-              плановий, поки адмін не ввів фактичний у деталі.
+              плановий, поки адмін не ввів фактичний у деталі. «GPS» — скільки трек
+              планшета намалював за ту добу (а не за рейс): у розрахунок він сам не
+              йде, лише підказує, що вписати.
             </p>
           </details>
         </div>
@@ -355,6 +383,16 @@ export function RouteJournal({ period }: { period: Period }) {
                         </span>
                       )}
                       {num(r.distanceKm)}
+                      {/* GPS другим рядком: він міряний, але в розрахунок не
+                          йде — платить те, що ввели руками. */}
+                      {r.trackKm != null && (
+                        <span
+                          className="block text-[11px] text-g400"
+                          title="Пробіг за треком планшета за цю добу"
+                        >
+                          GPS {num(r.trackKm)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-g600">
                       {r.paidPoints}
@@ -381,6 +419,7 @@ export function RouteJournal({ period }: { period: Period }) {
                           {r.source === "SITE" && data.canEdit && (
                             <div className="rounded-[var(--radius-card)] border border-g200 bg-white p-3">
                               <ActualKmEditor
+                                trackKm={r.trackKm}
                                 key={r.id}
                                 routeId={r.id}
                                 actualKm={r.actualKm}

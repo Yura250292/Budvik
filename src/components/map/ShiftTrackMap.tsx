@@ -30,6 +30,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
+import { escapeHtml, stopPin, stopTooltip, type TrackStopDot } from "./track-pins";
 
 /** Пункт призначеного маршруту. */
 /**
@@ -60,14 +61,6 @@ export type PlanExcursion = {
 
 const PLAN_COLOR = "#16A34A";
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 /** Квадратна нумерована мітка пункту плану — щоб не плуталася з круглими точками треку. */
 function planPin(seq: number): L.DivIcon {
   return L.divIcon({
@@ -87,47 +80,7 @@ function planPin(seq: number): L.DivIcon {
   });
 }
 
-/** Колір зупинки: темний графіт, щоб не сперечався ні з треком, ні з планом. */
-const STOP_COLOR = "#111827";
-
-/**
- * Кругла нумерована мітка зупинки.
- *
- * Кругла — на противагу квадратній мітці плану: план це намір, зупинка це
- * факт, і плутати їх на одній карті не можна. Номер — порядок за днем, тобто
- * маршрут читається пінами навіть із вимкненою лінією.
- */
-function stopPin(seq: number, minutes: number): L.DivIcon {
-  // Довші зупинки помітніші: 5 хвилин і година мають різну вагу для того,
-  // хто дивиться на день згори.
-  const size = minutes >= 30 ? 30 : minutes >= 15 ? 26 : 22;
-  return L.divIcon({
-    className: "",
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2],
-    html: `<div style="
-      width:${size}px;height:${size}px;border-radius:50%;
-      background:${STOP_COLOR};color:#fff;
-      display:flex;align-items:center;justify-content:center;
-      font-weight:800;font-size:${size >= 30 ? 13 : 11}px;
-      border:2px solid white;
-      box-shadow:0 2px 8px rgba(0,0,0,0.35);
-      font-family:system-ui,sans-serif;
-    ">${seq}</div>`,
-  });
-}
-
-export type TrackStopDot = {
-  seq: number;
-  lat: number;
-  lng: number;
-  minutes: number;
-  /** Час уже відформатований сервером — «HH:MM». */
-  fromTime: string;
-  toTime: string;
-  counterpartyName: string | null;
-};
+export type { TrackStopDot };
 
 export type OrderDot = {
   counterpartyId: string;
@@ -389,11 +342,7 @@ export default function ShiftTrackMap({
      */
     stops.forEach((stop) => {
       L.marker([stop.lat, stop.lng], { icon: stopPin(stop.seq, stop.minutes) })
-        .bindTooltip(
-          `<b>${stop.fromTime}–${stop.toTime} · ${stop.minutes} хв</b>` +
-            (stop.counterpartyName ? `<br/>${escapeHtml(stop.counterpartyName)}` : ""),
-          { direction: "top" }
-        )
+        .bindTooltip(stopTooltip(stop), { direction: "top" })
         .addTo(group);
       bounds.extend([stop.lat, stop.lng]);
     });

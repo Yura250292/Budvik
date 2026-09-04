@@ -29,6 +29,7 @@ import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
 import { planCore } from "@/lib/maps/plan-core";
 import { hasGoogleMaps } from "@/lib/maps/google-loader";
+import { useHiddenStates } from "@/lib/maps/use-map-filter";
 import RoutePanel, { type Horizon, type PanelStop, type RouteOrder } from "./RoutePanel";
 import type { DayPlan, PlanStop, SalesClientPoint } from "@/components/map/SalesClientsMap";
 
@@ -126,7 +127,11 @@ export default function DriverMapScreen() {
   const [data, setData] = useState<Resp | null>(null);
   const [day, setDay] = useState<DayResp | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  /**
+   * Сховані стани живуть на пристрої, а «Нові» сховані одразу: їх 2678 із
+   * 3094, і синя маса накриває і маршрут, і тих, до кого водій їздить.
+   */
+  const [hidden, setHidden] = useHiddenStates();
   /**
    * null — водій ще не вибирав сам.
    *
@@ -306,13 +311,12 @@ export default function DriverMapScreen() {
     );
   }, []);
 
-  const toggle = (k: string) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+  const toggle = (k: string) => {
+    const next = new Set(hidden);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    setHidden(next);
+  };
 
   /** Точки відкритого листа — лише ті, що мають координати. */
   const planStops = useMemo<PlanStop[]>(
@@ -794,6 +798,14 @@ export default function DriverMapScreen() {
                   <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#6B7280" }}>
                     Клієнти на карті
                   </span>
+                  {/* Сховане треба назвати вголос. Інакше водій бачить «Всі
+                      3094», а на карті їх помітно менше, і виглядає це не як
+                      фільтр, а як недовантажена карта. */}
+                  {hidden.size > 0 && (
+                    <span style={{ fontSize: "11.5px", color: "#6B7280" }}>
+                      сховано: {LEGEND.filter((k) => hidden.has(k)).map((k) => CLIENT_STATE[k].label).join(", ")}
+                    </span>
+                  )}
                   {data.approximateCount > 0 && (
                     <span style={{ fontSize: "11.5px", color: "#D97706" }}>
                       {data.approximateCount} приблизних

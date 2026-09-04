@@ -25,6 +25,7 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  AppState,
   FlatList,
   Linking,
   RefreshControl,
@@ -33,7 +34,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { staffApi, type DayResponse, type DayStop } from "@/api/staff";
-import { useDay, refetchIfStale } from "@/api/staff-queries";
+import { useDay, useDriverRoutes, refetchIfStale } from "@/api/staff-queries";
 import { formatUAH } from "@/theme";
 import { c, r, sp } from "@/ui/tokens";
 import { Icon } from "@/ui/Icon";
@@ -48,6 +49,7 @@ import {
   Field,
   GoldLine,
   Note,
+  TextLink,
 } from "@/ui/kit";
 import { DriverTabBar } from "@/ui/DriverTabBar";
 import { UpdateBar } from "@/ui/UpdateBar";
@@ -55,20 +57,49 @@ import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
 import {
+  batchNavigateUrl,
   googleMapsLinksFromHere,
   navIntentUrl,
-  navigateUrl,
   pointUrl,
   type NavApp,
 } from "@/lib/google-links";
-import { NAV_BATCHES, getNavApp, getNavBatch, setNavApp, setNavBatch, type NavBatch } from "@/lib/nav-app";
+import {
+  NAV_BATCHES,
+  getAutoNext,
+  getNavApp,
+  getNavBatch,
+  setAutoNext,
+  setNavApp,
+  setNavBatch,
+  type NavBatch,
+} from "@/lib/nav-app";
+import { haversineM } from "@/lib/geo";
 import { within, PROBE_MS } from "@/lib/within";
-import { formatTime, kyivToday } from "@/lib/format-date";
+import { formatRouteDay, formatTime, kyivToday } from "@/lib/format-date";
+import { RoutePickerSheet } from "@/ui/RoutePickerSheet";
 
 type Money = "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE";
 
 /** Стільки НЕнадісланих точок уже означає не паузу між пачками, а тишу мережі. */
 const OFFLINE_POINTS = 20;
+
+/**
+ * Ближче за це — водій уже приїхав.
+ *
+ * Сто п'ятдесят метрів — це двір і сусідній під'їзд, але вже не сусідній
+ * квартал; та сама межа, за якою трек підписує зупинку клієнтом
+ * (сервер, lib/track/stops.ts). Ширше — і підказка спрацьовувала б на
+ * проїзді повз.
+ */
+const ARRIVE_M = 150;
+
+/**
+ * Наскільки старим може бути фікс, щоб на нього спиратися.
+ *
+ * Дві хвилини: за цей час машина проїде кілометри, а підказка «ви на
+ * місці» на застарілій координаті — це відмітка не в того клієнта.
+ */
+const POS_MAX_AGE_MS = 120_000;
 
 export default function DayScreen() {
   const insets = useSafeAreaInsets();
@@ -105,12 +136,17 @@ export default function DayScreen() {
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [navApp, setNav] = useState<NavApp>("google");
   const [batch, setBatch] = useState<NavBatch>(1);
+  const [autoNext, setAuto] = useState(true);
   const [showWholeRoute, setShowWholeRoute] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  /** Точка, для якої водій уже сказав «ще ні» на підказці прибуття. */
+  const [dismissedArrival, setDismissedArrival] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     void getNavApp().then((app) => alive && setNav(app));
     void getNavBatch().then((n) => alive && setBatch(n));
+    void getAutoNext().then((v) => alive && setAuto(v));
     return () => {
       alive = false;
     };
@@ -125,11 +161,36 @@ export default function DayScreen() {
     setBatch(n);
     void setNavBatch(n);
   }, []);
+
+  const chooseAutoNext = useCallback((on: boolean) => {
+    setAuto(on);
+    void setAutoNext(on);
+  }, []);
+
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
   const [buffered, setBuffered] = useState(0);
   /** Локальні проби ще жодного разу не відповідали. */
   const [probed, setProbed] = useState(false);
+
+  /** Список листів тягнеться лише поки шторка відкрита. */
+  const routesQuery = useDriverRoutes(pickerOpen);
+
+  /**
+   * Обрали інший лист — міняємо адресу екрана, а не стан.
+   *
+   * `replace`, щоб «назад» не гортало історію листів; ключ у параметрах
+   * переживає згортання застосунку, а `useDay` бере його в ключ кеша.
+   */
+  const pickRoute = useCallback(
+    (key: string | null) => {
+      setPickerOpen(false);
+      setOpenKey(null);
+      setDismissedArrival(null);
+      router.replace(key ? { pathname: "/day", params: { route: key } } : "/day");
+    },
+    [router]
+  );
 
   /**
    * Стан пристрою: що лишилося в черзі, чи пишеться трек, скільки точок у
@@ -162,7 +223,7 @@ export default function DayScreen() {
         await refetchIfStale(queryRef.current);
         if (alive) await refreshLocal();
       })();
-      Location.getLastKnownPositionAsync()
+      Location.getLastKnownPositionAsync({ maxAge: POS_MAX_AGE_MS })
         .then((p) => p && setPos({ lat: p.coords.latitude, lng: p.coords.longitude }))
         .catch(() => {});
       return () => {
@@ -170,6 +231,26 @@ export default function DayScreen() {
       };
     }, [refreshLocal])
   );
+
+  /**
+   * Повернення із застосунку навігації фокус НЕ ловить.
+   *
+   * Google Maps не забирає екран у React Navigation — він забирає його в
+   * усього застосунку, і на вихід та повернення реагує лише AppState. Без
+   * цього після поїздки лишалася б координата, зафіксована ще до виїзду, і
+   * підказка «ви на місці» не спрацювала б жодного разу — тобто рівно
+   * тоді, коли вона потрібна.
+   */
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      Location.getLastKnownPositionAsync({ maxAge: POS_MAX_AGE_MS })
+        .then((p) => p && setPos({ lat: p.coords.latitude, lng: p.coords.longitude }))
+        .catch(() => {});
+      void refetchIfStale(queryRef.current);
+    });
+    return () => sub.remove();
+  }, []);
 
   const stops = useMemo(() => data?.route?.stops ?? [], [data?.route?.stops]);
 
@@ -184,7 +265,18 @@ export default function DayScreen() {
    * її разом із відмітками — саме та вада, через яку водій на тесті не міг
    * побудувати маршрут по завтрашньому листу.
    */
-  const readOnly = !!data?.day && data.day !== kyivToday();
+  const notToday = !!data?.day && data.day !== kyivToday();
+  /**
+   * Відкрито лист колеги.
+   *
+   * Дивитися й будувати дорогу по ньому можна — заради цього листи всіх і
+   * показуються, — а відмічати ні: візит належить тому, хто його поставив,
+   * і дві відмітки одного клієнта від двох водіїв розсипали б і прогрес
+   * маршруту, і зарплату. Сервер це теж не приймає (/api/visits), тут — щоб
+   * людина не тиснула кнопку, яка однаково відмовить.
+   */
+  const foreign = !!data?.route && data.route.source !== "NONE" && data.route.mine === false;
+  const readOnly = notToday || foreign;
   const queuedKeys = useMemo(() => new Set(queued.map((q) => q.stopKey)), [queued]);
 
   /** Відмічена — це або відмітка з сервера, або та, що чекає в черзі. */
@@ -231,40 +323,60 @@ export default function DayScreen() {
   const take = navApp === "waze" ? 1 : batch;
   const chunk = useMemo(() => pending.slice(0, take), [pending, take]);
 
-  const driveUrl = useMemo(() => {
-    if (chunk.length === 0) return "";
-    if (chunk.length === 1) {
-      return navigateUrl({ lat: chunk[0].lat as number, lng: chunk[0].lng as number }, navApp);
-    }
-    return (
-      googleMapsLinksFromHere(
-        chunk.map((st) => ({ lat: st.lat as number, lng: st.lng as number }))
-      )[0]?.url ?? ""
-    );
-  }, [chunk, navApp]);
+  /**
+   * Водій уже на місці — питаємо, чи відмічати.
+   *
+   * Без цього шлях такий: вилізти з кабіни, розблокувати планшет, знайти
+   * потрібний рядок серед тридцяти, розгорнути, натиснути. Кожен крок — під
+   * дощем і з коробкою в руках, і саме тому відмітки часто ставили ввечері
+   * пачкою, коли вже нічого не пам'ятаєш.
+   *
+   * Пін «до міста» сюди не пускаємо: у такого клієнта координата — центр
+   * села, і сто п'ятдесят метрів від неї не значать нічого. Краще мовчати,
+   * ніж питати «ви на місці?» за кілометр від воріт.
+   */
+  const arrival = useMemo(() => {
+    if (readOnly || !pos) return null;
+    const head = pending[0];
+    if (!head || head.key === dismissedArrival) return null;
+    if (head.kind === "DELIVERY" && !head.counterpartyId) return null;
+    if (head.geoSource === "CITY") return null;
+    const m = haversineM(pos.lat, pos.lng, head.lat as number, head.lng as number);
+    return m <= ARRIVE_M ? head : null;
+  }, [readOnly, pos, pending, dismissedArrival]);
 
   /**
-   * Поїхали.
+   * Поїхали до цих точок.
    *
    * Для однієї точки в Google спершу пробуємо намір `google.navigation:` —
    * він запускає покрокову навігацію без екрана «Почати». Не вийшло (немає
    * Google Maps, інша прошивка) — відкриваємо звичайне посилання, як і
    * досі. Пачка з кількох точок наміром не їде: схема приймає лише одну.
+   *
+   * Приймає пачку аргументом, а не бере з екрана: після відмітки вести
+   * треба вже до НАСТУПНОЇ, а стан на цю мить ще старий.
    */
-  const drive = useCallback(async () => {
-    if (!driveUrl) return;
-    if (navApp === "google" && chunk.length === 1) {
-      try {
-        await Linking.openURL(
-          navIntentUrl({ lat: chunk[0].lat as number, lng: chunk[0].lng as number })
-        );
-        return;
-      } catch {
-        // Падаємо на звичайне посилання нижче.
+  const openNav = useCallback(
+    async (points: DayStop[]) => {
+      const coords = points
+        .filter((st) => st.lat != null && st.lng != null)
+        .map((st) => ({ lat: st.lat as number, lng: st.lng as number }));
+      const url = batchNavigateUrl(coords, navApp);
+      if (!url) return;
+      if (navApp === "google" && coords.length === 1) {
+        try {
+          await Linking.openURL(navIntentUrl(coords[0]));
+          return;
+        } catch {
+          // Падаємо на звичайне посилання нижче.
+        }
       }
-    }
-    void Linking.openURL(driveUrl);
-  }, [driveUrl, navApp, chunk]);
+      void Linking.openURL(url);
+    },
+    [navApp]
+  );
+
+  const drive = useCallback(() => void openNav(chunk), [openNav, chunk]);
 
   const mark = useCallback(
     async (
@@ -305,6 +417,18 @@ export default function DayScreen() {
           };
 
       /**
+       * Куди вести далі — рахуємо ДО збереження.
+       *
+       * Саме це й знімає ліміт Google на девʼять проміжних точок: наступну
+       * пачку підставляє застосунок, і водієві не треба повертатися сюди й
+       * тиснути «Їхати». Порядок точок беремо той самий, що на екрані,
+       * мінус щойно відмічена: закрити могли не першу, і вести треба туди,
+       * куди водій і збирався.
+       */
+      const next =
+        autoNext && !readOnly ? pending.filter((st) => st.key !== stop.key).slice(0, take) : [];
+
+      /**
        * Спершу в чергу, потім спроба надіслати.
        *
        * Такий порядок означає, що відмітка не губиться навіть тоді, коли
@@ -313,9 +437,13 @@ export default function DayScreen() {
       await queueVisit(entry);
       setQueued(await listPendingVisits());
       setOpenKey(null);
+      setDismissedArrival(null);
+      // Навігатор відкриваємо ДО перечитування дня: чекати на мережу, поки
+      // машина стоїть із увімкненою аварійкою, немає за що.
+      if (next.length > 0) void openNav(next);
       await load();
     },
-    [pos, load]
+    [pos, load, autoNext, readOnly, pending, take, openNav]
   );
 
   if (query.isPending) {
@@ -338,6 +466,57 @@ export default function DayScreen() {
    */
   const header = (
     <>
+      {/*
+        «Ви на місці» — перше, що бачить водій, який щойно зупинився.
+        Вище черги й вище банерів: він дивиться на планшет секунду, з
+        коробкою в руках.
+      */}
+      {arrival && (
+        <View style={[s.block, s.headBlock]}>
+          <Callout tone="good" icon="flag" title={`Ви біля ${arrival.name}`}>
+            <ButtonRow>
+              <Button
+                label={
+                  arrival.kind !== "DELIVERY"
+                    ? "Виконано"
+                    : arrival.debtAmount > 0
+                      ? `Приїхав, забрав ${formatUAH(arrival.debtAmount)}`
+                      : "Приїхав"
+                }
+                onPress={() =>
+                  void mark(arrival, "DONE", arrival.debtAmount > 0 ? "FULL" : "NONE")
+                }
+              />
+              <Button
+                tone="outline"
+                label={arrival.kind !== "DELIVERY" ? "Не вийшло" : "Не потрапив"}
+                onPress={() => void mark(arrival, "MISSED", "NOT_APPLICABLE")}
+              />
+            </ButtonRow>
+            <TextLink
+              label="Ще ні — я тільки під'їхав"
+              onPress={() => setDismissedArrival(arrival.key)}
+            />
+          </Callout>
+        </View>
+      )}
+
+      {/*
+        Лист колеги. Дивитися й будувати дорогу можна, відмічати — ні.
+      */}
+      {foreign && (
+        <View style={[s.block, s.headBlock]}>
+          <Callout
+            tone="warn"
+            icon="user"
+            title={`Лист ${data?.route?.driverName ?? "іншого водія"}`}
+            action={{ label: "До свого маршруту", onPress: () => router.replace("/day") }}
+          >
+            Переглянути й побудувати дорогу можна. Відмічати точки і здавати касу може лише він.
+          </Callout>
+        </View>
+      )}
+
       {queued.length > 0 && (
         <View style={[s.section, s.headBlock]}>
           <Card tone="brand" style={s.queueCard} gap={sp.xxs}>
@@ -371,7 +550,7 @@ export default function DayScreen() {
         Смуга дня, який не сьогодні. Під шапкою, а не всередині списку:
         водій має побачити її раніше, ніж дотягнеться до першої точки.
       */}
-      {readOnly && (
+      {notToday && (
         <View style={[s.block, s.headBlock]}>
           <Callout tone="info" icon="clock" title={`Маршрут за ${data?.day ?? "інший день"}`}>
             Це лише перегляд: відмітити точки можна тільки в поточному дні, минуле виправляє офіс.
@@ -440,6 +619,28 @@ export default function DayScreen() {
                 ))}
               </View>
             </View>
+          )}
+
+          {/*
+            Автоперехід — тут, а не в налаштуваннях: він міняє те, що
+            станеться одразу після наступної відмітки, і рішення про нього
+            приймають саме в цю мить. У читальному режимі не показуємо:
+            відміток там немає, отже й переходити нема від чого.
+          */}
+          {!readOnly && (
+            <Pressable
+              onPress={() => chooseAutoNext(!autoNext)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: autoNext }}
+              style={s.autoRow}
+            >
+              <View style={[s.autoBox, autoNext && s.autoBoxOn]}>
+                {autoNext && <Icon name="check" size={13} color={c.brand} />}
+              </View>
+              <Text style={[s.autoLabel, autoNext && s.autoLabelOn]}>
+                Після відмітки — одразу вести далі
+              </Text>
+            </Pressable>
           )}
 
           {/* Що саме поїде в навігатор: водій бачить пачку списком ДО того,
@@ -523,7 +724,9 @@ export default function DayScreen() {
         </View>
       )}
 
-      {cash && (
+      {/* Каса — лише на своєму листі: під чужим маршрутом вона показувала б
+          мої гроші як гроші того дня, і водій здав би не ту суму. */}
+      {cash && !foreign && (
         <View style={s.footBlock}>
           <CashSection cash={cash} day={data?.day} onDone={load} />
         </View>
@@ -537,7 +740,17 @@ export default function DayScreen() {
 
       <DayHeader
         route={data?.route?.number ?? null}
+        subtitle={
+          data?.day
+            ? (foreign ? `${data.route?.driverName ?? "інший водій"} · ` : "") +
+              formatRouteDay(data.day, kyivToday())
+            : null
+        }
+        onPressTitle={() => setPickerOpen(true)}
+        // Гроші чужого листа не показуємо: на екрані водія будь-яка сума
+        // читається як «моя каса».
         progress={p}
+        showMoney={!foreign}
         km={data?.track.distanceKm ?? 0}
         tracking={tracking}
         buffered={buffered}
@@ -585,6 +798,17 @@ export default function DayScreen() {
         }
       />
 
+      <RoutePickerSheet
+        visible={pickerOpen}
+        current={openedRoute ?? data?.route?.id ?? null}
+        today={kyivToday()}
+        items={routesQuery.data?.items}
+        loading={routesQuery.isPending}
+        error={routesQuery.isError}
+        onPick={pickRoute}
+        onClose={() => setPickerOpen(false)}
+      />
+
       <DriverTabBar active="today" />
     </View>
   );
@@ -602,7 +826,10 @@ export default function DayScreen() {
  */
 function DayHeader({
   route,
+  subtitle,
+  onPressTitle,
   progress,
+  showMoney,
   km,
   tracking,
   buffered,
@@ -610,7 +837,12 @@ function DayHeader({
   probed,
 }: {
   route: string | null;
+  /** День листа, а перед ним ім'я власника, якщо лист чужий. */
+  subtitle: string | null;
+  onPressTitle: () => void;
   progress: DayResponse["progress"] | undefined;
+  /** Чужа каса на своєму екрані — найгірше, що тут можна показати. */
+  showMoney: boolean;
   km: number;
   tracking: boolean;
   buffered: number;
@@ -644,20 +876,39 @@ function DayHeader({
       <GoldLine />
       <View style={{ height: insets.top }} />
       <View style={s.headerRow}>
-        <View style={s.headerLeft}>
-          <Text style={s.headerTitle} numberOfLines={1}>
-            {route ? `Маршрут ${route}` : "Маршрут не складено"}
-          </Text>
+        {/*
+          Заголовок став кнопкою вибору листа.
+          Досі він був простим текстом, і єдиний спосіб відкрити інший
+          маршрут із застосунку — піти в карту (тобто у WebView), вибрати
+          там і повернутися. Тепер водій тапає по назві просто тут.
+        */}
+        <Pressable style={s.headerLeft} onPress={onPressTitle} accessibilityRole="button">
+          <View style={s.headerTitleRow}>
+            <Text style={s.headerTitle} numberOfLines={1}>
+              {route ? `Маршрут ${route}` : "Маршрут не складено"}
+            </Text>
+            <Icon name="chevron-down" size={16} color={c.onDarkMuted} />
+          </View>
+          {!!subtitle && (
+            <Text style={s.headerMuted} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          )}
           {!!progress && (
             <View style={s.headerProgress}>
               <Text style={s.headerMuted}>
-                {done + missed} з {total} точок ·{" "}
+                {done + missed} з {total} точок
               </Text>
-              <Text style={s.headerMoney}>{formatUAH(progress.collected)}</Text>
-              <Text style={s.headerMuted}> / {formatUAH(progress.debtPlanned)}</Text>
+              {showMoney && (
+                <>
+                  <Text style={s.headerMuted}> · </Text>
+                  <Text style={s.headerMoney}>{formatUAH(progress.collected)}</Text>
+                  <Text style={s.headerMuted}> / {formatUAH(progress.debtPlanned)}</Text>
+                </>
+              )}
             </View>
           )}
-        </View>
+        </Pressable>
         <View style={s.headerRight}>
           <View style={s.headerKm}>
             <Text style={s.headerKmValue}>{String(km).replace(".", ",")}</Text>
@@ -1052,6 +1303,7 @@ const s = StyleSheet.create({
     paddingBottom: sp.gap,
   },
   headerLeft: { flex: 1, gap: 3 },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: sp.xs },
   headerTitle: { color: c.onDark, fontSize: 16, fontWeight: "700" },
   headerProgress: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
   headerMuted: { color: c.onDarkMuted, fontSize: 12 },
@@ -1094,6 +1346,20 @@ const s = StyleSheet.create({
   nextHead: { flexDirection: "row", alignItems: "center", gap: sp.xs },
   batchRow: { flexDirection: "row", alignItems: "center", gap: sp.xs },
   batchLabel: { fontSize: 12, color: c.text2 },
+
+  autoRow: { flexDirection: "row", alignItems: "center", gap: sp.sm, minHeight: 40 },
+  autoBox: {
+    width: 20,
+    height: 20,
+    borderRadius: r.xs,
+    borderWidth: 1.5,
+    borderColor: c.inputLine,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  autoBoxOn: { borderWidth: 0, backgroundColor: c.bk },
+  autoLabel: { fontSize: 13, color: c.text2 },
+  autoLabelOn: { color: c.text },
   nextRow: { flexDirection: "row", alignItems: "flex-start", gap: sp.xs },
   nextNum: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
   nextNumFirst: { backgroundColor: c.text },

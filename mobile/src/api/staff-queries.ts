@@ -86,6 +86,7 @@ export const staffKeys = {
   shiftHistory: ["staff-shift-history"] as const,
   shiftDetail: (id: string) => ["staff-shift-detail", id] as const,
   day: ["staff-day"] as const,
+  driverRoutes: ["staff-driver-routes"] as const,
 };
 
 /**
@@ -129,6 +130,22 @@ export function useDay(opts?: { day?: string; route?: string }) {
       return staffApi.day(opts);
     },
     staleTime: 15_000,
+  });
+}
+
+/**
+ * Маршрутні листи для шторки вибору — свої і колег.
+ *
+ * `enabled` навмисно: список тягнеться, лише коли шторку відкрито. Водій
+ * заходить у день десятки разів на добу, а лист міняє двічі — питати
+ * сервер щоразу означало б платити за це секундами на кожному відкритті.
+ */
+export function useDriverRoutes(enabled: boolean) {
+  return useQuery({
+    queryKey: staffKeys.driverRoutes,
+    queryFn: () => staffApi.driverRoutes("all"),
+    enabled,
+    staleTime: 60_000,
   });
 }
 

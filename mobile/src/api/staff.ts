@@ -214,6 +214,29 @@ export type DayStop = {
   visit: { status: string; money: string; collectedAmount: number | null } | null;
 };
 
+/**
+ * Рядок списку маршрутних листів. Форма — з src/app/api/driver/routes.
+ *
+ * Копія, як і DayStop: застосунок не має доступу до коду сайту, тож
+ * розбіжність проявиться порожнім рядком у шторці, а не помилкою.
+ */
+export type DriverRouteItem = {
+  key: string;
+  source: "DELIVERY_ROUTE" | "ROUTE_SHEET";
+  number: string;
+  day: string;
+  status: string;
+  vehicle: string | null;
+  stops: number;
+  done: number;
+  amount: number;
+  plannedKm: number | null;
+  driverId: string | null;
+  driverName: string | null;
+  /** Мій лист: лише в такому працюють відмітки й каса. */
+  mine: boolean;
+};
+
 export type Handover = {
   id: string;
   amount: number;
@@ -235,7 +258,17 @@ export type DayResponse = {
   role: string;
   route: {
     source: string | null;
+    /** Ключ листа (`dr:`/`rs:`) — ним відкривається саме цей документ. */
+    id: string | null;
+    /** Київська доба ЛИСТА, не «сьогодні»: на одну дату листів буває два. */
+    day: string | null;
     number: string | null;
+    /**
+     * Чий це лист. false — колеги: дивитися й будувати дорогу можна,
+     * відмічати точки й здавати касу — ні.
+     */
+    mine?: boolean;
+    driverName?: string | null;
     stops: DayStop[];
   } | null;
   progress: {
@@ -291,7 +324,9 @@ export type OdometerRecognized = {
     reason: string | null;
     /** Готовий людський текст відмови — UI його не збирає сам. */
     message: string | null;
-    warnings: Array<"few_digits" | "low_confidence" | "zero_distance" | "below_previous">;
+    warnings: Array<
+      "few_digits" | "low_confidence" | "zero_distance" | "below_previous" | "far_from_track"
+    >;
     /** Пробіг відносно точки відліку: старту зміни або кінця попередньої. */
     deltaKm: number | null;
   };
@@ -399,8 +434,17 @@ export const staffApi = {
   shiftOpen: (body: Record<string, unknown>) =>
     staffRequest<unknown>("/api/shift/open", { method: "POST", body, timeoutMs: 60_000 }),
 
+  /**
+   * `warning` — не помилка, а друга думка треку про введене число. Сервер
+   * зміну однаково закриває; наше діло — показати це людині, поки вона ще
+   * в машині й пам'ятає, що було на табло.
+   */
   shiftClose: (body: Record<string, unknown>) =>
-    staffRequest<unknown>("/api/shift/close", { method: "POST", body, timeoutMs: 60_000 }),
+    staffRequest<{ warning?: string | null }>("/api/shift/close", {
+      method: "POST",
+      body,
+      timeoutMs: 60_000,
+    }),
 
   shiftHistory: () => staffRequest<ShiftHistory>("/api/shift/history"),
 
@@ -452,6 +496,17 @@ export const staffApi = {
    * `route` (ключ `dr:`/`rs:`) сильніший за дату: на одну добу маршрутних
    * листів буває два, і доба як адреса показала б лише перший.
    */
+  /**
+   * Маршрутні листи, які водій може відкрити: свої і колег.
+   *
+   * Тягнеться лише при відкритті шторки вибору, а не разом із днем: на
+   * маршруті кожен зайвий запит — це секунди мобільного інтернету.
+   */
+  driverRoutes: (scope: "all" | "mine" = "all") =>
+    staffRequest<{ today: string; items: DriverRouteItem[] }>(
+      `/api/driver/routes?scope=${scope}`
+    ),
+
   day: (opts?: { day?: string; route?: string }) =>
     staffRequest<DayResponse>(
       `/api/tablet/day` +

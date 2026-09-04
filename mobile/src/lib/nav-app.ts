@@ -14,6 +14,7 @@ import type { NavApp } from "./google-links";
 
 const KEY = "budvik.navApp";
 const BATCH_KEY = "budvik.navBatch";
+const AUTO_NEXT_KEY = "budvik.autoNext";
 
 /**
  * Скільки наступних точок заряджаємо в навігатор за раз.
@@ -56,6 +57,30 @@ export async function getNavBatch(): Promise<NavBatch> {
 export async function setNavBatch(n: NavBatch): Promise<void> {
   try {
     await AsyncStorage.setItem(BATCH_KEY, String(n));
+  } catch {
+    // Не збереглося — вибір діє до кінця сеансу, і цього досить.
+  }
+}
+
+/**
+ * Чи вести до наступної точки одразу після відмітки.
+ *
+ * Увімкнено за замовчуванням, і саме це знімає ліміт Google на девʼять
+ * проміжних точок: наступну пачку підставляє застосунок, водієві не треба
+ * повертатися сюди й тиснути «Їхати». Порожнє сховище й будь-яка помилка
+ * читання означають «увімкнено» — єдине значення для «ні» це рядок «0».
+ */
+export async function getAutoNext(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(AUTO_NEXT_KEY)) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export async function setAutoNext(on: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AUTO_NEXT_KEY, on ? "1" : "0");
   } catch {
     // Не збереглося — вибір діє до кінця сеансу, і цього досить.
   }

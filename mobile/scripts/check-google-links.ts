@@ -15,6 +15,7 @@
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import {
+  batchNavigateUrl,
   googleMapsLinks,
   googleMapsLinksFromHere,
   directionsUrl,
@@ -112,6 +113,38 @@ check(
   "Waze веде саме в навігацію",
   navigateUrl(many[0], "waze").includes("navigate=yes"),
   navigateUrl(many[0], "waze")
+);
+
+/**
+ * Пачка «наступних точок» — те, що відкривається після кожної відмітки.
+ *
+ * Помилка тут коштує дорожче за решту: у пачці з ОДНІЄЇ точки посилання на
+ * кілька точок показало б екран попереднього перегляду замість навігації, і
+ * водій за кермом мусив би ще раз тицьнути «Почати».
+ */
+const batchCases: Array<[string, MapPoint[], "google" | "waze"]> = [
+  ["порожня пачка (Google)", [], "google"],
+  ["одна точка (Google)", many.slice(0, 1), "google"],
+  ["одна точка (Waze)", many.slice(0, 1), "waze"],
+  ["три точки (Google)", many.slice(0, 3), "google"],
+  ["три точки (Waze)", many.slice(0, 3), "waze"],
+  ["пʼять точок (Google)", many.slice(0, 5), "google"],
+];
+for (const [name, points, app] of batchCases) {
+  check(
+    `batchNavigateUrl однаковий: ${name}`,
+    site.batchNavigateUrl(points, app) === batchNavigateUrl(points, app),
+    { сайт: site.batchNavigateUrl(points, app), застосунок: batchNavigateUrl(points, app) }
+  );
+}
+check("Порожня пачка не дає посилання", batchNavigateUrl([], "google") === "");
+check(
+  "Одна точка веде навігацією, а не переглядом",
+  batchNavigateUrl(many.slice(0, 1), "google") === pointUrl(many[0])
+);
+check(
+  "Waze бере лише першу точку пачки",
+  batchNavigateUrl(many.slice(0, 3), "waze") === navigateUrl(many[0], "waze")
 );
 
 /** Кожна наступна частина мусить стартувати там, де скінчилася попередня. */

@@ -160,6 +160,25 @@ export function navigateUrl(point: MapPoint, app: NavApp = "google"): string {
 }
 
 /**
+ * Дорога для ПАЧКИ точок — одним викликом на всі екрани.
+ *
+ * Правило просте й повторювалося вже в трьох місцях: одна точка (або Waze,
+ * який більше однієї не приймає) — це «веди мене туди», кілька — посилання
+ * від поточного місця через них. Тримати його трьома копіями означало
+ * рано чи пізно розійтися: у пачці з однієї точки Google показав би екран
+ * попереднього перегляду замість навігації.
+ *
+ * Порожня пачка дає порожній рядок, а не помилку: наприкінці дня вести
+ * просто нікуди, і викликач має право цього не перевіряти.
+ */
+export function batchNavigateUrl(points: MapPoint[], app: NavApp = "google"): string {
+  if (points.length === 0) return "";
+  if (app === "waze" || points.length === 1) return navigateUrl(points[0], app);
+  return googleMapsLinksFromHere(points)[0]?.url ?? "";
+}
+
+
+/**
  * Android-намір, який ВЕДЕ одразу.
  *
  * Звичайне посилання `maps/dir/?api=1` відкриває Google Maps на екрані

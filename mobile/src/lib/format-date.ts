@@ -27,6 +27,7 @@ const DAY_MONTH = make({ day: "numeric", month: "long" });
 const DAY_MONTH_PADDED = make({ day: "2-digit", month: "long" });
 const TODAY = make({ weekday: "long", day: "numeric", month: "long" });
 const WHEN = make({ day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+const ROUTE_DAY = make({ day: "numeric", month: "long", weekday: "short" });
 
 function run(fmt: Intl.DateTimeFormat | null, iso: string, fallback: string): string {
   if (!fmt) return fallback;
@@ -40,6 +41,35 @@ function run(fmt: Intl.DateTimeFormat | null, iso: string, fallback: string): st
   } catch {
     return fallback;
   }
+}
+
+/**
+ * «Сьогодні» / «Учора» / «Завтра» / «3 вересня, ср» — назва дня маршруту.
+ *
+ * Без року: у кабінеті водія всі листи свіжі, і рік лише з'їдає ширину
+ * рядка на телефоні. Копія тієї самої функції з сайту
+ * (src/components/driver/RoutePicker.tsx): шторка вибору мусить називати
+ * дні однаково у вебі й у застосунку, інакше водій вирішить, що це різні
+ * списки.
+ *
+ * `day` і `today` — київські дати у форматі YYYY-MM-DD.
+ */
+export function formatRouteDay(day: string, today: string): string {
+  if (day === today) return "Сьогодні";
+  if (day === shiftDay(today, -1)) return "Учора";
+  if (day === shiftDay(today, 1)) return "Завтра";
+
+  // Опівдні за UTC — щоб зсув поясу не переніс дату на сусідню добу.
+  const parsed = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return day;
+  return run(ROUTE_DAY, parsed.toISOString(), day);
+}
+
+function shiftDay(day: string, days: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /** «09:42» */

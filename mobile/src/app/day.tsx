@@ -55,7 +55,7 @@ import { bufferedCount } from "@/track/db";
 import { isTracking } from "@/track/controller";
 import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pending-visits";
 import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/google-links";
-import { getNavApp, setNavApp } from "@/lib/nav-app";
+import { NAV_BATCHES, getNavApp, getNavBatch, setNavApp, setNavBatch, type NavBatch } from "@/lib/nav-app";
 import { within, PROBE_MS } from "@/lib/within";
 import { formatTime } from "@/lib/format-date";
 
@@ -87,11 +87,13 @@ export default function DayScreen() {
   const [queued, setQueued] = useState<PendingVisit[]>([]);
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [navApp, setNav] = useState<NavApp>("google");
+  const [batch, setBatch] = useState<NavBatch>(1);
   const [showWholeRoute, setShowWholeRoute] = useState(false);
 
   useEffect(() => {
     let alive = true;
     void getNavApp().then((app) => alive && setNav(app));
+    void getNavBatch().then((n) => alive && setBatch(n));
     return () => {
       alive = false;
     };
@@ -100,6 +102,11 @@ export default function DayScreen() {
   const chooseNav = useCallback((app: NavApp) => {
     setNav(app);
     void setNavApp(app);
+  }, []);
+
+  const chooseBatch = useCallback((n: NavBatch) => {
+    setBatch(n);
+    void setNavBatch(n);
   }, []);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
@@ -179,10 +186,32 @@ export default function DayScreen() {
    * Google ні до чого прикласти, а наступну підставляє сам застосунок,
    * щойно попередню відмічено.
    */
-  const nextStop = useMemo(
-    () => stops.find((st) => !isMarked(st) && st.lat != null && st.lng != null),
+  /**
+   * Найближчі невідмічені точки за порядком обʼїзду.
+   *
+   * Не одна: водій сам обирає, скільки зарядити в навігатор — одну, три чи
+   * пʼять. Одна це «веди мене туди», пʼять — погляд на найближчу годину.
+   */
+  const pending = useMemo(
+    () => stops.filter((st) => !isMarked(st) && st.lat != null && st.lng != null),
     [stops, isMarked]
   );
+
+  // Waze веде до однієї точки — пачка для нього завжди одна.
+  const take = navApp === "waze" ? 1 : batch;
+  const chunk = useMemo(() => pending.slice(0, take), [pending, take]);
+
+  const driveUrl = useMemo(() => {
+    if (chunk.length === 0) return "";
+    if (chunk.length === 1) {
+      return navigateUrl({ lat: chunk[0].lat as number, lng: chunk[0].lng as number }, navApp);
+    }
+    return (
+      googleMapsLinksFromHere(
+        chunk.map((st) => ({ lat: st.lat as number, lng: st.lng as number }))
+      )[0]?.url ?? ""
+    );
+  }, [chunk, navApp]);
 
   const mark = useCallback(
     async (
@@ -286,21 +315,27 @@ export default function DayScreen() {
       )}
 
       {/*
-        Куди їхати просто зараз.
+        Куди їхати просто зараз — і на скільки точок наперед.
+
         Замість «дороги частинами», яка була наслідком чужого обмеження:
         посилання Google бере щонайбільше девʼять проміжних точок, тож день
         на 25 адрес різався на три шматки, і між ними водій мусив САМ
         згадати, що треба повернутися сюди й відкрити наступний. За кермом
         про це не згадують.
+
+        Тепер розмір пачки обирає водій: одна точка, три або пʼять. Наступну
+        пачку підставляє застосунок, коли попередні відмічено.
+
+        Waze приймає рівно одну точку, тому з ним вибір пачки не показуємо.
       */}
-      {!!nextStop && (
+      {pending.length > 0 && (
         <View style={[s.block, s.headBlock]}>
           <View style={s.nextHead}>
-            <Eyebrow>Наступна точка</Eyebrow>
-            {/* Скільки лишиться ПІСЛЯ цієї: «ще 32», коли попереду рівно 32
-                разом із поточною, читається як помилка в рахунку. */}
+            <Eyebrow>{take > 1 ? "Наступні точки" : "Наступна точка"}</Eyebrow>
+            {/* Скільки лишиться ПІСЛЯ цієї пачки: «ще 32», коли попереду
+                рівно 32 разом із поточними, читається як помилка в рахунку. */}
             <Text style={s.nextLeft}>
-              {(p?.left ?? 0) > 1 ? `далі ще ${p!.left - 1}` : "остання"}
+              {(p?.left ?? 0) > chunk.length ? `далі ще ${p!.left - chunk.length}` : "останні"}
             </Text>
             {/* Вибір навігатора тут, а не в налаштуваннях: його міняють раз у
                 житті, але саме тоді, коли вперше тиснуть «Їхати». */}
@@ -320,34 +355,62 @@ export default function DayScreen() {
             </View>
           </View>
 
-          <Text style={s.nextName} numberOfLines={2}>
-            {nextStop.name}
-          </Text>
-          {!!nextStop.address && (
-            <Text style={s.nextAddress} numberOfLines={2}>
-              {nextStop.address}
-            </Text>
+          {/* Скільки точок заряджаємо. Ховаємо, коли їх однаково менше двох:
+              вибір «1 / 3 / 5» на останній точці дня нічого не міняє. */}
+          {navApp === "google" && pending.length > 1 && (
+            <View style={s.batchRow}>
+              <Text style={s.batchLabel}>Скільки точок:</Text>
+              <View style={s.navPick}>
+                {NAV_BATCHES.filter((n) => n === 1 || n <= pending.length).map((n) => (
+                  <Pressable
+                    key={n}
+                    onPress={() => chooseBatch(n)}
+                    accessibilityState={{ selected: batch === n }}
+                    style={[s.navPickItem, batch === n && s.navPickItemOn]}
+                  >
+                    <Text style={[s.navPickLabel, batch === n && s.navPickLabelOn]}>{n}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           )}
+
+          {/* Що саме поїде в навігатор: водій бачить пачку списком ДО того,
+              як відкрив Google, і встигає зрозуміти, що маршрут веде не туди. */}
+          {chunk.map((st, i) => (
+            <View key={st.key} style={s.nextRow}>
+              <View style={[s.nextNum, i === 0 && s.nextNumFirst]}>
+                <Text style={[s.nextNumLabel, i === 0 && s.nextNumLabelFirst]}>{i + 1}</Text>
+              </View>
+              <View style={s.nextRowBody}>
+                <Text style={i === 0 ? s.nextName : s.nextNameSmall} numberOfLines={2}>
+                  {st.name}
+                </Text>
+                {!!st.address && (
+                  <Text style={s.nextAddress} numberOfLines={1}>
+                    {st.address}
+                  </Text>
+                )}
+              </View>
+            </View>
+          ))}
 
           <Pressable
             style={[s.mapLink, s.mapLinkPrimary]}
-            onPress={() =>
-              Linking.openURL(
-                navigateUrl(
-                  { lat: nextStop.lat as number, lng: nextStop.lng as number },
-                  navApp
-                )
-              )
-            }
+            onPress={() => Linking.openURL(driveUrl)}
           >
             <Icon name="navigation" size={16} color={c.onDark} />
             <Text style={[s.mapLinkLabel, { color: c.onDark }]}>
-              Їхати в {navApp === "waze" ? "Waze" : "Google Maps"}
+              {chunk.length > 1
+                ? `Їхати · ${chunk.length} точок`
+                : `Їхати в ${navApp === "waze" ? "Waze" : "Google Maps"}`}
             </Text>
           </Pressable>
 
           <Note>
-            Дорога почнеться там, де ви зараз. Відмітили точку — тут зʼявиться наступна.
+            {navApp === "waze"
+              ? "Waze веде до однієї точки за раз. Дорога почнеться там, де ви зараз."
+              : "Дорога почнеться там, де ви зараз. Відмітили точки — тут зʼявляться наступні."}
           </Note>
 
           {mapLinks.length > 0 && (
@@ -934,6 +997,15 @@ const s = StyleSheet.create({
   queueText: { flex: 1, gap: 3 },
 
   nextHead: { flexDirection: "row", alignItems: "center", gap: sp.xs },
+  batchRow: { flexDirection: "row", alignItems: "center", gap: sp.xs },
+  batchLabel: { fontSize: 12, color: c.text2 },
+  nextRow: { flexDirection: "row", alignItems: "flex-start", gap: sp.xs },
+  nextNum: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: c.bg },
+  nextNumFirst: { backgroundColor: c.text },
+  nextNumLabel: { fontSize: 12, fontWeight: "800", color: c.text2 },
+  nextNumLabelFirst: { color: c.brand },
+  nextRowBody: { flex: 1 },
+  nextNameSmall: { fontSize: 14, fontWeight: "600", color: c.text },
   nextLeft: { fontSize: 12, color: c.text3 },
   navPick: { marginLeft: "auto", flexDirection: "row", gap: 2, padding: 2, borderRadius: 999, backgroundColor: c.bg },
   navPickItem: { paddingHorizontal: 12, height: 32, justifyContent: "center", borderRadius: 999 },

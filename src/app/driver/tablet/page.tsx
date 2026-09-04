@@ -24,7 +24,7 @@ import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/maps/google-links";
-import { useNavApp } from "@/lib/maps/use-nav-app";
+import { NAV_BATCHES, useNavApp, useNavBatch, type NavBatch } from "@/lib/maps/use-nav-app";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
@@ -142,6 +142,7 @@ function DriverDayScreen() {
    * телефоном немає навіщо.
    */
   const [navApp, chooseNav] = useNavApp();
+  const [batch, chooseBatch] = useNavBatch();
 
   const load = useCallback(async () => {
     try {
@@ -308,8 +309,15 @@ function DriverDayScreen() {
    * частинами»: коли ведеш по одній точці, ліміт Google ні до чого
    * прикласти, а наступну підставляє застосунок, щойно попередню відмічено.
    */
-  const nextStop = useMemo(
-    () => stops.find((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null),
+  /**
+   * Найближчі невідмічені точки за порядком обʼїзду.
+   *
+   * Не одна: водій сам обирає, скільки зарядити в навігатор — одну, три
+   * чи пʼять. Одна це «веди мене туди», пʼять — погляд на найближчу
+   * годину: видно, в який бік день і чи не доведеться вертатися.
+   */
+  const pending = useMemo(
+    () => stops.filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null),
     [stops, queued]
   );
 
@@ -545,13 +553,15 @@ function DriverDayScreen() {
         </div>
       ) : (
         <>
-          {!!nextStop && !readOnly && (
+          {pending.length > 0 && !readOnly && (
             <NextStopCard
-              stop={nextStop}
+              stops={pending}
               left={data.progress.left}
               routeId={data.route.id}
               navApp={navApp}
               onChooseNav={chooseNav}
+              batch={batch}
+              onChooseBatch={chooseBatch}
               wholeRoute={mapLinks}
             />
           )}
@@ -596,7 +606,7 @@ function DriverDayScreen() {
 }
 
 /**
- * Куди їхати просто зараз.
+ * Куди їхати просто зараз — і на скільки точок наперед.
  *
  * Замінила «дорогу частинами». Та була наслідком чужого обмеження:
  * посилання Google бере щонайбільше девʼять проміжних точок, тож день на
@@ -604,32 +614,49 @@ function DriverDayScreen() {
  * треба повернутися в кабінет і відкрити наступний. За кермом про це не
  * згадують — відкривали перший шматок і далі їхали навмання.
  *
- * По одній точці ліміту немає взагалі: наступну підставляє сам застосунок,
- * щойно попередню відмічено. І навігатор тоді байдуже який — Waze приймає
- * рівно одну точку, і саме тому тут він рівноправний із Google.
+ * Тепер розмір пачки обирає водій: одна точка, три або пʼять. Одна — це
+ * «веди мене туди», пʼять — погляд на найближчу годину, з якого видно, в
+ * який бік день. Що б він не обрав, наступну пачку підставляє застосунок,
+ * коли попередні відмічено, — ліміту як проблеми більше немає.
  *
- * Весь маршрут частинами лишився нижче дрібним посиланням: хтось звик
- * завантажити девʼять точок і не торкатися планшета до кінця пачки.
+ * Waze приймає рівно одну точку, тому з ним вибір пачки не показуємо: це
+ * не наша вада й не його, просто інший інструмент.
  */
 function NextStopCard({
-  stop,
+  stops,
   left,
   routeId,
   navApp,
   onChooseNav,
+  batch,
+  onChooseBatch,
   wholeRoute,
 }: {
-  stop: DayStop;
+  /** Невідмічені точки за порядком обʼїзду, перша — найближча */
+  stops: DayStop[];
+  /** Скільки точок ще не відмічено, разом із цими */
+  left: number;
   /** Ключ листа — щоб огляд відкрив саме цей день, а не сьогоднішній */
   routeId: string | null;
-  /** Скільки точок ще не відмічено, разом із цією */
-  left: number;
   navApp: NavApp;
   onChooseNav: (app: NavApp) => void;
+  batch: NavBatch;
+  onChooseBatch: (n: NavBatch) => void;
   wholeRoute: Array<{ url: string; points: number }>;
 }) {
   const [showWhole, setShowWhole] = useState(false);
-  const isErrand = stop.kind !== "DELIVERY";
+
+  // Waze веде до однієї точки — пачка для нього завжди одна.
+  const take = navApp === "waze" ? 1 : batch;
+  const chunk = stops.slice(0, take);
+  const head = chunk[0];
+
+  const url =
+    chunk.length === 1
+      ? navigateUrl({ lat: head.lat as number, lng: head.lng as number }, navApp)
+      : (googleMapsLinksFromHere(
+          chunk.map((s) => ({ lat: s.lat as number, lng: s.lng as number }))
+        )[0]?.url ?? "");
 
   return (
     <section className="px-4 py-3" style={{ background: "#fff" }}>
@@ -643,12 +670,12 @@ function NextStopCard({
             letterSpacing: "0.03em",
           }}
         >
-          Наступна точка
+          {chunk.length > 1 ? "Наступні точки" : "Наступна точка"}
         </p>
         <span style={{ fontSize: "12px", color: "#9CA3AF" }}>
-          {/* Скільки лишиться ПІСЛЯ цієї: «ще 32 точки», коли попереду
-              рівно 32 разом із поточною, читається як помилка в рахунку. */}
-          {left > 1 ? `далі ще ${pointsLabel(left - 1)}` : "остання"}
+          {/* Скільки лишиться ПІСЛЯ цієї пачки: «ще 32 точки», коли попереду
+              рівно 32 разом із поточними, читається як помилка в рахунку. */}
+          {left > chunk.length ? `далі ще ${pointsLabel(left - chunk.length)}` : "останні"}
         </span>
 
         {/* Вибір навігатора — тут, а не в налаштуваннях: його міняють раз у
@@ -677,21 +704,86 @@ function NextStopCard({
         </div>
       </div>
 
-      <p
-        className="truncate"
-        style={{ fontSize: "17px", fontWeight: 700, color: "#0A0A0A", marginTop: "6px" }}
-      >
-        {isErrand && <span style={{ marginRight: "5px" }}>{stop.kind === "PICKUP" ? "↩️" : "✳️"}</span>}
-        {stop.name}
-      </p>
-      {!!stop.address && (
-        <p style={{ fontSize: "13px", color: "#6B7280", marginTop: "2px", lineHeight: 1.4 }}>
-          {stop.address}
-        </p>
+      {/* Скільки точок заряджаємо. Не показуємо, коли їх однаково менше
+          двох: вибір «1 / 3 / 5» на останній точці дня — це кнопки, що
+          нічого не міняють. */}
+      {navApp === "google" && stops.length > 1 && (
+        <div className="mt-2 flex items-center gap-2">
+          <span style={{ fontSize: "12px", color: "#6B7280" }}>Скільки точок:</span>
+          <div className="flex gap-1 rounded-full p-0.5" style={{ background: "#F3F4F6" }}>
+            {NAV_BATCHES.filter((n) => n === 1 || n <= stops.length).map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onChooseBatch(n)}
+                aria-pressed={batch === n}
+                className="cursor-pointer rounded-full transition-colors duration-200"
+                style={{
+                  minWidth: "40px",
+                  minHeight: "32px",
+                  border: "none",
+                  background: batch === n ? "#0A0A0A" : "transparent",
+                  color: batch === n ? "#fff" : "#6B7280",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                }}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
+      {/* Що саме поїде в навігатор. Головна відмінність від «однієї точки»:
+          водій бачить пачку списком ДО того, як відкрив Google, і встигає
+          зрозуміти, що маршрут веде не в той бік. */}
+      <ol className="mt-2" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {chunk.map((s, i) => (
+          <li key={s.key} className="flex items-baseline gap-2" style={{ marginTop: i ? "6px" : 0 }}>
+            <span
+              className="flex shrink-0 items-center justify-center"
+              style={{
+                width: "22px",
+                height: "22px",
+                borderRadius: "7px",
+                background: i === 0 ? "#0A0A0A" : "#F3F4F6",
+                color: i === 0 ? "#FFD600" : "#6B7280",
+                fontSize: "12px",
+                fontWeight: 800,
+              }}
+            >
+              {i + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span
+                className="block truncate"
+                style={{
+                  fontSize: i === 0 ? "17px" : "14px",
+                  fontWeight: i === 0 ? 700 : 600,
+                  color: "#0A0A0A",
+                }}
+              >
+                {s.kind !== "DELIVERY" && (
+                  <span style={{ marginRight: "5px" }}>{s.kind === "PICKUP" ? "↩️" : "✳️"}</span>
+                )}
+                {s.name}
+              </span>
+              {!!s.address && (
+                <span
+                  className="block truncate"
+                  style={{ fontSize: i === 0 ? "13px" : "12px", color: "#6B7280" }}
+                >
+                  {s.address}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+
       <a
-        href={navigateUrl({ lat: stop.lat as number, lng: stop.lng as number }, navApp)}
+        href={url}
         target="_blank"
         rel="noopener"
         className="cursor-pointer transition-colors duration-200"
@@ -708,7 +800,9 @@ function NextStopCard({
           textDecoration: "none",
         }}
       >
-        Їхати в {navApp === "waze" ? "Waze" : "Google Maps"}
+        {chunk.length > 1
+          ? `Їхати · ${pointsLabel(chunk.length)}`
+          : `Їхати в ${navApp === "waze" ? "Waze" : "Google Maps"}`}
       </a>
 
       {/* Огляд усього дня — поруч із «їхати», а не десь нижче списком.
@@ -738,7 +832,9 @@ function NextStopCard({
       )}
 
       <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
-        Дорога почнеться там, де ви зараз. Відмітили точку — тут зʼявиться наступна.
+        {navApp === "waze"
+          ? "Waze веде до однієї точки за раз. Дорога почнеться там, де ви зараз."
+          : "Дорога почнеться там, де ви зараз. Відмітили точки — тут зʼявляться наступні."}
       </p>
 
       {wholeRoute.length > 0 && (

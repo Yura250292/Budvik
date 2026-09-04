@@ -118,7 +118,7 @@ export type DayPlan = {
 } | null;
 
 /** Колір номерного піна за станом точки. */
-const PLAN_COLORS: Record<PlanStop["status"], { bg: string; fg: string }> = {
+export const PLAN_COLORS: Record<PlanStop["status"], { bg: string; fg: string }> = {
   DONE: { bg: "#16A34A", fg: "#fff" },
   MISSED: { bg: "#DC2626", fg: "#fff" },
   PENDING: { bg: "#0A0A0A", fg: "#FFD600" },
@@ -131,7 +131,7 @@ function escapeHtml(v: string): string {
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
 /** Розводить точки, що впали в одні координати (геокод до міста). */
-function spread<T extends { lat: number; lng: number }>(points: T[]): T[] {
+export function spread<T extends { lat: number; lng: number }>(points: T[]): T[] {
   const seen = new Map<string, number>();
   return points.map((p) => {
     const key = `${p.lat.toFixed(4)}:${p.lng.toFixed(4)}`;
@@ -230,7 +230,7 @@ const PLAN_STATUS_LABEL: Record<PlanStop["status"], string> = {
   PENDING: "Ще їхати",
 };
 
-function planPopupHtml(stop: PlanStop): string {
+export function planPopupHtml(stop: PlanStop): string {
   const { bg } = PLAN_COLORS[stop.status];
   const money_ =
     stop.amount > 0
@@ -260,7 +260,7 @@ function planPopupHtml(stop: PlanStop): string {
   </div>`;
 }
 
-function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
+export function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
   const meta = CLIENT_STATE[c.state];
   // Чужий клієнт — не заборона, а попередження: перш ніж їхати, варто
   // знати, що його вже хтось веде.

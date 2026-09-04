@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptimalTrip, getRoute } from "@/lib/geo/osrm";
 import { resolveDriverRoute } from "@/lib/track/day-stops";
 import { planCore } from "@/lib/maps/plan-core";
+import { defaultDepot } from "@/lib/routes/depot";
 import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,15 @@ export const dynamic = "force-dynamic";
  */
 const TTL_MS = 30 * 60_000;
 const cache = new Map<string, { at: number; body: unknown }>();
+
+/** Розбирає `lng,lat` з адреси. Кривий параметр просто ігноруємо. */
+function parseFrom(raw: string | null): { lat: number; lng: number } | null {
+  if (!raw) return null;
+  const [lng, lat] = raw.split(",").map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
 
 /** Обрізаємо кеш, щоб він не ріс безмежно на довгому процесі. */
 function remember(key: string, body: unknown) {
@@ -72,7 +82,28 @@ export async function GET(req: NextRequest) {
   const customKeys =
     orderParam === "custom" ? (url.searchParams.get("keys") ?? "").split(",").filter(Boolean) : [];
 
-  const route = await resolveDriverRoute(auth.me.userId, routeKey);
+  /**
+   * Звідки водій виїжджає ЗАРАЗ.
+   *
+   * Без цього найкоротший обʼїзд рахувався від першої точки документа
+   * (source=first в OSRM) — тобто від чужого місця. Для того, хто вже
+   * виїхав, це не порада, а помилка: перша точка може бути за сорок
+   * кілометрів у зворотний бік, і весь порядок вибудовується навколо неї.
+   *
+   * Немає координати водія — беремо склад (той самий, що в оптимізатора
+   * логіста). Немає й складу — лишається старий спосіб.
+   */
+  const from = parseFrom(url.searchParams.get("from"));
+  /**
+   * Точки, які водій уже закрив. Сервер про це не знає: відмітки лежать у
+   * Visit за клієнтом і добою, а лист може бути чужий або вчорашній. Без
+   * них дорога «звідки я» посеред дня вела б назад через уже відвідане.
+   */
+  const skipKeys = new Set(
+    (url.searchParams.get("skip") ?? "").split(",").filter(Boolean)
+  );
+
+  const route = await resolveDriverRoute(auth.me.userId, routeKey, { anyDriver: true });
   const withCoords = route.stops
     .filter((s) => s.lat != null && s.lng != null)
     .map((s) => ({ key: s.key, lat: s.lat as number, lng: s.lng as number }));
@@ -104,28 +135,72 @@ export async function GET(req: NextRequest) {
     stops = [...picked, ...stops.filter((st) => !used.has(st.key))];
   }
 
+  /**
+   * Відмічені лишаються в списку ключів, але з дороги виходять.
+   *
+   * Саме в такому вигляді, а не викинутими: панель на карті клеїть
+   * перегони до рядків за ключем, і зникла точка зсунула б усі відстані на
+   * одну позицію.
+   */
+  const doneStops = stops.filter((s) => skipKeys.has(s.key));
+  const roadStops = stops.filter((s) => !skipKeys.has(s.key));
+
   // Одна точка — не маршрут. Порожня відповідь, а не помилка: карта просто
   // намалює пін без лінії.
-  if (stops.length < 2) {
+  if (roadStops.length < 2) {
     return NextResponse.json({
       order: orderParam ?? "sheet",
       geometry: null,
       totalKm: null,
       totalMin: null,
       legs: [],
-      stopKeys: [],
+      stopKeys: doneStops.map((s) => s.key),
       skipped: withCoords.length - stops.length,
+      anchor: null,
+      approachKm: null,
+      approachMin: null,
+      approachTo: null,
     });
   }
 
-  // Ключ кеша включає СКЛАД точок, а не лише номер листа: логіст міг
-  // прибрати точку, і стара лінія показувала б заїзд, якого вже немає.
-  const key = `${auth.me.userId}:${routeKey}:${wantOptimal ? "opt" : "seq"}:${stops.map((s) => s.key).join(",")}`;
+  /**
+   * Якір — місце, від якого рахується дорога.
+   *
+   * Спершу жива позиція водія, потім склад. Він іде в OSRM першою
+   * координатою (source=first), але в список точок НЕ потрапляє: це не
+   * точка маршруту, а те, звідки водій до неї їде.
+   */
+  const depot = from ? null : await defaultDepot();
+  const anchor = from
+    ? { kind: "me" as const, lat: from.lat, lng: from.lng, name: null as string | null }
+    : depot
+      ? { kind: "warehouse" as const, lat: depot.lat, lng: depot.lng, name: depot.name }
+      : null;
+
+  /**
+   * Ключ кеша включає СКЛАД точок, а не лише номер листа: логіст міг
+   * прибрати точку, і стара лінія показувала б заїзд, якого вже немає.
+   *
+   * Позицію водія округляємо до двох знаків (~1 км): інакше кожні сто
+   * метрів руху давали б новий ключ, і кеш не спрацював би жодного разу —
+   * а публічний OSRM лімітований за частотою. Того, хто дивиться, у ключі
+   * немає навмисно: лист той самий, і двоє водіїв, які його відкрили,
+   * діляться одним розрахунком.
+   */
+  const anchorKey = anchor
+    ? anchor.kind === "me"
+      ? `me:${anchor.lng.toFixed(2)},${anchor.lat.toFixed(2)}`
+      : "wh"
+    : "first";
+  const key = `${routeKey}:${wantOptimal ? "opt" : "seq"}:${anchorKey}:${roadStops.map((s) => s.key).join(",")}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return NextResponse.json(hit.body);
 
   try {
-    const coords = stops.map((s) => [s.lng, s.lat] as [number, number]);
+    const coords: [number, number][] = [
+      ...(anchor ? [[anchor.lng, anchor.lat] as [number, number]] : []),
+      ...roadStops.map((s) => [s.lng, s.lat] as [number, number]),
+    ];
 
     /**
      * waypoint_index — позиція точки в ОПТИМІЗОВАНОМУ маршруті, а не номер
@@ -133,13 +208,16 @@ export async function GET(req: NextRequest) {
      * класична причина маршрутів, що виглядають випадковими (те саме
      * розгортання, що в lib/routes/optimize.ts).
      */
-    let ordered = stops;
+    let ordered = roadStops;
     let res;
     if (wantOptimal) {
       const trip = await getOptimalTrip(coords);
-      const byPosition: typeof stops = [];
+      const byPosition: typeof roadStops = [];
       trip.waypointOrder.forEach((newPos, originalIdx) => {
-        byPosition[newPos] = stops[originalIdx];
+        // Нульова координата — якір, а не точка маршруту: він задає, звідки
+        // рахувати, і в списку його бути не повинно.
+        if (anchor && originalIdx === 0) return;
+        byPosition[newPos] = roadStops[anchor ? originalIdx - 1 : originalIdx];
       });
       ordered = byPosition.filter(Boolean);
       res = trip;
@@ -147,23 +225,53 @@ export async function GET(req: NextRequest) {
       res = await getRoute(coords);
     }
 
+    /**
+     * Подача — перегін від якоря до першої точки — рахується окремо.
+     *
+     * Вона не частина обʼїзду: «маршрут 120 км» і «120 км маршруту плюс 18
+     * від мене до першої точки» — різні відповіді на питання «чи встигну».
+     * Заразом це вирівнює перегони: legs[i] знову означає дорогу від
+     * stopKeys[i] до stopKeys[i + 1].
+     */
+    const approach = anchor ? (res.legs[0] ?? null) : null;
+    const legs = anchor ? res.legs.slice(1) : res.legs;
+
     const body = {
       order: orderParam ?? "sheet",
       geometry: res.geometry,
-      totalKm: res.totalDistanceKm,
-      totalMin: res.totalDurationMin,
-      /** Перегін i — дорога від stopKeys[i] до stopKeys[i + 1] */
-      legs: res.legs,
       /**
-       * Точки, через які лінія справді пройшла, у порядку обʼїзду.
+       * Підсумок — БЕЗ подачі: «маршрут 120 км» має означати обʼїзд, а не
+       * обʼїзд плюс дорогу від складу, яка сьогодні одна, а завтра інша.
+       * Саму подачу віддаємо поруч окремим числом.
+       */
+      totalKm: approach
+        ? Math.round((res.totalDistanceKm - approach.distanceKm) * 10) / 10
+        : res.totalDistanceKm,
+      totalMin: approach ? Math.max(0, res.totalDurationMin - approach.durationMin) : res.totalDurationMin,
+      /**
+       * Перегін i — дорога від stopKeys[i] до stopKeys[i + 1].
+       *
+       * Відмічені точки стоять на початку списку й дороги не мають: їхні
+       * перегони — null, інакше відстані з'їхали б на одну позицію.
+       */
+      legs: [...doneStops.map(() => null), ...legs],
+      /**
+       * Точки, через які лінія справді пройшла, у порядку обʼїзду. Спершу
+       * вже закриті (у порядку документа), потім те, що попереду.
        *
        * Без них перегони нема до чого приклеїти: у списку на екрані точок
        * більше, ніж у лінії, і третій перегін легко ліг би між не тими
        * рядками.
        */
-      stopKeys: ordered.map((s) => s.key),
+      stopKeys: [...doneStops.map((s) => s.key), ...ordered.map((s) => s.key)],
       /** Скільки точок лишилося поза дорогою через криві координати */
       skipped: withCoords.length - stops.length,
+      /** Звідки рахували дорогу: місце водія, склад або нічого */
+      anchor,
+      approachKm: approach?.distanceKm ?? null,
+      approachMin: approach?.durationMin ?? null,
+      /** До якої точки веде подача — щоб панель підписала саме її рядок */
+      approachTo: ordered[0]?.key ?? null,
     };
     remember(key, body);
     return NextResponse.json(body);
@@ -182,6 +290,10 @@ export async function GET(req: NextRequest) {
       legs: [],
       stopKeys: [],
       skipped: withCoords.length - stops.length,
+      anchor: null,
+      approachKm: null,
+      approachMin: null,
+      approachTo: null,
       error: e instanceof Error ? e.message : "OSRM недоступний",
     });
   }

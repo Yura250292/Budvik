@@ -53,15 +53,30 @@ export async function GET(req: NextRequest) {
    * як свої.
    */
   const route = routeKey
-    ? await resolveDriverRoute(userId, routeKey)
+    ? await resolveDriverRoute(userId, routeKey, { anyDriver: true })
     : await resolveDriverDay(userId, requestedDay);
 
   const day = route.day ?? requestedDay;
   const dayStart = kyivDayStart(day);
 
-  const [visits, trackSession, points, handovers, myOrder] = await Promise.all([
+  /**
+   * Чий це лист. Водій бачить листи колег (вимога власника), і від цієї
+   * відповіді залежить усе інше на екрані:
+   *
+   *   відмітки точок — ВЛАСНИКА (інакше чужий маршрут вічно показував би
+   *   «0 з 18», хоча колега давно все розвіз);
+   *   каса, трек, свій порядок — ЗАВЖДИ того, хто дивиться: гроші чужої
+   *   людини на своєму екрані — найгірше, що тут можна показати.
+   *
+   * Лист без прив'язаного водія (у 1С його не зіставили з акаунтом) —
+   * теж чужий: писати в нього відмітки нема від чийого імені.
+   */
+  const mine = route.source === "NONE" || route.driverId === userId;
+  const ownerId = route.driverId ?? userId;
+
+  const [visits, myVisits, trackSession, points, handovers, myOrder] = await Promise.all([
     prisma.visit.findMany({
-      where: { userId, day: dayStart },
+      where: { userId: ownerId, day: dayStart },
       select: {
         id: true,
         counterpartyId: true,
@@ -72,6 +87,14 @@ export async function GET(req: NextRequest) {
         markedAt: true,
       },
     }),
+    // Свої відмітки того ж дня — окремо: з них рахується каса й «поза
+    // планом». На своєму листі це той самий набір, і запит дешевий.
+    mine
+      ? Promise.resolve(null)
+      : prisma.visit.findMany({
+          where: { userId, day: dayStart },
+          select: { id: true, counterpartyId: true, collectedAmount: true },
+        }),
     prisma.trackSession.findUnique({
       where: { userId_day: { userId, day: dayStart } },
       select: { distanceKm: true, pointsCount: true, lastPointAt: true, startedAt: true },
@@ -126,22 +149,28 @@ export async function GET(req: NextRequest) {
   const done = stops.filter((s) => s.visit?.status === "DONE").length;
   const missed = stops.filter((s) => s.visit?.status === "MISSED").length;
 
-  // Каса рахується з тих самих відміток, що progress.collected, але
-  // мінус уже здане — водієві на екрані потрібне саме «скільки везти».
-  const collected = round(visits.reduce((sum, v) => sum + (v.collectedAmount ?? 0), 0));
+  /**
+   * Каса — ЗАВЖДИ по своїх відмітках, навіть коли відкрито чужий лист.
+   *
+   * Прогрес маршруту може бути чужим (це стан документа), а «скільки
+   * грошей на руках» — виключно про того, хто дивиться. Показати чужу
+   * інкасацію як свою означало б, що людина здасть в офіс не ту суму.
+   */
+  const cashVisits = myVisits ?? visits;
+  const collected = round(cashVisits.reduce((sum, v) => sum + (v.collectedAmount ?? 0), 0));
   const handed = round(handovers.reduce((sum, h) => sum + h.amount, 0));
 
   return NextResponse.json({
     day,
     role: me.role,
-    route: { ...route, stops, myOrder: !!myOrder?.stopKeys.length },
+    route: { ...route, stops, myOrder: !!myOrder?.stopKeys.length, mine },
     progress: {
       total: stops.length,
       done,
       missed,
       left: stops.length - done - missed,
-      /** Скільки грошей уже зібрано за відмітками, ₴ */
-      collected,
+      /** Скільки грошей уже зібрано за відмітками маршруту, ₴ */
+      collected: round(visits.reduce((sum, v) => sum + (v.collectedAmount ?? 0), 0)),
       /** Скільки боргу планувалося забрати, ₴ */
       debtPlanned: stops.reduce((sum, s) => sum + s.debtAmount, 0),
     },
@@ -152,10 +181,16 @@ export async function GET(req: NextRequest) {
       startedAt: trackSession?.startedAt ?? null,
       path: buildTrackPath(points),
     },
-    /** Візити поза планом — щоб UI показав їх окремим списком */
-    extraVisits: visits.filter(
-      (v) => !route.stops.some((s) => s.counterpartyId === v.counterpartyId)
-    ),
+    /**
+     * Візити поза планом — щоб UI показав їх окремим списком.
+     *
+     * Лише на своєму листі: під чужим маршрутом «поза планом» опинилися б
+     * УСІ мої сьогоднішні відмітки, і список читався б як звіт про чужий
+     * день із моїми клієнтами.
+     */
+    extraVisits: mine
+      ? visits.filter((v) => !route.stops.some((s) => s.counterpartyId === v.counterpartyId))
+      : [],
     /** Каса за день: скільки зібрав, скільки здав, скільки везе */
     cash: { collected, handed, onHands: round(collected - handed), handovers },
   });

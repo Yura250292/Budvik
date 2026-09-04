@@ -6,6 +6,16 @@
  * завтра, впирався в порожній екран. Список дає йому вибір: відкрити
  * будь-який свій маршрут і побачити його точки на карті.
  *
+ * З 04.09.2026 у списку ще й ЧУЖІ листи (вимога власника): водій, який
+ * підміняє або їде маршрут уперше, мусить бачити, що везуть колеги, і
+ * могти скласти собі дорогу по їхньому листу. Свої позначені `mine` і
+ * стоять вище — розділ між «моїм» і «чужим» має читатися з першого погляду,
+ * бо відмічати можна лише свої.
+ *
+ * Глибина різна навмисно: свої — два місяці назад, чужі — тиждень. Чужий
+ * лист потрібен на сьогодні-завтра («хто ще їде в той бік»), а місячної
+ * давнини чужий маршрут — це просто шум у списку, який гортають за кермом.
+ *
  * Два джерела, як і в resolveDriverDay: маршрут сайту (головне) і лист
  * 1С (майже завжди без точок — там табличної частини немає). Листи без
  * точок у список НЕ потрапляють: відкрити їх однаково нічим, і рядок,
@@ -20,9 +30,11 @@ import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
-/** Скільки днів назад показуємо. Уперед — без межі: завтрашній лист теж свій. */
+/** Скільки днів назад показуємо свої. Уперед — без межі: завтрашній лист теж свій. */
 const DEFAULT_DAYS = 60;
-const MAX_ITEMS = 120;
+/** Чужі — лише свіжі: тиждень назад і все майбутнє. */
+const FOREIGN_DAYS = 7;
+const MAX_ITEMS = 200;
 
 type Item = {
   /** Ключ для /api/tablet/day?route= — з префіксом джерела */
@@ -39,6 +51,11 @@ type Item = {
   /** Сума накладних у маршруті, ₴ */
   amount: number;
   plannedKm: number | null;
+  /** Чий лист. null — водія 1С ще не зіставили з акаунтом. */
+  driverId: string | null;
+  driverName: string | null;
+  /** Мій лист: лише в такому можна відмічати точки й здавати касу. */
+  mine: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -47,16 +64,36 @@ export async function GET(req: NextRequest) {
   const me = auth.me;
 
   const url = new URL(req.url);
-  // Водій завжди дивиться свої листи; керівник може відкрити чужі.
-  const driverId =
-    me.role === "DRIVER" ? me.userId : url.searchParams.get("driverId") || me.userId;
+  /**
+   * Керівник може подивитися список конкретного водія — тоді це рівно його
+   * листи, як було завжди. Водій параметр не задає: він або бачить усе
+   * (scope=all), або лише своє.
+   */
+  const asDriverId = me.role === "DRIVER" ? null : url.searchParams.get("driverId");
+  const meId = asDriverId || me.userId;
+  const onlyMine = url.searchParams.get("scope") === "mine" || !!asDriverId;
 
   const days = Math.min(180, Math.max(1, Number(url.searchParams.get("days")) || DEFAULT_DAYS));
   const from = kyivDayStart(kyivDate(new Date(Date.now() - days * 86_400_000)));
+  const foreignFrom = kyivDayStart(
+    kyivDate(new Date(Date.now() - FOREIGN_DAYS * 86_400_000))
+  );
 
-  const [routes, sheets, visits] = await Promise.all([
+  /**
+   * Свої за весь період, чужі — лише свіжі. Одним OR, а не двома запитами:
+   * інакше довелося б зводити ліміти двох вибірок руками.
+   */
+  const scopeWhere = onlyMine
+    ? { driverId: meId }
+    : { OR: [{ driverId: meId }, { date: { gte: foreignFrom } }] };
+
+  const [routes, sheets] = await Promise.all([
     prisma.deliveryRoute.findMany({
-      where: { driverId, date: { gte: from }, status: { in: [...DRIVER_VISIBLE_STATUSES] } },
+      where: {
+        ...scopeWhere,
+        date: { gte: from },
+        status: { in: [...DRIVER_VISIBLE_STATUSES] },
+      },
       orderBy: { date: "desc" },
       take: MAX_ITEMS,
       select: {
@@ -66,6 +103,8 @@ export async function GET(req: NextRequest) {
         status: true,
         vehicleInfo: true,
         totalDistanceKm: true,
+        driverId: true,
+        driver: { select: { name: true } },
         stops: {
           select: {
             counterpartyId: true,
@@ -78,7 +117,7 @@ export async function GET(req: NextRequest) {
       },
     }),
     prisma.routeSheet.findMany({
-      where: { driverId, date: { gte: from } },
+      where: { ...scopeWhere, date: { gte: from } },
       orderBy: { date: "desc" },
       take: MAX_ITEMS,
       select: {
@@ -88,27 +127,45 @@ export async function GET(req: NextRequest) {
         vehicle: true,
         distanceKm: true,
         ordersTotal: true,
+        driverId: true,
+        driverName1C: true,
+        driver: { select: { name: true } },
         stops: {
           where: { hidden: false },
           select: { counterpartyId: true, address: true, amount: true },
         },
       },
     }),
-    prisma.visit.findMany({
-      where: { userId: driverId, day: { gte: from } },
-      select: { day: true, counterpartyId: true },
-    }),
   ]);
 
   /**
-   * Відмітки розкладаємо по добі, а не по маршруту: візит прив'язаний до
-   * клієнта і дня, номера маршруту він не знає. Тому «відмічено» рахуємо
-   * перетином клієнтів маршруту з візитами того ж дня — так два рейси в
-   * один день не позичають один в одного прогрес.
+   * Візити тягнемо ДРУГОЮ фазою — коли вже відомо, чиї листи в списку.
+   *
+   * Прогрес чужого листа рахується по візитах ЙОГО ВЛАСНИКА: у чужому
+   * маршруті мої відмітки не з'являться ніколи, і рядок вічно показував би
+   * «0 з 18», хоча колега давно все розвіз.
+   */
+  const ownerIds = [
+    ...new Set(
+      [...routes, ...sheets].map((r) => r.driverId).filter((id): id is string => !!id)
+    ),
+  ];
+  const visits = ownerIds.length
+    ? await prisma.visit.findMany({
+        where: { userId: { in: ownerIds }, day: { gte: from } },
+        select: { userId: true, day: true, counterpartyId: true },
+      })
+    : [];
+
+  /**
+   * Відмітки розкладаємо по людині й добі, а не по маршруту: візит
+   * прив'язаний до клієнта і дня, номера маршруту він не знає. Тому
+   * «відмічено» рахуємо перетином клієнтів маршруту з візитами того ж дня —
+   * так два рейси в один день не позичають один в одного прогрес.
    */
   const visitedByDay = new Map<string, Set<string>>();
   for (const v of visits) {
-    const key = kyivDate(v.day);
+    const key = `${v.userId}|${kyivDate(v.day)}`;
     const set = visitedByDay.get(key) ?? new Set<string>();
     set.add(v.counterpartyId);
     visitedByDay.set(key, set);
@@ -132,9 +189,10 @@ export async function GET(req: NextRequest) {
     return keys;
   };
 
-  /** Скільки з цих клієнтів водій того дня відмітив. */
-  const doneCount = (day: string, clientIds: Set<string>): number => {
-    const visited = visitedByDay.get(day);
+  /** Скільки з цих клієнтів ВЛАСНИК листа того дня відмітив. */
+  const doneCount = (ownerId: string | null, day: string, clientIds: Set<string>): number => {
+    if (!ownerId) return 0;
+    const visited = visitedByDay.get(`${ownerId}|${day}`);
     if (!visited) return 0;
     return [...clientIds].filter((id) => visited.has(id)).length;
   };
@@ -158,9 +216,13 @@ export async function GET(req: NextRequest) {
       vehicle: r.vehicleInfo,
       stops: points.size + errands.length,
       done:
-        doneCount(day, points) + errands.filter((s) => s.status === "DELIVERED").length,
+        doneCount(r.driverId, day, points) +
+        errands.filter((s) => s.status === "DELIVERED").length,
       amount: round(r.stops.reduce((sum, s) => sum + (s.salesDocument?.totalAmount ?? 0), 0)),
       plannedKm: r.totalDistanceKm,
+      driverId: r.driverId,
+      driverName: r.driver?.name ?? null,
+      mine: r.driverId === meId,
     });
   }
 
@@ -183,15 +245,26 @@ export async function GET(req: NextRequest) {
       status: "SHEET_1C",
       vehicle: s.vehicle,
       stops: points.size,
-      done: doneCount(day, points),
+      done: doneCount(s.driverId, day, points),
       amount: rows || round(s.ordersTotal),
       plannedKm: s.distanceKm || null,
+      driverId: s.driverId,
+      driverName: s.driver?.name ?? s.driverName1C ?? null,
+      mine: !!s.driverId && s.driverId === meId,
     });
   }
 
-  // Спадаючий порядок: завтрашній лист угорі, далі сьогодні й назад у
-  // минуле. Водій майже завжди відкриває один із перших двох рядків.
-  items.sort((a, b) => (a.day === b.day ? a.number.localeCompare(b.number) : a.day < b.day ? 1 : -1));
+  /**
+   * Спадаючий порядок днів: завтрашній лист угорі, далі сьогодні й назад у
+   * минуле. Усередині дня свої першими — водій майже завжди відкриває саме
+   * свій, а чужий шукає свідомо.
+   */
+  items.sort((a, b) => {
+    if (a.day !== b.day) return a.day < b.day ? 1 : -1;
+    if (a.mine !== b.mine) return a.mine ? -1 : 1;
+    const byName = (a.driverName ?? "").localeCompare(b.driverName ?? "", "uk");
+    return byName || a.number.localeCompare(b.number);
+  });
 
   return NextResponse.json({ today: kyivDate(new Date()), items: items.slice(0, MAX_ITEMS) });
 }

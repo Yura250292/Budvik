@@ -75,6 +75,10 @@ type DayResp = {
     id: string | null;
     day: string | null;
     number: string | null;
+    source: "ROUTE_SHEET" | "DELIVERY_ROUTE" | "NONE";
+    /** Чий лист. false — колеги: дивитися можна, відмічати ні. */
+    mine?: boolean;
+    driverName?: string | null;
     vehicle: string | null;
     /** Пробіг за планом із документа — запасне число, коли OSRM мовчить */
     plannedKm: number | null;
@@ -89,10 +93,17 @@ type LineResp = {
   geometry: { type: string; coordinates: [number, number][] } | null;
   totalKm: number | null;
   totalMin: number | null;
-  legs: Array<{ distanceKm: number; durationMin: number }>;
+  /** null — точку вже відмічено, дороги до неї не рахували */
+  legs: Array<{ distanceKm: number; durationMin: number } | null>;
   /** Точки в тому порядку, яким пройшла лінія */
   stopKeys: string[];
   skipped: number;
+  /** Звідки рахували: місце водія чи склад */
+  anchor: { kind: "me" | "warehouse"; lat: number; lng: number; name: string | null } | null;
+  /** Подача — дорога від якоря до першої точки. Не входить у totalKm. */
+  approachKm: number | null;
+  approachMin: number | null;
+  approachTo: string | null;
   error?: string;
 };
 
@@ -171,16 +182,25 @@ export default function DriverMapScreen() {
    * порада, а не документ.
    */
   /**
-   * Порядок за замовчуванням — логістичний, а не з листа.
+   * Порядок, який водій обрав САМ. null — ще не обирав, діє замовчування.
    *
-   * Номери рядків у документі 1С обʼїздом не є: той самий район вони
-   * обходять за 900 км замість двохсот. Водій, що бачить список уперше,
-   * має бачити дорогу, а не порядок набивання документа. Сам лист поруч,
-   * окремою кнопкою — його номери він називає в офіс.
+   * Замовчування залежить від джерела, і це головна відмінність:
+   *
+   *   маршрут САЙТУ з геометрією — порядок логіста. Він не «номери рядків»:
+   *   логіст прогнав OSRM, підняв боржників наперед і, можливо, розвернув
+   *   день «спершу дальні». Перераховувати це на планшеті означає мовчки
+   *   викинути його роботу;
+   *
+   *   лист 1С — найкоротший обʼїзд. Номери рядків документа обʼїздом не є:
+   *   той самий район вони обходять за 900 км замість двохсот.
+   *
+   * Свій збережений порядок сильніший за обидва: його водій складав руками.
    */
-  const [order, setOrder] = useState<RouteOrder>("optimal");
+  const [orderPick, setOrderPick] = useState<RouteOrder | null>(null);
   /** Порядок, який водій перетягнув собі. null — ще не зберігав. */
   const [myOrder, setMyOrder] = useState<string[] | null>(null);
+  /** Позицію запитуємо одразу — від неї рахується дорога. */
+  const [located, setLocated] = useState(false);
   const [horizon, setHorizon] = useState<Horizon>(null);
   const [editing, setEditing] = useState(false);
   /** Точка, до якої водій попросив побудувати дорогу — питаємо підтвердження. */
@@ -246,16 +266,56 @@ export default function DriverMapScreen() {
   const routeId = day?.route.id ?? null;
   const hasOwnGeometry = !!day?.route.geometry;
   /**
-   * Маршрут сайту вже несе свою лінію — рахувати нічого. Крім випадку, коли
-   * водій сам попросив найкоротший порядок: його в документі немає.
+   * Порядок логіста — це маршрут САЙТУ, у якому вже прокладено дорогу.
+   *
+   * Ознака саме геометрія, а не статус: її пише лише apply-order, тобто
+   * «порядок справді прокладено». Маршрут без неї — просто список точок,
+   * і поважати в ньому нема чого.
    */
-  const needsLine = !!routeId && !(hasOwnGeometry && order === "sheet");
+  const logistOrder = day?.route.source === "DELIVERY_ROUTE" && hasOwnGeometry;
+  const order: RouteOrder =
+    orderPick ?? (myOrder?.length ? "mine" : logistOrder ? "sheet" : "optimal");
+
+  /**
+   * Точки, які водій уже закрив: у дорогу вони не йдуть.
+   *
+   * Сервер про це не знає — відмітки живуть у Visit за клієнтом і добою, а
+   * лист буває чужий. Без них «дорога звідки я» посеред дня вела б назад
+   * через уже об'їжджене.
+   */
+  const doneParam = useMemo(
+    () =>
+      (day?.route.stops ?? [])
+        .filter((s) => !!s.visit)
+        .map((s) => s.key)
+        .join(","),
+    [day?.route.stops]
+  );
+
+  /**
+   * Дорогу рахуємо ЗАВЖДИ, навіть коли маршрут несе власну геометрію.
+   *
+   * Раніше для порядку листа з готовою лінією запит не робився взагалі — і
+   * панель лишалася без перегонів («до наступної 12 км») і без подачі
+   * («від вас 8 км»), тобто саме без того, заради чого новий водій її
+   * відкриває. Малює карта все одно збережену лінію логіста.
+   *
+   * Чекаємо на відповідь геолокації: інакше перший запит пішов би від
+   * складу, а другий — від водія, і публічний OSRM отримав би два
+   * розрахунки замість одного.
+   */
+  const needsLine = !!routeId && located;
   /**
    * Свій порядок — окремим параметром: сервер не тримає його в памʼяті між
    * запитами, а ключі водій щойно міг перетягнути.
    */
   const myKeysParam = order === "mine" && myOrder?.length ? myOrder.join(",") : "";
-  const lineKey = routeId ? `${routeId}:${order}:${myKeysParam}` : "";
+  /**
+   * Позиція в ключі — з двома знаками (~1 км). Точніше означало б новий
+   * запит на кожні сто метрів руху, а публічний OSRM лімітований.
+   */
+  const meKey = me ? `${me.lng.toFixed(2)},${me.lat.toFixed(2)}` : "";
+  const lineKey = routeId ? `${routeId}:${order}:${myKeysParam}:${meKey}:${doneParam}` : "";
   const activeLine = line?.for === lineKey ? line.data : null;
   const lineLoading = needsLine && line?.for !== lineKey;
 
@@ -266,7 +326,9 @@ export default function DriverMapScreen() {
       `/api/driver/route-line?route=${encodeURIComponent(routeId!)}` +
         (order === "mine"
           ? `&order=custom&keys=${encodeURIComponent(myKeysParam)}`
-          : `&order=${order}`)
+          : `&order=${order}`) +
+        (me ? `&from=${me.lng.toFixed(5)},${me.lat.toFixed(5)}` : "") +
+        (doneParam ? `&skip=${encodeURIComponent(doneParam)}` : "")
     )
       .then((r) => (r.ok ? (r.json() as Promise<LineResp>) : null))
       .then((j) => alive && setLine({ for: lineKey, data: j }))
@@ -274,7 +336,10 @@ export default function DriverMapScreen() {
     return () => {
       alive = false;
     };
-  }, [needsLine, routeId, order, lineKey, myKeysParam]);
+    // me навмисно не в залежностях сирим об'єктом: за нього відповідає
+    // lineKey, який округлює координату до кілометра.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsLine, routeId, order, lineKey, myKeysParam, doneParam]);
 
   /**
    * Свій порядок читаємо ОДИН раз на маршрут.
@@ -289,8 +354,10 @@ export default function DriverMapScreen() {
       .then((r) => (r.ok ? (r.json() as Promise<{ stopKeys: string[] | null }>) : null))
       .then((j) => {
         if (!alive || !j?.stopKeys?.length) return;
+        // Порядок стає замовчуванням сам (див. order вище) — примусово
+        // перемикати не треба, інакше водій не зміг би лишитися на
+        // «Логістичному», відкривши лист удруге.
         setMyOrder(j.stopKeys);
-        setOrder("mine");
       })
       .catch(() => {});
     return () => {
@@ -305,10 +372,46 @@ export default function DriverMapScreen() {
       (p) => {
         setMe({ lat: p.coords.latitude, lng: p.coords.longitude });
         setLocating(false);
+        setLocated(true);
       },
-      () => setLocating(false),
+      () => {
+        setLocating(false);
+        setLocated(true);
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
+  }, []);
+
+  /**
+   * Питаємо місце ОДРАЗУ, не чекаючи кнопки «де я».
+   *
+   * Дорога має починатися там, де водій стоїть, — інакше найкоротший обʼїзд
+   * рахується від першої точки документа, тобто від чужого місця. Тому
+   * запит іде сам, з коротким терпінням і без високої точності: тут
+   * потрібен кілометр, а не метр, і чекати супутників п'ятнадцять секунд
+   * заради вибору порядку не варто.
+   *
+   * `located` зводиться в обох випадках, включно з відмовою: без нього
+   * екран, де геолокацію заборонили, не побудував би лінію взагалі.
+   */
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocated(true);
+      return;
+    }
+    let alive = true;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!alive) return;
+        setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocated(true);
+      },
+      () => alive && setLocated(true),
+      { enableHighAccuracy: false, timeout: 6000, maximumAge: 60_000 }
+    );
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const toggle = (k: string) => {
@@ -494,21 +597,43 @@ export default function DriverMapScreen() {
     return { lat: stop.lat, lng: stop.lng, id: stop.key, nonce: 1 };
   }, [focusKey, day?.route.stops]);
 
-  /** Точки для панелі: з поточною ціллю й відстанню до наступної. */
+  /** Точки для панелі: з поточною ціллю, подачею й відстанню до наступної. */
   const panelStops = useMemo<PanelStop[]>(
     () =>
       orderedStops.map((s, i) => ({
         ...s,
         current: s.key === currentKey,
         legKm: legs[i]?.distanceKm ?? null,
+        // Подача — лише на першій точці дороги: «від вас 8 км» під кожним
+        // рядком було б неправдою вже з другого.
+        approachKm: s.key === activeLine?.approachTo ? (activeLine?.approachKm ?? null) : null,
+        approachFrom: activeLine?.anchor?.kind ?? null,
       })),
-    [orderedStops, currentKey, legs]
+    [orderedStops, currentKey, legs, activeLine]
   );
 
-  /** «Мій» зʼявляється в перемикачі, лише коли водій щось перетягнув. */
+  /**
+   * «Мій» зʼявляється в перемикачі, лише коли водій щось перетягнув.
+   *
+   * Порядок кнопок повторює те, що вважається кращим для цього листа:
+   * у маршруті сайту першим стоїть порядок логіста, у листі 1С —
+   * найкоротший обʼїзд.
+   */
   const availableOrders = useMemo<RouteOrder[]>(
-    () => (myOrder?.length ? ["mine", "optimal", "sheet"] : ["optimal", "sheet"]),
-    [myOrder]
+    () => [
+      ...(myOrder?.length ? (["mine"] as RouteOrder[]) : []),
+      ...(logistOrder ? (["sheet", "optimal"] as RouteOrder[]) : (["optimal", "sheet"] as RouteOrder[])),
+    ],
+    [myOrder, logistOrder]
+  );
+
+  /**
+   * «З листа» для маршруту сайту — неправда: це не номери документа, а
+   * прокладений логістом обʼїзд, часто з боржниками наперед.
+   */
+  const orderLabels = useMemo(
+    () => (logistOrder ? { sheet: "Від логіста" } : undefined),
+    [logistOrder]
   );
 
   /**
@@ -521,7 +646,7 @@ export default function DriverMapScreen() {
   const saveOrder = useCallback(
     (keys: string[]) => {
       setMyOrder(keys);
-      setOrder("mine");
+      setOrderPick("mine");
       if (!routeId) return;
       void fetch("/api/driver/route-order", {
         method: "PUT",
@@ -557,7 +682,7 @@ export default function DriverMapScreen() {
 
   const resetOrder = useCallback(() => {
     setMyOrder(null);
-    setOrder("optimal");
+    setOrderPick(null);
     setEditing(false);
     if (!routeId) return;
     void fetch(`/api/driver/route-order?route=${encodeURIComponent(routeId)}`, {
@@ -572,7 +697,18 @@ export default function DriverMapScreen() {
     const min = activeLine?.totalMin ?? null;
     const hours =
       min == null ? "" : min >= 60 ? `${Math.floor(min / 60)} год ${min % 60} хв` : `${min} хв`;
-    return { km: String(km).replace(".", ","), hours };
+    /**
+     * Подача поруч, а не в сумі: «маршрут 120 км» має означати обʼїзд.
+     * Скільки їхати ДО нього — окреме число, і воно міняється щогодини,
+     * поки водій рухається.
+     */
+    const approach =
+      activeLine?.approachKm != null
+        ? `${activeLine.anchor?.kind === "warehouse" ? "від складу" : "від вас"} ${String(
+            activeLine.approachKm
+          ).replace(".", ",")} км`
+        : "";
+    return { km: String(km).replace(".", ","), hours, approach };
   }, [activeLine, day?.route.plannedKm]);
 
   const routeDone = planStops.filter((s) => s.status !== "PENDING").length;
@@ -584,7 +720,10 @@ export default function DriverMapScreen() {
     : "Завантаження маршруту…";
   const chipSubtitle = day
     ? routeCount > 0
-      ? `${formatRouteDay(routeDay, kyivToday())} · ${routeDone} з ${routeCount} точок`
+      ? // Ім'я власника першим: водій бачить листи колег, і на карті чужий
+        // маршрут нічим іншим від свого не відрізняється.
+        (day.route.mine === false ? `${day.route.driverName ?? "інший водій"} · ` : "") +
+        `${formatRouteDay(routeDay, kyivToday())} · ${routeDone} з ${routeCount} точок`
       : "Оберіть маршрутний лист"
     : null;
 
@@ -766,7 +905,8 @@ export default function DriverMapScreen() {
                   stops={panelStops}
                   order={order}
                   orders={availableOrders}
-                  onOrderChange={setOrder}
+                  onOrderChange={setOrderPick}
+                  labels={orderLabels}
                   horizon={horizon}
                   onHorizonChange={setHorizon}
                   editing={editing}

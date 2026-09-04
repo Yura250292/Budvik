@@ -74,7 +74,12 @@ const ORDER_LABEL: Record<RouteOrder, string> = {
   mine: "Мій",
 };
 
-export type PanelStop = PlanStop & { legKm?: number | null };
+export type PanelStop = PlanStop & {
+  legKm?: number | null;
+  /** Дорога від місця водія (або складу) до цієї точки. Лише в першої. */
+  approachKm?: number | null;
+  approachFrom?: "me" | "warehouse" | null;
+};
 
 export default function RoutePanel({
   stops,
@@ -92,6 +97,7 @@ export default function RoutePanel({
   totals,
   loading,
   strayCount,
+  labels,
 }: {
   /** Точки в поточному порядку, перша невідмічена помічена як current */
   stops: PanelStop[];
@@ -109,9 +115,14 @@ export default function RoutePanel({
   onPick: (stop: PanelStop) => void;
   /** Показати точку на карті, не питаючи нічого */
   onFocus: (stop: PanelStop) => void;
-  totals: { km: string; hours: string } | null;
+  totals: { km: string; hours: string; approach?: string } | null;
   loading: boolean;
   strayCount: number;
+  /**
+   * Свої підписи для кнопок порядку. Потрібні через маршрут сайту: там
+   * «З листа» означає не номери документа, а обʼїзд, прокладений логістом.
+   */
+  labels?: Partial<Record<RouteOrder, string>>;
 }) {
   const sensors = useSensors(
     // Поріг, щоб тап по рядку не читався як початок перетягування.
@@ -157,7 +168,11 @@ export default function RoutePanel({
           {done} з {stops.length}
         </span>
         <span className="hidden lg:inline" style={{ fontSize: "12px", color: "#6B7280" }}>
-          {loading ? "рахую дорогу…" : totals ? `${totals.km} км · ${totals.hours}` : ""}
+          {loading
+            ? "рахую дорогу…"
+            : totals
+              ? `${totals.km} км · ${totals.hours}` + (totals.approach ? ` · ${totals.approach}` : "")
+              : ""}
         </span>
 
         <button
@@ -200,7 +215,7 @@ export default function RoutePanel({
                   fontWeight: order === o ? 700 : 500,
                 }}
               >
-                {ORDER_LABEL[o]}
+                {labels?.[o] ?? ORDER_LABEL[o]}
               </button>
             ))}
           </div>
@@ -380,6 +395,16 @@ function Row({
               }}
             >
               ЇДЕТЕ СЮДИ
+              {/* Подача — головне число для того, хто щойно виїхав: скільки
+                  до ПЕРШОЇ точки. Далі йдуть перегони між точками, а до
+                  першої дороги в них немає за побудовою. */}
+              {stop.approachKm != null && (
+                <span style={{ fontWeight: 700, color: "#1D4ED8" }}>
+                  {" · "}
+                  {stop.approachFrom === "warehouse" ? "від складу" : "від вас"}{" "}
+                  {String(stop.approachKm).replace(".", ",")} км
+                </span>
+              )}
             </span>
           )}
           <span

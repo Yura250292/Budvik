@@ -43,7 +43,9 @@ export async function GET(req: NextRequest) {
   if (!row?.stopKeys.length) return NextResponse.json({ stopKeys: null, updatedAt: null });
 
   // Розгортаємо сталі прикмети назад у ключі СЬОГОДНІШНІХ рядків.
-  const route = await resolveDriverRoute(auth.me.userId, routeKey);
+  // anyDriver — бо порядок можна скласти і на листі колеги; сам запис
+  // лишається особистим: ключ таблиці — (цей водій, цей лист).
+  const route = await resolveDriverRoute(auth.me.userId, routeKey, { anyDriver: true });
   const byStable = new Map(route.stops.map((st) => [stableStopKey(st), st.key]));
   const stopKeys = row.stopKeys.map((k) => byStable.get(k)).filter((k): k is string => !!k);
 
@@ -81,7 +83,7 @@ export async function PUT(req: NextRequest) {
    * розсинхрон, коли планшет зберігає порядок маршруту, який офіс уже
    * переробив.
    */
-  const route = await resolveDriverRoute(auth.me.userId, routeKey);
+  const route = await resolveDriverRoute(auth.me.userId, routeKey, { anyDriver: true });
   if (route.stops.length === 0) {
     return NextResponse.json({ error: "Маршрут не знайдено" }, { status: 404 });
   }

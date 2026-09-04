@@ -98,6 +98,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Клієнта не знайдено" }, { status: 404 });
   }
 
+  /**
+   * Відмітка в чужому листі — ні.
+   *
+   * Відколи водій бачить листи колег, екран став читабельним для всіх, а
+   * писати в чужий документ не можна: візит належить тому, хто його
+   * поставив, і дві відмітки одного клієнта від двох людей розсипали б і
+   * прогрес маршруту, і зарплату. Інтерфейс кнопок і не показує — це
+   * другий замок, на випадок старого планшета або прямого запиту.
+   *
+   * Керівник не обмежений: він виправляє чужі дні за фахом.
+   */
+  if (me.role === "DRIVER" && (body.routeSheetStopId || body.deliveryStopId)) {
+    const ownerId = body.routeSheetStopId
+      ? (
+          await prisma.routeSheetStop.findUnique({
+            where: { id: body.routeSheetStopId },
+            select: { routeSheet: { select: { driverId: true } } },
+          })
+        )?.routeSheet.driverId
+      : (
+          await prisma.deliveryStop.findUnique({
+            where: { id: body.deliveryStopId as string },
+            select: { deliveryRoute: { select: { driverId: true } } },
+          })
+        )?.deliveryRoute.driverId;
+
+    if (ownerId && ownerId !== userId) {
+      return NextResponse.json(
+        { error: "Це лист іншого водія — відмітити точку може лише він" },
+        { status: 403 }
+      );
+    }
+  }
+
   const data = {
     status: body.status,
     comment: body.comment?.trim() || null,

@@ -10,9 +10,14 @@
  * Список тягнеться один раз при відкритті шторки, а не разом зі сторінкою:
  * на маршруті кожен зайвий запит — це секунди на мобільному інтернеті, а
  * шторку відкривають рідко.
+ *
+ * У списку є й ЧУЖІ листи (вимога власника): водій-підмінник і той, хто
+ * їде маршрут уперше, мусять бачити, що везуть колеги. Свої стоять вище й
+ * позначені — відмічати точки можна лише в них, і сплутати два види рядків
+ * за кермом не можна.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type DriverRouteItem = {
   key: string;
@@ -25,6 +30,10 @@ export type DriverRouteItem = {
   done: number;
   amount: number;
   plannedKm: number | null;
+  driverId: string | null;
+  driverName: string | null;
+  /** Мій лист: лише в такому працюють відмітки й каса. */
+  mine: boolean;
 };
 
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
@@ -75,6 +84,8 @@ export function RouteSheet({
   const [items, setItems] = useState<DriverRouteItem[] | null>(null);
   const [today, setToday] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** «Всі» за замовчуванням: заради чужих листів шторку й перероблювали. */
+  const [only, setOnly] = useState<"all" | "mine">("all");
 
   useEffect(() => {
     let alive = true;
@@ -95,6 +106,14 @@ export function RouteSheet({
     };
   }, []);
 
+  // Фільтр на клієнті: список уже приїхав цілком, і похід у мережу на
+  // перемикання двох кнопок за кермом коштував би секунд.
+  const shown = useMemo(
+    () => (only === "mine" ? (items ?? []).filter((i) => i.mine) : (items ?? [])),
+    [items, only]
+  );
+  const hasForeign = (items ?? []).some((i) => !i.mine);
+
   return (
     <div
       className="fixed inset-0 z-[1000] flex flex-col justify-end"
@@ -107,7 +126,31 @@ export function RouteSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: "1px solid #F1F1EF" }}>
-          <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>Мої маршрутні листи</p>
+          <p style={{ fontSize: "15px", fontWeight: 700, color: "#0A0A0A" }}>Маршрутні листи</p>
+          {hasForeign && (
+            <div className="flex gap-1 rounded-full p-0.5" style={{ background: "#F3F4F6" }}>
+              {(["all", "mine"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setOnly(k)}
+                  aria-pressed={only === k}
+                  className="cursor-pointer rounded-full transition-colors duration-200"
+                  style={{
+                    minHeight: "30px",
+                    padding: "0 12px",
+                    border: "none",
+                    background: only === k ? "#0A0A0A" : "transparent",
+                    color: only === k ? "#fff" : "#6B7280",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
+                >
+                  {k === "all" ? "Всі" : "Мої"}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -138,14 +181,15 @@ export function RouteSheet({
               Завантаження…
             </p>
           )}
-          {items?.length === 0 && (
+          {items && shown.length === 0 && (
             <p className="px-4 py-4" style={{ fontSize: "13px", color: "#6B7280", lineHeight: 1.5 }}>
-              Переданих маршрутів поки немає. Лист складає логіст — він зʼявиться тут сам, щойно
-              його передадуть вам.
+              {only === "mine" && items.length > 0
+                ? "Ваших листів у цьому періоді немає — але є листи колег, перемкніть на «Всі»."
+                : "Переданих маршрутів поки немає. Лист складає логіст — він зʼявиться тут сам, щойно його передадуть вам."}
             </p>
           )}
 
-          {items?.map((it) => {
+          {shown.map((it) => {
             const on = current === it.key;
             return (
               <button
@@ -161,7 +205,11 @@ export function RouteSheet({
                   padding: "12px 16px",
                   border: "none",
                   borderBottom: "1px solid #F1F1EF",
-                  background: on ? "#FFFBEB" : "#fff",
+                  // Свій лист має жовту смугу зліва, чужий — приглушений фон.
+                  // Різниця мусить читатися боковим зором: у чужому не можна
+                  // відмічати, і зрозуміти це треба до, а не після тапу.
+                  borderLeft: it.mine ? "3px solid #FFD600" : "3px solid transparent",
+                  background: on ? "#FFFBEB" : it.mine ? "#fff" : "#FAFAF9",
                 }}
               >
                 <span className="flex items-baseline gap-2">
@@ -179,6 +227,13 @@ export function RouteSheet({
                   )}
                 </span>
                 <span className="mt-0.5 flex flex-wrap items-center gap-x-3" style={{ fontSize: "12.5px", color: "#6B7280" }}>
+                  {it.mine ? (
+                    <span style={{ fontWeight: 700, color: "#0A0A0A" }}>мій</span>
+                  ) : (
+                    <span style={{ fontWeight: 600, color: "#374151" }}>
+                      {it.driverName ?? "без водія"}
+                    </span>
+                  )}
                   <span>
                     {it.done} з {it.stops} точок
                   </span>

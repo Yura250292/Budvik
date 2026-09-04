@@ -23,8 +23,14 @@ import {
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
-import { googleMapsLinksFromHere, navigateUrl, type NavApp } from "@/lib/maps/google-links";
-import { NAV_BATCHES, useNavApp, useNavBatch, type NavBatch } from "@/lib/maps/use-nav-app";
+import {
+  batchNavigateUrl,
+  googleMapsLinksFromHere,
+  navigateUrl,
+  type NavApp,
+} from "@/lib/maps/google-links";
+import { NAV_BATCHES, useAutoNext, useNavApp, useNavBatch, type NavBatch } from "@/lib/maps/use-nav-app";
+import { haversineM } from "@/lib/track/geo";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
@@ -49,6 +55,12 @@ type DayResp = {
     /** Точки розкладено за порядком, який водій склав собі на карті */
     myOrder?: boolean;
     number: string | null;
+    /**
+     * Чий це лист. Водій бачить листи колег, і відмітки в них заборонені —
+     * без імені власника чужий маршрут виглядав би як свій.
+     */
+    mine?: boolean;
+    driverName?: string | null;
     vehicle: string | null;
     plannedKm: number | null;
     stops: DayStop[];
@@ -82,6 +94,16 @@ function pointsLabel(n: number): string {
   if (!teen && last >= 2 && last <= 4) return `${n} точки`;
   return `${n} точок`;
 }
+
+/**
+ * Ближче за це — водій уже приїхав.
+ *
+ * Сто п'ятдесят метрів — це двір і сусідній під'їзд, але вже не сусідній
+ * квартал; та сама межа, за якою трек підписує зупинку клієнтом
+ * (lib/track/stops.ts). Ширше — і підказка почала б спрацьовувати на
+ * проїзді повз.
+ */
+const ARRIVE_M = 150;
 
 /** Що показує індикатор треку в шапці. */
 const TRACK_BADGE: Record<string, { dot: string; label: string }> = {
@@ -145,6 +167,9 @@ function DriverDayScreen() {
    */
   const [navApp, chooseNav] = useNavApp();
   const [batch, chooseBatch] = useNavBatch();
+  const [autoNext, chooseAutoNext] = useAutoNext();
+  /** Точка, для якої водій уже сказав «ще ні» на підказці прибуття. */
+  const [dismissedArrival, setDismissedArrival] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -189,6 +214,100 @@ function DriverDayScreen() {
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [loadWithQueue]);
+
+  const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
+  const today = kyivToday();
+  /**
+   * Відкритий день не сьогоднішній — відмітки лише читаються.
+   *
+   * Не формальність: кнопка «Приїхав» пише візит у ту добу, яка відкрита
+   * на екрані. Водій, що зайшов подивитися вчорашній лист і забув
+   * повернутися, відмічав би сьогоднішні доставки вчорашнім числом — і
+   * помітили б це аж на розрахунку. Виправити минуле може офіс, як і в
+   * історії маршрутів.
+   */
+  const notToday = !!data && !!data.day && data.day !== today;
+  /**
+   * Відкрито лист колеги.
+   *
+   * Дивитися й будувати дорогу по ньому можна (заради цього листи всіх і
+   * показуються), а відмічати — ні: візит належить тому, хто його поставив,
+   * і дві відмітки одного клієнта від двох водіїв розсипали б і прогрес
+   * маршруту, і зарплату. Сервер це теж не приймає (/api/visits), тут —
+   * щоб людина не тиснула кнопку, яка однаково відмовить.
+   */
+  const foreign = !!data && data.route.source !== "NONE" && data.route.mine === false;
+  const readOnly = notToday || foreign;
+  // useMemo, а не ?? []: новий порожній масив на кожен рендер перезапускав
+  // би розрахунок посилань нижче.
+  const stops = useMemo(() => data?.route.stops ?? [], [data?.route.stops]);
+
+  /**
+   * Дорога в Google Maps: від того місця, де водій зараз, через ще не
+   * відмічені точки. Відмічені навмисно пропускаємо — везти водія туди,
+   * де він уже був, немає сенсу.
+   *
+   * Стартову точку НЕ задаємо взагалі — тоді Google сам підставляє «Ваше
+   * місцезнаходження». Раніше сюди клали координату з веб-рекордера, і
+   * виходило гірше в обидва боки: у застосунку рекордер вимкнений
+   * (useTrackRecorder({ enabled: !isApp })), позиції немає — і маршрут
+   * починався з ПЕРШОЇ ТОЧКИ, тобто Google рахував, ніби водій уже там; а
+   * в браузері підставлялася координата, зафіксована колись раніше,
+   * замість живої. Те саме правило вже діє в посиланні, яке логіст шле в
+   * месенджер (lib/routes/driver-message.ts).
+   */
+  const mapLinks = useMemo(() => {
+    const pending = stops
+      .filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null)
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+
+    return googleMapsLinksFromHere(pending);
+  }, [stops, queued]);
+
+  /**
+   * Наступна точка — та, куди водій їде ЗАРАЗ.
+   *
+   * Перша невідмічена за порядком обʼїзду. Саме вона й замінила «дорогу
+   * частинами»: коли ведеш по одній точці, ліміт Google ні до чого
+   * прикласти, а наступну підставляє застосунок, щойно попередню відмічено.
+   */
+  /**
+   * Найближчі невідмічені точки за порядком обʼїзду.
+   *
+   * Не одна: водій сам обирає, скільки зарядити в навігатор — одну, три
+   * чи пʼять. Одна це «веди мене туди», пʼять — погляд на найближчу
+   * годину: видно, в який бік день і чи не доведеться вертатися.
+   */
+  const pending = useMemo(
+    () => stops.filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null),
+    [stops, queued]
+  );
+
+  /**
+   * Водій уже на місці — питаємо, чи відмічати.
+   *
+   * Точка, до якої він їде, і його жива координата вже є на екрані; без
+   * цієї підказки він мусить сам знайти потрібний рядок у списку з
+   * тридцяти й розгорнути його — стоячи біля магазину, часто під дощем.
+   *
+   * Пін «до міста» сюди не пускаємо: у такого клієнта координата — центр
+   * села, і сто п'ятдесят метрів від неї не значать нічого. Краще мовчати,
+   * ніж питати «ви на місці?» за кілометр від воріт.
+   */
+  const arrival = useMemo(() => {
+    if (readOnly || !track.position) return null;
+    const head = pending[0];
+    if (!head || head.key === dismissedArrival) return null;
+    if (head.kind === "DELIVERY" && !head.counterpartyId) return null;
+    if (head.geoSource === "CITY") return null;
+    const m = haversineM(
+      track.position.lat,
+      track.position.lng,
+      head.lat as number,
+      head.lng as number
+    );
+    return m <= ARRIVE_M ? head : null;
+  }, [readOnly, track.position, pending, dismissedArrival]);
 
   const mark = useCallback(
     async (
@@ -252,6 +371,29 @@ function DriverDayScreen() {
       setOpenStop(null);
       setError(null);
 
+      /**
+       * Відмітив — і навігатор веде далі сам.
+       *
+       * Це і є відповідь на ліміт Google: наступну точку підставляємо ми, а
+       * не посилання. Відкриваємо СИНХРОННО, до першого await, — інакше
+       * браузер розірве звʼязок із дотиком по кнопці й порахує вікно
+       * спливним. У застосунку не робимо: там цей екран нативний, і вікно
+       * відкриває він.
+       *
+       * Порядок точок беремо той самий, що на екрані, мінус щойно
+       * відмічена: водій міг закрити не першу, і вести його треба туди, куди
+       * він і збирався.
+       */
+      if (autoNext && !readOnly && !isApp) {
+        const take = navApp === "waze" ? 1 : batch;
+        const next = pending
+          .filter((s) => s.key !== stop.key)
+          .slice(0, take)
+          .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+        const url = batchNavigateUrl(next, navApp);
+        if (url) window.open(url, "_blank", "noopener");
+      }
+
       setSaving(stop.key);
       try {
         await flushPendingVisits();
@@ -263,65 +405,9 @@ function DriverDayScreen() {
         setSaving(null);
       }
     },
-    [load, track.position]
+    [load, track.position, autoNext, readOnly, isApp, navApp, batch, pending]
   );
 
-  const badge = TRACK_BADGE[track.status] ?? TRACK_BADGE.idle;
-  const today = kyivToday();
-  /**
-   * Відкритий день не сьогоднішній — відмітки лише читаються.
-   *
-   * Не формальність: кнопка «Приїхав» пише візит у ту добу, яка відкрита
-   * на екрані. Водій, що зайшов подивитися вчорашній лист і забув
-   * повернутися, відмічав би сьогоднішні доставки вчорашнім числом — і
-   * помітили б це аж на розрахунку. Виправити минуле може офіс, як і в
-   * історії маршрутів.
-   */
-  const readOnly = !!data && !!data.day && data.day !== today;
-  // useMemo, а не ?? []: новий порожній масив на кожен рендер перезапускав
-  // би розрахунок посилань нижче.
-  const stops = useMemo(() => data?.route.stops ?? [], [data?.route.stops]);
-
-  /**
-   * Дорога в Google Maps: від того місця, де водій зараз, через ще не
-   * відмічені точки. Відмічені навмисно пропускаємо — везти водія туди,
-   * де він уже був, немає сенсу.
-   *
-   * Стартову точку НЕ задаємо взагалі — тоді Google сам підставляє «Ваше
-   * місцезнаходження». Раніше сюди клали координату з веб-рекордера, і
-   * виходило гірше в обидва боки: у застосунку рекордер вимкнений
-   * (useTrackRecorder({ enabled: !isApp })), позиції немає — і маршрут
-   * починався з ПЕРШОЇ ТОЧКИ, тобто Google рахував, ніби водій уже там; а
-   * в браузері підставлялася координата, зафіксована колись раніше,
-   * замість живої. Те саме правило вже діє в посиланні, яке логіст шле в
-   * месенджер (lib/routes/driver-message.ts).
-   */
-  const mapLinks = useMemo(() => {
-    const pending = stops
-      .filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null)
-      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
-
-    return googleMapsLinksFromHere(pending);
-  }, [stops, queued]);
-
-  /**
-   * Наступна точка — та, куди водій їде ЗАРАЗ.
-   *
-   * Перша невідмічена за порядком обʼїзду. Саме вона й замінила «дорогу
-   * частинами»: коли ведеш по одній точці, ліміт Google ні до чого
-   * прикласти, а наступну підставляє застосунок, щойно попередню відмічено.
-   */
-  /**
-   * Найближчі невідмічені точки за порядком обʼїзду.
-   *
-   * Не одна: водій сам обирає, скільки зарядити в навігатор — одну, три
-   * чи пʼять. Одна це «веди мене туди», пʼять — погляд на найближчу
-   * годину: видно, в який бік день і чи не доведеться вертатися.
-   */
-  const pending = useMemo(
-    () => stops.filter((s) => !s.visit && !queued.includes(s.key) && s.lat != null && s.lng != null),
-    [stops, queued]
-  );
 
 
   return (
@@ -354,8 +440,13 @@ function DriverDayScreen() {
             }
             subtitle={
               data && data.progress.total > 0
-                ? `${formatRouteDay(data.day, today)} · ${data.progress.done + data.progress.missed} з ${data.progress.total} точок` +
-                  (data.progress.debtPlanned > 0
+                ? // Ім'я власника — першим: чужий лист має відрізнятися ще
+                  // до того, як водій дочитав рядок до кінця.
+                  (foreign ? `${data.route.driverName ?? "інший водій"} · ` : "") +
+                  `${formatRouteDay(data.day, today)} · ${data.progress.done + data.progress.missed} з ${data.progress.total} точок` +
+                  // Гроші чужого листа не показуємо взагалі: на екрані
+                  // водія будь-яка сума читається як «моя каса».
+                  (!foreign && data.progress.debtPlanned > 0
                     ? ` · ${formatPrice(data.progress.collected)} / ${formatPrice(data.progress.debtPlanned)}`
                     : "")
                 : data
@@ -452,7 +543,39 @@ function DriverDayScreen() {
         списку: водій має побачити її раніше, ніж дотягнеться пальцем до
         першої точки.
       */}
-      {readOnly && (
+      {/*
+        Чужий лист. Жовтим, а не синім: синє тут уже означає «минулий
+        день», і два різні обмеження одним кольором не читаються.
+      */}
+      {foreign && (
+        <div
+          className="flex items-center gap-2 px-4 py-2.5"
+          style={{ background: "#FFFBEB", borderBottom: "1px solid #FDE68A" }}
+        >
+          <p className="min-w-0 flex-1" style={{ fontSize: "13px", color: "#92400E", lineHeight: 1.4 }}>
+            <span style={{ fontWeight: 700 }}>Лист {data!.route.driverName ?? "іншого водія"}</span>{" "}
+            — переглянути й побудувати дорогу можна, відмічати точки й здавати касу може лише він.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.replace("/driver/tablet")}
+            className="shrink-0 cursor-pointer rounded-lg"
+            style={{
+              minHeight: "36px",
+              padding: "0 12px",
+              border: "none",
+              background: "#0A0A0A",
+              color: "#fff",
+              fontSize: "13px",
+              fontWeight: 700,
+            }}
+          >
+            До свого
+          </button>
+        </div>
+      )}
+
+      {notToday && (
         <div
           className="flex items-center gap-2 px-4 py-2.5"
           style={{ background: "#EFF6FF", borderBottom: "1px solid #BFDBFE" }}
@@ -563,6 +686,16 @@ function DriverDayScreen() {
             дії: перша пише візит у відкриту добу й тому лишається тільки за
             поточним днем, друга не міняє нічого взагалі.
           */}
+          {/* Водій уже на місці — відмітка одним дотиком, не шукаючи рядок */}
+          {arrival && (
+            <ArrivalCard
+              stop={arrival}
+              saving={saving === arrival.key}
+              onMark={mark}
+              onDismiss={() => setDismissedArrival(arrival.key)}
+            />
+          )}
+
           {pending.length > 0 && (
             <NextStopCard
               stops={pending}
@@ -572,6 +705,8 @@ function DriverDayScreen() {
               onChooseNav={chooseNav}
               batch={batch}
               onChooseBatch={chooseBatch}
+              autoNext={autoNext}
+              onChooseAutoNext={chooseAutoNext}
               readOnly={readOnly}
               myOrder={!!data.route.myOrder}
               wholeRoute={mapLinks}
@@ -596,13 +731,18 @@ function DriverDayScreen() {
             ))}
           </div>
 
-          <CashPanel
-            cash={data.cash}
-            day={data.day}
-            readOnly={readOnly}
-            onSaved={load}
-            onError={setError}
-          />
+          {/* Каса — лише на своєму листі: під чужим маршрутом вона
+              показувала б мої гроші як гроші того дня, і водій здав би не
+              ту суму. */}
+          {!foreign && (
+            <CashPanel
+              cash={data.cash}
+              day={data.day}
+              readOnly={notToday}
+              onSaved={load}
+              onError={setError}
+            />
+          )}
         </>
       )}
 
@@ -710,6 +850,8 @@ function NextStopCard({
   onChooseNav,
   batch,
   onChooseBatch,
+  autoNext,
+  onChooseAutoNext,
   readOnly,
   myOrder,
   wholeRoute,
@@ -724,7 +866,10 @@ function NextStopCard({
   onChooseNav: (app: NavApp) => void;
   batch: NavBatch;
   onChooseBatch: (n: NavBatch) => void;
-  /** Минулий чи завтрашній день: їхати можна, відмічати — ні. */
+  /** Після відмітки навігатор веде далі сам */
+  autoNext: boolean;
+  onChooseAutoNext: (on: boolean) => void;
+  /** Минулий, завтрашній або чужий лист: їхати можна, відмічати — ні. */
   readOnly: boolean;
   /** Точки йдуть у порядку, який водій склав собі на карті */
   myOrder: boolean;
@@ -735,14 +880,11 @@ function NextStopCard({
   // Waze веде до однієї точки — пачка для нього завжди одна.
   const take = navApp === "waze" ? 1 : batch;
   const chunk = stops.slice(0, take);
-  const head = chunk[0];
 
-  const url =
-    chunk.length === 1
-      ? navigateUrl({ lat: head.lat as number, lng: head.lng as number }, navApp)
-      : (googleMapsLinksFromHere(
-          chunk.map((s) => ({ lat: s.lat as number, lng: s.lng as number }))
-        )[0]?.url ?? "");
+  const url = batchNavigateUrl(
+    chunk.map((s) => ({ lat: s.lat as number, lng: s.lng as number })),
+    navApp
+  );
 
   return (
     <section className="px-4 py-3" style={{ background: "#fff" }}>
@@ -824,6 +966,49 @@ function NextStopCard({
             ))}
           </div>
         </div>
+      )}
+
+      {/*
+        Автоперехід — тут, а не в налаштуваннях: він міняє те, що станеться
+        одразу після наступної відмітки, і рішення про нього приймають саме
+        в цю мить. У читальному режимі не показуємо: відміток там немає, а
+        отже й переходити нема від чого.
+      */}
+      {!readOnly && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoNext}
+          onClick={() => onChooseAutoNext(!autoNext)}
+          className="mt-2 flex w-full cursor-pointer items-center gap-2"
+          style={{
+            minHeight: "36px",
+            padding: 0,
+            border: "none",
+            background: "none",
+            textAlign: "left",
+          }}
+        >
+          <span
+            aria-hidden
+            className="flex shrink-0 items-center justify-center"
+            style={{
+              width: "20px",
+              height: "20px",
+              borderRadius: "6px",
+              border: autoNext ? "none" : "1.5px solid #D1D5DB",
+              background: autoNext ? "#0A0A0A" : "#fff",
+              color: "#FFD600",
+              fontSize: "12px",
+              fontWeight: 800,
+            }}
+          >
+            {autoNext ? "✓" : ""}
+          </span>
+          <span style={{ fontSize: "13px", color: autoNext ? "#0A0A0A" : "#6B7280" }}>
+            Після відмітки — одразу вести далі
+          </span>
+        </button>
       )}
 
       {/* Що саме поїде в навігатор. Головна відмінність від «однієї точки»:
@@ -1251,6 +1436,120 @@ function CashPanel({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * «Ви на місці. Приїхали?» — відмітка, коли водій уже вийшов з машини.
+ *
+ * Без неї шлях такий: вилізти з кабіни, розблокувати планшет, знайти
+ * потрібний рядок серед тридцяти, розгорнути, натиснути. Кожен крок — під
+ * дощем і з коробкою в руках, і саме тому відмітки часто ставили ввечері
+ * пачкою, коли вже нічого не памʼятаєш.
+ *
+ * Кнопки ті самі, що в рядку, і сенс той самий: «забрав» ставить борг
+ * точки повністю, «просто приїхав» — нуль. Часткову суму тут не питаємо:
+ * для неї є рядок, а підказка мусить закриватися одним дотиком.
+ *
+ * «Ще ні» ховає її до наступної точки: буває, що водій під'їхав і чекає
+ * розвантаження півгодини, і питати його весь цей час не можна.
+ */
+function ArrivalCard({
+  stop,
+  saving,
+  onMark,
+  onDismiss,
+}: {
+  stop: DayStop;
+  saving: boolean;
+  onMark: (
+    stop: DayStop,
+    status: "DONE" | "MISSED",
+    money: "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE",
+    extra?: { collectedAmount?: number; comment?: string }
+  ) => void;
+  onDismiss: () => void;
+}) {
+  const isErrand = stop.kind !== "DELIVERY";
+  const hasDebt = !isErrand && stop.debtAmount > 0;
+
+  const btn = (bg: string, color: string) =>
+    ({
+      flex: "1 1 0",
+      minHeight: "48px",
+      padding: "0 12px",
+      borderRadius: "12px",
+      border: "none",
+      background: bg,
+      color,
+      fontSize: "14px",
+      fontWeight: 700,
+    }) as const;
+
+  return (
+    <section
+      className="px-4 py-3"
+      style={{ background: "#F0FDF4", borderBottom: "1px solid #BBF7D0" }}
+    >
+      <p style={{ fontSize: "12px", fontWeight: 700, color: "#15803D", letterSpacing: "0.03em" }}>
+        ВИ НА МІСЦІ
+      </p>
+      <p
+        className="truncate"
+        style={{ fontSize: "17px", fontWeight: 700, color: "#0A0A0A", marginTop: "2px" }}
+      >
+        {stop.name}
+      </p>
+      {!!stop.address && (
+        <p className="truncate" style={{ fontSize: "13px", color: "#6B7280" }}>
+          {stop.address}
+        </p>
+      )}
+
+      <div className="mt-2.5 flex gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onMark(stop, "DONE", hasDebt ? "FULL" : "NONE")}
+          className="cursor-pointer"
+          style={btn("#16A34A", "#fff")}
+        >
+          {saving
+            ? "Зберігаю…"
+            : isErrand
+              ? "Виконано"
+              : hasDebt
+                ? `Приїхав, забрав ${formatPrice(stop.debtAmount)}`
+                : "Приїхав"}
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onMark(stop, "MISSED", "NOT_APPLICABLE")}
+          className="cursor-pointer"
+          style={{ ...btn("#fff", "#DC2626"), flex: "0 0 auto", border: "1px solid #FECACA" }}
+        >
+          {isErrand ? "Не вийшло" : "Не потрапив"}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="cursor-pointer"
+        style={{
+          marginTop: "6px",
+          padding: "6px 0",
+          border: "none",
+          background: "none",
+          color: "#6B7280",
+          fontSize: "12.5px",
+          textDecoration: "underline",
+        }}
+      >
+        Ще ні — я тільки під&apos;їхав
+      </button>
     </section>
   );
 }

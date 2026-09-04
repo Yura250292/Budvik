@@ -15,6 +15,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate } from "@/lib/date/kyiv";
+import { defaultDepot } from "@/lib/routes/depot";
 import { resolveDriverDay } from "@/lib/track/day-stops";
 import { explainScore, scoreClient } from "@/lib/routes/priority";
 import { optimizeRoute, type OptimizeStop, type FuelParams } from "@/lib/routes/optimize";
@@ -181,14 +182,10 @@ export async function POST(req: NextRequest) {
   let start: [number, number] | null = body.start ?? null;
   let startName: string | null = body.start ? "поточне місце" : null;
   if (!start) {
-    // Склади живуть у StockLocation; isDefault першим — це основний, з
-    // якого й виїжджає розвозка.
-    const warehouse = await prisma.stockLocation.findFirst({
-      where: { isActive: true, lat: { not: null }, lng: { not: null } },
-      select: { lat: true, lng: true, name: true },
-      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
-    });
-    if (warehouse?.lat != null && warehouse.lng != null) {
+    // Склади живуть у StockLocation; вибір спільний із дорогою водія —
+    // lib/routes/depot.ts (він же відсіює службові: брак, майстерню).
+    const warehouse = await defaultDepot();
+    if (warehouse) {
       start = [warehouse.lng, warehouse.lat];
       startName = warehouse.name;
     }

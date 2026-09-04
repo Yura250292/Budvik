@@ -94,9 +94,21 @@ export type DayRoute = {
   day: string | null;
   /** Номер листа/маршруту — водій називає його диспетчеру */
   number: string | null;
+  /**
+   * Чий це лист. Потрібне відтоді, як водій бачить листи всіх: без імені
+   * власника чужий маршрут виглядає як свій, і людина спокійно поїде
+   * відмічати чужі точки.
+   */
+  driverId: string | null;
+  driverName: string | null;
   vehicle: string | null;
   /** Пробіг за планом (з 1С), км */
   plannedKm: number | null;
+  /**
+   * Фактичний пробіг, який офіс вніс руками (маршрут сайту). Возимо тут
+   * заради адмінки: там поруч стоять GPS, план OSRM і це число.
+   */
+  actualKm: number | null;
   /** GeoJSON LineString обраного маршруту — карта малює лінію плану */
   geometry: { type: string; coordinates: [number, number][] } | null;
   stops: DayStop[];
@@ -107,8 +119,11 @@ const EMPTY: DayRoute = {
   id: null,
   day: null,
   number: null,
+  driverId: null,
+  driverName: null,
   vehicle: null,
   plannedKm: null,
+  actualKm: null,
   geometry: null,
   stops: [],
 };
@@ -153,6 +168,7 @@ function mergeByAddress(stops: DayStop[]): DayStop[] {
 
 /** Що треба підтягнути до листа 1С, щоб зібрати з нього точки дня. */
 const SHEET_INCLUDE = {
+  driver: { select: { id: true, name: true } },
   stops: {
     /**
      * Прибрана руками точка не їде водієві.
@@ -229,8 +245,14 @@ function mapRouteSheet(sheet: SheetRecord): DayRoute | null {
     id: `rs:${sheet.id}`,
     day: kyivDate(sheet.date),
     number: sheet.number,
+    driverId: sheet.driverId,
+    // Ім'я з акаунта, а якщо водія ще не зіставили — як його записали в 1С.
+    // Порожній рядок замість імені гірший за «без водія» в інтерфейсі.
+    driverName: sheet.driver?.name ?? sheet.driverName1C ?? null,
     vehicle: sheet.vehicle,
     plannedKm: sheet.distanceKm || null,
+    // Лист 1С фактичних км не несе: у 1С вони заповнені у 2 листів із 40.
+    actualKm: null,
     // Лист 1С геометрії не несе — лінія з'явиться після «Прокласти маршрут»
     geometry: null,
     stops: mergeByAddress(stops),
@@ -238,6 +260,7 @@ function mapRouteSheet(sheet: SheetRecord): DayRoute | null {
 }
 
 const ROUTE_INCLUDE = {
+  driver: { select: { id: true, name: true } },
   stops: {
     orderBy: { sequence: "asc" },
     include: {
@@ -356,8 +379,11 @@ function mapDeliveryRoute(route: RouteRecord): DayRoute | null {
     id: `dr:${route.id}`,
     day: kyivDate(route.date),
     number: route.number,
+    driverId: route.driverId,
+    driverName: route.driver?.name ?? null,
     vehicle: route.vehicleInfo,
     plannedKm: route.totalDistanceKm,
+    actualKm: route.actualKm,
     geometry: geometry && Array.isArray(geometry.coordinates) ? geometry : null,
     stops: mergeByAddress(stops),
   };
@@ -413,17 +439,31 @@ export function stableStopKey(stop: {
  * мовчки. Ключ приходить із префіксом джерела, бо `dr:` і `rs:` живуть у
  * різних таблицях і id між ними не унікальні.
  *
- * Чужий лист не відкриється: driverId у WHERE, а не перевіркою після
- * читання. Порожній результат означає і «немає такого», і «не ваш» —
- * навмисно, щоб з відповіді не можна було дізнатися про чужі маршрути.
+ * `anyDriver` відкриває лист КОЛЕГИ — на вимогу власника: водій, який
+ * підміняє або їде вперше, мусить бачити чужі листи й будувати по них
+ * дорогу. Це свідоме послаблення, і воно стосується лише читання: відмітки
+ * лишаються за власником листа (перевірка в /api/visits і в stop/[id]/mark),
+ * а каса рахується завжди по тому, хто дивиться.
+ *
+ * Без `anyDriver` чужий лист не відкриється: driverId у WHERE, а не
+ * перевіркою після читання. Порожній результат означає і «немає такого», і
+ * «не ваш» — навмисно, щоб з відповіді не можна було дізнатися про чужі
+ * маршрути. Чернетка логіста (PLANNED) не видно нікому й у режимі anyDriver:
+ * фільтр статусів лишається.
  */
-export async function resolveDriverRoute(driverId: string, key: string): Promise<DayRoute> {
+export async function resolveDriverRoute(
+  driverId: string,
+  key: string,
+  opts?: { anyDriver?: boolean }
+): Promise<DayRoute> {
   const id = key.slice(3);
   if (!id) return EMPTY;
 
+  const owner = opts?.anyDriver ? {} : { driverId };
+
   if (key.startsWith("dr:")) {
     const route = await prisma.deliveryRoute.findFirst({
-      where: { id, driverId, status: { in: [...DRIVER_VISIBLE_STATUSES] } },
+      where: { id, ...owner, status: { in: [...DRIVER_VISIBLE_STATUSES] } },
       include: ROUTE_INCLUDE,
     });
     return (route && mapDeliveryRoute(route)) ?? EMPTY;
@@ -431,13 +471,41 @@ export async function resolveDriverRoute(driverId: string, key: string): Promise
 
   if (key.startsWith("rs:")) {
     const sheet = await prisma.routeSheet.findFirst({
-      where: { id, driverId },
+      where: { id, ...owner },
       include: SHEET_INCLUDE,
     });
     return (sheet && mapRouteSheet(sheet)) ?? EMPTY;
   }
 
   return EMPTY;
+}
+
+/**
+ * Конкретний маршрут САЙТУ за id — для планувальника логіста.
+ *
+ * Окремо від resolveDriverDay, і причина та сама, що в resolveDriverRoute:
+ * «день водія» як адреса бреше, коли маршрутів на день два. Оптимізатор в
+ * адмінці саме на це й наступав — рахував той, що створений останнім
+ * (orderBy createdAt desc), тобто натиснута картка й порахований маршрут
+ * могли бути різними.
+ */
+export async function resolveDeliveryRouteById(
+  id: string,
+  opts?: { driverId?: string; includePlanned?: boolean }
+): Promise<DayRoute | null> {
+  const route = await prisma.deliveryRoute.findFirst({
+    where: {
+      id,
+      ...(opts?.driverId ? { driverId: opts.driverId } : {}),
+      status: {
+        in: opts?.includePlanned
+          ? ["PLANNED", ...DRIVER_VISIBLE_STATUSES]
+          : [...DRIVER_VISIBLE_STATUSES],
+      },
+    },
+    include: ROUTE_INCLUDE,
+  });
+  return route ? mapDeliveryRoute(route) : null;
 }
 
 /**

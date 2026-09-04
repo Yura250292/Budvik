@@ -20,6 +20,7 @@ import type { NavApp } from "./google-links";
 
 const KEY = "budvik.navApp";
 const BATCH_KEY = "budvik.navBatch";
+const AUTO_NEXT_KEY = "budvik.autoNext";
 
 /**
  * Скільки наступних точок заряджаємо в навігатор за раз.
@@ -77,6 +78,47 @@ function readBatch(): NavBatch {
 
 function serverBatch(): NavBatch {
   return 1;
+}
+
+/**
+ * Чи вести до наступної точки одразу після відмітки.
+ *
+ * Увімкнено за замовчуванням, і це головне: ліміт Google на девʼять
+ * проміжних точок перестає що-небудь означати, коли наступну підставляє
+ * сам застосунок. Водієві не треба повертатися в кабінет і тиснути
+ * «Їхати» — він відмітив точку й далі просто їде.
+ *
+ * Вимикається одним дотиком: хто возить маршрут напамʼять, кому навігатор
+ * потрібен лише зрідка, той не хоче, щоб Google відкривався сам.
+ *
+ * Порожнє сховище = увімкнено: єдине значення, яке ми пишемо для «ні», —
+ * це рядок «0».
+ */
+function readAutoNext(): boolean {
+  try {
+    return localStorage.getItem(AUTO_NEXT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function serverAutoNext(): boolean {
+  return true;
+}
+
+export function useAutoNext(): [boolean, (on: boolean) => void] {
+  const on = useSyncExternalStore(subscribe, readAutoNext, serverAutoNext);
+
+  const choose = useCallback((next: boolean) => {
+    try {
+      localStorage.setItem(AUTO_NEXT_KEY, next ? "1" : "0");
+    } catch {
+      // Не збереглося — вибір діє до кінця сеансу, і цього досить.
+    }
+    notify();
+  }, []);
+
+  return [on, choose];
 }
 
 /**

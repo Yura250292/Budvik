@@ -38,9 +38,10 @@ const LVIV = { lat: 49.8397, lng: 24.0297 };
  * Скільки кружечків малюємо за раз.
  *
  * Стеля на випадок, коли водій відтиснув карту на пів країни: у видиме
- * вікно потрапляє все, і ми знову впираємося в ті самі сім секунд.
+ * вікно потрапляє все, і ми знову впираємося в ті самі гальма. Триста —
+ * межа, за якою кружечки однаково зливаються в пляму й нічого не кажуть.
  */
-const MAX_CLIENTS = 500;
+const MAX_CLIENTS = 300;
 
 /**
  * Квадратик із номером — SVG у data-URI.
@@ -92,7 +93,17 @@ export default function DriverGoogleMap({
   const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const infoRef = useRef<google.maps.InfoWindow | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
+  /**
+   * Клієнтські маркери живуть МІЖ перемальовками.
+   *
+   * Це і є ліки від гальм: раніше кожен рух карти зносив усі маркери й
+   * створював їх наново, а створення маркера Google коштує на порядок
+   * дорожче за його переміщення в інший шар. При звичайному перетягуванні
+   * у вікні лишається більшість тих самих точок — тепер вони просто
+   * лишаються, а міняється хвіст.
+   */
+  const clientMarkersRef = useRef(new Map<string, google.maps.Marker>());
+  const planMarkersRef = useRef<google.maps.Marker[]>([]);
   const lineRef = useRef<google.maps.Polyline | null>(null);
   const meRef = useRef<google.maps.Marker | null>(null);
   const byKeyRef = useRef(new Map<string, google.maps.Marker>());
@@ -157,7 +168,7 @@ export default function DriverGoogleMap({
    * стан і номери. Без нього кожен рендер сторінки знімав би й ставив
    * заново сотні маркерів.
    */
-  const key = useMemo(
+  const clientsKey = useMemo(
     () =>
       clients
         .map(
@@ -165,17 +176,24 @@ export default function DriverGoogleMap({
             `${c.id}:${c.state}:${c.mine ? 1 : 0}:${c.notes ?? 0}:` +
             `${c.lat.toFixed(5)},${c.lng.toFixed(5)}:${c.approximate ? 1 : 0}`
         )
-        .join("|") +
-      "#" +
-      (plan?.stops.map((s) => `${s.key}:${s.status}:${s.seq}:${s.current ? 1 : 0}`).join(",") ?? "") +
-      // Округлення до сотих градуса (~1 км): дрібне посмикування карти не
-      // має перемальовувати шар, а перехід між містами — має.
-      "#" +
-      (view
-        ? [view.north, view.south, view.east, view.west].map((v) => v.toFixed(2)).join(",")
-        : ""),
-    [clients, plan, view]
+        .join("|"),
+    [clients]
   );
+
+  const planKey = useMemo(
+    () => plan?.stops.map((s) => `${s.key}:${s.status}:${s.seq}:${s.current ? 1 : 0}`).join(",") ?? "",
+    [plan]
+  );
+
+  /**
+   * Вікно в ключі — округлене до сотих градуса (~1 км).
+   *
+   * Дрібне посмикування карти не має чіпати шар зовсім, а перехід між
+   * містами — має.
+   */
+  const viewKey = view
+    ? [view.north, view.south, view.east, view.west].map((v) => v.toFixed(2)).join(",")
+    : "";
 
   const openInfo = useCallback((marker: google.maps.Marker, html: string) => {
     const map = mapRef.current;
@@ -185,36 +203,16 @@ export default function DriverGoogleMap({
     info.open({ map, anchor: marker });
   }, []);
 
-  /* --- малювання шарів --- */
+  /* --- шар клієнтів: переставляємо різницю, а не все --- */
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
 
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
-    byKeyRef.current.clear();
-    lineRef.current?.setMap(null);
-    lineRef.current = null;
-
-    const bounds = new google.maps.LatLngBounds();
-
-    // Лінія маршруту — під точками: вона фон, а не головне.
-    if (plan?.geometry?.coordinates?.length) {
-      lineRef.current = new google.maps.Polyline({
-        path: plan.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
-        strokeColor: "#2563EB",
-        strokeOpacity: 0.55,
-        strokeWeight: 5,
-        map,
-      });
-      plan.geometry.coordinates.forEach(([lng, lat]) => bounds.extend({ lat, lng }));
-    }
-
     /**
-     * Запас у чверть висоти вікна: точка, до якої водій ось-ось доїде,
-     * має вже бути намальована, а не зʼявлятися ривком на краю.
+     * Запас у чверть висоти вікна: точка, до якої водій ось-ось доїде, має
+     * вже бути намальована, а не зʼявлятися ривком на краю.
      */
-    const shown = view
+    const inView = view
       ? (() => {
           const padLat = (view.north - view.south) * 0.25;
           const padLng = (view.east - view.west) * 0.25;
@@ -226,10 +224,23 @@ export default function DriverGoogleMap({
               c.lng <= view.east + padLng
           );
         })()
-      : clients.slice(0, MAX_CLIENTS);
+      : clients;
 
-    // Клієнти — кружечками, як і в нашій карті. Свої більші й яскравіші.
-    spread(shown.slice(0, MAX_CLIENTS)).forEach((c) => {
+    const wanted = spread(inView.slice(0, MAX_CLIENTS));
+    const wantedIds = new Set(wanted.map((c) => c.id));
+    const live = clientMarkersRef.current;
+
+    // Зайве прибираємо…
+    for (const [id, marker] of live) {
+      if (!wantedIds.has(id)) {
+        marker.setMap(null);
+        live.delete(id);
+      }
+    }
+
+    // …а бракуюче створюємо. Ті, що лишилися у вікні, не чіпаємо взагалі.
+    for (const c of wanted) {
+      if (live.has(c.id)) continue;
       const foreign = c.mine === false;
       const marker = new google.maps.Marker({
         position: { lat: c.lat, lng: c.lng },
@@ -243,14 +254,48 @@ export default function DriverGoogleMap({
           strokeWeight: foreign ? 1 : 2,
         },
         zIndex: foreign ? 1 : 2,
+        /**
+         * Явно просимо швидкий шлях.
+         *
+         * З `optimized` Google зводить маркери в одне полотно замість
+         * окремих вузлів DOM — для сотень кружечків це різниця в рази.
+         * Автоматично він його вмикає не завжди, а нам тут нічого не
+         * потрібно з того, що оптимізація забирає (ні анімації, ні
+         * доступності на самому кружечку).
+         */
+        optimized: true,
       });
       marker.addListener("click", () => openInfo(marker, popupHtml(c, extrasRef.current)));
-      markersRef.current.push(marker);
-      byKeyRef.current.set(c.id, marker);
-      bounds.extend({ lat: c.lat, lng: c.lng });
-    });
+      live.set(c.id, marker);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientsKey, viewKey, ready]);
 
-    // Точки маршруту — поверх усього; поточна ціль малюється останньою.
+  /* --- шар маршруту: лінія й номерні піни --- */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+
+    planMarkersRef.current.forEach((m) => m.setMap(null));
+    planMarkersRef.current = [];
+    lineRef.current?.setMap(null);
+    lineRef.current = null;
+
+    const bounds = new google.maps.LatLngBounds();
+
+    // Лінія — під точками: вона фон, а не головне.
+    if (plan?.geometry?.coordinates?.length) {
+      lineRef.current = new google.maps.Polyline({
+        path: plan.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
+        strokeColor: "#2563EB",
+        strokeOpacity: 0.55,
+        strokeWeight: 5,
+        map,
+      });
+      plan.geometry.coordinates.forEach(([lng, lat]) => bounds.extend({ lat, lng }));
+    }
+
+    // Поточна ціль малюється останньою — щоб не ховалася під сусідами.
     const pins = spread(plan?.stops ?? []).sort(
       (a, b) => Number(!!a.current) - Number(!!b.current)
     );
@@ -269,17 +314,18 @@ export default function DriverGoogleMap({
         zIndex: s.current ? 1000 : 900,
       });
       marker.addListener("click", () => openInfo(marker, planPopupHtml(s)));
-      markersRef.current.push(marker);
+      planMarkersRef.current.push(marker);
       byKeyRef.current.set(s.key, marker);
       bounds.extend({ lat: s.lat, lng: s.lng });
     });
 
-    // Перше вікно: маршрут, якщо він є, інакше все, що намалювали.
+    // Перше вікно ставить маршрут, якщо він є, — і лише один раз.
     if (!fittedRef.current && !bounds.isEmpty() && !focusRef.current) {
       map.fitBounds(bounds, 40);
       fittedRef.current = true;
     }
-  }, [key, ready, clients, plan, view, openInfo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey, ready]);
 
   /* --- кнопки в підказці. Ті самі рядки HTML, що в нашій карті --- */
   useEffect(() => {
@@ -336,7 +382,7 @@ export default function DriverGoogleMap({
     map.setZoom(Math.max(map.getZoom() ?? 9, 15));
     fittedRef.current = true;
     if (focus.id) {
-      const marker = byKeyRef.current.get(focus.id);
+      const marker = byKeyRef.current.get(focus.id) ?? clientMarkersRef.current.get(focus.id);
       const stop = plan?.stops.find((s) => s.key === focus.id);
       const client = clients.find((c) => c.id === focus.id);
       if (marker && stop) openInfo(marker, planPopupHtml(stop));

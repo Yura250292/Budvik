@@ -405,17 +405,29 @@ export default function DriverMapScreen() {
 
   const effScope: Scope = scope ?? (routeCount > 0 ? "route" : "all");
 
-  const visible = (data?.clients ?? [])
-    .filter((c) => !hidden.has(c.state))
-    .filter((c) =>
-      effScope === "route"
-        ? routeClientIds.size > 0
-          ? routeClientIds.has(c.id)
-          : c.today
-        : effScope === "mine"
-          ? c.mine
-          : true
-    );
+  /**
+   * useMemo, а не просто filter.
+   *
+   * Масив іде пропом у карту, а та будує з нього ключ перемальовки. Новий
+   * масив на КОЖЕН рендер сторінки означав новий ключ і перебір трьох тисяч
+   * клієнтів щоразу, коли водій просто тапнув перемикач чи приїхала лінія
+   * маршруту. Саме це й підгальмовувало карту.
+   */
+  const visible = useMemo(
+    () =>
+      (data?.clients ?? [])
+        .filter((c) => !hidden.has(c.state))
+        .filter((c) =>
+          effScope === "route"
+            ? routeClientIds.size > 0
+              ? routeClientIds.has(c.id)
+              : c.today
+            : effScope === "mine"
+              ? c.mine
+              : true
+        ),
+    [data?.clients, hidden, effScope, routeClientIds]
+  );
 
   const pickRoute = useCallback(
     (key: string | null) => {

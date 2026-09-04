@@ -10,6 +10,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
+import { searchPatterns } from "@/lib/assistant/facts/search-words";
 
 export type ClientHit = {
   id: string;
@@ -21,39 +22,13 @@ export type ClientHit = {
   lastDocAt: Date | null;
 };
 
-/**
- * Основа слова: відкидаємо закінчення, щоб «Кунанця» знайшло «Кунанець».
- *
- * Два символи від шести — саме стільки з'їдають українські закінчення з
- * чергуванням (Кунанець → Кунанця), один — від чотирьох. Менші слова не
- * чіпаємо: від «Біб» після обрізання лишиться шум.
- */
-function stem(word: string): string {
-  if (word.length >= 6) return word.slice(0, -2);
-  if (word.length >= 4) return word.slice(0, -1);
-  return word;
-}
-
 export async function findClients(
   query: string,
   repId: string,
   { limit = 8, onlyMine = false }: { limit?: number; onlyMine?: boolean } = {}
 ): Promise<ClientHit[]> {
-  /**
-   * Кожне слово окремо — і кожне обрізане до основи.
-   *
-   * Дві різні причини, обидві з бойових даних. Перша: торговий пише «Химич
-   * Мар'ян», а в 1С контрагент зветься «ФОП Химич Мар'ян Мар'янович» —
-   * суцільний підрядок не збігається. Друга: питання ставлять у непрямому
-   * відмінку («до Химича», «винен Кунанець»), а в базі лежить називний,
-   * тож навіть послівний пошук нічого не знаходив.
-   */
-  const words = query
-    .split(/\s+/)
-    .map((w) => w.replace(/[%_]/g, "").trim())
-    .filter((w) => w.length >= 2)
-    .slice(0, 5);
-  const patterns = (words.length ? words : [query]).map((w) => `%${stem(w)}%`);
+  // Послівно й по основах — див. search-words.ts.
+  const patterns = searchPatterns(query, 5);
   const whole = `%${query.replace(/[%_]/g, "")}%`;
 
   return prisma.$queryRaw<ClientHit[]>`

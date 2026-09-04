@@ -25,7 +25,7 @@ import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { dayRouteCandidates } from "@/lib/assistant/facts/day-candidates";
 import { clientProfileFacts } from "@/lib/assistant/facts/client-profile";
 import { findClients, type ClientHit } from "@/lib/assistant/facts/client-search";
-import { deadStockItems, searchProducts } from "@/lib/assistant/facts/product-facts";
+import { deadStockItems, searchProducts, searchProductsTotals } from "@/lib/assistant/facts/product-facts";
 import { entryOffer, isConsumable, priceFloor } from "@/lib/assistant/facts/entry-offer";
 import { marginPct, priceMarginPct, productStats } from "@/lib/assistant/facts/product-stats";
 import { payerVerdicts, verdictLabel } from "@/lib/assistant/facts/discipline-cache";
@@ -637,12 +637,13 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
 export async function answerProduct(ctx: ToolContext, query: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
 
-  const [hits, stats] = await Promise.all([
+  const [hits, totals, stats] = await Promise.all([
     timed(
-      { name: "product_search", label: "Шукаю товар" },
-      () => searchProducts(query, ctx.scope.repId, 6),
+      { name: "product_search", label: "Дивлюся залишок на складі" },
+      () => searchProducts(query, ctx.scope.repId, 8),
       tools
     ),
+    searchProductsTotals(query),
     productStats(),
   ]);
 
@@ -652,26 +653,31 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
 
   const statById = new Map(stats.map((s) => [s.productId, s]));
 
-  return {
-    markdown: [
-      `**За запитом «${query}»:**`,
-      "",
-      ...hits.map((h) => {
-        const s = statById.get(h.productId);
-        const price = h.price > 0 ? money(h.price) : "ціни в 1С немає";
-        const stock = h.free > 0 ? `${h.free} шт` : "**немає на складі**";
-        const margin = priceMarginPct(h.price, h.lastCost);
-        const sold = s ? `, за 180 днів взяли ${clientsWord(s.clients)}` : "";
-        const fact = s && marginPct(s) != null ? `, фактична маржа ${percent(marginPct(s)!)}` : "";
-        return `- ${productLink(h.name, h.sku)} — ${price}, ${stock}${
-          margin != null ? `, маржа від прайсу ${percent(margin)}` : ""
-        }${fact}${sold}${h.myBuyers > 0 ? `, з ваших брали ${h.myBuyers}` : ""}`;
-      }),
-      "",
-      "_Залишок вільний, з несервісних складів._",
-    ].join("\n"),
-    tools,
-  };
+  // Підсумок по групі — перше, що треба почути на «скільки ще піни».
+  const head =
+    totals.positions > 0
+      ? `**За запитом «${query}» на складі ${totals.free} шт**, позицій ${totals.positions}.` +
+        (totals.positions > hits.length ? ` Показую ${hits.length} найбільших.` : "")
+      : `**За запитом «${query}» вільного залишку немає.** Ось що знайшлося:`;
+
+  const rows = hits.map((h) => {
+    const s = statById.get(h.productId);
+    const price = h.price > 0 ? money(h.price) : "ціни в 1С немає";
+    const stock = h.free > 0 ? `**${h.free} шт**` : "немає на складі";
+    const margin = priceMarginPct(h.price, h.lastCost);
+    const sold = s ? `, за 180 днів взяли ${clientsWord(s.clients)}` : "";
+    const fact = s && marginPct(s) != null ? `, фактична маржа ${percent(marginPct(s)!)}` : "";
+    return `- ${productLink(h.name, h.sku)} — ${stock}, ${price}${
+      margin != null ? `, маржа від прайсу ${percent(margin)}` : ""
+    }${fact}${sold}${h.myBuyers > 0 ? `, з ваших брали ${h.myBuyers}` : ""}`;
+  });
+
+  const notes = ["_Залишок вільний, з несервісних складів: це те, що реально можна відвантажити._"];
+  if (totals.noPrice > 0) {
+    notes.push(`_${items(totals.noPrice)} без ціни в 1С — продати їх не вийде, поки ціну не заведуть._`);
+  }
+
+  return { markdown: [head, "", ...rows, "", ...notes].join("\n"), tools };
 }
 
 /* ── Повернення ───────────────────────────────────────────────────────── */

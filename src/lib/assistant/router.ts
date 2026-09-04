@@ -78,6 +78,17 @@ const NOT_A_NAME =
  */
 const TAIL_NOT_NAME = /^(і|й|та|а|чи|що|як|коли|скільки|де|чому|навіщо|який|яка|яке)(\s|$)/i;
 
+/**
+ * Як питають про товар і залишок.
+ *
+ * Список довгий навмисно. «Скільки ще піни», «залишки піни», «що по
+ * піні» — це те саме питання, і кожне непізнане формулювання коштує
+ * дев'ять тисяч токенів і десять секунд там, де код відповідає за
+ * секунду й безкоштовно.
+ */
+const PRODUCT_ASK =
+  /(чи\s+є\s+(в\s+наявності\s+)?|скільки\s+(ще\s+)?(на\s+складі|залишилось|лишилось|є)\s*|який\s+залишок\s*|залишк[а-яіїєґ]*\s+(по\s+)?|є\s+на\s+складі\s*|що\s+по\s+|яка\s+ціна\s+(на\s+)?|почім\s+|скільки\s+кошту[а-яіїєґ]*\s+|скільки\s+ще\s+)/i;
+
 const clean = (raw: string) =>
   raw
     .replace(/[«»"'’`]/g, "")
@@ -243,10 +254,7 @@ export function detectIntent(
     return { kind: "ROUTE", weekday: weekdayIn(text) };
   }
 
-  const product = subjectAfter(
-    text,
-    /(чи\s+є\s+(в\s+наявності\s+)?|скільки\s+на\s+складі|який\s+залишок|яка\s+ціна\s+(на\s+)?|почім|скільки\s+кошту[єю]\w*)/i
-  );
+  const product = subjectAfter(text, PRODUCT_ASK);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
@@ -278,10 +286,7 @@ function driverIntent(text: string): Intent | null {
     subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+|як\s+доїхати\s+до\s+)/i);
   if (card) return { kind: "CLIENT_CARD", subject: card };
 
-  const product = subjectAfter(
-    text,
-    /(чи\s+є\s+(в\s+наявності\s+)?|скільки\s+на\s+складі|який\s+залишок|яка\s+ціна\s+(на\s+)?|почім)/i
-  );
+  const product = subjectAfter(text, PRODUCT_ASK);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;

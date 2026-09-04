@@ -11,6 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
+import { searchPatterns } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -45,20 +46,9 @@ export async function searchProducts(
   repId: string,
   limit = 8
 ): Promise<ProductHit[]> {
-  /**
-   * Кожне слово окремо, а не весь рядок підрядком.
-   *
-   * Торговий питає «круг відрізний 125», а в 1С товар зветься «Круг
-   * відрізний (метал) ATAMAN 125 1,2 22,23». Суцільний підрядок не
-   * збігається — і пошук чесно відповідає «нічого не знайшли» на позицію,
-   * якої на складі 26 тисяч штук.
-   */
-  const words = query
-    .split(/\s+/)
-    .map((w) => w.replace(/[%_]/g, "").trim())
-    .filter((w) => w.length >= 2)
-    .slice(0, 6);
-  const patterns = (words.length ? words : [query]).map((w) => `%${w}%`);
+  // Послівно й по основах: питають «скільки ще піни Soma fix», а в базі
+  // «SOMA FIX Піна монтажна…». Див. search-words.ts.
+  const patterns = searchPatterns(query);
   const like = `%${query.replace(/[%_]/g, "")}%`;
 
   return prisma.$queryRaw<ProductHit[]>`
@@ -169,4 +159,34 @@ function resolveSection(raw: string): string | null {
   if (SECTION_BY_ID.has(value)) return value;
   const hit = SECTIONS.find((s) => s.title.toLowerCase().includes(value));
   return hit?.id ?? null;
+}
+
+/**
+ * Скільки всього по запиту — понад те, що влізло в список.
+ *
+ * «Скільки ще піни Soma fix» — це питання про ГРУПУ, а не про артикул: у
+ * SOMA FIX піни півтора десятка позицій, і торговому потрібна сума, а вже
+ * потім розклад по видах. Без цього рядка відповідь із восьми позицій
+ * читається як «оце все, що є», хоча це лише верхівка списку.
+ */
+export async function searchProductsTotals(
+  query: string,
+  { onlyInStock = true }: { onlyInStock?: boolean } = {}
+): Promise<{ positions: number; free: number; noPrice: number }> {
+  const patterns = searchPatterns(query);
+
+  const [row] = await prisma.$queryRaw<Array<{ positions: number; free: number; noPrice: number }>>`
+    WITH ${FREE_STOCK_ALL}
+    SELECT
+      COUNT(*)::int AS positions,
+      COALESCE(SUM(fs.free), 0)::int AS free,
+      COUNT(*) FILTER (WHERE p.price <= 0)::int AS "noPrice"
+    FROM "Product" p
+    ${onlyInStock ? Prisma.sql`JOIN` : Prisma.sql`LEFT JOIN`} free_stock fs ON fs."productId" = p.id
+    WHERE p."isActive"
+      AND p.name ILIKE ALL(${patterns}::text[])
+      ${onlyInStock ? Prisma.sql`AND fs.free > 0` : Prisma.empty}
+  `;
+
+  return row ?? { positions: 0, free: 0, noPrice: 0 };
 }

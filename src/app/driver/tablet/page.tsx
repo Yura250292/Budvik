@@ -549,30 +549,13 @@ function DriverDayScreen() {
             <NextStopCard
               stop={nextStop}
               left={data.progress.left}
+              routeId={data.route.id}
               navApp={navApp}
               onChooseNav={chooseNav}
               wholeRoute={mapLinks}
             />
           )}
 
-          {/* Той самий лист на карті: список каже, що везти, карта — куди
-              їхати і в якому порядку. Посилання несе ключ маршруту, тож
-              карта відкриє саме цей день, а не сьогоднішній. */}
-          <Link
-            href={data.route.id ? `/driver/map?route=${encodeURIComponent(data.route.id)}` : "/driver/map"}
-            className="block"
-            style={{
-              margin: "8px 0 0",
-              padding: "13px 16px",
-              background: "#fff",
-              color: "#2563EB",
-              fontSize: "14px",
-              fontWeight: 700,
-              textDecoration: "none",
-            }}
-          >
-            Показати маршрут на карті →
-          </Link>
 
           <div style={{ background: "#fff", marginTop: "8px" }}>
             {stops.map((s) => (
@@ -631,11 +614,14 @@ function DriverDayScreen() {
 function NextStopCard({
   stop,
   left,
+  routeId,
   navApp,
   onChooseNav,
   wholeRoute,
 }: {
   stop: DayStop;
+  /** Ключ листа — щоб огляд відкрив саме цей день, а не сьогоднішній */
+  routeId: string | null;
   /** Скільки точок ще не відмічено, разом із цією */
   left: number;
   navApp: NavApp;
@@ -724,6 +710,32 @@ function NextStopCard({
       >
         Їхати в {navApp === "waze" ? "Waze" : "Google Maps"}
       </a>
+
+      {/* Огляд усього дня — поруч із «їхати», а не десь нижче списком.
+          Новому водієві він потрібен ПЕРЕД виїздом: побачити, де точки, у
+          якому вони порядку і скільки це кілометрів. Досвідчений просто
+          його не тисне. */}
+      {!!routeId && (
+        <Link
+          href={`/driver/map?route=${encodeURIComponent(routeId)}`}
+          className="cursor-pointer"
+          style={{
+            display: "block",
+            marginTop: "8px",
+            padding: "13px",
+            borderRadius: "12px",
+            border: "1px solid #E5E7EB",
+            background: "#fff",
+            color: "#0A0A0A",
+            fontSize: "14px",
+            fontWeight: 700,
+            textAlign: "center",
+            textDecoration: "none",
+          }}
+        >
+          Весь маршрут на карті
+        </Link>
+      )}
 
       <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
         Дорога почнеться там, де ви зараз. Відмітили точку — тут зʼявиться наступна.

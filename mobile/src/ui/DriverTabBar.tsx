@@ -24,7 +24,7 @@ export function DriverTabBar({ active = "today" }: { active?: "today" }) {
       exact: true,
     },
     ...([
-      { label: "Клієнти", icon: "map" as const, target: "/driver/map" },
+      { label: "Карта", icon: "map" as const, target: "/driver/map" },
       { label: "Історія", icon: "history" as const, target: "/driver/history" },
       { label: "Акаунт", icon: "user" as const, target: "/driver/profile" },
     ].map((t) => ({

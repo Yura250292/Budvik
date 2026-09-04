@@ -28,7 +28,7 @@ import { navigateUrl } from "@/lib/maps/google-links";
 import { useNavApp } from "@/lib/maps/use-nav-app";
 import { kyivToday } from "@/components/ui/PeriodPicker";
 import type { DayStop } from "@/lib/track/day-stop-type";
-import { planCore } from "@/components/map/SalesClientsMap";
+import { planCore } from "@/lib/maps/plan-core";
 import type { DayPlan, PlanStop, SalesClientPoint } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
@@ -60,9 +60,24 @@ type DayResp = {
     day: string | null;
     number: string | null;
     vehicle: string | null;
+    /** Пробіг за планом із документа — запасне число, коли OSRM мовчить */
+    plannedKm: number | null;
     geometry: { type: string; coordinates: [number, number][] } | null;
     stops: DayStop[];
   };
+};
+
+/** Дорога по відкритому листу: лінія, кілометри, перегони. */
+type LineResp = {
+  order: "sheet" | "optimal";
+  geometry: { type: string; coordinates: [number, number][] } | null;
+  totalKm: number | null;
+  totalMin: number | null;
+  legs: Array<{ distanceKm: number; durationMin: number }>;
+  /** Точки в тому порядку, яким пройшла лінія */
+  stopKeys: string[];
+  skipped: number;
+  error?: string;
 };
 
 /**
@@ -117,6 +132,25 @@ export default function DriverMapScreen() {
   // Той самий вибір, що на екрані дня: обрав Waze один раз — він Waze усюди.
   const [navApp] = useNavApp();
 
+  /**
+   * Дорога разом із адресою, для якої її рахували.
+   *
+   * Не просто LineResp: коли водій перемикає порядок або відкриває інший
+   * лист, стара лінія ще лежить у стані, і без цієї мітки карта секунду
+   * малювала б дорогу попереднього маршруту з номерами нового. Скидати її
+   * в ефекті не можна (setState синхронно в ефекті — зайвий перемальовок),
+   * тому просто не вважаємо своєю.
+   */
+  const [line, setLine] = useState<{ for: string; data: LineResp | null } | null>(null);
+  /**
+   * Який порядок показуємо.
+   *
+   * За замовчуванням — з листа: саме ці номери водій бачить на папері й
+   * називає диспетчеру. Найкоротший — окремим перемикачем, бо це наша
+   * порада, а не документ.
+   */
+  const [order, setOrder] = useState<"sheet" | "optimal">("sheet");
+
   // Тягнемо завжди повний набір: 379 точок — одна відповідь, а перемикання
   // «маршрут / мої / всі» після цього миттєве, без походу в мережу.
   useEffect(() => {
@@ -167,6 +201,36 @@ export default function DriverMapScreen() {
     };
   }, [routeKey, dayKey]);
 
+  /**
+   * Дорогу тягнемо ОКРЕМИМ запитом, після того як приїхали точки.
+   *
+   * Разом із днем її віддавати не можна: маршрут сайту несе геометрію в
+   * собі, а для листа 1С її треба рахувати через OSRM — і чекати на це
+   * секунду щоразу, коли водій просто відкриває список точок, немає за що.
+   */
+  const routeId = day?.route.id ?? null;
+  const hasOwnGeometry = !!day?.route.geometry;
+  /**
+   * Маршрут сайту вже несе свою лінію — рахувати нічого. Крім випадку, коли
+   * водій сам попросив найкоротший порядок: його в документі немає.
+   */
+  const needsLine = !!routeId && !(hasOwnGeometry && order === "sheet");
+  const lineKey = routeId ? `${routeId}:${order}` : "";
+  const activeLine = line?.for === lineKey ? line.data : null;
+  const lineLoading = needsLine && line?.for !== lineKey;
+
+  useEffect(() => {
+    if (!needsLine) return;
+    let alive = true;
+    fetch(`/api/driver/route-line?route=${encodeURIComponent(routeId!)}&order=${order}`)
+      .then((r) => (r.ok ? (r.json() as Promise<LineResp>) : null))
+      .then((j) => alive && setLine({ for: lineKey, data: j }))
+      .catch(() => alive && setLine({ for: lineKey, data: null }));
+    return () => {
+      alive = false;
+    };
+  }, [needsLine, routeId, order, lineKey]);
+
   const locate = useCallback(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
@@ -209,12 +273,36 @@ export default function DriverMapScreen() {
     [day?.route.stops, navApp]
   );
 
+  /**
+   * Точки в тому порядку, який зараз показуємо, з наскрізною нумерацією.
+   *
+   * У найкоротшому порядку номери мусять перерахуватися — інакше на карті
+   * буде лінія одного маршруту з номерами іншого, тобто найгірше з двох.
+   * У порядку листа лишаємо номери документа: саме їх водій називає в офіс.
+   */
+  const orderedStops = useMemo<PlanStop[]>(() => {
+    if (order !== "optimal" || !activeLine?.stopKeys.length) return planStops;
+    const byKey = new Map(planStops.map((s) => [s.key, s]));
+    const seq = activeLine.stopKeys
+      .map((k) => byKey.get(k))
+      .filter((s): s is PlanStop => !!s)
+      .map((s, i) => ({ ...s, seq: i + 1 }));
+    // Точки, які в дорогу не потрапили (криві координати), лишаються на
+    // карті без номера — інакше вони просто зникнуть, і водій їх не побачить.
+    const used = new Set(activeLine.stopKeys);
+    return [...seq, ...planStops.filter((s) => !used.has(s.key)).map((s) => ({ ...s, seq: 0 }))];
+  }, [order, activeLine, planStops]);
+
   const plan = useMemo<DayPlan>(
     () =>
-      planStops.length > 0
-        ? { number: day?.route.number ?? null, geometry: day?.route.geometry ?? null, stops: planStops }
+      orderedStops.length > 0
+        ? {
+            number: day?.route.number ?? null,
+            geometry: activeLine?.geometry ?? day?.route.geometry ?? null,
+            stops: orderedStops,
+          }
         : null,
-    [planStops, day?.route.number, day?.route.geometry]
+    [orderedStops, day?.route.number, day?.route.geometry, activeLine?.geometry]
   );
 
   /** Клієнти відкритого листа — по них працює перший сегмент фільтра. */
@@ -272,6 +360,33 @@ export default function DriverMapScreen() {
         : prev
     );
   }, []);
+
+  /**
+   * Перегони, приклеєні до РЯДКІВ списку.
+   *
+   * legs[i] у відповіді — дорога від stopKeys[i] до stopKeys[i+1], а в
+   * списку точок може бути більше (ті, через які лінія не пройшла). Тому
+   * зіставляємо за ключем, а не за позицією: інакше «12 км» опиниться під
+   * не тим магазином.
+   */
+  const legs = useMemo(() => {
+    if (!activeLine?.stopKeys.length) return [] as LineResp["legs"];
+    const at = new Map(activeLine.stopKeys.map((k, i) => [k, i]));
+    return orderedStops.map((s) => {
+      const i = at.get(s.key);
+      return i == null ? undefined : activeLine.legs[i];
+    });
+  }, [activeLine, orderedStops]);
+
+  /** Скільки всього дороги — числом, яке видно в шапці панелі. */
+  const totals = useMemo(() => {
+    const km = activeLine?.totalKm ?? day?.route.plannedKm ?? null;
+    if (km == null) return null;
+    const min = activeLine?.totalMin ?? null;
+    const hours =
+      min == null ? "" : min >= 60 ? `${Math.floor(min / 60)} год ${min % 60} хв` : `${min} хв`;
+    return { km: String(km).replace(".", ","), hours };
+  }, [activeLine, day?.route.plannedKm]);
 
   const routeDone = planStops.filter((s) => s.status !== "PENDING").length;
   const routeDay = day?.route.day ?? day?.day ?? "";
@@ -428,8 +543,17 @@ export default function DriverMapScreen() {
               style={{ background: "none", border: "none", minHeight: "48px" }}
             >
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
-                {routeCount > 0 ? `Точки маршруту · ${routeDone} з ${routeCount}` : "Фільтр за станом"}
+                {routeCount > 0 ? `Маршрут · ${routeDone} з ${routeCount}` : "Фільтр за станом"}
               </span>
+              {routeCount > 0 && (
+                <span style={{ fontSize: "12px", color: "#6B7280" }}>
+                  {lineLoading
+                    ? "рахую дорогу…"
+                    : totals
+                      ? `${totals.km} км · ${totals.hours}`
+                      : ""}
+                </span>
+              )}
               {/* Про вилетілі точки кажемо, лише коли відкрито маршрут: у
                   режимі перегляду бази число «приблизних» цікавить менше,
                   а тут воно пояснює, чому пін стоїть за 400 км. */}
@@ -460,10 +584,48 @@ export default function DriverMapScreen() {
 
             {sheetOpen && (
               <div className="px-3 pb-3" style={{ maxHeight: "52vh", overflowY: "auto" }}>
-                {planStops.length > 0 && (
+                {orderedStops.length > 0 && (
                   <>
-                    <div style={{ borderTop: "1px solid #F1F1EF" }}>
-                      {planStops.map((s) => (
+                    {/* Порядок обʼїзду. Номери в листі 1С — це порядок РЯДКІВ
+                        У ДОКУМЕНТІ, а не дорога: той самий район вони
+                        обходять за 900 км замість двохсот. Досвідчений водій
+                        їде по-своєму, новий — читає номери як маршрут, тому
+                        поруч показуємо, скільки виходить найкоротшим. */}
+                    <div
+                      className="mt-2 flex gap-1 rounded-full p-1"
+                      style={{ background: "#F3F4F6" }}
+                    >
+                      {(
+                        [
+                          { key: "sheet", label: "Порядок листа" },
+                          { key: "optimal", label: "Найкоротший" },
+                        ] as Array<{ key: "sheet" | "optimal"; label: string }>
+                      ).map((o) => {
+                        const on = order === o.key;
+                        return (
+                          <button
+                            key={o.key}
+                            type="button"
+                            onClick={() => setOrder(o.key)}
+                            aria-pressed={on}
+                            className="flex-1 cursor-pointer rounded-full transition-colors duration-200"
+                            style={{
+                              minHeight: "36px",
+                              border: "none",
+                              background: on ? "#0A0A0A" : "transparent",
+                              color: on ? "#fff" : "#374151",
+                              fontSize: "12.5px",
+                              fontWeight: on ? 700 : 500,
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-2" style={{ borderTop: "1px solid #F1F1EF" }}>
+                      {orderedStops.map((s, i) => (
                         <button
                           key={s.key}
                           type="button"
@@ -513,6 +675,17 @@ export default function DriverMapScreen() {
                               style={{ fontSize: "12.5px", fontWeight: 600, color: "#374151" }}
                             >
                               {money.format(s.amount)} ₴
+                            </span>
+                          )}
+                          {/* Скільки їхати ДО НАСТУПНОЇ. Саме це питання
+                              ставить новий водій, дивлячись на список: не
+                              «скільки всього», а «встигну до обіду». */}
+                          {!!legs[i] && (
+                            <span
+                              className="shrink-0"
+                              style={{ fontSize: "11.5px", color: "#9CA3AF", marginLeft: "6px" }}
+                            >
+                              ↓ {legs[i].distanceKm} км
                             </span>
                           )}
                         </button>

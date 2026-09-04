@@ -14,6 +14,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import { clampToUkraine } from "@/components/map/MapFrame";
+import { planCore } from "@/lib/maps/plan-core";
 
 /** Що торговий може зробити з точки, крім переходу в картку. */
 export type SalesMapAction =
@@ -108,38 +109,6 @@ export type DayPlan = {
   geometry: { type: string; coordinates: [number, number][] } | null;
   stops: PlanStop[];
 } | null;
-
-/**
- * Точки маршруту, які справді лежать поруч.
- *
- * Денний маршрут — це область і сусідні райони. Але серед координат
- * трапляються вилетілі: клієнт, геокодований лише до назви міста, яких в
- * Україні кілька, стає піном за 400 км. Одного такого досить, щоб
- * fitBounds розтягнув карту на пів країни — водій відкриває маршрут і
- * бачить не свій обʼїзд, а Європу.
- *
- * Тому вікно рахуємо по тих, хто в межах ~130 км від медіани, а вилетілі
- * лишаємо намальованими: вони не зникають, просто не командують масштабом.
- * Медіана, а не середнє: середнє саме поїде за викидом.
- *
- * Те саме правило рахує підказку «N точок стоять далеко» на екрані водія —
- * тому воно й експортоване, а не сховане в компоненті.
- */
-export function planCore<T extends { lat: number; lng: number }>(stops: T[]): T[] {
-  if (stops.length < 3) return stops;
-
-  const median = (xs: number[]) => {
-    const sorted = [...xs].sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
-  };
-  const lat0 = median(stops.map((s) => s.lat));
-  const lng0 = median(stops.map((s) => s.lng));
-
-  // 1.2° широти ≈ 130 км; по довготі на широті України градус коротший,
-  // тому вікно ширше — 1.8°.
-  const near = stops.filter((s) => Math.abs(s.lat - lat0) <= 1.2 && Math.abs(s.lng - lng0) <= 1.8);
-  return near.length >= 2 ? near : stops;
-}
 
 /** Колір номерного піна за станом точки. */
 const PLAN_COLORS: Record<PlanStop["status"], { bg: string; fg: string }> = {
@@ -531,7 +500,16 @@ export default function SalesClientsMap({
       bounds.extend([c.lat, c.lng]);
     });
 
-    plan?.stops.forEach((stop) => {
+    /**
+     * Номерні піни теж розводимо.
+     *
+     * У містечку на кшталт Новояворівська п'ять точок стоять в одному
+     * кварталі, а частина взагалі має однакові координати (геокод до
+     * вулиці). Без розведення видно один квадрат, і водій рахує, що точок
+     * менше, ніж є. Зсув — метрів тридцять; дорога від цього не міняється,
+     * бо посилання в попапі несе СПРАВЖНЮ координату точки, а не зсунуту.
+     */
+    spread(plan?.stops ?? []).forEach((stop) => {
       const marker = L.marker([stop.lat, stop.lng], { icon: planIcon(stop), zIndexOffset: 1000 })
         .bindPopup(planPopupHtml(stop), { minWidth: 190 })
         .addTo(group);

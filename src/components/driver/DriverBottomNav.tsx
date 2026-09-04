@@ -10,6 +10,11 @@ import { TabBar, type TabDef } from "@/components/cabinet/TabBar";
  * потрапляв у кабінет покупця, де його підписували як «Клієнт». Тут лише те,
  * що потрібно на маршруті.
  *
+ * Друга вкладка звалася «Клієнти», поки була просто картою бази. Тепер на
+ * ній лежить відкритий маршрутний лист — лінією й пронумерованими точками,
+ * — і новий водій, якому саме туди й треба по огляд дня, під назвою
+ * «Клієнти» цього не шукав.
+ *
  * Меню є на ВСІХ екранах водія, включно з картою дня. Спершу на
  * /driver/tablet його ховали заради висоти карти, а вихід дали кнопкою в
  * шапці — але водій на планшеті шукає перехід унизу, там, де він на решті
@@ -17,7 +22,7 @@ import { TabBar, type TabDef } from "@/components/cabinet/TabBar";
  */
 const tabs: TabDef[] = [
   { href: "/driver", label: "Сьогодні", icon: <Truck size={22} />, exact: true },
-  { href: "/driver/map", label: "Клієнти", icon: <Map size={22} /> },
+  { href: "/driver/map", label: "Карта", icon: <Map size={22} /> },
   { href: "/driver/history", label: "Історія", icon: <History size={22} /> },
   { href: "/driver/profile", label: "Акаунт", icon: <User size={22} /> },
 ];

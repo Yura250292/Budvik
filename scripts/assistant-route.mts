@@ -1,0 +1,106 @@
+/**
+ * Що піде без моделі, а що — до неї.
+ *
+ * Розпізнавач намірів мовчазний за побудовою: коли шаблон не збігся, він
+ * просто повертає null, і питання йде моделі. Помітити, що звичне питання
+ * раптом перестало впізнаватись (і почало коштувати токенів), інакше
+ * неможливо — тому цей прогін.
+ *
+ *   npx tsx scripts/assistant-route.mts            — контрольний список
+ *   npx tsx scripts/assistant-route.mts "питання"  — одне питання
+ */
+
+import { detectIntent } from "../src/lib/assistant/router";
+
+const CASES = [
+  "Сплануй мій день",
+  "Сплануй день на завтра",
+  "Кого сьогодні відвідати",
+  "Кому сьогодні нагадати про борг",
+  "Скільки в мене простроченої дебіторки?",
+  "Хто винен найбільше",
+  "Хто з моїх клієнтів давно не брав",
+  "Які мертві товари можу розпрацювати",
+  "Мертвий залишок по бренду APRO",
+  "Скільки я продав за тиждень",
+  "Як мій план",
+  "Куди я їжджу в четвер",
+  "Мій маршрут на вівторок",
+  "З чим заходити до Химича",
+  "З чим зайти до Кунанця?",
+  "Що запропонувати Рудьку",
+  "Скільки винен Кунанець",
+  "Що з Левковичем",
+  "Чи є в наявності піна монтажна",
+  "Яка ціна на круг відрізний 125",
+  "Скільки в мене повернень",
+  "Хто найбільше повертає товар",
+  "Як я на фоні команди",
+  "Де я провисаю проти інших",
+  "Хто тримає мій оборот",
+  "Мої найважливіші клієнти",
+];
+
+const HARD = [
+  "Чи давати Химичу відстрочку?",
+  "Чому в мене впав оборот проти минулого місяця?",
+  "Порівняй Кунанця і Химича — з ким вигідніше працювати",
+  "Що зробити, щоб закрити план до кінця місяця?",
+  "Склади мені лист клієнту про борг",
+];
+
+/** Питання водія: у нього інший, набагато вужчий набір. */
+const DRIVER_CASES = [
+  "Що в мене сьогодні на маршруті",
+  "Скільки грошей забрати сьогодні",
+  "Скільки в касі",
+  "Скільки лишилось точок",
+  "Куди мені їхати",
+  "Скільки винен Кунанець",
+  "Чи є в наявності піна монтажна",
+];
+
+/** Питання торгового, на які водієві відповідати нічим. */
+const DRIVER_NOT_MINE = [
+  "Скільки я продав за тиждень",
+  "Хто тримає мій оборот",
+  "Як я на фоні команди",
+  "Які мертві товари можу розпрацювати",
+];
+
+const args = process.argv.slice(2);
+
+const show = (q: string, hasHistory = false, kind: "SALES" | "DRIVER" = "SALES") => {
+  const intent = detectIntent(q, { hasHistory, kind });
+  const label = intent ? `${intent.kind}${JSON.stringify(intent).replace(/^\{"kind":"[A-Z_]+"/, "").replace(/^,/, " ").replace(/\}$/, "")}` : "→ МОДЕЛЬ";
+  console.log(`  ${intent ? "код " : "AI  "} ${q.padEnd(46)} ${label}`);
+};
+
+if (args.length > 0) {
+  show(args[0]);
+  process.exit(0);
+}
+
+console.log("ТИПОВІ ПИТАННЯ (мають іти без моделі):");
+for (const q of CASES) show(q);
+
+console.log("\nСКЛАДНІ (мають іти до моделі):");
+for (const q of HARD) show(q);
+
+console.log("\nПОСИЛАННЯ НА ПОПЕРЕДНЮ РЕПЛІКУ (мають іти до моделі):");
+for (const q of ["А в нього який борг?", "А що з тим клієнтом", "Скільки він винен"]) show(q, true);
+
+console.log("\nВОДІЙ — типові питання (мають іти без моделі):");
+for (const q of DRIVER_CASES) show(q, false, "DRIVER");
+
+console.log("\nВОДІЙ — питання торгового (мають іти до моделі: даних немає):");
+for (const q of DRIVER_NOT_MINE) show(q, false, "DRIVER");
+
+const driverMissed = DRIVER_CASES.filter((q) => !detectIntent(q, { hasHistory: false, kind: "DRIVER" })).length;
+const driverLeak = DRIVER_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "DRIVER" })).length;
+console.log(`\nводій: без моделі ${DRIVER_CASES.length - driverMissed}/${DRIVER_CASES.length}; чужих звітів проскочило ${driverLeak}`);
+
+const missed = CASES.filter((q) => !detectIntent(q, { hasHistory: false })).length;
+const falsePositive = HARD.filter((q) => detectIntent(q, { hasHistory: false })).length;
+console.log(`\nбез моделі: ${CASES.length - missed}/${CASES.length} типових; хибних спрацювань на складних: ${falsePositive}`);
+process.exit(missed === 0 && falsePositive === 0 && driverMissed === 0 && driverLeak === 0 ? 0 : 1);

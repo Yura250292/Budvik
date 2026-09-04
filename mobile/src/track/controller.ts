@@ -129,7 +129,23 @@ export async function startTracking(
      * скарга буфера, і з сервера це виглядатиме як проблема з мережею.
      */
     await setMode(null);
-    await setStartError(e instanceof Error ? e.message : String(e));
+    const reason = e instanceof Error ? e.message : String(e);
+    await setStartError(reason);
+
+    /**
+     * Мовчазна смерть треку — найдорожча вада цього застосунку, і ось її
+     * кінець.
+     *
+     * Коли служба не піднімається з фону, з боку людини не змінюється НІЧОГО:
+     * картка в шторці зникає непомітно, застосунок виглядає робочим, а день
+     * пишеться в нікуди. 04.09 так минуло по пів дня у трьох торгових, і
+     * дізналися ми про це з бази, а не від них.
+     *
+     * Сповіщення не лікує причину — воно перетворює невидиму поламку на
+     * видиму, і людина може виправити її одним дотиком: відкрити застосунок.
+     * З переднього плану служба запускається завжди.
+     */
+    await warnRecordingDown();
     return false;
   }
 }
@@ -168,6 +184,29 @@ export async function ensureRecording(): Promise<boolean> {
    */
   if (tracking && mode === "SHIFT") return false;
   return startTracking("SHIFT");
+}
+
+/** Не частіше ніж раз на стільки нагадуємо, що запис не піднявся. */
+const WARN_EVERY_MS = 30 * 60_000;
+const WARN_KEY = "recordingDownWarnedAt";
+
+/**
+ * Каже людині, що трек стоїть, — але не частіше ніж раз на пів години.
+ *
+ * Сторож пробує підняти запис кожні 15 хвилин, і без цієї межі планшет
+ * дзвенів би цілий день. Пів години — компроміс: достатньо рідко, щоб не
+ * дратувати, і достатньо часто, щоб людина побачила це в межах однієї
+ * поїздки.
+ */
+async function warnRecordingDown(): Promise<void> {
+  if (!(await isShiftOpen().catch(() => false))) return;
+  const last = Number(await getMeta(WARN_KEY).catch(() => null)) || 0;
+  if (Date.now() - last < WARN_EVERY_MS) return;
+  await setMeta(WARN_KEY, String(Date.now())).catch(() => {});
+  await notifyNow(
+    "Трек зупинився",
+    "Відкрийте застосунок, щоб продовжити запис маршруту — система не дає запустити його у фоні."
+  );
 }
 
 export async function stopTracking(): Promise<void> {

@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   const day = route.day ?? requestedDay;
   const dayStart = kyivDayStart(day);
 
-  const [visits, trackSession, points, handovers] = await Promise.all([
+  const [visits, trackSession, points, handovers, myOrder] = await Promise.all([
     prisma.visit.findMany({
       where: { userId, day: dayStart },
       select: {
@@ -80,9 +80,41 @@ export async function GET(req: NextRequest) {
       select: { lat: true, lng: true, recordedAt: true, gapGeometry: true },
     }),
     handoversForDay(userId, dayStart),
+    /**
+     * Порядок, який водій склав собі на цей лист.
+     *
+     * Читаємо тут, а не тільки на карті: інакше два екрани того самого
+     * маршруту показують різного «наступного» — карта той, що водій
+     * перетягнув, а список дня той, що набив 1С. Людина довіряє тому, який
+     * бачить останнім, і їде не туди.
+     */
+    route.id
+      ? prisma.driverRouteOrder.findUnique({
+          where: { driverId_routeKey: { driverId: userId, routeKey: route.id } },
+          select: { stopKeys: true },
+        })
+      : null,
   ]);
 
-  const stops = attachVisits(route.stops, visits);
+  /**
+   * Розкладаємо точки за порядком водія.
+   *
+   * Ключі, яких він не чіпав (маршрут поповнили після збереження), їдуть у
+   * хвіст, а невідомі просто зникають — саме так, як це робить панель на
+   * карті. Порядок один на всі екрани, і живе він в одному місці.
+   */
+  const ordered = myOrder?.stopKeys.length
+    ? (() => {
+        const byKey = new Map(route.stops.map((st) => [st.key, st]));
+        const picked = myOrder.stopKeys
+          .map((k) => byKey.get(k))
+          .filter((st): st is (typeof route.stops)[number] => !!st);
+        const used = new Set(picked.map((st) => st.key));
+        return [...picked, ...route.stops.filter((st) => !used.has(st.key))];
+      })()
+    : route.stops;
+
+  const stops = attachVisits(ordered, visits);
 
   const done = stops.filter((s) => s.visit?.status === "DONE").length;
   const missed = stops.filter((s) => s.visit?.status === "MISSED").length;
@@ -95,7 +127,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     day,
     role: me.role,
-    route: { ...route, stops },
+    route: { ...route, stops, myOrder: !!myOrder?.stopKeys.length },
     progress: {
       total: stops.length,
       done,

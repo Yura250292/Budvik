@@ -46,6 +46,8 @@ type DayResp = {
     /** Ключ листа для адреси й карти: `dr:<id>` / `rs:<id>` */
     id: string | null;
     day: string | null;
+    /** Точки розкладено за порядком, який водій склав собі на карті */
+    myOrder?: boolean;
     number: string | null;
     vehicle: string | null;
     plannedKm: number | null;
@@ -571,6 +573,7 @@ function DriverDayScreen() {
               batch={batch}
               onChooseBatch={chooseBatch}
               readOnly={readOnly}
+              myOrder={!!data.route.myOrder}
               wholeRoute={mapLinks}
             />
           )}
@@ -640,6 +643,7 @@ function NextStopCard({
   batch,
   onChooseBatch,
   readOnly,
+  myOrder,
   wholeRoute,
 }: {
   /** Невідмічені точки за порядком обʼїзду, перша — найближча */
@@ -654,6 +658,8 @@ function NextStopCard({
   onChooseBatch: (n: NavBatch) => void;
   /** Минулий чи завтрашній день: їхати можна, відмічати — ні. */
   readOnly: boolean;
+  /** Точки йдуть у порядку, який водій склав собі на карті */
+  myOrder: boolean;
   wholeRoute: Array<{ url: string; points: number }>;
 }) {
   const [showWhole, setShowWhole] = useState(false);
@@ -689,6 +695,11 @@ function NextStopCard({
               рівно 32 разом із поточними, читається як помилка в рахунку. */}
           {left > chunk.length ? `далі ще ${pointsLabel(left - chunk.length)}` : "останні"}
         </span>
+        {/* Номери в списку тепер не збігаються з папером — треба сказати
+            чому, інакше це виглядає як збій. */}
+        {myOrder && (
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "#D97706" }}>ваш порядок</span>
+        )}
 
         {/* Вибір навігатора — тут, а не в налаштуваннях: його міняють раз у
             житті, але саме в ту мить, коли вперше тиснуть «Їхати». */}

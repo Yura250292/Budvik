@@ -81,3 +81,24 @@ export function formatToday(): string {
 export function formatWhen(iso: string): string {
   return run(WHEN, iso, "—");
 }
+
+/**
+ * Сьогоднішня київська доба у вигляді YYYY-MM-DD.
+ *
+ * en-CA дає рівно цей формат без ручного складання рядка; `toISOString()`
+ * тут не годиться — він віддає UTC, а київський день починається на дві-три
+ * години раніше, і ввечері дата була б учорашньою.
+ */
+export function kyivToday(): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    // Пристрій без ICU: краще вважати днем сьогодні, ніж заблокувати відмітки.
+    return new Date().toISOString().slice(0, 10);
+  }
+}

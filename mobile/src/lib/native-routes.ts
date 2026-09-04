@@ -21,16 +21,29 @@ const NATIVE_ROUTES: Array<[RegExp, "/day"]> = [
   [/^\/driver\/tablet\/?$/, "/day"],
 ];
 
-export function nativeRouteFor(url: string): "/day" | null {
+export function nativeRouteFor(url: string): string | null {
   if (!url.startsWith(API_BASE)) return null;
-  let path: string;
+  let parsed: URL;
   try {
-    path = new URL(url).pathname;
+    parsed = new URL(url);
   } catch {
     return null;
   }
   for (const [pattern, route] of NATIVE_ROUTES) {
-    if (pattern.test(path)) return route;
+    if (!pattern.test(parsed.pathname)) continue;
+
+    /**
+     * Параметри несемо з собою.
+     *
+     * Без них нативний екран показував би СЬОГОДНІШНІЙ день на будь-яке
+     * посилання — тобто водій, відкривши вчорашній лист, бачив би чужі
+     * точки під його номером і не помітив би підміни.
+     */
+    const route_ = parsed.searchParams.get("route");
+    const day = parsed.searchParams.get("day");
+    if (route_) return `${route}?route=${encodeURIComponent(route_)}`;
+    if (day) return `${route}?day=${encodeURIComponent(day)}`;
+    return route;
   }
   return null;
 }

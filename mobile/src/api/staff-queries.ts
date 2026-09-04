@@ -114,12 +114,19 @@ export function useShiftCurrent() {
  * Чергу віддаємо ПЕРЕД запитом: інакше сервер поверне день без відміток, які
  * водій уже зробив, і вони «зникнуть» з екрана.
  */
-export function useDay() {
+/**
+ * День водія. Порожні аргументи — сьогодні.
+ *
+ * Ключ кеша включає лист: відкривши вчорашній і повернувшись до
+ * сьогоднішнього, водій інакше побачив би вчорашні точки з кеша.
+ */
+export function useDay(opts?: { day?: string; route?: string }) {
+  const scope = opts?.route ?? opts?.day ?? "today";
   return useQuery({
-    queryKey: staffKeys.day,
+    queryKey: [...staffKeys.day, scope],
     queryFn: async (): Promise<DayResponse> => {
       await within(flushPendingVisits(), FLUSH_MS, 0);
-      return staffApi.day();
+      return staffApi.day(opts);
     },
     staleTime: 15_000,
   });

@@ -553,7 +553,15 @@ function DriverDayScreen() {
         </div>
       ) : (
         <>
-          {pending.length > 0 && !readOnly && (
+          {/*
+            Картка маршруту показується в БУДЬ-ЯКИЙ день, а не лише сьогодні.
+            Спершу її ховав той самий прапорець, що й кнопки відміток, — і
+            вийшло, що водій, відкривши вчорашній чи завтрашній лист, не міг
+            навіть побудувати дорогу. Але «відмітити» і «поїхати» — різні
+            дії: перша пише візит у відкриту добу й тому лишається тільки за
+            поточним днем, друга не міняє нічого взагалі.
+          */}
+          {pending.length > 0 && (
             <NextStopCard
               stops={pending}
               left={data.progress.left}
@@ -562,6 +570,7 @@ function DriverDayScreen() {
               onChooseNav={chooseNav}
               batch={batch}
               onChooseBatch={chooseBatch}
+              readOnly={readOnly}
               wholeRoute={mapLinks}
             />
           )}
@@ -630,6 +639,7 @@ function NextStopCard({
   onChooseNav,
   batch,
   onChooseBatch,
+  readOnly,
   wholeRoute,
 }: {
   /** Невідмічені точки за порядком обʼїзду, перша — найближча */
@@ -642,6 +652,8 @@ function NextStopCard({
   onChooseNav: (app: NavApp) => void;
   batch: NavBatch;
   onChooseBatch: (n: NavBatch) => void;
+  /** Минулий чи завтрашній день: їхати можна, відмічати — ні. */
+  readOnly: boolean;
   wholeRoute: Array<{ url: string; points: number }>;
 }) {
   const [showWhole, setShowWhole] = useState(false);
@@ -832,9 +844,11 @@ function NextStopCard({
       )}
 
       <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "8px", lineHeight: 1.5 }}>
-        {navApp === "waze"
-          ? "Waze веде до однієї точки за раз. Дорога почнеться там, де ви зараз."
-          : "Дорога почнеться там, де ви зараз. Відмітили точки — тут зʼявляться наступні."}
+        {readOnly
+          ? "Дорога почнеться там, де ви зараз. Відмітити точки цього дня не вийде — це робить офіс."
+          : navApp === "waze"
+            ? "Waze веде до однієї точки за раз. Дорога почнеться там, де ви зараз."
+            : "Дорога почнеться там, де ви зараз. Відмітили точки — тут зʼявляться наступні."}
       </p>
 
       {wholeRoute.length > 0 && (

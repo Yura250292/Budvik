@@ -446,8 +446,21 @@ export const staffApi = {
 
   /* ---------- День водія ---------- */
 
-  day: (day?: string) =>
-    staffRequest<DayResponse>(`/api/tablet/day${day ? `?day=${day}` : ""}`),
+  /**
+   * День водія. Без аргументів — сьогоднішній, який сервер знайде сам.
+   *
+   * `route` (ключ `dr:`/`rs:`) сильніший за дату: на одну добу маршрутних
+   * листів буває два, і доба як адреса показала б лише перший.
+   */
+  day: (opts?: { day?: string; route?: string }) =>
+    staffRequest<DayResponse>(
+      `/api/tablet/day` +
+        (opts?.route
+          ? `?route=${encodeURIComponent(opts.route)}`
+          : opts?.day
+            ? `?day=${encodeURIComponent(opts.day)}`
+            : "")
+    ),
 
   markVisit: (body: VisitInput) =>
     staffRequest<{ visit: { id: string } }>("/api/visits", { method: "POST", body }),

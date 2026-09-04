@@ -29,7 +29,7 @@ import {
   Linking,
   RefreshControl,
 } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { staffApi, type DayResponse, type DayStop } from "@/api/staff";
@@ -57,7 +57,7 @@ import { listPendingVisits, queueVisit, type PendingVisit } from "@/track/pendin
 import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/google-links";
 import { NAV_BATCHES, getNavApp, getNavBatch, setNavApp, setNavBatch, type NavBatch } from "@/lib/nav-app";
 import { within, PROBE_MS } from "@/lib/within";
-import { formatTime } from "@/lib/format-date";
+import { formatTime, kyivToday } from "@/lib/format-date";
 
 type Money = "FULL" | "PARTIAL" | "NONE" | "NOT_APPLICABLE";
 
@@ -74,7 +74,18 @@ export default function DayScreen() {
    * його під уже намальованим списком. Віддача черги лишилася в самому запиті —
    * порядок «спершу черга, потім день» від цього не змінився.
    */
-  const query = useDay();
+  /**
+   * Який день відкрито. Порожньо — сьогоднішній.
+   *
+   * Ключ листа приходить із кабінету (карта, список маршрутів, історія) і
+   * сильніший за дату: на одну добу листів буває два.
+   */
+  const params = useLocalSearchParams<{ route?: string; day?: string }>();
+  const openedRoute = typeof params.route === "string" ? params.route : undefined;
+  const openedDay = openedRoute ? undefined : typeof params.day === "string" ? params.day : undefined;
+  const router = useRouter();
+
+  const query = useDay({ route: openedRoute, day: openedDay });
   const data = query.data ?? null;
   const error = query.isError;
 
@@ -155,6 +166,19 @@ export default function DayScreen() {
   );
 
   const stops = useMemo(() => data?.route?.stops ?? [], [data?.route?.stops]);
+
+  /**
+   * Відкритий день не сьогоднішній — відмітки лише читаються.
+   *
+   * Кнопка «Приїхав» пише візит у ТУ добу, яка відкрита на екрані. Водій,
+   * що зайшов подивитися вчорашній лист і забув повернутися, датував би
+   * сьогоднішні доставки вчора, і помітили б це аж на розрахунку.
+   *
+   * Дорога при цьому лишається: «поїхати» нічого не змінює, і забороняти
+   * її разом із відмітками — саме та вада, через яку водій на тесті не міг
+   * побудувати маршрут по завтрашньому листу.
+   */
+  const readOnly = !!data?.day && data.day !== kyivToday();
   const queuedKeys = useMemo(() => new Set(queued.map((q) => q.stopKey)), [queued]);
 
   /** Відмічена — це або відмітка з сервера, або та, що чекає в черзі. */
@@ -311,6 +335,20 @@ export default function DayScreen() {
               День не завантажився. Маршрут і трек від цього не залежать — запис іде далі.
             </Body>
           </Card>
+        </View>
+      )}
+
+      {/*
+        Смуга дня, який не сьогодні. Під шапкою, а не всередині списку:
+        водій має побачити її раніше, ніж дотягнеться до першої точки.
+      */}
+      {readOnly && (
+        <View style={[s.block, s.headBlock]}>
+          <Callout tone="info" icon="clock" title={`Маршрут за ${data?.day ?? "інший день"}`}>
+            Це лише перегляд: відмітити точки можна тільки в поточному дні, минуле виправляє офіс.
+            Дорогу побудувати можна — кнопка нижче працює.
+          </Callout>
+          <Button tone="outline" label="До сьогоднішнього маршруту" onPress={() => router.replace("/day")} />
         </View>
       )}
 
@@ -498,6 +536,7 @@ export default function DayScreen() {
             stop={item}
             queued={queuedKeys.has(item.key)}
             expanded={openKey === item.key}
+            readOnly={readOnly}
             onToggle={() => setOpenKey(openKey === item.key ? null : item.key)}
             onMark={mark}
           />
@@ -619,12 +658,15 @@ function StopRow({
   stop,
   queued,
   expanded,
+  readOnly,
   onToggle,
   onMark,
 }: {
   stop: DayStop;
   queued: boolean;
   expanded: boolean;
+  /** Минулий чи завтрашній день: точку видно, відмітити не можна */
+  readOnly: boolean;
   onToggle: () => void;
   onMark: (
     s: DayStop,
@@ -714,7 +756,31 @@ function StopRow({
         )}
       </Pressable>
 
-      {expanded && !marked && (
+      {/* Минулий день: показуємо, що було, і дорогу — без кнопок відміток. */}
+      {expanded && readOnly && (
+        <View style={s.panel}>
+          <Body>
+            {stop.visit?.status === "DONE"
+              ? "Точку відмічено як пройдену."
+              : stop.visit?.status === "MISSED"
+                ? "Того дня в точку не потрапили."
+                : "Відмітки за цю точку немає."}
+          </Body>
+          {stop.lat != null && stop.lng != null && (
+            <Pressable
+              style={[s.mapLink, s.mapLinkPrimary]}
+              onPress={() =>
+                Linking.openURL(pointUrl({ lat: stop.lat as number, lng: stop.lng as number }))
+              }
+            >
+              <Icon name="navigation" size={16} color={c.onDark} />
+              <Text style={[s.mapLinkLabel, { color: c.onDark }]}>Відкрити в Google Maps</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {expanded && !marked && !readOnly && (
         <View style={s.panel}>
           {/*
             Точка без клієнта — недороблений маршрут, а не збій планшета.

@@ -423,7 +423,9 @@ export default function CabinetScreen() {
 
           const native = nativeRouteFor(req.url);
           if (native) {
-            router.push(native);
+            // Рядок із параметрами — expo-router типізує шляхи літералами,
+            // а наш складається під час виконання (несе ключ листа).
+            router.push(native as Parameters<typeof router.push>[0]);
             return false;
           }
           return req.url.startsWith(API_BASE);

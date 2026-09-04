@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
        * питають з торгового.
        */
       const afterWorkKm = forgotten
-        ? await recountAfterWorkKm(forgotten.id, forgotten.endedAt)
+        ? await recountAfterWorkKm(forgotten.id, forgotten.startedAt, forgotten.endedAt)
         : null;
 
       const forgottenClosed = forgotten

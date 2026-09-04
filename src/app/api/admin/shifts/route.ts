@@ -67,6 +67,11 @@ export async function GET(req: NextRequest) {
       distanceKm: true,
       durationMinutes: true,
       gpsDistanceKm: true,
+      // Розклад пробігу: скільки з нього намалювало тремтіння на стоянці.
+      // Без цього числа «чому вчора було 82, а сьогодні 64» не пояснити.
+      stopKm: true,
+      walkKm: true,
+      filledKm: true,
       odometerToGpsRatio: true,
       personalKm: true,
       odometerSuspicious: true,

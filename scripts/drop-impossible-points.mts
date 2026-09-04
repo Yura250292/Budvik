@@ -32,7 +32,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { isImpossibleFix, haversineM } from "../src/lib/track/geo";
 import { kyivDayStart } from "../src/lib/date/kyiv";
-import { gpsKmBetween } from "../src/lib/shift/late-close";
+import { recountShiftTrack } from "../src/lib/shift/recount";
 
 const hm = (d: Date) =>
   d.toLocaleString("uk-UA", { timeZone: "Europe/Kyiv", hour12: false });
@@ -144,16 +144,11 @@ async function main() {
         gpsDistanceKm: { not: null },
         points: { some: { sessionId: session.id } },
       },
-      select: { id: true, startedAt: true, endedAt: true, gpsDistanceKm: true },
+      select: { id: true, startedAt: true, endedAt: true, gpsDistanceKm: true, distanceKm: true },
     });
     for (const shift of shifts) {
-      const workKm = await gpsKmBetween(shift.id, shift.startedAt, shift.endedAt);
-      const afterWorkKm = shift.endedAt ? await gpsKmBetween(shift.id, shift.endedAt, null) : null;
-      await prisma.shift.update({
-        where: { id: shift.id },
-        data: { gpsDistanceKm: workKm, ...(shift.endedAt ? { afterWorkKm } : {}) },
-      });
-      console.log(`    пробіг зміни: ${shift.gpsDistanceKm} → ${workKm} км`);
+      const r = await recountShiftTrack(shift, { apply: true });
+      console.log(`    пробіг зміни: ${r.before} → ${r.after} км`);
     }
   }
 

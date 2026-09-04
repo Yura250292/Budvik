@@ -67,14 +67,39 @@ export type OdometerRead = {
  * temperature: 0, а не 0.1 як у накладних — тут одна правильна
  * відповідь, і творчість моделі шкідлива.
  */
+/**
+ * Підказка з попереднього показання.
+ *
+ * Найчастіша помилка моделі — не остання цифра, а ПЕРША: у Кулика вона
+ * чотири рази прочитала 51047, 752181, 152632 і 155902 замість 351647,
+ * 352181, 352632 і 353279. Тобто число правильне з другої цифри, а першу
+ * модель або губить, або вигадує. Людина ловила це щоразу, але не тому, що
+ * бачила краще — вона просто знала, скільки було вчора.
+ *
+ * Тепер це знає й модель. Свідомо м'яко: підказка, а не правило, і межа
+ * широка (600 км), щоб чесний довгий день не змушував модель підганяти
+ * число під очікування.
+ */
+function rangeHint(previousValue: number | null | undefined): string {
+  if (previousValue == null) return "";
+  return (
+    `\n\nПІДКАЗКА: попереднє показання цього автомобіля — ${previousValue}. ` +
+    `Очікуване число зазвичай між ${previousValue} і ${previousValue + 600}, ` +
+    `і майже завжди має стільки ж цифр. Якщо прочитане сильно менше — ти, ` +
+    `найімовірніше, загубив ПЕРШУ цифру: перевір її окремо. Але НЕ підганяй ` +
+    `число під підказку: якщо на табло справді інше — поверни те, що бачиш.`
+  );
+}
+
 export async function readOdometerImage(
   base64: string,
-  mimeType: string
+  mimeType: string,
+  opts: { previousValue?: number | null } = {}
 ): Promise<{ read: OdometerRead; raw: unknown; model: string; usedFallback: boolean }> {
   const out = await callGeminiVision({
     base64,
     mimeType,
-    systemPrompt: ODOMETER_SYSTEM_PROMPT,
+    systemPrompt: ODOMETER_SYSTEM_PROMPT + rangeHint(opts.previousValue),
     userText: "Прочитай загальний пробіг (одометр) на цій приладовій панелі.",
     generationConfig: { temperature: 0, maxOutputTokens: 512 },
     label: "odometer",

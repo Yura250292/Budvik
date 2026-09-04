@@ -34,6 +34,9 @@ type ShiftRow = {
   distanceKm: number | null;
   durationMinutes: number | null;
   gpsDistanceKm: number | null;
+  stopKm: number | null;
+  walkKm: number | null;
+  filledKm: number | null;
   odometerToGpsRatio: number | null;
   personalKm: number | null;
   odometerSuspicious: boolean;
@@ -235,25 +238,32 @@ function sumKm(rows: ShiftRow[]): number {
 }
 
 /**
- * Що означає число в колонці «Збіг».
+ * Що означає число в колонці «Збіг» — одометр, поділений на трек.
  *
- * Саме по собі «0.97» не каже нічого — треба ще пам'ятати, який бік
- * добрий. Трек іде по прямій між точками, тож він завжди коротший за
- * одометр: усе, що менше одиниці, означає помилку в показах.
+ * Норма тут близько ОДИНИЦІ, і так стало з 05.09.2026. До того трек рахував
+ * усі метри підряд, разом із тремтінням приймача на стоянках, і виходив
+ * БІЛЬШИМ за одометр — звідси й стара вилка 1..2,5. Тепер у пробіг іде лише
+ * їзда на довірених фіксах, тож обидва числа міряють одне й те саме.
+ *
+ * Лишається природний люфт: у русі GPS трохи додає шумом, а на розривах,
+ * навпаки, недобирає. Обидва боки однаково цікаві. Менше 0,8 — трек
+ * намалював більше, ніж проїхала машина. Більше 1,3 — кілометри в одометрі
+ * є, а треку до них немає: саме той випадок, коли день не записався.
  */
-/**
- * Колір числа «Збіг» — той самий поріг, що й у рядку зміни (1..2,5).
- * Виписаний функцією, щоб список і підсумок не розійшлися при правці.
- */
+const RATIO_MIN = 0.8;
+const RATIO_MAX = 1.3;
+
 function ratioColor(ratio: number | null): string {
   if (ratio == null) return "#9CA3AF";
-  return ratio < 1 || ratio > 2.5 ? "#DC2626" : "#16A34A";
+  return ratio < RATIO_MIN || ratio > RATIO_MAX ? "#DC2626" : "#16A34A";
 }
 
 function ratioHint(ratio: number | null): string {
   if (ratio == null) return "Нема з чим порівняти: немає або одометра, або треку";
-  if (ratio < 1) return "Одометр менший за трек — так не буває, перевірте покази";
-  if (ratio > 2.5) return "Трек утричі коротший за одометр: або дірки в треку, або зайві кілометри";
+  if (ratio < RATIO_MIN)
+    return "Трек довший за одометр: шумний приймач або домальовка розривів";
+  if (ratio > RATIO_MAX)
+    return "Кілометри є, а треку до них немає: запис уривався або стояв";
   return "У межах норми";
 }
 
@@ -623,7 +633,11 @@ export function ShiftsTab({
                       <td style={tdR}>
                         {s.gpsDistanceKm != null ? `${s.gpsDistanceKm} км` : "—"}
                         <span style={{ display: "block", fontSize: 11, color: "#9CA3AF" }}>
-                          {s.pointsCount > 0 ? `${s.pointsCount} точок` : "треку немає"}
+                          {s.pointsCount === 0
+                            ? "треку немає"
+                            : s.stopKm != null && s.stopKm >= 1
+                              ? `${s.pointsCount} точок · ${s.stopKm} км на місці`
+                              : `${s.pointsCount} точок`}
                         </span>
                       </td>
 
@@ -734,10 +748,16 @@ export function ShiftsTab({
                 число одне, зрозуміти, скільки з нього справжня дорога,
                 неможливо.
               */
+              /*
+                «За треком» — це вже ЛИШЕ їзда: ходьба й тремтіння на стоянці
+                в пробіг не входять із 05.09.2026. Тому підказка показує не
+                склад числа, а те, що з нього ВИКИНУТО, — інакше різницю з
+                учорашньою карткою нічим пояснити.
+              */
               hint={
                 detail.track.shift.movement
-                  ? `автом ${detail.track.shift.movement.DRIVE.km} км · пішки й на місці ` +
-                    `${Math.round((detail.track.shift.movement.WALK.km + detail.track.shift.movement.STOP.km) * 10) / 10} км`
+                  ? `без ${Math.round((detail.track.shift.movement.WALK.km + detail.track.shift.movement.STOP.km) * 10) / 10} км ` +
+                    `ходьби й стоянки · ${detail.track.shift.pointsCount} точок`
                   : `${detail.track.shift.pointsCount} точок`
               }
             />
@@ -748,21 +768,11 @@ export function ShiftsTab({
                   ? detail.shift.odometerToGpsRatio.toFixed(2)
                   : "—"
               }
-              hint={
-                detail.shift.odometerToGpsRatio == null
-                  ? "нема з чим порівняти"
-                  : detail.shift.odometerToGpsRatio < 1
-                    ? "одометр менший за трек — так не буває"
-                    : detail.shift.odometerToGpsRatio > 2.5
-                      ? "розрив завеликий"
-                      : "у межах норми"
-              }
+              hint={ratioHint(detail.shift.odometerToGpsRatio)}
               color={
                 detail.shift.odometerToGpsRatio == null
                   ? undefined
-                  : detail.shift.odometerToGpsRatio < 1 || detail.shift.odometerToGpsRatio > 2.5
-                    ? "#DC2626"
-                    : "#16A34A"
+                  : ratioColor(detail.shift.odometerToGpsRatio)
               }
             />
             <Metric

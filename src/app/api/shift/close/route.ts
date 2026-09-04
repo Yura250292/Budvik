@@ -10,8 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { OdometerSource } from "@prisma/client";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
-import { findLastFinished, gpsDistanceForShift, summarize } from "@/lib/shift/service";
-import { MAX_DAILY_KM } from "@/lib/odometer/validate";
+import {
+  findLastFinished,
+  computeShiftTrackFields,
+  isOdometerSuspicious,
+  summarize,
+} from "@/lib/shift/service";
 import { notifyShiftClosed } from "@/lib/shift/telegram-report";
 import { afterResponse } from "@/lib/http/after-response";
 
@@ -78,16 +82,28 @@ export async function POST(req: NextRequest) {
   const distanceKm = odometer - shift.startOdometer;
   const durationMinutes = Math.round((endedAt.getTime() - shift.startedAt.getTime()) / 60_000);
 
-  const gpsKm = await gpsDistanceForShift(shift.id);
+  /**
+   * Трек рахуємо вже з новим часом закінчення: `endedAt` щойно проставлено,
+   * і саме він відділяє робочі кілометри від вечірніх.
+   */
+  const track = await computeShiftTrackFields({ ...shift, endedAt });
+  const gpsKm = track.driveKm;
   const ratio = gpsKm != null && gpsKm > 0 ? Math.round((distanceKm / gpsKm) * 100) / 100 : null;
 
   /**
-   * Підозра — не вирок, а мітка «подивись». Від'ємний пробіг фізично
-   * неможливий, нульовий означає, що машина не рухалась, а понад
-   * MAX_DAILY_KM за день не проїде ніхто з розвозом по області.
+   * Підозра — не вирок, а мітка «подивись». Правило спільне з трьома
+   * іншими шляхами закриття (`isOdometerSuspicious`), щоб однакові зміни
+   * не позначалися по-різному залежно від того, ЯК їх закрили.
    */
-  const odometerSuspicious =
-    distanceKm < 0 || distanceKm > MAX_DAILY_KM || (distanceKm === 0 && durationMinutes > 60);
+  const pointsCount = await prisma.trackPoint.count({ where: { shiftId: shift.id } });
+  const odometerSuspicious = isOdometerSuspicious({
+    distanceKm,
+    durationMinutes,
+    trackDriveKm: track.driveKm,
+    // Трек цілий, якщо він дожив до закриття: людина фотографує одометр у
+    // ту саму мить, тож свіжість перевіряти нема потреби — досить обсягу.
+    trackComplete: pointsCount >= 100,
+  });
 
   const updated = await prisma.shift.update({
     where: { id: shift.id },
@@ -106,7 +122,7 @@ export async function POST(req: NextRequest) {
       endLng: typeof body.lng === "number" ? body.lng : null,
       distanceKm: distanceKm >= 0 ? distanceKm : null,
       durationMinutes,
-      gpsDistanceKm: gpsKm,
+      ...track,
       odometerToGpsRatio: ratio,
       odometerSuspicious,
     },
@@ -127,7 +143,26 @@ export async function POST(req: NextRequest) {
   // разу було стільки», без другого запиту.
   const previous = await findLastFinished(userId);
 
+  /**
+   * Сказати людині, поки вона ще в машині.
+   *
+   * Ручне введення не проходить через розпізнавання, тобто повз усі
+   * перевірки: діапазон — і все. Саме цим шляхом ідуть найдорожчі описки.
+   * 03.09 Джумага закрив дев'ятигодинну зміну з різницею 18 км при 94 км за
+   * треком, 26.08 — 468 км при 105. Обидва числа правдоподібні самі по
+   * собі й неправдоподібні поруч із маршрутом.
+   *
+   * Не блокуємо: трек — здогадка, а зміну закрити треба завжди. Але мовчати
+   * теж не можна: за годину людина вже не згадає, що було на табло.
+   */
+  const trackWarning =
+    odometerSuspicious && gpsKm != null && gpsKm > 5 && distanceKm >= 0 && pointsCount >= 100
+      ? `За маршрутом виходить ${gpsKm} км, а за одометром ${distanceKm} км. ` +
+        `Перевірте показання — офіс уточнить.`
+      : null;
+
   return NextResponse.json({
+    warning: trackWarning,
     shift: summarize(updated),
     comparison: {
       distanceKm: updated.distanceKm,

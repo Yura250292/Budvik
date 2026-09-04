@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
-import { findLastFinished, gpsDistanceForShift, summarize, ABANDON_AFTER_HOURS } from "@/lib/shift/service";
+import { findLastFinished, shiftTrackKm, summarize, ABANDON_AFTER_HOURS } from "@/lib/shift/service";
 import { REOPEN_WINDOW_HOURS } from "@/lib/shift/confirm";
 import { kyivHour } from "@/lib/date/kyiv";
 
@@ -59,7 +59,8 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  const gpsKm = open ? await gpsDistanceForShift(open.id) : null;
+  const track = open ? await shiftTrackKm(open.id, open.startedAt, null) : null;
+  const gpsKm = track ? track.driveKm : null;
   /**
    * Скільки точок уже записано за зміну.
    *

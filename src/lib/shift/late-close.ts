@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { haversineM } from "@/lib/track/geo";
+import { shiftTrackKm } from "@/lib/shift/service";
 
 /**
  * Скільки хвилин без руху вважаємо «робота скінчилася».
@@ -140,40 +141,17 @@ function gapBefore(points: Array<{ recordedAt: Date }>, idx: number): number {
  * Потрібно двічі: до endedAt — робочі, після — дорога додому й вечір.
  * Одометр такого розділення не дає в принципі, він знає лише підсумок
  * між двома фото.
+ *
+ * Рахує `shiftTrackKm` — та сама функція, що й у звичайному закритті. До
+ * 05.09 тут була власна арифметика, і вона давала ІНШЕ число: без відсіву
+ * слабких фіксів і разом із тремтінням на стоянках. Через це зміна,
+ * закрита автоматом, мала пробіг більший за таку саму, закриту з фото.
  */
 export async function gpsKmBetween(
   shiftId: string,
   from: Date | null,
   to: Date | null
 ): Promise<number | null> {
-  const points = await prisma.trackPoint.findMany({
-    where: {
-      shiftId,
-      ...(from || to
-        ? { recordedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
-        : {}),
-    },
-    orderBy: { recordedAt: "asc" },
-    select: { lat: true, lng: true, roadMetersFromPrev: true, metersFromPrev: true },
-  });
-
-  if (points.length < 2) return null;
-
-  let meters = 0;
-  for (let i = 1; i < points.length; i++) {
-    // Там, де розрив добито реальною дорогою, беремо її: пряма через
-    // півміста занижує пробіг саме на офлайнових ділянках.
-    const road = points[i].roadMetersFromPrev;
-    if (road != null) {
-      meters += road;
-      continue;
-    }
-    const straight = points[i].metersFromPrev;
-    meters +=
-      straight != null
-        ? straight
-        : haversineM(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
-  }
-
-  return Math.round(meters / 100) / 10;
+  const track = await shiftTrackKm(shiftId, from, to);
+  return track ? track.driveKm : null;
 }

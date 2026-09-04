@@ -35,7 +35,9 @@ export type OdometerVerdict = {
     | "too_far"
     | null;
   /** Не блокують, але людині варто глянути */
-  warnings: Array<"few_digits" | "low_confidence" | "zero_distance" | "below_previous">;
+  warnings: Array<
+    "few_digits" | "low_confidence" | "zero_distance" | "below_previous" | "far_from_track"
+  >;
   /** Пробіг відносно точки відліку, якщо вона відома */
   deltaKm: number | null;
 };
@@ -48,7 +50,31 @@ export type ValidateContext = {
   previousValue?: number | null;
   /** Чи це закриття зміни: там від'ємна різниця неможлива в принципі */
   isClosing?: boolean;
+  /**
+   * Скільки кілометрів проїхано за треком (лише їзда), якщо трек цілий.
+   *
+   * Друга думка про число, і єдина, яка в нас є. У Джумаги всі показання
+   * вводяться руками, і 03.09 він закрив дев'ятигодинну зміну з різницею
+   * 18 км при 94 км за треком — описка в одній цифрі, якої не бачив ніхто.
+   * Зворотний випадок 26.08: 468 км одометра проти 105 за треком.
+   *
+   * Порівнювати можна лише з ПОВНИМ треком: у дні, коли запис уривався,
+   * менше число за GPS — норма, і сваритися на нього означало б навчити
+   * людей ігнорувати попередження.
+   */
+  trackDriveKm?: number | null;
+  trackComplete?: boolean;
 };
+
+/**
+ * У скільки разів одометр може розійтися з треком, поки це ще не дивно.
+ *
+ * Знизу вдвічі, зверху втричі — навмисно ширше за колір у картці (0,8–1,3):
+ * там це підказка для ока, тут — попередження людині в машині, і хибне
+ * спрацювання коштує довіри до всіх інших.
+ */
+const TRACK_MIN_RATIO = 0.5;
+const TRACK_MAX_RATIO = 3;
 
 export function validateOdometer(
   read: OdometerRead,
@@ -86,6 +112,21 @@ export function validateOdometer(
       return { ok: false, value: read.value, reason: "too_far", warnings, deltaKm };
     }
     if (deltaKm === 0) warnings.push("zero_distance");
+  }
+
+  /**
+   * Трек як друга думка. Не блокує НІКОЛИ: він сам буває неповним, і
+   * зупинити людину на закритті зміни через здогадку було б гірше за
+   * помилку в цифрі, яку офіс однаково побачить у звірці.
+   */
+  if (
+    deltaKm != null &&
+    ctx.trackComplete &&
+    ctx.trackDriveKm != null &&
+    ctx.trackDriveKm > 5 &&
+    (deltaKm < ctx.trackDriveKm * TRACK_MIN_RATIO || deltaKm > ctx.trackDriveKm * TRACK_MAX_RATIO)
+  ) {
+    warnings.push("far_from_track");
   }
 
   if (read.digits != null && read.digits <= 4) warnings.push("few_digits");

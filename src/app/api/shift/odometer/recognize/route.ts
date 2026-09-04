@@ -17,6 +17,7 @@ import { uploadFile } from "@/lib/r2";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { readOdometerImage } from "@/lib/odometer/recognize";
 import { validateOdometer, verdictMessage } from "@/lib/odometer/validate";
+import { shiftTrackKm } from "@/lib/shift/service";
 
 export const dynamic = "force-dynamic";
 
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
   let read;
   let raw: unknown = null;
   try {
-    const out = await readOdometerImage(buffer.toString("base64"), mimeType);
+    const out = await readOdometerImage(buffer.toString("base64"), mimeType, { previousValue });
     read = out.read;
     raw = out.raw;
   } catch (e) {
@@ -120,9 +121,38 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  /**
+   * Друга думка про число — трек цієї ж зміни.
+   *
+   * Питати його є сенс лише при закритті: на відкритті пробігу ще немає.
+   * І лише коли трек ЦІЛИЙ — інакше попередження спрацьовувало б щоразу,
+   * коли запис уривався, тобто саме тоді, коли людина ні в чому не винна.
+   */
+  const track = openShift && phase === "END" ? await shiftTrackKm(openShift.id, openShift.startedAt, null) : null;
+  const lastPoint =
+    openShift && phase === "END"
+      ? await prisma.trackPoint.findFirst({
+          where: { shiftId: openShift.id },
+          orderBy: { recordedAt: "desc" },
+          select: { recordedAt: true },
+        })
+      : null;
+  /**
+   * «Цілий» — це коли трек дожив до цієї миті. Точка пишеться раз на
+   * хвилину, тож свіжість за півгодини означає, що запис не вмирав, а
+   * сотня точок відсіює дні з двох-трьох випадкових фіксів.
+   */
+  const trackComplete =
+    track != null &&
+    track.trustedCount >= 100 &&
+    lastPoint != null &&
+    Date.now() - lastPoint.recordedAt.getTime() < 30 * 60_000;
+
   const verdict = validateOdometer(read, {
     previousValue,
     isClosing: phase === "END",
+    trackDriveKm: track?.driveKm ?? null,
+    trackComplete,
   });
 
   const readRow = await prisma.shiftOdometerRead.create({

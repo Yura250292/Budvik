@@ -193,6 +193,7 @@ export async function buildShiftClosedMessage(
       distanceKm: true,
       durationMinutes: true,
       gpsDistanceKm: true,
+      stopKm: true,
       closedAutomatically: true,
       closedLate: true,
       lateCloseSource: true,
@@ -220,7 +221,13 @@ export async function buildShiftClosedMessage(
     `${closeHeadline(shift)} — ${personName(shift.user.name)}`,
     `🕗 ${kyivTime(shift.startedAt)}–${finished}${spent}`,
     odometerLine,
-    `📡 По трекеру: ${shift.gpsDistanceKm != null ? `${num(shift.gpsDistanceKm)} км` : "—"}`,
+    /**
+     * «По трекеру» — це лише їзда. Стоянку називаємо окремо й лише коли її
+     * помітно: інакше офіс порівнює два числа, з яких одне тихо включає
+     * тремтіння приймача, і різниця з одометром виглядає загадкою.
+     */
+    `📡 По трекеру: ${shift.gpsDistanceKm != null ? `${num(shift.gpsDistanceKm)} км` : "—"}` +
+      (shift.stopKm != null && shift.stopKm >= 1 ? ` (без ${num(shift.stopKm)} км на місці)` : ""),
     ordersLine(orders),
   ];
 

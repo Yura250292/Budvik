@@ -14,8 +14,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
-import { gpsKmBetween } from "@/lib/shift/late-close";
-import { MAX_DAILY_KM } from "@/lib/odometer/validate";
+import { computeShiftTrackFields, isOdometerSuspicious, shiftTrackKm } from "@/lib/shift/service";
 import { kyivTime } from "@/lib/date/kyiv";
 
 /** Звідки взявся час закінчення. Значення лягають у Shift.lateCloseSource. */
@@ -74,8 +73,7 @@ export async function closeWithoutPhoto(
    * робочі, після — дорога додому й вечір. Одометр цього не вміє в
    * принципі, він знає лише підсумок між двома фото.
    */
-  const workKm = await gpsKmBetween(shift.id, shift.startedAt, endedAt);
-  const afterWorkKm = await gpsKmBetween(shift.id, endedAt, null);
+  const track = await computeShiftTrackFields({ ...shift, endedAt });
 
   const durationMinutes = Math.round((endedAt.getTime() - shift.startedAt.getTime()) / 60_000);
 
@@ -90,8 +88,7 @@ export async function closeWithoutPhoto(
       // Прапорець «закрито не людиною» читає адмінка (бейдж «· авто») і
       // звіти ефективності водіїв — там він уже враховується.
       closedAutomatically: isAutomatic(source),
-      gpsDistanceKm: workKm,
-      afterWorkKm,
+      ...track,
       // Підозра стоїть, бо одометра немає. Причину видно з
       // lateCloseSource і notes — це не просто червоний прапорець.
       odometerSuspicious: true,
@@ -109,9 +106,17 @@ export async function closeWithoutPhoto(
  * треба перерахувати: інакше зайві кілометри лягають у робочі, і за них
  * питають з торгового.
  */
-export async function recountAfterWorkKm(shiftId: string, endedAt: Date | null): Promise<number | null> {
+export async function recountAfterWorkKm(
+  shiftId: string,
+  startedAt: Date,
+  endedAt: Date | null
+): Promise<number | null> {
   if (!endedAt) return null;
-  return gpsKmBetween(shiftId, endedAt, null);
+  // Саме `shiftTrackKm`, а не `computeShiftTrackFields`: тому потрібен лише
+  // вечір, а той порахував би заразом і робочий трек — двічі прочитавши
+  // тисячі точок на кожному відкритті зміни.
+  const after = await shiftTrackKm(shiftId, endedAt, null);
+  return after ? after.driveKm : null;
 }
 
 /**
@@ -142,24 +147,27 @@ export async function applyEndOdometer(
   const endedAt = opts.endedAt ?? shift.endedAt ?? new Date();
 
   /**
-   * Час міг зсунутися — тоді й розподіл кілометрів між роботою та
-   * вечором інший. Перераховуємо обидва числа, а не одне.
+   * Перераховуємо ЗАВЖДИ, а не лише коли зсунувся час.
+   *
+   * Одометр добивають зранку наступного дня — тобто через багато годин
+   * після закриття, і за цей час у зміну дійшов увесь хвіст буфера. Стара
+   * умова «лише якщо час змінився» лишала в картці пробіг, порахований на
+   * половині точок.
    */
-  const timeChanged = opts.endedAt != null && opts.endedAt.getTime() !== shift.endedAt?.getTime();
-  const workKm = timeChanged
-    ? await gpsKmBetween(shift.id, shift.startedAt, endedAt)
-    : shift.gpsDistanceKm;
-  const afterWorkKm = timeChanged
-    ? await gpsKmBetween(shift.id, endedAt, null)
-    : shift.afterWorkKm;
+  const track = await computeShiftTrackFields({ ...shift, endedAt });
+  const workKm = track.driveKm;
 
   const distanceKm = opts.endOdometer - shift.startOdometer;
   const durationMinutes = Math.round((endedAt.getTime() - shift.startedAt.getTime()) / 60_000);
   const ratio = workKm != null && workKm > 0 ? Math.round((distanceKm / workKm) * 100) / 100 : null;
 
-  // Те саме правило, що й у звичайному закритті (api/shift/close).
-  const odometerSuspicious =
-    distanceKm < 0 || distanceKm > MAX_DAILY_KM || (distanceKm === 0 && durationMinutes > 60);
+  /**
+   * Те саме правило, що й у звичайному закритті. Трек тут свідомо НЕ
+   * вважаємо цілим: число приходить наступного ранку зі старту наступної
+   * зміни, тобто описує день разом із вечором, і порівнювати його з
+   * робочим треком означало б лаятися на кожну забуту зміну.
+   */
+  const odometerSuspicious = isOdometerSuspicious({ distanceKm, durationMinutes });
 
   return tx.shift.update({
     where: { id: shift.id },
@@ -175,8 +183,7 @@ export async function applyEndOdometer(
       endOdometerSource: opts.source,
       distanceKm: distanceKm >= 0 ? distanceKm : null,
       durationMinutes,
-      gpsDistanceKm: workKm,
-      afterWorkKm,
+      ...track,
       odometerToGpsRatio: ratio,
       odometerSuspicious,
     },

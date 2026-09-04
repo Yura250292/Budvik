@@ -29,6 +29,7 @@ import { alertAgentSilent } from "@/lib/sync-ingest/alerts";
 import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
 import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { alertUnclosedShifts } from "@/lib/shift/late-alert";
+import { recountRecentShifts } from "@/lib/shift/recount";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -284,6 +285,34 @@ async function closeStaleShifts(): Promise<void> {
 
 const staleShiftTimer = setInterval(() => void closeStaleShifts(), SILENCE_CHECK_INTERVAL_MS);
 
+/**
+ * Четверта перевірка — чи не застигли числа треку.
+ *
+ * `Shift.gpsDistanceKm` пишеться в мить закриття, а точки доїжджають ще
+ * годинами: хвіст буфера, домальовка розривів, прибирання неможливих фіксів.
+ * Досі це виправляли руками скриптом, тобто не виправляли майже ніколи —
+ * і в картках лишався пробіг, порахований на половині точок.
+ *
+ * Раз на годину, а не раз на чверть: перерахунок ходить у OSRM і читає
+ * тисячі точок, а спізнитися тут на годину нічим не загрожує.
+ */
+async function recountShiftTracks(): Promise<void> {
+  try {
+    const changed = await recountRecentShifts();
+    if (changed.length > 0) {
+      console.log(
+        `worker: перераховано пробіг змін — ${changed.length}: ` +
+          changed.map((r) => `${r.name ?? r.id} ${r.before} → ${r.after}`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: перерахунок пробігу змін впав", e);
+  }
+}
+
+const RECOUNT_INTERVAL_MS = 60 * 60_000;
+const recountTimer = setInterval(() => void recountShiftTracks(), RECOUNT_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -296,6 +325,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(silenceTimer);
     clearInterval(trackSilenceTimer);
     clearInterval(staleShiftTimer);
+    clearInterval(recountTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

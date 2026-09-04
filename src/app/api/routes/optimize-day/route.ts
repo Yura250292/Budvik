@@ -16,7 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { kyivDate } from "@/lib/date/kyiv";
 import { defaultDepot } from "@/lib/routes/depot";
-import { resolveDriverDay } from "@/lib/track/day-stops";
+import { resolveDeliveryRouteById, resolveDriverDay } from "@/lib/track/day-stops";
 import { explainScore, scoreClient } from "@/lib/routes/priority";
 import { optimizeRoute, type OptimizeStop, type FuelParams } from "@/lib/routes/optimize";
 import { sequenceByRows } from "@/lib/routes/order";
@@ -78,6 +78,8 @@ export async function POST(req: NextRequest) {
   let body: {
     day?: string;
     driverId?: string;
+    /** Конкретний маршрут сайту. Сильніший за пару «водій + доба». */
+    routeId?: string;
     /** Звідки стартуємо: [lng, lat]. Немає — беремо склад або першу точку */
     start?: [number, number];
     fuel?: Partial<FuelParams>;
@@ -102,7 +104,28 @@ export async function POST(req: NextRequest) {
   // резолвер пропускав би її і падав на запасний лист 1С, чий порядок
   // зберегти не можна. Водій, як і раніше, бачить лише передані маршрути.
   const isManager = session.user.role === "ADMIN" || session.user.role === "MANAGER";
-  const route = await resolveDriverDay(driverId, day, { includePlanned: isManager });
+
+  /**
+   * Рахуємо саме той маршрут, на якому натиснули кнопку.
+   *
+   * «Водій + доба» як адреса бреше, коли маршрутів на день два (чернетка
+   * поруч із переданим, другий рейс): резолвер брав створений останнім
+   * (orderBy createdAt desc), і логіст міг прокласти порядок сусідній
+   * картці, не помітивши цього — числа виглядають правдоподібно.
+   *
+   * Водій, як і раніше, оптимізує лише свій маршрут: driverId лишається в
+   * WHERE, чужий id просто не знайдеться.
+   */
+  const route = body.routeId
+    ? await resolveDeliveryRouteById(body.routeId, {
+        driverId: isManager ? undefined : driverId,
+        includePlanned: isManager,
+      })
+    : await resolveDriverDay(driverId, day, { includePlanned: isManager });
+
+  if (!route) {
+    return NextResponse.json({ error: "Маршрут не знайдено" }, { status: 404 });
+  }
   // В OSRM їдуть лише точки з координатами. Решта з маршруту не зникає —
   // вона піде хвостом списку (див. decorate нижче), інакше нумерація
   // карти і нумерація списку розходяться.
@@ -279,7 +302,10 @@ export async function POST(req: NextRequest) {
     };
 
     return NextResponse.json({
-      day,
+      // Доба — З МАРШРУТУ, коли його вказали прямо: сусідній рейс тієї
+      // самої машини може бути виписаний на іншу дату, і apply-order
+      // мусить зберігати порядок саме туди, звідки взялися точки.
+      day: route.day ?? day,
       startedFromFirstStop,
       startName,
       // [lng, lat] — карті-прев'ю і посиланню на Google Maps потрібна

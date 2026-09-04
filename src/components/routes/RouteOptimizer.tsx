@@ -55,6 +55,7 @@ type Plan = {
 const money = new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 });
 
 export default function RouteOptimizer({
+  routeId,
   driverId,
   date,
   onApplied,
@@ -100,7 +101,17 @@ export default function RouteOptimizer({
         const res = await fetch("/api/routes/optimize-day", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ driverId, day, direction: dir }),
+          /**
+           * routeId, а не лише «водій + доба».
+           *
+           * Проп сюди приходив із самого початку, але не використовувався —
+           * і сервер шукав маршрут по дню водія, беручи створений останнім.
+           * На дні з двома маршрутами (чернетка поруч із переданим, другий
+           * рейс) кнопка на картці А спокійно прокладала порядок картці Б:
+           * числа виглядають правдоподібно, і помітити це можна лише за
+           * зміненою нумерацією в чужому маршруті.
+           */
+          body: JSON.stringify({ routeId, driverId, day, direction: dir }),
         });
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
@@ -116,7 +127,7 @@ export default function RouteOptimizer({
         setLoading(false);
       }
     },
-    [driverId, day]
+    [routeId, driverId, day]
   );
 
   // Перемикання напрямку з уже показаним планом одразу перераховує:

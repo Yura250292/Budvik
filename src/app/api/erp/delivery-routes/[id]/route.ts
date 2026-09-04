@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { appendMissing } from "@/lib/routes/order";
+
+/** GeoJSON LineString зі щонайменше двома точками — і нічого іншого. */
+function isLineString(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const g = value as { type?: unknown; coordinates?: unknown };
+  if (g.type !== "LineString" || !Array.isArray(g.coordinates)) return false;
+  if (g.coordinates.length < 2) return false;
+  return g.coordinates.every(
+    (pair) =>
+      Array.isArray(pair) &&
+      pair.length >= 2 &&
+      Number.isFinite(pair[0]) &&
+      Number.isFinite(pair[1])
+  );
+}
 
 export async function GET(
   req: NextRequest,
@@ -73,6 +89,7 @@ export async function PATCH(
     stopSequences,
     totalDistanceKm,
     totalFuelCost,
+    routeGeometry,
     driverId,
     date,
     vehicleInfo,
@@ -82,6 +99,21 @@ export async function PATCH(
     actualKm,
     status,
   } = body;
+
+  /**
+   * Геометрію приймаємо лише справжню.
+   *
+   * Саме її наявність означає «порядок прокладено» для смуги кроків
+   * (lib/routes/progress.ts) і саме її малює планшет водія. Записати сюди
+   * будь-який Json означало б крок «зроблено» без дороги й порожню карту в
+   * того, хто вже виїхав.
+   */
+  if (routeGeometry !== undefined && routeGeometry !== null && !isLineString(routeGeometry)) {
+    return NextResponse.json(
+      { error: "Некоректна геометрія маршруту — потрібен LineString щонайменше з двох точок" },
+      { status: 400 }
+    );
+  }
   // stopSequences: [{ stopId: string, sequence: number, distanceKm?: number }]
 
   const route = await prisma.deliveryRoute.findUnique({
@@ -120,13 +152,39 @@ export async function PATCH(
 
   await prisma.$transaction(async (tx) => {
     if (stopSequences && Array.isArray(stopSequences)) {
-      for (const s of stopSequences) {
+      /**
+       * Перенумеровуємо ВЕСЬ маршрут, а не лише названі точки.
+       *
+       * Раніше клієнт міг прислати порядок для частини — і решта лишалася
+       * зі старими номерами, які з новими не узгоджені: точка з номером 4
+       * опинялася між новими 4 і 5. Те саме правило, що в apply-order:
+       * незгадані їдуть у хвіст, зберігаючи свій порядок між собою.
+       */
+      const all = await tx.deliveryStop.findMany({
+        where: { deliveryRouteId: id },
+        orderBy: [{ sequence: "asc" }, { createdAt: "asc" }],
+        select: { id: true },
+      });
+      const proposed = [...stopSequences]
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+        .map((s) => s.stopId as string);
+      const finalOrder = appendMissing(
+        proposed,
+        all.map((s) => s.id)
+      );
+      const kmByStop = new Map(
+        stopSequences
+          .filter((s) => s.distanceKm !== undefined)
+          .map((s) => [s.stopId as string, s.distanceKm as number])
+      );
+
+      for (const [i, stopId] of finalOrder.entries()) {
         // where з deliveryRouteId: точка з чужого маршруту не переставиться
         await tx.deliveryStop.updateMany({
-          where: { id: s.stopId, deliveryRouteId: id },
+          where: { id: stopId, deliveryRouteId: id },
           data: {
-            sequence: s.sequence,
-            ...(s.distanceKm !== undefined && { distanceKm: s.distanceKm }),
+            sequence: i + 1,
+            ...(kmByStop.has(stopId) && { distanceKm: kmByStop.get(stopId) }),
           },
         });
       }
@@ -135,6 +193,7 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     if (totalDistanceKm !== undefined) data.totalDistanceKm = totalDistanceKm;
     if (totalFuelCost !== undefined) data.totalFuelCost = totalFuelCost;
+    if (routeGeometry !== undefined) data.routeGeometry = routeGeometry ?? null;
     if (driverId !== undefined) data.driverId = driverId || null;
     if (parsedDate) data.date = parsedDate;
     if (vehicleInfo !== undefined) data.vehicleInfo = vehicleInfo || null;

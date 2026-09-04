@@ -30,6 +30,15 @@ interface AddressEntry {
   error?: string;
   /** Контрагент, з якого взята адреса — щоб зберегти йому знайдені координати. */
   counterpartyId?: string;
+  /**
+   * Точка маршруту сайту, з якої взявся рядок.
+   *
+   * Саме за нею порядок повертається в документ. Раніше зіставлення йшло
+   * за ТЕКСТОМ адреси з підстраховкою «по індексу», і на маршруті з двома
+   * накладними на одну адресу обидва рядки знаходили ту саму точку: одна
+   * діставала два номери, інша — жодного.
+   */
+  stopId?: string;
 }
 
 type VehicleType = "fuel" | "electric";
@@ -189,6 +198,7 @@ export default function RoutePlanner({
             id: crypto.randomUUID(),
             address: addr,
             counterpartyId: stop.counterparty?.id,
+            stopId: stop.id,
           };
           // Try saved coords first
           if (stop.counterparty?.deliveryLat && stop.counterparty?.deliveryLng) {
@@ -540,22 +550,32 @@ export default function RoutePlanner({
     setSavingToDelivery(true);
     setSaveNotice(null);
     try {
-      // Map optimized addresses back to stop IDs by address matching
+      /**
+       * Порядок повертаємо ЗА ID ТОЧКИ, а не за текстом адреси.
+       *
+       * Кожен рядок пам'ятає, з якої точки маршруту він узявся (stopId), і
+       * один рядок витрачає одну точку — звідси `used`. Старе зіставлення
+       * шукало точку за збігом адреси з підстраховкою «по індексу»: дві
+       * накладні на одну адресу знаходили ту саму точку (одна діставала два
+       * номери, інша жодного), а підстраховка мовчки чіпляла порядок до
+       * зовсім не того клієнта.
+       */
       const optimized = result.optimizedAddresses.filter((a) => a.type === "stop");
-      const stops = linkedDeliveryRoute.stops as any[];
-
-      const stopSequences = optimized.map((opt, idx) => {
-        // find stop whose counterparty address matches
-        const stop = stops.find((s: any) => {
-          const addr = s.counterparty?.deliveryAddress || s.counterparty?.address || s.address || "";
-          return addr.trim().toLowerCase() === opt.address.trim().toLowerCase();
-        }) || stops[idx]; // fallback by index
-        return {
-          stopId: stop?.id,
-          sequence: idx + 1,
-          distanceKm: result.legs[idx]?.distanceKm,
-        };
-      }).filter((s) => s.stopId);
+      const used = new Set<string>();
+      const stopSequences = optimized
+        .map((opt, idx) => {
+          const key = opt.address.trim().toLowerCase();
+          const entry = addresses.find(
+            (a) => !!a.stopId && !used.has(a.id) && a.address.trim().toLowerCase() === key
+          );
+          if (entry) used.add(entry.id);
+          return {
+            stopId: entry?.stopId,
+            sequence: idx + 1,
+            distanceKm: result.legs[idx]?.distanceKm,
+          };
+        })
+        .filter((s) => s.stopId);
 
       const res = await fetch(`/api/erp/delivery-routes/${linkedDeliveryRoute.id}`, {
         method: "PATCH",
@@ -564,12 +584,19 @@ export default function RoutePlanner({
           stopSequences,
           totalDistanceKm: result.totalDistanceKm,
           totalFuelCost: result.totalDistanceKm * vehicle.consumption / 100 * vehicle.pricePerUnit,
+          /**
+           * Лінія — обов'язкова частина збереження, а не прикраса. Саме за
+           * нею смуга кроків вважає «Порядок» зробленим, і саме її малює
+           * планшет водія; без неї маршрут виглядав неприкладеним, хоча
+           * порядок уже стояв.
+           */
+          routeGeometry: routeGeometry ?? undefined,
         }),
       });
       if (res.ok) {
         setSaveNotice({
           kind: "ok",
-          text: `Маршрут ${linkedDeliveryRoute.number} оновлено — порядок зупинок і відстань збережено.`,
+          text: `Маршрут ${linkedDeliveryRoute.number} оновлено — порядок, відстань і лінію збережено.`,
         });
       } else {
         const d = await res.json();
@@ -579,7 +606,7 @@ export default function RoutePlanner({
       setSaveNotice({ kind: "err", text: "Мережева помилка" });
     }
     setSavingToDelivery(false);
-  }, [linkedDeliveryRoute, result, vehicle]);
+  }, [linkedDeliveryRoute, result, vehicle, addresses, routeGeometry]);
 
   // Load saved route
   const loadRoute = useCallback((route: SavedRouteData) => {

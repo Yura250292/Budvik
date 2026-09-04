@@ -105,6 +105,8 @@ export default function DriverMapScreen() {
    * знає лише дату. Ключ маршруту сильніший: якщо він є, дата зайва.
    */
   const dayKey = routeKey ? null : params.get("day");
+  /** Ключ точки, на якій треба одразу стати. Приходить із екрана дня. */
+  const focusKey = params.get("focus");
 
   const [data, setData] = useState<Resp | null>(null);
   const [day, setDay] = useState<DayResp | null>(null);
@@ -441,6 +443,26 @@ export default function DriverMapScreen() {
     });
   }, [activeLine, orderedStops]);
 
+  /**
+   * Точка, задана адресою — карта відлітає до неї сама.
+   *
+   * Так «подивитися, де це» лишається в нашому застосунку: раніше єдиною
+   * кнопкою в рядку дня була «Відкрити в Google Maps», і водій, якому
+   * треба було просто глянути на місце, щоразу вилітав у чужу програму.
+   *
+   * Похідне значення, а не стан в ефекті: `nonce` сталий, тож політ
+   * станеться один раз — коли точка знайдеться. Далі водій возить карту
+   * сам, і повертати її на те саме місце після кожної перемальовки було б
+   * знущанням. Щойно він тапне будь-який рядок, його вибір (стан `focus`)
+   * перекриває адресу.
+   */
+  const urlFocus = useMemo(() => {
+    if (!focusKey) return null;
+    const stop = (day?.route.stops ?? []).find((st) => st.key === focusKey);
+    if (!stop || stop.lat == null || stop.lng == null) return null;
+    return { lat: stop.lat, lng: stop.lng, id: stop.key, nonce: 1 };
+  }, [focusKey, day?.route.stops]);
+
   /** Точки для панелі: з поточною ціллю й відстанню до наступної. */
   const panelStops = useMemo<PanelStop[]>(
     () =>
@@ -551,7 +573,7 @@ export default function DriverMapScreen() {
           route={null}
           plan={plan}
           me={me}
-          focus={focus}
+          focus={focus ?? urlFocus}
           // Картки клієнта в розділі водія немає (там лише маршрути), тож
           // посилання не даємо — натомість коментарі й уточнення піна.
           extras={{ comments: true, pin: true }}

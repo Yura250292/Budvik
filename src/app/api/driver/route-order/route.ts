@@ -11,11 +11,17 @@
  * переписуємо sequence у самих точках — у коментарі до моделі
  * DriverRouteOrder: рядки листа приїжджають обміном з 1С і затерлися б, а
  * порядок маршруту сайту належить логісту.
+ *
+ * Назовні роут говорить КЛЮЧАМИ РЯДКІВ — тими самими, якими живе екран. А
+ * зберігає сталу прикмету точки (stableStopKey), бо id рядків листа
+ * перестворюються при кожному обміні: 04.09 вони змінилися о 05:16, 09:32 і
+ * 09:37. Збережи ми їх — порядок водія тихо зникав би щоночі, і він би
+ * щоранку складав його заново, не розуміючи чому.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveDriverRoute } from "@/lib/track/day-stops";
+import { resolveDriverRoute, stableStopKey } from "@/lib/track/day-stops";
 import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +40,17 @@ export async function GET(req: NextRequest) {
     where: { driverId_routeKey: { driverId: auth.me.userId, routeKey } },
     select: { stopKeys: true, updatedAt: true },
   });
+  if (!row?.stopKeys.length) return NextResponse.json({ stopKeys: null, updatedAt: null });
 
-  return NextResponse.json({ stopKeys: row?.stopKeys ?? null, updatedAt: row?.updatedAt ?? null });
+  // Розгортаємо сталі прикмети назад у ключі СЬОГОДНІШНІХ рядків.
+  const route = await resolveDriverRoute(auth.me.userId, routeKey);
+  const byStable = new Map(route.stops.map((st) => [stableStopKey(st), st.key]));
+  const stopKeys = row.stopKeys.map((k) => byStable.get(k)).filter((k): k is string => !!k);
+
+  return NextResponse.json({
+    stopKeys: stopKeys.length ? stopKeys : null,
+    updatedAt: row.updatedAt,
+  });
 }
 
 export async function PUT(req: NextRequest) {
@@ -70,19 +85,22 @@ export async function PUT(req: NextRequest) {
   if (route.stops.length === 0) {
     return NextResponse.json({ error: "Маршрут не знайдено" }, { status: 404 });
   }
-  const known = new Set(route.stops.map((s) => s.key));
-  const clean = [...new Set(stopKeys.filter((k) => known.has(k)))];
+  const byKey = new Map(route.stops.map((st) => [st.key, st]));
+  const clean = stopKeys.map((k) => byKey.get(k)).filter((st): st is (typeof route.stops)[number] => !!st);
   if (clean.length === 0) {
     return NextResponse.json({ error: "Жодна точка не належить цьому маршруту" }, { status: 400 });
   }
 
+  // У базу — сталі прикмети, назад клієнту — його ж ключі рядків.
+  const stable = [...new Set(clean.map(stableStopKey))];
+
   await prisma.driverRouteOrder.upsert({
     where: { driverId_routeKey: { driverId: auth.me.userId, routeKey } },
-    create: { driverId: auth.me.userId, routeKey, stopKeys: clean },
-    update: { stopKeys: clean },
+    create: { driverId: auth.me.userId, routeKey, stopKeys: stable },
+    update: { stopKeys: stable },
   });
 
-  return NextResponse.json({ stopKeys: clean });
+  return NextResponse.json({ stopKeys: clean.map((st) => st.key) });
 }
 
 /** Скинути свій порядок — маршрут повертається до логістичного. */

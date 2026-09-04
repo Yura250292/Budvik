@@ -14,7 +14,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
-import { attachVisits, resolveDriverDay, resolveDriverRoute } from "@/lib/track/day-stops";
+import {
+  attachVisits,
+  resolveDriverDay,
+  resolveDriverRoute,
+  stableStopKey,
+} from "@/lib/track/day-stops";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { handoversForDay } from "@/lib/drivers/cash";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
@@ -105,9 +110,11 @@ export async function GET(req: NextRequest) {
    */
   const ordered = myOrder?.stopKeys.length
     ? (() => {
-        const byKey = new Map(route.stops.map((st) => [st.key, st]));
+        // Порядок збережено СТАЛИМИ прикметами точок, а не id рядків: ті
+        // перестворюються при кожному обміні (див. stableStopKey).
+        const byStable = new Map(route.stops.map((st) => [stableStopKey(st), st]));
         const picked = myOrder.stopKeys
-          .map((k) => byKey.get(k))
+          .map((k) => byStable.get(k))
           .filter((st): st is (typeof route.stops)[number] => !!st);
         const used = new Set(picked.map((st) => st.key));
         return [...picked, ...route.stops.filter((st) => !used.has(st.key))];

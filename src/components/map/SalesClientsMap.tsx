@@ -9,7 +9,7 @@
  * керування немає, а маркери більші, бо в них цілять пальцем.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
@@ -366,6 +366,21 @@ export default function SalesClientsMap({
   /** Теж у ref: `extras` — літерал, новий на кожен рендер сторінки. */
   const extrasRef = useRef(extras);
   extrasRef.current = extras;
+  /** Ключ точки, попап якої треба розкрити, щойно її маркер буде на карті. */
+  const pendingPopupRef = useRef<string | null>(null);
+  const openPending = useCallback(() => {
+    const key = pendingPopupRef.current;
+    if (!key) return;
+    /*
+      Ключ НЕ забуваємо після відкриття.
+      Перемальовка шару знімає маркери з карти разом із відкритим попапом,
+      а вона приходить щоразу, коли доїжджає лінія маршруту чи міняється
+      відмітка. Забувши ключ, ми відкрили б попап рівно один раз — і його
+      тут-таки й прибрало б. Ключ живе, поки водій не попросить іншу точку.
+    */
+    markersRef.current.get(key)?.openPopup();
+  }, []);
+
   const clickRef = useRef(onMapClick);
   clickRef.current = onMapClick;
   const pinningRef = useRef(pinning);
@@ -544,6 +559,9 @@ export default function SalesClientsMap({
      * водій то бачив свій маршрут, то всю Україну. Вікно маршруту
      * головніше, і власник у нього один.
      */
+    // Перемальовка могла статися ПІСЛЯ польоту — тоді попап чекає тут.
+    openPending();
+
     if (!fittedRef.current && bounds.isValid() && !plan) {
       map.fitBounds(coreBounds(clients) ?? bounds, { padding: [30, 30], maxZoom: 13 });
       fittedRef.current = true;
@@ -587,9 +605,20 @@ export default function SalesClientsMap({
    * відмітки візиту не має смикати вікно карти.
    */
   const planKey = plan?.stops.map((s) => s.key).join(",") ?? "";
+  /** Реф, а не залежність: інакше кожен тап по рядку перефітив би маршрут. */
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !plan || plan.stops.length === 0) return;
+    /*
+      Просили конкретну точку — вікно ставить вона.
+      Два рухи карти в одному такті Leaflet зливає в один: поки анімація
+      fitBounds іде, flyTo не застосовується. Саме через це перехід «на
+      карті» з рядка дня відлітав кудись у центр маршруту й не розкривав
+      потрібного піна.
+    */
+    if (focusRef.current) return;
     const core = planCore(plan.stops);
     const bounds = L.latLngBounds(core.map((s) => [s.lat, s.lng] as [number, number]));
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
@@ -603,11 +632,22 @@ export default function SalesClientsMap({
     const map = mapRef.current;
     if (!map || !focus) return;
     map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), 15), { duration: 0.7 });
+    /**
+     * Попап відкриваємо ПІСЛЯ польоту й по свіжому маркеру.
+     *
+     * Двічі наступив на те саме: маркер, схоплений тут, живе рівно до
+     * наступної перемальовки шару, а вона приходить за секунду — щойно
+     * доїде лінія маршруту. Виклик `openPopup()` на знятому з карти
+     * маркері мовчки не робить нічого, і виглядало це як «карта прилетіла,
+     * а точка не розкрилася».
+     *
+     * Тому запамʼятовуємо лише КЛЮЧ, а маркер шукаємо в мить відкриття —
+     * і те саме робить кінець малювання шару, якщо перемальовка встигла
+     * раніше за політ.
+     */
     if (focus.id) {
-      // Попап відкриваємо після польоту: під час анімації Leaflet тягне його
-      // разом із картою, і він встигає моргнути в кутку.
-      const marker = markersRef.current.get(focus.id);
-      if (marker) map.once("moveend", () => marker.openPopup());
+      pendingPopupRef.current = focus.id;
+      map.once("moveend", () => openPending());
     }
   }, [focus]);
 

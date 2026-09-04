@@ -23,7 +23,7 @@ import {
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { useBuildVersion } from "@/hooks/useBuildVersion";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
-import { googleMapsLinksFromHere, navigateUrl, pointUrl, type NavApp } from "@/lib/maps/google-links";
+import { googleMapsLinksFromHere, navigateUrl, type NavApp } from "@/lib/maps/google-links";
 import { NAV_BATCHES, useNavApp, useNavBatch, type NavBatch } from "@/lib/maps/use-nav-app";
 import { RouteChip, RouteSheet, formatRouteDay } from "@/components/driver/RoutePicker";
 import { kyivToday } from "@/components/ui/PeriodPicker";
@@ -588,6 +588,8 @@ function DriverDayScreen() {
                 saving={saving === s.key}
                 pending={queued.includes(s.key)}
                 readOnly={readOnly}
+                routeId={data.route.id}
+                navApp={navApp}
                 onToggle={() => setOpenStop(openStop === s.key ? null : s.key)}
                 onMark={mark}
               />
@@ -613,6 +615,72 @@ function DriverDayScreen() {
           onClose={() => setPickerOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Дві дії з точкою, і вони різні за суттю.
+ *
+ * «На карті» лишається В НАШОМУ застосунку: відкриває наш екран маршруту й
+ * стає просто на цю точку. Досі тут була одна кнопка — «Відкрити в Google
+ * Maps», — і водій, якому треба було лише глянути, де це, щоразу вилітав у
+ * чужу програму й повертався назад кнопкою «назад».
+ *
+ * «Їхати» так і віддає навігатору: вести машину посилання не вміє, це
+ * робота Google Maps або Waze.
+ */
+function StopMapButtons({
+  stop,
+  routeId,
+  navApp,
+}: {
+  stop: DayStop;
+  routeId: string | null;
+  navApp: NavApp;
+}) {
+  return (
+    <div className="mt-2 flex gap-2">
+      <Link
+        href={
+          `/driver/map?focus=${encodeURIComponent(stop.key)}` +
+          (routeId ? `&route=${encodeURIComponent(routeId)}` : "")
+        }
+        className="flex-1 cursor-pointer"
+        style={{
+          display: "block",
+          padding: "12px",
+          borderRadius: "10px",
+          border: "1px solid #E5E7EB",
+          background: "#fff",
+          color: "#0A0A0A",
+          textAlign: "center",
+          fontSize: "14px",
+          fontWeight: 700,
+          textDecoration: "none",
+        }}
+      >
+        На карті
+      </Link>
+      <a
+        href={navigateUrl({ lat: stop.lat as number, lng: stop.lng as number }, navApp)}
+        target="_blank"
+        rel="noopener"
+        className="flex-1 cursor-pointer transition-colors duration-200"
+        style={{
+          display: "block",
+          padding: "12px",
+          borderRadius: "10px",
+          background: "#2563EB",
+          color: "#fff",
+          textAlign: "center",
+          fontSize: "14px",
+          fontWeight: 700,
+          textDecoration: "none",
+        }}
+      >
+        Їхати
+      </a>
     </div>
   );
 }
@@ -1194,6 +1262,8 @@ function StopRow({
   saving,
   pending,
   readOnly,
+  routeId,
+  navApp,
   onToggle,
   onMark,
 }: {
@@ -1204,6 +1274,9 @@ function StopRow({
   pending: boolean;
   /** Відкрито минулий день: точку видно, а відмітити її вже не можна. */
   readOnly: boolean;
+  /** Ключ листа — щоб «на карті» відкрило саме цей день */
+  routeId: string | null;
+  navApp: NavApp;
   onToggle: () => void;
   onMark: (
     stop: DayStop,
@@ -1324,26 +1397,7 @@ function StopRow({
                   : "Відмітки за цю точку немає."}
           </p>
           {stop.lat != null && stop.lng != null && (
-            <a
-              href={pointUrl({ lat: stop.lat, lng: stop.lng })}
-              target="_blank"
-              rel="noopener"
-              className="w-full cursor-pointer"
-              style={{
-                display: "block",
-                marginTop: "8px",
-                padding: "12px",
-                borderRadius: "10px",
-                background: "#2563EB",
-                color: "#fff",
-                textAlign: "center",
-                fontSize: "14px",
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              Відкрити в Google Maps
-            </a>
+            <StopMapButtons stop={stop} routeId={routeId} navApp={navApp} />
           )}
         </div>
       )}
@@ -1486,26 +1540,7 @@ function StopRow({
           )}
 
           {stop.lat != null && stop.lng != null && (
-            <a
-              href={pointUrl({ lat: stop.lat, lng: stop.lng })}
-              target="_blank"
-              rel="noopener"
-              className="w-full cursor-pointer transition-colors duration-200"
-              style={{
-                display: "block",
-                marginTop: "8px",
-                padding: "12px",
-                borderRadius: "10px",
-                background: "#2563EB",
-                color: "#fff",
-                textAlign: "center",
-                fontSize: "14px",
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              Відкрити в Google Maps
-            </a>
+            <StopMapButtons stop={stop} routeId={routeId} navApp={navApp} />
           )}
         </div>
       )}

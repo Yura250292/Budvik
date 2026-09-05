@@ -23,6 +23,20 @@ for (const c of changes) {
   if (c.send) console.log(`         ${c.title}\n         ${c.body}`);
 }
 
+/**
+ * Скільки з них узагалі дістануться телефона.
+ *
+ * Пуш іде лише на зареєстрований пристрій, а робоча збірка починає
+ * реєструватися тільки з оновлення від 05.09.2026 — тож перші дні
+ * розсилка може «спрацювати» вхолосту, і це має бути видно.
+ */
+const live = await prisma.pushToken.groupBy({
+  by: ["userId"],
+  where: { revokedAt: null, userId: { in: changes.map((c) => c.repId) } },
+  _count: true,
+});
+console.log(`\nіз ${changes.length} у таблиці мають живий пристрій: ${live.length}`);
+
 const pushes = changes.filter((c) => c.send).length;
 console.log(`\nзмін ${pushes} із ${changes.length} у таблиці${send ? " — надіслано" : " (нічого не надіслано)"}`);
 

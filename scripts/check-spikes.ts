@@ -5,7 +5,7 @@
  *   npx tsx scripts/check-spikes.ts
  */
 
-import { dropSpikes } from "../src/lib/track/spikes";
+import { collapseSimultaneous, dropSpikes } from "../src/lib/track/spikes";
 
 let failed = 0;
 const check = (name: string, got: number, want: number) => {
@@ -82,6 +82,34 @@ check(
   3
 );
 check("Двох точок вистачити не може", dropSpikes([P(49.84, 24.03, 0, 0), P(49.85, 24.03, 20, 0)]).length, 2);
+
+console.log("\nДва фікси в ту саму мить");
+/** Передрій 04.09: 480 таких пар на 10,7 км чистої вигадки. */
+check(
+  "Дві точки за секунду за 80 м одна від одної — лишається точніша",
+  collapseSimultaneous([
+    { lat: 49.8400, lng: 24.0300, recordedAt: t(0), speedKmh: 0, accuracyM: 60 },
+    { lat: 49.8407, lng: 24.0300, recordedAt: t(1), speedKmh: 0, accuracyM: 6 },
+    { lat: 49.8500, lng: 24.0300, recordedAt: t(40), speedKmh: 50, accuracyM: 5 },
+  ]).length,
+  2
+);
+check(
+  "Розбіжність менша за метри похибки — не чіпаємо",
+  collapseSimultaneous([
+    { lat: 49.84000, lng: 24.0300, recordedAt: t(0), speedKmh: 0, accuracyM: 6 },
+    { lat: 49.84005, lng: 24.0300, recordedAt: t(1), speedKmh: 0, accuracyM: 8 },
+  ]).length,
+  2
+);
+check(
+  "Двадцять секунд — це вже рух, а не одна мить",
+  collapseSimultaneous([
+    { lat: 49.8400, lng: 24.0300, recordedAt: t(0), speedKmh: 50, accuracyM: 6 },
+    { lat: 49.8420, lng: 24.0300, recordedAt: t(20), speedKmh: 50, accuracyM: 30 },
+  ]).length,
+  2
+);
 
 console.log(failed === 0 ? "\nУсе зійшлося.\n" : `\nНе зійшлося: ${failed}.\n`);
 process.exit(failed === 0 ? 0 : 1);

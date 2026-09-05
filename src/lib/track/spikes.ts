@@ -30,7 +30,56 @@ export type SpikePoint = {
   lng: number;
   recordedAt: Date;
   speedKmh?: number | null;
+  accuracyM?: number | null;
 };
+
+/**
+ * Два фікси в ту саму мить — це не рух, а незгода двох джерел.
+ *
+ * Android має їх кілька: супутники, Wi-Fi, вежі. Коли вони відповідають
+ * майже одночасно, застосунок пише обидві точки, і трек стрибає між ними
+ * туди-сюди. На карті це мішанина ліній через усе село, у пробігу — чисті
+ * вигадані кілометри: у Передрія 04.09 таких пар 480 на 10,7 км, у
+ * Олександра 03.09 — 200 на 9 км.
+ *
+ * Проїхати за п'ять секунд стільки, скільки між ними лежить, неможливо, тож
+ * лишаємо ту, якій прилад більше вірить, а другу відкидаємо.
+ */
+const SIMULTANEOUS_MS = 3_000;
+
+/**
+ * Розходження, менше за похибку кращого з фіксів, ігноруємо: там немає чого
+ * виправляти, а зайве втручання лише ускладнило б поведінку.
+ */
+const MIN_DISAGREE_M = 15;
+
+/** Наскільки точка «краща»: менша похибка виграє, невідома вважається найгіршою. */
+function worseAccuracy(a: SpikePoint): number {
+  return a.accuracyM ?? Number.POSITIVE_INFINITY;
+}
+
+export function collapseSimultaneous<T extends SpikePoint>(points: T[]): T[] {
+  if (points.length < 2) return points;
+  const out: T[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = points[i];
+    const ms = cur.recordedAt.getTime() - prev.recordedAt.getTime();
+    if (ms > SIMULTANEOUS_MS) {
+      out.push(cur);
+      continue;
+    }
+    const apart = haversineM(prev.lat, prev.lng, cur.lat, cur.lng);
+    if (apart < MIN_DISAGREE_M) {
+      out.push(cur);
+      continue;
+    }
+    // Лишаємо точнішу з двох; порядок у ряду від цього не змінюється, бо
+    // вони й так в одній миті.
+    if (worseAccuracy(cur) < worseAccuracy(prev)) out[out.length - 1] = cur;
+  }
+  return out;
+}
 
 /**
  * Наскільки мало треба зрушити по прямій, щоб це був вус, а не поворот.
@@ -92,3 +141,4 @@ export function dropSpikes<T extends SpikePoint>(points: T[]): T[] {
   out.push(points[points.length - 1]);
   return out;
 }
+

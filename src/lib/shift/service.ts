@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
 import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 import { classifyMovement, type MoveMode } from "@/lib/track/movement";
-import { dropSpikes } from "@/lib/track/spikes";
+import { collapseSimultaneous, dropSpikes } from "@/lib/track/spikes";
 import { MAX_DAILY_KM } from "@/lib/odometer/validate";
 
 /**
@@ -114,6 +114,9 @@ export async function shiftTrackKm(
       accuracyM: true,
       recordedAt: true,
       roadMetersFromPrev: true,
+      // Свідчення приладу про рух: без нього класифікатор бачить день інакше,
+      // ніж карта, і число під картою розійшлося б із лінією над ним.
+      speedKmh: true,
     },
   });
 
@@ -126,7 +129,7 @@ export async function shiftTrackKm(
    * таких дали 14,4 зайвих кілометра.
    */
   const trusted = dropSpikes(
-    points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M)
+    collapseSimultaneous(points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M))
   );
   if (trusted.length < 2) return null;
 

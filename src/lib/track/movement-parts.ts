@@ -20,7 +20,7 @@ import { buildTrackPath } from "@/lib/track/gaps";
 import { haversineM } from "@/lib/track/geo";
 import { classifyMovement, type MoveSegment } from "@/lib/track/movement";
 import { markRepeatPasses, type PassKind } from "@/lib/track/repeat-pass";
-import { dropSpikes } from "@/lib/track/spikes";
+import { collapseSimultaneous, dropSpikes } from "@/lib/track/spikes";
 import { matchDayPath } from "@/lib/track/road-match";
 
 /**
@@ -55,6 +55,8 @@ export type PartPoint = {
   gapGeometry?: unknown;
   /** Дорога, дорахована для розриву. Є — значить шлях відомий, а не здогад. */
   roadMetersFromPrev?: number | null;
+  /** Що каже про рух сам прилад — головне свідчення проти хибної геометрії. */
+  speedKmh?: number | null;
 };
 
 export async function splitByMovement(
@@ -69,7 +71,7 @@ export async function splitByMovement(
    * стає їздою. Те саме число, що й у пробігу (`shiftTrackKm`), інакше карта
    * й картка показували б різні дні.
    */
-  const points = dropSpikes(rawPoints);
+  const points = dropSpikes(collapseSimultaneous(rawPoints));
   const segments = classifyMovement(points);
 
   /**

@@ -97,7 +97,7 @@ check(
     beat: beat({ minutesAgo: 86, lastFixMinutesAgo: 90 }),
     lastPointMinutesAgo: 88,
   }),
-  "Трек стоїть 88 хв, застосунок мовчить 86 хв"
+  /^Точок немає 88 хв, застосунок мовчить 86 хв/
 );
 check(
   "Обрив на ходу називає швидкість",
@@ -140,7 +140,7 @@ check(
     shiftMinutes: 24,
     hasPointsInShift: false,
   }),
-  "Зміна відкрита 24 хв, а трек не почався — відкрийте застосунок на планшеті"
+  /Зміна відкрита 24 хв, а точок від планшета ще не було/
 );
 check(
   "Перші хвилини зміни ще не привід тривожити",
@@ -165,6 +165,19 @@ check(
     hasPointsInShift: true,
   }),
   null
+);
+
+check(
+  "Мовчання не видається за втрачений маршрут",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    beat: beat({ minutesAgo: 121, lastFixMinutesAgo: 121 }),
+    lastPointMinutesAgo: 121,
+    shiftMinutes: 267,
+    hasPointsInShift: true,
+  }),
+  /маршрут може чекати в планшеті/
 );
 
 console.log("\nСтаре поводження не змінилося");

@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
 import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 import { classifyMovement, type MoveMode } from "@/lib/track/movement";
+import { dropSpikes } from "@/lib/track/spikes";
 import { MAX_DAILY_KM } from "@/lib/odometer/validate";
 
 /**
@@ -116,7 +117,17 @@ export async function shiftTrackKm(
     },
   });
 
-  const trusted = points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M);
+  /**
+   * Спершу довірені фікси, потім — геть вуса.
+   *
+   * Вус — це поодинока точка, що вистрілює на пів кілометра вбік і тим самим
+   * місцем вертається за двадцять секунд, хоч сам прилад у ту мить звітує
+   * нульову швидкість. У пробіг вона йде ДВІЧІ: у Джумаги 03.09 дев'ятнадцять
+   * таких дали 14,4 зайвих кілометра.
+   */
+  const trusted = dropSpikes(
+    points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M)
+  );
   if (trusted.length < 2) return null;
 
   /**

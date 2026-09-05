@@ -20,6 +20,7 @@ import { buildTrackPath } from "@/lib/track/gaps";
 import { haversineM } from "@/lib/track/geo";
 import { classifyMovement, type MoveSegment } from "@/lib/track/movement";
 import { markRepeatPasses, type PassKind } from "@/lib/track/repeat-pass";
+import { dropSpikes } from "@/lib/track/spikes";
 import { matchDayPath } from "@/lib/track/road-match";
 
 /**
@@ -57,9 +58,18 @@ export type PartPoint = {
 };
 
 export async function splitByMovement(
-  points: PartPoint[],
+  rawPoints: PartPoint[],
   onRoads: boolean
 ): Promise<MovementPart[]> {
+  /**
+   * Вуса прибираємо ПЕРЕД усім іншим — і перед класифікацією теж.
+   *
+   * Одна точка, що вистрілила вбік і вернулася, ламає не лише малюнок: вона
+   * розриває ділянку надвоє й підмішує в стоянку «швидкість», через яку та
+   * стає їздою. Те саме число, що й у пробігу (`shiftTrackKm`), інакше карта
+   * й картка показували б різні дні.
+   */
+  const points = dropSpikes(rawPoints);
   const segments = classifyMovement(points);
 
   /**

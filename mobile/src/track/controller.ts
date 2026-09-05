@@ -225,6 +225,22 @@ export async function stopTracking(): Promise<void> {
  * Поки машина стоїть — процес спить; виїхала — геозона нас розбудить.
  */
 export async function endShiftTracking(): Promise<void> {
+  /**
+   * Спершу віддати те, що лежить у планшеті, — і аж потім глушити запис.
+   *
+   * Досі закриття зміни буфера не чіпало, і це була тиха діра: після
+   * `stopTracking` рекордер більше не працює, тобто зникає єдине, що
+   * викликає відправку регулярно. Дописування після зміни вмикає геозона,
+   * а машина стоїть — тож коло не спрацьовує, і день міг пролежати в
+   * планшеті до наступного пробудження сторожа.
+   *
+   * Не чекаємо на завершення: пачка на мертвій мережі йде до двох хвилин, а
+   * людина в цю мить дивиться на екран закриття зміни. Втратити нічого не
+   * можна — з буфера точки зникають лише після підтвердження сервера, тож
+   * незавершений злив просто доробить наступний.
+   */
+  void flush(true).catch(() => {});
+
   const last = await Location.getLastKnownPositionAsync().catch(() => null);
   await stopTracking();
   await armAfterShift(
@@ -234,6 +250,9 @@ export async function endShiftTracking(): Promise<void> {
 
 /** Людина вдома і дописувати нічого — глушимо все, включно з колом. */
 export async function stopEverything(): Promise<void> {
+  // Те саме, що й у endShiftTracking: цим шляхом іде пізнє закриття зміни,
+  // і буфер там такий самий повний.
+  void flush(true).catch(() => {});
   await stopTracking();
   await disarmAfterShift();
 }

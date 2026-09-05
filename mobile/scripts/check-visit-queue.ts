@@ -74,10 +74,12 @@ const appDay = readFileSync(join(HERE, "../src/api/staff-queries.ts"), "utf8");
 const webDay = readFileSync(join(HERE, "../../src/app/driver/tablet/page.tsx"), "utf8");
 check(
   "Чергу віддаємо перед завантаженням дня (застосунок)",
+  // Виклик шукаємо БЕЗ дужок із аргументами: `staffApi.day()` стало
+  // `staffApi.day(opts)`, і сторож почав падати на справному коді.
   appDay.indexOf("flushPendingVisits") >= 0 &&
-    appDay.indexOf("staffApi.day()") >= 0 &&
-    appDay.indexOf("flushPendingVisits") < appDay.indexOf("staffApi.day()"),
-  { flush: appDay.indexOf("flushPendingVisits"), day: appDay.indexOf("staffApi.day()") }
+    appDay.indexOf("staffApi.day(") >= 0 &&
+    appDay.indexOf("flushPendingVisits") < appDay.indexOf("staffApi.day("),
+  { flush: appDay.indexOf("flushPendingVisits"), day: appDay.indexOf("staffApi.day(") }
 );
 check(
   "Чергу віддаємо перед завантаженням дня (сайт)",

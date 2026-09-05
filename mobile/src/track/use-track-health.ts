@@ -16,6 +16,7 @@ import { AppState } from "react-native";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { ensureFreshFixes } from "./health";
 import { ensureRecording, isTracking } from "./controller";
+import { flush } from "./uploader";
 import { isShiftOpen, getRole } from "./state";
 
 /** Рідше, ніж поріг тиші, — щоб перевірка не била в ту саму мить, що й фікс. */
@@ -52,15 +53,28 @@ export function useTrackHealth(): void {
       await ensureRecording().catch(() => {});
     };
 
+    /**
+     * Відкритий застосунок — найкращий момент віддати все, що назбиралося.
+     *
+     * Точки лежать у SQLite і не гинуть, але поки трек не пишеться, відправку
+     * нікому запустити: рекордер мовчить, а сторож прокидається раз на чверть
+     * години й на деяких планшетах не прокидається зовсім. Тож день міг
+     * лежати в буфері годинами при живій мережі — саме тоді, коли людина
+     * дивиться в застосунок і думає, що все відправлено.
+     */
+    const push = () => void flush().catch(() => {});
+
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       check();
       void revive();
+      push();
     });
 
     // І одразу на монтуванні: холодний старт по натиску на сповіщення теж
     // мусить піднімати запис, а не лише перевіряти свіжість фіксів.
     void revive();
+    push();
 
     return () => {
       clearInterval(timer);

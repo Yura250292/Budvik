@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { searchPatterns } from "@/lib/assistant/facts/search-words";
+import { searchPatterns, stem } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -46,9 +46,28 @@ export async function searchProducts(
   repId: string,
   limit = 8
 ): Promise<ProductHit[]> {
+  const rows = await searchProductsOnce(query, repId, limit, 0);
+  /**
+   * Друга спроба з коротшою основою.
+   *
+   * «Що беруть разом із кругами Ataman» не знаходило нічого: основа
+   * «круга» не збігається з «Круг». Те саме, що з клієнтами (див.
+   * client-search.ts), і так само лише тоді, коли перша спроба порожня —
+   * коротка основа сама по собі знаходить пів каталогу.
+   */
+  if (rows.length > 0) return rows;
+  return searchProductsOnce(query, repId, limit, 1);
+}
+
+async function searchProductsOnce(
+  query: string,
+  repId: string,
+  limit: number,
+  cut: number
+): Promise<ProductHit[]> {
   // Послівно й по основах: питають «скільки ще піни Soma fix», а в базі
   // «SOMA FIX Піна монтажна…». Див. search-words.ts.
-  const patterns = searchPatterns(query);
+  const patterns = searchPatterns(query, 6, cut);
   const like = `%${query.replace(/[%_]/g, "")}%`;
 
   return prisma.$queryRaw<ProductHit[]>`
@@ -86,6 +105,107 @@ export async function searchProducts(
     ORDER BY (p.sku = ${query}) DESC, (p.price > 0) DESC, COALESCE(fs.free, 0) DESC, p.priority DESC
     LIMIT ${limit}
   `;
+}
+
+/**
+ * Чим замінити те, чого немає.
+ *
+ * Питання виникає рівно тоді, коли товар потрібен клієнтові ЗАРАЗ: у
+ * відповіді має бути те, що можна відвантажити сьогодні, тож позиції без
+ * вільного залишку не показуємо взагалі.
+ *
+ * Заміна шукається в межах того самого розділу й типу з класифікатора
+ * каталогу — це єдина ознака «це те саме, лише інше», яка в нас
+ * заповнена. Характеристики (потужність, діаметр) у базі майже порожні,
+ * і будувати на них добір означало б вигадувати схожість.
+ */
+export async function substitutesFor(
+  productId: string,
+  repId: string,
+  limit = 6
+): Promise<{ target: ProductHit | null; options: ProductHit[] }> {
+  const target = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      name: true,
+      sectionId: true,
+      typeKey: true,
+      brandId: true,
+      price: true,
+      brand: { select: { name: true } },
+    },
+  });
+  if (!target || (!target.sectionId && !target.typeKey)) return { target: null, options: [] };
+
+  /**
+   * Слово-вид із назви — бо самого типу з класифікатора замало.
+   *
+   * «Піна-клей» лежить у типі «клей», а «Піна монтажна» — у типі «піна»:
+   * для класифікатора це різні речі, а для клієнта, якому потрібна піна, —
+   * ні. Тому до типу додається слово, з якого починається назва після
+   * бренду, і воно ж піднімає справжні аналоги вгору списку.
+   */
+  const bare = target.brand?.name
+    ? target.name.replace(new RegExp(`^${target.brand.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i"), "")
+    : target.name;
+  const firstWord = (bare.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{4,}/) ?? [])[0] ?? null;
+  const kindLike = firstWord ? `%${stem(firstWord)}%` : null;
+
+  const sectionCond = target.sectionId
+    ? Prisma.sql`AND p."sectionId" = ${target.sectionId}`
+    : Prisma.empty;
+
+  const kinship: Prisma.Sql[] = [];
+  if (target.typeKey) kinship.push(Prisma.sql`p."typeKey" = ${target.typeKey}`);
+  if (kindLike) kinship.push(Prisma.sql`p.name ILIKE ${kindLike}`);
+  const typeCond = kinship.length
+    ? Prisma.sql`AND (${Prisma.join(kinship, " OR ")})`
+    : Prisma.empty;
+  const kindFirst = kindLike
+    ? Prisma.sql`(p.name ILIKE ${kindLike}) DESC,`
+    : Prisma.empty;
+
+  const options = await prisma.$queryRaw<ProductHit[]>`
+    WITH ${LAST_COST}, ${LAST_SALE}, ${FREE_STOCK_ALL}, ${myClientsCte(repId)},
+    my_buyers AS (
+      SELECT i."productId", COUNT(DISTINCT s."counterpartyId")::int AS n
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
+        AND s."docType" = 'REALIZATION'
+        AND s."counterpartyId" IN (SELECT id FROM my_clients)
+      GROUP BY 1
+    )
+    SELECT
+      p.id AS "productId", p.name, p.sku, b.name AS brand,
+      p."typeKey", p."sectionId",
+      p.price::float AS price,
+      p."wholesalePrice"::float AS "wholesalePrice",
+      COALESCE(fs.free, 0) AS free,
+      lc.cost AS "lastCost",
+      ls.ts AS "lastSale",
+      COALESCE(mb.n, 0) AS "myBuyers"
+    FROM "Product" p
+    LEFT JOIN "Brand" b ON b.id = p."brandId"
+    JOIN free_stock fs ON fs."productId" = p.id AND fs.free > 0
+    LEFT JOIN last_cost lc ON lc."productId" = p.id
+    LEFT JOIN last_sale ls ON ls."productId" = p.id
+    LEFT JOIN my_buyers mb ON mb."productId" = p.id
+    WHERE p."isActive" AND p.id <> ${productId} AND p.price > 0
+      ${sectionCond} ${typeCond}
+    ORDER BY
+      -- Спершу той самий вид товару, далі — те, що вже беруть КЛІЄНТИ
+      -- ЦЬОГО торгового: знайома позиція продається замість відсутньої,
+      -- незнайома — обговорюється.
+      ${kindFirst}
+      COALESCE(mb.n, 0) DESC,
+      ABS(p.price - ${target.price ?? 0}) ASC,
+      COALESCE(fs.free, 0) DESC
+    LIMIT ${limit}
+  `;
+
+  return { target: null, options };
 }
 
 export type DeadStockFilters = {

@@ -366,8 +366,11 @@ async function peerHooks(
  * Ті самі пороги, що в basket.ts (5 спільних накладних, lift 1.5), але
  * запит вужчий: самоз'єднання по всьому асортименту тут не потрібне —
  * питання завжди про конкретні кілька гачків.
+ *
+ * Експортована, бо тим самим запитом відповідається й «що беруть разом із
+ * цим товаром» — питання не про клієнта, а про сам товар.
  */
-async function basketPairs(hookIds: string[]): Promise<PairRow[]> {
+export async function basketPairs(hookIds: string[]): Promise<PairRow[]> {
   if (hookIds.length === 0) return [];
 
   return prisma.$queryRaw<PairRow[]>`

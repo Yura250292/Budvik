@@ -16,6 +16,7 @@
  * відстрочку», «чому в мене впав оборот» — зважити.
  */
 
+import { prisma } from "@/lib/prisma";
 import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-actions";
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
 import { clientProductRhythm, recommendations } from "@/lib/analytics/clientOrder";
@@ -25,8 +26,13 @@ import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { dayRouteCandidates } from "@/lib/assistant/facts/day-candidates";
 import { clientProfileFacts } from "@/lib/assistant/facts/client-profile";
 import { findClients, type ClientHit } from "@/lib/assistant/facts/client-search";
-import { deadStockItems, searchProducts, searchProductsTotals } from "@/lib/assistant/facts/product-facts";
-import { entryOffer, isConsumable, priceFloor } from "@/lib/assistant/facts/entry-offer";
+import {
+  deadStockItems,
+  searchProducts,
+  searchProductsTotals,
+  substitutesFor,
+} from "@/lib/assistant/facts/product-facts";
+import { basketPairs, entryOffer, isConsumable, priceFloor } from "@/lib/assistant/facts/entry-offer";
 import { marginPct, priceMarginPct, productStats } from "@/lib/assistant/facts/product-stats";
 import { payerVerdicts, verdictLabel } from "@/lib/assistant/facts/discipline-cache";
 import {
@@ -42,6 +48,8 @@ import { teamBenchmark, STRONG_PERCENTILE, WEAK_PERCENTILE } from "@/lib/analyti
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 import { buildAbcReport } from "@/lib/analytics/abc";
 import { monthForecast, type MonthForecast } from "@/lib/assistant/facts/forecast";
+import { nearbyClients, POSITION_FRESH_HOURS } from "@/lib/assistant/facts/nearby";
+import { clientPayments, repPayments } from "@/lib/assistant/facts/payments";
 import { OVERDUE_HOOK_MIN } from "@/lib/assistant/config";
 import {
   clientLink,
@@ -927,6 +935,148 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
   };
 }
 
+/* ── Що беруть разом і чим замінити ───────────────────────────────────── */
+
+/** Спільний початок: знайти товар, про який питають. */
+async function resolveProduct(ctx: ToolContext, query: string, tools: DirectAnswer["tools"]) {
+  const hits = await timed(
+    { name: "product_search", label: "Шукаю товар" },
+    () => searchProducts(query, ctx.scope.repId, 3),
+    tools
+  );
+  return hits[0] ?? null;
+}
+
+/**
+ * «Що докласти до кругів».
+ *
+ * Пари беруться з накладних (той самий запит, що й для причепа в «з чим
+ * заходити»), тож це не здогад про сумісність, а те, що люди справді
+ * кладуть в один документ.
+ */
+export async function answerBasket(ctx: ToolContext, query: string): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const target = await resolveProduct(ctx, query, tools);
+  if (!target) {
+    return { markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`, tools };
+  }
+
+  const pairs = await timed(
+    { name: "basket_pairs", label: "Дивлюся, що беруть разом" },
+    () => basketPairs([target.productId]),
+    tools
+  );
+
+  if (pairs.length === 0) {
+    return {
+      markdown: md([
+        `## 🧺 Що беруть разом із ${productLink(target.name, target.sku)}`,
+        "",
+        "Стійких пар у накладних немає: цей товар беруть поодинці або замало разів, щоб робити висновок.",
+      ]),
+      tools,
+    };
+  }
+
+  const ids = pairs.map((p) => p.attach);
+  const info = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, sku: true, price: true },
+  });
+  const byId = new Map(info.map((p) => [p.id, p]));
+
+  const rows = pairs
+    .map((p) => ({
+      pair: p,
+      product: byId.get(p.attach),
+      // Частка накладних із гачком, у яких лежало й це.
+      share: p.hookDocs > 0 ? (p.together / p.hookDocs) * 100 : 0,
+    }))
+    .filter((r) => r.product)
+    .sort((a, b) => b.share - a.share)
+    .slice(0, 8);
+
+  return {
+    markdown: md([
+      `## 🧺 Що беруть разом із ${productLink(target.name, target.sku)}`,
+      "",
+      ...table(
+        ["Товар", "🤝 Разом", "💵 Ціна"],
+        rows.map((r) => [
+          productLink(short(r.product!.name, 30), r.product!.sku),
+          `${Math.round(r.share)} % (${r.pair.together})`,
+          money(r.product!.price ?? 0),
+        ])
+      ),
+      "",
+      "_«Разом» — у якій частці накладних із цим товаром лежало й те. Рахується по всій компанії за пів року._",
+      "",
+      followUps(
+        "Кому з моїх це можна допродати?",
+        target.sku ? `Скільки ${target.sku} на складі?` : null
+      ),
+    ]),
+    tools,
+  };
+}
+
+/**
+ * «Пін немає — чим замінити».
+ *
+ * Показуємо лише те, що є на складі: заміна, якої теж немає, — це не
+ * відповідь, а друга відмова тому самому клієнтові.
+ */
+export async function answerSubstitute(ctx: ToolContext, query: string): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const target = await resolveProduct(ctx, query, tools);
+  if (!target) {
+    return { markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`, tools };
+  }
+
+  const { options } = await timed(
+    { name: "substitutes", label: "Підбираю заміну" },
+    () => substitutesFor(target.productId, ctx.scope.repId),
+    tools
+  );
+
+  if (options.length === 0) {
+    return {
+      markdown: md([
+        `## 🔄 Чим замінити ${productLink(target.name, target.sku)}`,
+        "",
+        target.free > 0
+          ? `Заміни в тому самому розділі з вільним залишком немає. Але сам товар є: **${target.free} шт**.`
+          : "Заміни в тому самому розділі з вільним залишком немає.",
+      ]),
+      tools,
+    };
+  }
+
+  return {
+    markdown: md([
+      `## 🔄 Чим замінити ${productLink(target.name, target.sku)}`,
+      target.free > 0
+        ? `_Сам товар ще є: **${target.free} шт** по ${money(target.price)}._`
+        : "_Вільного залишку немає — ось що можна відвантажити натомість._",
+      "",
+      ...table(
+        ["Заміна", "📦 Шт", "💵 Ціна", "👥 Мої"],
+        options.map((o) => [
+          productLink(short(o.name, 30), o.sku),
+          o.free,
+          money(o.price),
+          o.myBuyers > 0 ? `${o.myBuyers} 🟢` : "—",
+        ])
+      ),
+      "",
+      "_Заміна шукається в тому самому розділі й типі каталогу. 🟢 — цю позицію вже беруть ваші клієнти._",
+      "",
+      followUps("Що беруть разом із цим?", "Кому це можна запропонувати?"),
+    ]),
+    tools,
+  };
+}
+
 /* ── Повернення ───────────────────────────────────────────────────────── */
 
 /**
@@ -1016,6 +1166,196 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
       "_Причину повернення 1С не передає — її видно лише з розмови з клієнтом._",
       "",
       followUps("Чому вони повертають?", "Як це б'є по моїй маржі?"),
+    ]),
+    tools,
+  };
+}
+
+/* ── Хто поруч ────────────────────────────────────────────────────────── */
+
+/**
+ * «Я вже тут — до кого заскочити».
+ *
+ * Позиція береться з треку (див. facts/nearby.ts), і її вік показуємо
+ * завжди: «поруч» від точки годинної давності — це вже не поруч, і
+ * торговий має бачити, від чого рахували.
+ */
+export async function answerNearby(ctx: ToolContext, radiusKm: number | null): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+
+  const found = await timed(
+    { name: "nearby_clients", label: "Дивлюся, хто поруч" },
+    () => nearbyClients(ctx.scope.repId, radiusKm ? { radiusKm } : {}),
+    tools
+  );
+
+  if (!found.position) {
+    return {
+      markdown: md([
+        "## 📍 Хто поруч",
+        "",
+        "Не знаю, де ви: трек не пише жодної точки. Увімкніть застосунок і зміну — і питання запрацює.",
+      ]),
+      tools,
+    };
+  }
+
+  const age =
+    found.position.ageMinutes < 60
+      ? `${found.position.ageMinutes} хв тому`
+      : `${Math.round(found.position.ageMinutes / 60)} год тому`;
+
+  if (found.clients.length === 0) {
+    return {
+      markdown: md([
+        "## 📍 Хто поруч",
+        "",
+        `У радіусі ${found.radiusKm} км від вашої останньої точки (${age}) клієнтів із координатами немає.`,
+        "",
+        "_Точка на карті є не в кожного клієнта — у картці її ставить менеджер або торговий._",
+      ]),
+      tools,
+    };
+  }
+
+  const rows = found.clients.map((c) => {
+    const bits: string[] = [];
+    if (c.overdue > 0) bits.push(`🔴 прострочено ${money(c.overdue)}`);
+    else if (c.debt > 0) bits.push(`🟡 борг ${money(c.debt)}`);
+    if (c.daysSinceLast != null) bits.push(`не брав ${days(c.daysSinceLast)}`);
+    else bits.push("покупок не було");
+    return `- **${c.km} км** ${c.mine ? "⭐" : "🏪"} ${clientLink(c.id, c.name)} — ${bits.join(" · ")}`;
+  });
+
+  return {
+    markdown: md([
+      "## 📍 Хто поруч",
+      "",
+      ...table(
+        ["🛰️ Позиція", "📏 Радіус", "👥 Знайдено"],
+        [[`${found.position.fresh ? "🟢" : "🟡"} ${age}`, `${found.radiusKm} км`, found.clients.length]]
+      ),
+      found.position.fresh
+        ? ""
+        : `_Точка старша за ${POSITION_FRESH_HOURS} год — ви могли вже поїхати далі._`,
+      "",
+      ...rows,
+      "",
+      "_⭐ ваш клієнт · відстань по прямій, дорогою вийде більше._",
+      "",
+      followUps("З чим до найближчого заходити?", "Хто з них винен найбільше?"),
+    ]),
+    tools,
+  };
+}
+
+/* ── Оплати ───────────────────────────────────────────────────────────── */
+
+/**
+ * «Хто заплатив» і «чи заплатив такий-то».
+ *
+ * Борг у нас падає через регістр 1С, а не через оплату, тож по сальдо цю
+ * відповідь не скласти: воно просто стане меншим невідомо коли. Тут же
+ * рядки рознесених оплат — з датою й сумою.
+ */
+export async function answerPayments(
+  ctx: ToolContext,
+  dayCount: number,
+  subject: string | null
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, dayCount);
+
+  if (subject) {
+    const found = await resolveClient(ctx, subject, tools);
+    if ("none" in found) return { markdown: notFound(subject), tools };
+    if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+
+    const client = found.hit;
+    const wide = periodOf(ctx.today, Math.max(dayCount, 60));
+    const list = await timed(
+      { name: "client_payments", label: "Дивлюся оплати клієнта" },
+      () => clientPayments(client.id, wide),
+      tools
+    );
+
+    if (list.length === 0) {
+      return {
+        markdown: md([
+          `## 💵 Оплати · ${clientLink(client.id, client.name)}`,
+          "",
+          `За ${days(wide.days)} жодної оплати від цього клієнта не бачимо.`,
+          "",
+          followUps("Скільки він винен?", "Як говорити про борг?"),
+        ]),
+        tools,
+      };
+    }
+
+    return {
+      markdown: md([
+        `## 💵 Оплати · ${clientLink(client.id, client.name)}`,
+        "",
+        ...table(
+          ["📅 Дата", "💰 Сума", "Спосіб"],
+          list.map((p) => [p.дата, money(p.сума), p.спосіб ?? "—"])
+        ),
+        "",
+        `_Разом за ${days(wide.days)}: **${money(list.reduce((sum, p) => sum + p.сума, 0))}**._`,
+        "",
+        followUps("Скільки він ще винен?", "З чим до нього заходити?"),
+      ]),
+      tools,
+    };
+  }
+
+  const facts = await timed(
+    { name: "payments", label: "Дивлюся оплати" },
+    () => repPayments(ctx.scope.repId, period),
+    tools
+  );
+
+  if (facts.оплат === 0) {
+    return {
+      markdown: md([
+        `## 💵 Оплати за ${days(dayCount)}`,
+        "",
+        "Жодної оплати за цей період на вас не рознесено.",
+        "",
+        followUps("Хто мені винен?", "Кому дзвонити першому?"),
+      ]),
+      tools,
+    };
+  }
+
+  return {
+    markdown: md([
+      `## 💵 Оплати за ${days(dayCount)}`,
+      "",
+      ...table(
+        ["💰 Разом", "🧾 Оплат", "👥 Клієнтів"],
+        [[`**${money(facts.сума)}**`, facts.оплат, facts.клієнтів]]
+      ),
+      "",
+      "### 👤 Від кого",
+      ...facts.по_клієнтах
+        .slice(0, 10)
+        .map((c) =>
+          c.клієнт_id
+            ? `- 💵 ${clientLink(c.клієнт_id, c.назва)} — **${money(c.сума)}** (${c.оплат})`
+            : `- 💵 ${c.назва} — **${money(c.сума)}** (${c.оплат})`
+        ),
+      "",
+      "### 📅 Останні",
+      "",
+      ...table(
+        ["Дата", "Клієнт", "💰 Сума"],
+        facts.останні.slice(0, 8).map((p) => [p.дата, short(p.назва, 26), money(p.сума)])
+      ),
+      "",
+      "_Оплата рознесена на торгового за накладною; борг у 1С падає окремо, регістром._",
+      "",
+      followUps("Хто ще винен?", "Чи витягну план?", "Як я на фоні команди?"),
     ]),
     tools,
   };

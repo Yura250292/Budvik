@@ -29,6 +29,10 @@ import {
   answerBenchmark,
   answerDriverDay,
   answerForecast,
+  answerBasket,
+  answerNearby,
+  answerPayments,
+  answerSubstitute,
   answerRecommend,
   answerReturns,
   answerRoute,
@@ -94,6 +98,12 @@ export async function tryDirectAnswer(
       return subject ? answerClientCard(ctx, subject) : null;
     }
 
+    case "BASKET":
+      return answerBasket(ctx, intent.query);
+
+    case "SUBSTITUTE":
+      return answerSubstitute(ctx, intent.query);
+
     case "PRODUCT":
       return answerProduct(ctx, intent.query);
 
@@ -102,6 +112,12 @@ export async function tryDirectAnswer(
 
     case "BENCHMARK":
       return answerBenchmark(ctx, intent.days);
+
+    case "NEARBY":
+      return answerNearby(ctx, intent.radiusKm);
+
+    case "PAYMENTS":
+      return answerPayments(ctx, intent.days, subjectOf(intent.subject));
 
     case "FORECAST":
       return answerForecast(ctx);

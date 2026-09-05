@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
       stopKm: true,
       walkKm: true,
       filledKm: true,
+      gapKm: true,
       odometerToGpsRatio: true,
       personalKm: true,
       odometerSuspicious: true,

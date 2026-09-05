@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import type { OdometerSource, Prisma } from "@prisma/client";
-import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
+import { haversineM, MAX_ACCURACY_M, MAX_PLAUSIBLE_KMH } from "@/lib/track/geo";
 import { classifyMovement, type MoveMode } from "@/lib/track/movement";
 import { collapseSimultaneous, dropSpikes } from "@/lib/track/spikes";
 import { MAX_DAILY_KM } from "@/lib/odometer/validate";
@@ -90,6 +90,20 @@ export type ShiftTrackKm = {
   stopKm: number;
   /** Скільки з driveKm добито дорогою через OSRM, а не виміряно */
   filledKm: number;
+  /**
+   * Скільки з driveKm — пряма через ПРОВАЛ У ДАНИХ.
+   *
+   * Провал видно за часом: між двома точками стільки метрів, що жодна машина
+   * не проїде їх за ці секунди. Передрій 04.09 дав 16 596 метрів за 81
+   * секунду — планшет стояв у одному місці, а наступний фікс уже за
+   * шістнадцять кілометрів, і всю дорогу між ними він не записав.
+   *
+   * Ці кілометри лишаються в пробігу: людина їх проїхала, і пряма — чесна
+   * НИЖНЯ межа тієї відстані (одометр того дня показав 69 км при 64 за
+   * треком; без цієї прямої вийшло б 48). Але видавати їх за виміряні не
+   * можна, тому вони лежать окремим числом.
+   */
+  gapKm: number;
   /** Скільки точок було в проміжку і скільки з них придатні для пробігу */
   pointsCount: number;
   trustedCount: number;
@@ -141,14 +155,33 @@ export async function shiftTrackKm(
    */
   const gapM: number[] = [];
   const gapRoadM: number[] = [];
+  /** Проміжки, у яких ми НЕ БАЧИЛИ дороги: провал у даних, а не вимір. */
+  const gapHoleM: number[] = [];
   for (let i = 1; i < trusted.length; i++) {
     const road = trusted[i].roadMetersFromPrev;
-    gapM.push(
-      road != null
-        ? road
-        : haversineM(trusted[i - 1].lat, trusted[i - 1].lng, trusted[i].lat, trusted[i].lng)
+    const straight = haversineM(
+      trusted[i - 1].lat,
+      trusted[i - 1].lng,
+      trusted[i].lat,
+      trusted[i].lng
     );
+    gapM.push(road ?? straight);
     gapRoadM.push(road ?? 0);
+
+    /**
+     * Провал розпізнаємо за ЧАСОМ: людина не може бути у двох місцях
+     * одночасно. Стеля та сама, що й на прийомі пачки (MAX_PLAUSIBLE_KMH), і
+     * та сама, за якою карта малює цю ділянку пунктиром — інакше число під
+     * картою й лінія над ним казали б різне.
+     *
+     * Проміжок, якому вже дорахована дорога, провалом не рахуємо: там шлях
+     * відомий.
+     */
+    const ms =
+      trusted[i].recordedAt.getTime() - trusted[i - 1].recordedAt.getTime();
+    const impossible =
+      road == null && ms > 0 && straight / 1000 / (ms / 3_600_000) > MAX_PLAUSIBLE_KMH;
+    gapHoleM.push(impossible ? straight : 0);
   }
 
   /**
@@ -157,10 +190,13 @@ export async function shiftTrackKm(
    */
   const totals: Record<MoveMode, number> = { DRIVE: 0, WALK: 0, STOP: 0 };
   let filledM = 0;
+  let holeM = 0;
   for (const seg of classifyMovement(trusted)) {
     for (let i = seg.start; i < seg.end; i++) {
       totals[seg.mode] += gapM[i];
-      if (seg.mode === "DRIVE") filledM += gapRoadM[i];
+      if (seg.mode !== "DRIVE") continue;
+      filledM += gapRoadM[i];
+      holeM += gapHoleM[i];
     }
   }
 
@@ -170,6 +206,7 @@ export async function shiftTrackKm(
     walkKm: km(totals.WALK),
     stopKm: km(totals.STOP),
     filledKm: km(filledM),
+    gapKm: km(holeM),
     pointsCount: points.length,
     trustedCount: trusted.length,
   };
@@ -205,6 +242,7 @@ export type ShiftTrackFields = {
   walkKm: number | null;
   stopKm: number | null;
   filledKm: number | null;
+  gapKm: number | null;
   afterWorkKm: number | null;
   trackKmAt: Date;
 };
@@ -227,6 +265,7 @@ export async function computeShiftTrackFields(shift: {
     walkKm: work ? work.walkKm : null,
     stopKm: work ? work.stopKm : null,
     filledKm: work ? work.filledKm : null,
+    gapKm: work ? work.gapKm : null,
     afterWorkKm: after ? after.driveKm : null,
     trackKmAt: new Date(),
   };

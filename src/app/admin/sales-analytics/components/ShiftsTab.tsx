@@ -37,6 +37,7 @@ type ShiftRow = {
   stopKm: number | null;
   walkKm: number | null;
   filledKm: number | null;
+  gapKm: number | null;
   odometerToGpsRatio: number | null;
   personalKm: number | null;
   odometerSuspicious: boolean;
@@ -801,11 +802,14 @@ export function ShiftsTab({
                 учорашньою карткою нічим пояснити.
               */
               hint={
-                detail.track.shift.movement
-                  ? `без ${Math.round((detail.track.shift.movement.WALK.km + detail.track.shift.movement.STOP.km) * 10) / 10} км ` +
-                    `ходьби й стоянки · ${detail.track.shift.pointsCount} точок`
-                  : `${detail.track.shift.pointsCount} точок`
+                (detail.shift.gapKm ?? 0) > 0
+                  ? `з них ${detail.shift.gapKm} км — пряма через провал у даних`
+                  : detail.track.shift.movement
+                    ? `без ${Math.round((detail.track.shift.movement.WALK.km + detail.track.shift.movement.STOP.km) * 10) / 10} км ` +
+                      `ходьби й стоянки · ${detail.track.shift.pointsCount} точок`
+                    : `${detail.track.shift.pointsCount} точок`
               }
+              color={(detail.shift.gapKm ?? 0) > 0 ? "#B45309" : undefined}
             />
             {detail.track.shift.repeat != null && detail.track.shift.repeat.km > 0 && (
               /*

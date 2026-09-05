@@ -1,5 +1,10 @@
 /**
- * Реєстрація пристрою для сповіщень про замовлення.
+ * Реєстрація пристрою для сповіщень.
+ *
+ * Покупцеві — про його замовлення, торговому — про рух у табло команди.
+ * Контур перевірки різний (див. prefix у api-клієнті), а токен Expo і
+ * таблиця спільні: телефон один, і два записи на нього означали б два
+ * однакові сповіщення.
  *
  * Дозвіл питаємо не при першому запуску, а після входу: людина, у якої ще
  * немає жодного замовлення, не розуміє, про що їй хочуть сповіщати, і тисне
@@ -12,6 +17,7 @@ import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { api } from "@/api/client";
+import { IS_STAFF_BUILD } from "@/lib/flavor";
 
 /** Сповіщення показуються й тоді, коли застосунок відкритий. */
 Notifications.setNotificationHandler({
@@ -43,7 +49,7 @@ export async function registerForPush(): Promise<void> {
   if (Platform.OS === "android") {
     // Без каналу Android показує сповіщення без звуку й без важливості.
     await Notifications.setNotificationChannelAsync("orders", {
-      name: "Замовлення",
+      name: IS_STAFF_BUILD ? "Робота" : "Замовлення",
       importance: Notifications.AndroidImportance.DEFAULT,
     });
   }

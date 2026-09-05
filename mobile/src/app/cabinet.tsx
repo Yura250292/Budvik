@@ -31,6 +31,7 @@ import { bufferedCount } from "@/track/db";
 import { isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { registerForPush } from "@/lib/push";
 import {
   askEnableLocationServices,
   currentPermissions,
@@ -91,6 +92,15 @@ export default function CabinetScreen() {
   useEffect(() => {
     if (!IS_STAFF_BUILD) return;
     syncTrackingWithServer(null).catch(() => {});
+    /**
+     * Реєстрація пушів не тільки при вході.
+     *
+     * Торгові вже залоговані місяцями й екрана входу більше не бачать —
+     * якби токен Expo брався лише там, сповіщення про рух у табло не
+     * прийшло б жодному з них. Повторний виклик дешевий: upsert по тому
+     * самому токену, а всередині ще й пам'ять про вже надісланий.
+     */
+    registerForPush().catch(() => {});
   }, []);
 
   /**

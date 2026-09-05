@@ -30,6 +30,8 @@ import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
 import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { recountRecentShifts } from "@/lib/shift/recount";
+import { notifyStandingChanges } from "@/lib/leaderboard/standings";
+import { kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -313,6 +315,38 @@ async function recountShiftTracks(): Promise<void> {
 const RECOUNT_INTERVAL_MS = 60 * 60_000;
 const recountTimer = setInterval(() => void recountShiftTracks(), RECOUNT_INTERVAL_MS);
 
+/**
+ * П'ята перевірка — рух у табло команди.
+ *
+ * Увечері, а не вранці: накладні за день доїжджають з 1С протягом дня, і
+ * місце, пораховане о дев'ятій ранку, змінилося б до обіду — тобто пуш
+ * «вас обігнали» приходив би на вчорашню картину.
+ *
+ * Раз на добу. Сходинка вгору-вниз за один день — це подія; та сама
+ * сходинка тричі на день — це причина вимкнути сповіщення назавжди.
+ * Запобіжник — у знімку місць (див. oncePerDay), тож перезапуск воркера
+ * посеред вечора нікого не розбудить удруге.
+ */
+const STANDINGS_HOUR = 19;
+
+async function pushStandings(): Promise<void> {
+  if (kyivHour(new Date()) < STANDINGS_HOUR) return;
+  try {
+    const changes = await notifyStandingChanges({ oncePerDay: true });
+    const sent = changes.filter((c) => c.send);
+    if (sent.length > 0) {
+      console.log(
+        `worker: рух у табло — ${sent.length}: ` +
+          sent.map((c) => `${c.name} ${c.prevPlace}→${c.place}`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: розсилка табла впала", e);
+  }
+}
+
+const standingsTimer = setInterval(() => void pushStandings(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -326,6 +360,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(trackSilenceTimer);
     clearInterval(staleShiftTimer);
     clearInterval(recountTimer);
+    clearInterval(standingsTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

@@ -21,8 +21,15 @@ const CHUNK = 100;
 export type PushMessage = {
   title: string;
   body: string;
-  /** Куди відкрити застосунок: розбирається як deep link budvik27://... */
+  /** Куди відкрити застосунок покупця: розбирається як deep link budvik27://... */
   url?: string;
+  /**
+   * Куди вести в робочій збірці: `screen` із її білого списку маршрутів
+   * (див. mobile/src/track/notification-taps.ts) плюс, для кабінету,
+   * сторінка в `target`. Адресу зі схемою сюди класти не можна: у двох
+   * збірок вони різні, і помилитися легше, ніж перевірити.
+   */
+  data?: Record<string, string>;
 };
 
 /**
@@ -45,7 +52,10 @@ export async function sendPushToUser(userId: string, message: PushMessage): Prom
         title: message.title,
         body: message.body,
         sound: "default",
-        data: message.url ? { url: message.url } : undefined,
+        data:
+          message.url || message.data
+            ? { ...(message.url ? { url: message.url } : {}), ...message.data }
+            : undefined,
       }));
 
       const res = await fetch(EXPO_ENDPOINT, {

@@ -28,13 +28,30 @@ import { IS_STAFF_BUILD } from "@/lib/flavor";
  * Білий список, а не будь-який рядок: `data` приходить із сервера пушів теж, і
  * дозволяти йому кидати людину на довільний екран не варто.
  */
-const ROUTES = { "/shift": "/shift" } as const;
+type Tap =
+  | { pathname: "/shift" }
+  | { pathname: "/cabinet"; params: { target: string } };
 
-function targetFor(response: Notifications.NotificationResponse | null): "/shift" | null {
-  const screen = response?.notification.request.content.data?.screen;
-  return typeof screen === "string" && screen in ROUTES
-    ? ROUTES[screen as keyof typeof ROUTES]
-    : null;
+/** Сторінки кабінету, куди дозволено вести пушу. */
+const CABINET_TARGET = /^\/(sales|driver)(\/[\w\-/]*)?$/;
+
+function targetFor(response: Notifications.NotificationResponse | null): Tap | null {
+  const data = response?.notification.request.content.data ?? {};
+  const screen = data.screen;
+
+  if (screen === "/shift") return { pathname: "/shift" };
+
+  /**
+   * Кабінет — це WebView, тож ведемо не на екран, а на сторінку сайту.
+   * Адресу перевіряємо шаблоном: у `data` приходить те, що надіслав
+   * сервер пушів, і пускати звідти довільний рядок у WebView не варто.
+   */
+  if (screen === "/cabinet") {
+    const target = typeof data.target === "string" ? data.target : "";
+    return CABINET_TARGET.test(target) ? { pathname: "/cabinet", params: { target } } : null;
+  }
+
+  return null;
 }
 
 export function useNotificationTaps(): void {

@@ -67,12 +67,20 @@ type Options = {
   body?: unknown;
   /** Запит без токена навіть якщо він є — для входу й реєстрації. */
   anonymous?: boolean;
+  /**
+   * Інший префікс замість /api/v1.
+   *
+   * Потрібен там, де в робочої збірки свій контур перевірки: токен
+   * персоналу має scope «track», і покупецькі роути /api/v1 його не
+   * приймають — не з примхи, а щоб токен покупця не ходив у роути поля.
+   */
+  prefix?: string;
 };
 
 async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const token = opts.anonymous ? null : await getToken();
 
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
+  const res = await fetch(`${API_BASE}${opts.prefix ?? "/api/v1"}${path}`, {
     method: opts.method ?? "GET",
     headers: {
       /**
@@ -179,10 +187,15 @@ export const api = {
     request<{ ok: true }>("/push/register", {
       method: "POST",
       body: { token, platform, appVersion },
+      prefix: IS_STAFF_BUILD ? "/api/app" : undefined,
     }),
 
   pushUnregister: (token: string) =>
-    request<{ ok: true }>("/push/unregister", { method: "POST", body: { token } }),
+    request<{ ok: true }>("/push/unregister", {
+      method: "POST",
+      body: { token },
+      prefix: IS_STAFF_BUILD ? "/api/app" : undefined,
+    }),
 
   createOrder: (input: {
     items: { productId: string; quantity: number }[];

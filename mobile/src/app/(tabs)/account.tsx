@@ -82,6 +82,15 @@ export default function AccountScreen() {
            * жодної сторінки, лишався б без запису маршруту.
            */
           await onStaffLogin(res.user?.role ?? null, res.user?.id ?? null).catch(() => {});
+          /**
+           * Дозвіл на сповіщення — теж тут, поруч із треком.
+           *
+           * Кабінет працівника відкривається у WebView, а звідти токен
+           * Expo не взяти: сповіщення про рух у табло команди приходили б
+           * нікому. Питаємо одразу після входу, коли зрозуміло, про що
+           * саме сповіщатимуть.
+           */
+          registerForPush().catch(() => {});
           router.replace({ pathname: "/cabinet", params: { target: res.target ?? "/sales" } });
           return;
         }

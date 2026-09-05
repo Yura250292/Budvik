@@ -125,6 +125,48 @@ check(
   /в трек нічого не лягло 40 хв/
 );
 
+console.log("\nТрек, який не почався");
+/**
+ * 05.09: Валентин відкрив зміну о 08:07, за 24 хвилини жодної точки, а
+ * остання точка взагалі — учорашня. Стара фраза казала «трек стоїть 1139 хв».
+ */
+check(
+  "Зміна відкрита, а точок у ній ще не було",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    beat: beat({ minutesAgo: 23, lastFixMinutesAgo: 1139, tracking: false }),
+    lastPointMinutesAgo: 1139,
+    shiftMinutes: 24,
+    hasPointsInShift: false,
+  }),
+  "Зміна відкрита 24 хв, а трек не почався — відкрийте застосунок на планшеті"
+);
+check(
+  "Перші хвилини зміни ще не привід тривожити",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    beat: beat({ minutesAgo: 2 }),
+    lastPointMinutesAgo: 600,
+    shiftMinutes: 4,
+    hasPointsInShift: false,
+  }),
+  null
+);
+check(
+  "Коли точки в зміні є, фраза не спрацьовує",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    beat: beat({ minutesAgo: 2 }),
+    lastPointMinutesAgo: 1,
+    shiftMinutes: 120,
+    hasPointsInShift: true,
+  }),
+  null
+);
+
 console.log("\nСтаре поводження не змінилося");
 check("Планшета немає", diagnose({ hasDevice: false, shiftOpen: true, beat: null }), "Планшет не зареєстрований");
 check(

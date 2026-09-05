@@ -197,6 +197,10 @@ export async function checkTrackSilence(): Promise<number> {
       shiftOpen: true,
       lastPointMinutesAgo: lastPoint ? silentMin : null,
       lastPointSpeedKmh: lastPoint?.speedKmh ?? null,
+      // `lastPoint` тут уже обмежений початком зміни, тож його відсутність і
+      // означає «трек не почався».
+      shiftMinutes: Math.floor((now - shift.startedAt.getTime()) / 60_000),
+      hasPointsInShift: !!lastPoint,
       beat: lastBeat
         ? {
             minutesAgo: beatAgo,

@@ -151,6 +151,20 @@ export type DiagnosisInput = {
    */
   lastPointSpeedKmh?: number | null;
   /**
+   * Скільки хвилин відкрита зміна і чи лягла в неї хоч одна точка.
+   *
+   * Разом вони описують окремий випадок: трек не ПОЧАВСЯ. Він виглядає як
+   * обрив, але лікується інакше — і числа в нього інші. 05.09 Валентин
+   * відкрив зміну о 08:07, за двадцять хвилин не було жодної точки, а
+   * діагноз казав «трек стоїть 1139 хв», бо останню точку записано вчора.
+   * Формально правда, читати неможливо.
+   *
+   * У Валентина це вже четвертий такий день (02.09, 03.09, 26.08), тож стан
+   * заслуговує власної фрази, а не наближення чужою.
+   */
+  shiftMinutes?: number | null;
+  hasPointsInShift?: boolean;
+  /**
    * Яка збірка стоїть на планшеті — з User-Agent його ж кабінету.
    *
    * Єдине джерело для збірок до 1.3: пульсу вони не шлють, і без цього
@@ -172,6 +186,8 @@ export function diagnose({
   installedVersion,
   lastPointMinutesAgo,
   lastPointSpeedKmh,
+  shiftMinutes,
+  hasPointsInShift,
 }: DiagnosisInput): string | null {
   if (!hasDevice) return "Планшет не зареєстрований";
 
@@ -182,6 +198,30 @@ export function diagnose({
    * ВІДСУТНІСТЬ точок, і якщо вони є, пояснювати нема чого.
    */
   const pointsFresh = lastPointMinutesAgo != null && lastPointMinutesAgo <= FIX_WINDOW_MIN;
+
+  /**
+   * Скільки трек мовчить У МЕЖАХ ТОГО, ЩО НАС СТОСУЄТЬСЯ.
+   *
+   * Від точок до початку зміни вимагати нічого не можна: планшет мав повне
+   * право спати всю ніч. Тому тиша обрізається тривалістю зміни, інакше
+   * вчорашня остання точка перетворює двадцять хвилин без запису на «трек
+   * стоїть 1139 хв» — число, з яким нічого не зробиш.
+   */
+  const silentMin =
+    shiftOpen && shiftMinutes != null
+      ? Math.min(lastPointMinutesAgo ?? Number.POSITIVE_INFINITY, shiftMinutes)
+      : lastPointMinutesAgo;
+
+  /**
+   * Перші хвилини зміни — ще не новина.
+   *
+   * Точка пишеться раз на хвилину, але між відкриттям зміни й першим фіксом
+   * минає до кількох хвилин: приймач шукає небо, служба стартує. Тривога в
+   * цьому вікні була б хибною щоранку в кожного.
+   */
+  if (shiftOpen && shiftMinutes != null && shiftMinutes < FIX_WINDOW_MIN && !pointsFresh) {
+    return null;
+  }
 
   if (!beat) {
     // Пульсу немає, а точки лягають: збірка стара (до 1.3 пульсу не було),
@@ -221,14 +261,26 @@ export function diagnose({
     return null;
   }
 
+  /**
+   * Трек не почався взагалі — і це найдешевше з усього виправити.
+   *
+   * Точка пишеться раз на хвилину навіть на місці, тож десять хвилин
+   * відкритої зміни без жодної точки означають, що запис не піднявся. З
+   * фону Android його підняти не дасть, а з переднього плану — дасть
+   * завжди; тому єдина порада тут і найдієвіша: відкрити застосунок.
+   */
+  if (shiftOpen && hasPointsInShift === false && shiftMinutes != null && shiftMinutes >= FIX_WINDOW_MIN) {
+    return `Зміна відкрита ${shiftMinutes} хв, а трек не почався — відкрийте застосунок на планшеті`;
+  }
+
   if (beat.minutesAgo != null && beat.minutesAgo > HEARTBEAT_WINDOW_MIN) {
     /**
      * Мовчить і пульс, і трек. Називаємо ОБИДВА числа, починаючи з треку:
      * «застосунок мовчить» саме собою не каже, чи втрачено день, а на цих
      * планшетах пульс замовкає й при живому записі.
      */
-    return lastPointMinutesAgo != null
-      ? `${trackBreak(lastPointMinutesAgo, lastPointSpeedKmh)}, застосунок мовчить ${beat.minutesAgo} хв`
+    return silentMin != null && Number.isFinite(silentMin)
+      ? `${trackBreak(silentMin, lastPointSpeedKmh)}, застосунок мовчить ${beat.minutesAgo} хв`
       : `Застосунок мовчить ${beat.minutesAgo} хв`;
   }
 
@@ -337,10 +389,11 @@ export function diagnose({
     beat.tracking &&
     beat.lastFixMinutesAgo != null &&
     beat.lastFixMinutesAgo <= FIX_WINDOW_MIN &&
-    lastPointMinutesAgo != null &&
-    lastPointMinutesAgo > TRACK_BREAK_MIN
+    silentMin != null &&
+    Number.isFinite(silentMin) &&
+    silentMin > TRACK_BREAK_MIN
   ) {
-    return `Координати є, а в трек нічого не лягло ${lastPointMinutesAgo} хв — перезапустіть застосунок`;
+    return `Координати є, а в трек нічого не лягло ${silentMin} хв — перезапустіть застосунок`;
   }
 
   if (beat.lastFixMinutesAgo != null && beat.lastFixMinutesAgo > FIX_WINDOW_MIN) {
@@ -350,8 +403,8 @@ export function diagnose({
      * питати треба про друге.
      */
     const stale =
-      lastPointMinutesAgo != null && lastPointMinutesAgo > beat.lastFixMinutesAgo
-        ? lastPointMinutesAgo
+      silentMin != null && Number.isFinite(silentMin) && silentMin > beat.lastFixMinutesAgo
+        ? silentMin
         : beat.lastFixMinutesAgo;
     return lastPointSpeedKmh != null && lastPointSpeedKmh > MOVING_KMH
       ? trackBreak(stale, lastPointSpeedKmh)

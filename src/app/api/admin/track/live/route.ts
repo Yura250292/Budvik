@@ -193,6 +193,18 @@ export async function GET(req: NextRequest) {
       // їхню відсутність. Обидва числа вже пораховані вище.
       lastPointMinutesAgo: minutesAgo,
       lastPointSpeedKmh: point?.speedKmh ?? null,
+      /**
+       * Тиша міряється в межах ВІДКРИТОЇ ЗМІНИ, а не від останньої точки
+       * взагалі: вчорашня точка робить із двадцяти хвилин без запису
+       * «трек стоїть 1139 хв», і читати це неможливо.
+       */
+      shiftMinutes: shift?.startedAt ? minutesSince(shift.startedAt) : null,
+      hasPointsInShift:
+        shift?.startedAt && point?.recordedAt
+          ? point.recordedAt >= shift.startedAt
+          : shift?.startedAt
+            ? false
+            : undefined,
       beat: beat
         ? {
             minutesAgo: beatAgo,

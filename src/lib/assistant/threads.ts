@@ -22,13 +22,16 @@ import { emptyEntities, type SeenEntities } from "@/lib/assistant/guards";
 const BUSY_MS = 130_000;
 
 /**
- * Обрізана репліка помічника в історії: подробиці вже не потрібні.
+ * Обрізана репліка помічника в історії.
  *
- * Числа з відповіді потрібні тому, хто читає, а не моделі: наступного разу
- * вона однаково піде по свіжі дані. Лишається початок — там імена,
- * посилання й суть сказаного.
+ * ОСТАННЯ відповідь лишається майже цілою: саме до неї звертаються «а
+ * чому в мене там прострочка», «як догнати сусіда» — і без таблиці перед
+ * очима модель починає перепитувати. Давніші стискаємо сильно: числа з
+ * них вона однаково піде брати заново, а місце вони з'їдають у КОЖНОМУ
+ * раунді ходу.
  */
-const HISTORY_ASSISTANT_MAX = 900;
+const HISTORY_LAST_ASSISTANT_MAX = 2_400;
+const HISTORY_ASSISTANT_MAX = 600;
 
 export async function createThread(userId: string, repId: string) {
   return prisma.assistantThread.create({
@@ -164,12 +167,18 @@ export async function loadHistoryForModel(threadId: string): Promise<ChatMessage
 
   const picked: ChatMessage[] = [];
   let chars = 0;
+  let assistantSeen = 0;
   for (const row of rows) {
     if (!row.content.trim()) continue;
+    // rows ідуть від найсвіжішої, тож перша репліка помічника — остання в розмові.
+    const limit =
+      row.role === "ASSISTANT"
+        ? assistantSeen++ === 0
+          ? HISTORY_LAST_ASSISTANT_MAX
+          : HISTORY_ASSISTANT_MAX
+        : Infinity;
     const content =
-      row.role === "ASSISTANT" && row.content.length > HISTORY_ASSISTANT_MAX
-        ? `${row.content.slice(0, HISTORY_ASSISTANT_MAX)}…`
-        : row.content;
+      row.content.length > limit ? `${row.content.slice(0, limit)}…` : row.content;
     if (chars + content.length > HISTORY_MAX_CHARS) break;
     chars += content.length;
     picked.push(

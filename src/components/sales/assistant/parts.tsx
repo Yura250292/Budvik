@@ -15,7 +15,13 @@ import AssistantMarkdown from "./AssistantMarkdown";
 import { COPY } from "./copy";
 import type { ToolTrace, UiMessage } from "./api";
 
-export function MessageBubble({ message }: { message: UiMessage }) {
+export function MessageBubble({
+  message,
+  onAsk,
+}: {
+  message: UiMessage;
+  onAsk?: (text: string) => void;
+}) {
   if (message.role === "USER") {
     return (
       <div className="flex justify-end">
@@ -37,7 +43,7 @@ export function MessageBubble({ message }: { message: UiMessage }) {
 
   return (
     <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-      <AssistantMarkdown content={message.content} />
+      <AssistantMarkdown content={message.content} onAsk={onAsk} />
       {message.tools.length > 0 && (
         <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />
       )}

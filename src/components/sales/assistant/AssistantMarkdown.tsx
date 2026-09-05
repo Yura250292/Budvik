@@ -23,9 +23,18 @@ import remarkGfm from "remark-gfm";
 
 type HastNode = {
   tagName?: string;
+  value?: string;
   properties?: { href?: string };
   children?: HastNode[];
 };
+
+/** Увесь текст вузла — щоб упізнати рядок підказок за першим символом. */
+function plainText(node: unknown): string {
+  const n = node as HastNode | undefined;
+  if (!n) return "";
+  if (typeof n.value === "string") return n.value;
+  return (n.children ?? []).map(plainText).join("");
+}
 
 /** Адреса картки клієнта в першому ж посиланні пункту. */
 function clientHref(node: unknown): string | null {
@@ -41,7 +50,21 @@ function clientHref(node: unknown): string | null {
   return null;
 }
 
-export default function AssistantMarkdown({ content }: { content: string }) {
+/**
+ * Рядок «> 💬 питання · питання» стає кнопками.
+ *
+ * Помічник відповідає й одразу пропонує, що спитати далі — і це має бути
+ * ОДИН тап, а не набирання тексту з телефона в машині. Формат навмисно
+ * лишається звичайним маркдауном: у стрічці, у веб-версії та в історії
+ * він читається як цитата, а тут перетворюється на кнопки.
+ */
+export default function AssistantMarkdown({
+  content,
+  onAsk,
+}: {
+  content: string;
+  onAsk?: (text: string) => void;
+}) {
   return (
     <div className="assistant-md text-[14px] leading-relaxed text-bk">
       <ReactMarkdown
@@ -94,9 +117,37 @@ export default function AssistantMarkdown({ content }: { content: string }) {
             <code className="rounded bg-cab-bg px-1 py-0.5 text-[13px]">{children}</code>
           ),
           hr: () => <hr className="my-3 border-cab-line" />,
-          // Таблиці просимо не робити (це читають з телефона), але якщо
-          // модель усе-таки їх зробила — краще горизонтальна прокрутка,
-          // ніж поламана сітка.
+
+          blockquote: ({ children, node }) => {
+            const text = plainText(node).trim();
+            const asks = text.startsWith("💬")
+              ? text.replace(/^💬\s*/, "").split("·").map((q) => q.trim()).filter(Boolean)
+              : [];
+            if (onAsk && asks.length > 0) {
+              return (
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {asks.map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => onAsk(q)}
+                      className="rounded-full border border-cab-line bg-cab-bg px-3 py-1.5 text-left text-[12px] font-medium text-bk"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              );
+            }
+            return (
+              <blockquote className="my-2 border-l-2 border-cab-line pl-3 text-cab-t2">
+                {children}
+              </blockquote>
+            );
+          },
+          // Таблиця вміщається в екран телефона лише вузька (табло команди,
+          // показники проти медіани). Ширшу не забороняємо, але даємо їй
+          // горизонтальну прокрутку, щоб вона не ламала сітку сторінки.
           table: ({ children }) => (
             <div className="-mx-3.5 my-2 overflow-x-auto px-3.5">
               <table className="w-full border-collapse text-xs">{children}</table>

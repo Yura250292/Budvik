@@ -214,7 +214,7 @@ export default function AssistantScreen({
           )}
 
           {messages.map((m) => (
-            <MessageBubble key={m.id} message={m} />
+            <MessageBubble key={m.id} message={m} onAsk={submit} />
           ))}
 
           {stream && stream.text.length === 0 && (

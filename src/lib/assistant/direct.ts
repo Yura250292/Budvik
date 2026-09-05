@@ -28,6 +28,7 @@ import {
   answerAbcClients,
   answerBenchmark,
   answerDriverDay,
+  answerForecast,
   answerRecommend,
   answerReturns,
   answerRoute,
@@ -101,6 +102,9 @@ export async function tryDirectAnswer(
 
     case "BENCHMARK":
       return answerBenchmark(ctx, intent.days);
+
+    case "FORECAST":
+      return answerForecast(ctx);
 
     case "ABC_CLIENTS":
       return answerAbcClients(ctx, intent.days);

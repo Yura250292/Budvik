@@ -41,6 +41,7 @@ import { driverDayFacts } from "@/lib/assistant/facts/driver-day";
 import { teamBenchmark, STRONG_PERCENTILE, WEAK_PERCENTILE } from "@/lib/analytics/benchmark";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 import { buildAbcReport } from "@/lib/analytics/abc";
+import { monthForecast, type MonthForecast } from "@/lib/assistant/facts/forecast";
 import { OVERDUE_HOOK_MIN } from "@/lib/assistant/config";
 import {
   clientLink,
@@ -48,6 +49,7 @@ import {
   days,
   items,
   money,
+  monthLabel,
   planDayLabel,
   percent,
   plural,
@@ -234,7 +236,7 @@ export async function answerDebts(ctx: ToolContext): Promise<DirectAnswer> {
   const overdueCount = debtors.filter((d) => d.overdue > 0).length;
 
   return {
-    markdown: [
+    markdown: md([
       `**Дебіторка: ${money(total.total)}**, з них прострочено **${money(total.overdue)}** (${percent(total.overdueRatio)}).`,
       `Боржників ${debtors.length}, із простроченою — ${overdueCount}.`,
       "",
@@ -242,7 +244,13 @@ export async function answerDebts(ctx: ToolContext): Promise<DirectAnswer> {
       ...worst,
       "",
       "_Вік боргу відновлено з дат наших відвантажень: 1С передає лише загальне сальдо._",
-    ].join("\n"),
+      "",
+      followUps(
+        "Кому дзвонити першому і що казати?",
+        "Кому з них не можна відвантажувати?",
+        "Як це впливає на мій бонус?"
+      ),
+    ]),
     tools,
   };
 }
@@ -363,7 +371,7 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
   const brands = s.бренди.slice(0, 5).map((b) => `- ${b.бренд} — ${money(b.сума)}`);
 
   return {
-    markdown: [
+    markdown: md([
       `**За ${days(dayCount)}: ${money(s.підсумок.сума)}**, ${s.підсумок.реалізацій} реалізацій, ${clientsWord(s.підсумок.клієнтів)}, середній чек ${money(s.підсумок.середній_чек)}.${trend}`,
       s.підсумок.повернення > 0 ? `Повернень на ${money(s.підсумок.повернення)}.` : "",
       `Зібрано грошей: ${money(s.підсумок.зібрано_грошей)}.`,
@@ -373,9 +381,9 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
       ...brands,
       "",
       "_Рахуються реалізації (відвантажене), суми нетто — повернення відняті._",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+      "",
+      followUps("Чи витягну план?", "Як я на фоні команди?", "Чому змінився оборот?"),
+    ]),
     tools,
   };
 }
@@ -777,21 +785,77 @@ const MY_METRICS: MetricKey[] = [
 ];
 
 /**
- * Де я сильний, а де провисаю — у перцентилях по команді.
+ * Збірка відповіді з рядків.
  *
- * Чужі суми не показуємо: торговому потрібне СВОЄ місце, а не чужий
- * оборот. Медіана команди лишається, бо без неї перцентиль — порожнє
- * число.
+ * Порожній рядок у маркдауні — це роздільник абзаців, тож викидати його
+ * не можна (інакше таблиця злипнеться із заголовком). А два поспіль уже
+ * зайві, і саме вони з'являються там, де секція не заповнилася.
+ */
+function md(lines: Array<string | null | undefined>): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line == null) continue;
+    if (line === "" && out[out.length - 1] === "") continue;
+    out.push(line);
+  }
+  while (out[out.length - 1] === "") out.pop();
+  return out.join("\n");
+}
+
+/** Медаль за місце. Далі третього — просто число, інакше медалі знецінюються. */
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+/** Іконка метрики: у таблиці з телефона вона читається швидше за слово. */
+const METRIC_ICONS: Partial<Record<MetricKey, string>> = {
+  revenue: "💰",
+  avgCheck: "🧾",
+  collected: "💵",
+  skuPerClient: "📦",
+  newClients: "🌱",
+  overdueRatio: "⏰",
+  returnRatio: "↩️",
+  momentumPct: "📊",
+};
+
+/**
+ * Смужка виконання з десяти квадратів.
+ *
+ * Кольором тут працює сам символ: у маркдауні кольору немає, а квадрат є
+ * скрізь — і в застосунку, і в браузері. Порогів три, щоб «майже план» і
+ * «провал» не виглядали однаково.
+ */
+function bar(percentValue: number | null): string {
+  if (percentValue == null) return "";
+  const filled = Math.max(0, Math.min(10, Math.round(percentValue / 10)));
+  const block = percentValue >= 100 ? "🟩" : percentValue >= 90 ? "🟨" : "🟥";
+  return block.repeat(filled) + "⬜".repeat(10 - filled);
+}
+
+/** Рядок підказок під відповіддю: у кабінеті це тапабельні кнопки. */
+function followUps(...questions: Array<string | null>): string {
+  const list = questions.filter((q): q is string => Boolean(q));
+  return list.length ? `> 💬 ${list.join(" · ")}` : "";
+}
+
+const arrow = (value: number | null): string =>
+  value == null ? "" : value > 0 ? "📈" : value < 0 ? "📉" : "➖";
+
+/**
+ * Де я в команді — з рейтингом, показниками й прогнозом на місяць.
+ *
+ * Рейтинг із іменами й сумами колег показуємо навмисно (рішення власника
+ * 05.09.2026: «торгові — одна команда, секретів немає»). До того тут були
+ * самі перцентилі, і торговий бачив «6 з 9», не розуміючи, скільки саме
+ * не вистачає до п'ятого місця — тобто змагання без табло.
  */
 export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const period = periodOf(ctx.today, dayCount);
 
-  const report = await timed(
-    { name: "team_benchmark", label: "Порівнюю з командою" },
-    () => teamBenchmark(period),
-    tools
-  );
+  const [report, forecast] = await Promise.all([
+    timed({ name: "team_benchmark", label: "Порівнюю з командою" }, () => teamBenchmark(period), tools),
+    timed({ name: "month_forecast", label: "Рахую темп місяця" }, () => monthForecast(ctx.scope.repId, ctx.today), tools),
+  ]);
 
   const me = report.reps.find((r) => r.repId === ctx.scope.repId);
   if (!me) {
@@ -808,34 +872,152 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
   }
 
   const fmt = (key: MetricKey, value: number | null) => {
-    if (value == null) return "немає даних";
+    if (value == null) return "—";
     const unit = METRICS[key].unit;
     if (unit === "uah") return money(value);
     if (unit === "pct") return percent(value);
     return String(Math.round(value * 10) / 10);
   };
 
-  const rows = MY_METRICS.filter((key) => me.ranks[key] != null).map((key) => {
-    const rank = me.ranks[key]!;
-    const mark = rank >= STRONG_PERCENTILE ? "сильно" : rank <= WEAK_PERCENTILE ? "слабко" : "середньо";
-    return `- ${METRICS[key].label}: **${fmt(key, me[key])}**, ${mark} (${Math.round(rank)} перцентиль; медіана команди ${fmt(key, report.medians[key])})`;
+  /* ── Табло ──────────────────────────────────────────────────────────── */
+
+  const board = [...report.reps].sort((a, b) => (b.revenue ?? 0) - (a.revenue ?? 0));
+  const leader = board[0]?.revenue ?? 0;
+  const boardRows = board.map((r, i) => {
+    const isMe = r.repId === me.repId;
+    const place = MEDALS[i] ?? `${i + 1}`;
+    const name = isMe ? `**👉 ${r.name} (ви)**` : r.name;
+    const sum = isMe ? `**${money(r.revenue ?? 0)}**` : money(r.revenue ?? 0);
+    const share = leader > 0 ? Math.round(((r.revenue ?? 0) / leader) * 100) : 0;
+    const momentum = r.momentumPct == null ? "—" : `${arrow(r.momentumPct)} ${percent(r.momentumPct)}`;
+    return `| ${place} | ${name} | ${sum} | ${share} % | ${momentum} |`;
   });
 
-  const strengths = me.strengths.filter((k) => MY_METRICS.includes(k)).map((k) => METRICS[k].label);
-  const weaknesses = me.weaknesses.filter((k) => MY_METRICS.includes(k)).map((k) => METRICS[k].label);
+  // Скільки бракує, щоб піднятися на сходинку. Це і є мета на завтра.
+  const ahead = board[board.indexOf(me) - 1];
+  const gap = ahead ? (ahead.revenue ?? 0) - (me.revenue ?? 0) : 0;
+  const chase = ahead
+    ? `🎯 До ${board.indexOf(ahead) + 1} місця (${ahead.name}) бракує **${money(gap)}** — це ${money(gap / Math.max(1, forecast.днів_лишилось || 1))} на день до кінця місяця.`
+    : "👑 Ви перший у команді за оборотом — тримайте.";
+
+  /* ── Мої показники ──────────────────────────────────────────────────── */
+
+  const metricRows = MY_METRICS.filter((key) => me.ranks[key] != null).map((key) => {
+    const rank = Math.round(me.ranks[key]!);
+    const light = rank >= STRONG_PERCENTILE ? "🟢" : rank <= WEAK_PERCENTILE ? "🔴" : "🟡";
+    return `| ${METRIC_ICONS[key] ?? ""} ${METRICS[key].label} | **${fmt(key, me[key])}** | ${fmt(key, report.medians[key])} | ${light} ${rank} |`;
+  });
+
+  const strengths = me.strengths.filter((k) => MY_METRICS.includes(k)).map((k) => `${METRIC_ICONS[k] ?? ""} ${METRICS[k].label}`);
+  const weaknesses = me.weaknesses.filter((k) => MY_METRICS.includes(k)).map((k) => `${METRIC_ICONS[k] ?? ""} ${METRICS[k].label}`);
+
+  const weakest = me.weaknesses.find((k) => MY_METRICS.includes(k));
 
   return {
-    markdown: [
-      `**Ваше місце за оборотом: ${me.place} з ${report.reps.length}** за ${days(dayCount)}.`,
-      strengths.length ? `Сильні сторони: ${strengths.join(", ")}.` : "",
-      weaknesses.length ? `Провисає: ${weaknesses.join(", ")}.` : "",
+    markdown: md([
+      `## 🏆 Табло команди · ${days(dayCount)}`,
+      `Ваше місце за оборотом: **${me.place} з ${report.reps.length}**.`,
       "",
-      ...rows,
+      "| # | Торговий | Оборот | Від лідера | Динаміка |",
+      "| --- | --- | --- | --- | --- |",
+      ...boardRows,
       "",
-      "_Перцентиль — частка колег, яких ви обійшли за цим показником. Чужі суми не показуємо._",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+      chase,
+      "",
+      "### 📊 Ваші показники проти команди",
+      "",
+      "| Показник | Ви | Медіана | Перцентиль |",
+      "| --- | --- | --- | --- |",
+      ...metricRows,
+      "",
+      strengths.length ? `✅ **Сильне:** ${strengths.join(", ")}.` : "",
+      weaknesses.length ? `⚠️ **Провисає:** ${weaknesses.join(", ")}.` : "",
+      "",
+      ...forecastBlock(forecast),
+      "",
+      "_🟢 сильно · 🟡 середньо · 🔴 слабко. Перцентиль — скільки % колег ви обійшли._",
+      "",
+      followUps(
+        weakest ? `Чому провисає ${METRICS[weakest].label.toLowerCase()}?` : null,
+        "Як мені догнати сусіда в таблиці?",
+        "Кому нагадати про борг, щоб підняти зібране?"
+      ),
+    ]),
+    tools,
+  };
+}
+
+/**
+ * «Якщо так і піде далі» — спільний блок для табла й окремого питання.
+ *
+ * Прогноз лінійний і про це сказано прямо: місяць добігає рівно так, як
+ * ішов дотепер, лише коли нічого не змінюється. Обіцяти точність, якої
+ * немає, — швидший спосіб втратити довіру, ніж помилитися на 10%.
+ */
+export function forecastBlock(f: MonthForecast): string[] {
+  const lines: string[] = [
+    `### 🔮 Прогноз на ${monthLabel(f.місяць, f.місяць)}`,
+    `Минуло ${days(f.днів_минуло)} із ${f.днів_усього}, лишилось ${days(f.днів_лишилось)}.`,
+    "",
+  ];
+
+  for (const m of f.показники) {
+    const icon = m.ключ === "revenue" ? "💰" : "💵";
+    lines.push(
+      `**${icon} ${m.назва}:** ${money(m.факт)} → темп ${money(m.темп_на_день)}/день → **${money(m.прогноз)}** до кінця місяця`
+    );
+
+    if (m.план > 0) {
+      const done = m.прогнозоване_виконання_відсотків ?? 0;
+      const verdict = done >= 110 ? "🚀 з перевиконанням" : done >= 100 ? "✅ план закриється" : done >= 90 ? "⚠️ трохи не дотягує" : "🔴 план під загрозою";
+      lines.push(`${bar(done)} **${percent(done)}** плану (${money(m.план)}) — ${verdict}`);
+      if (m.треба_на_день != null && m.лишилось_добрати) {
+        lines.push(`Добрати ${money(m.лишилось_добрати)}, тобто ${money(m.треба_на_день)} на день.`);
+      }
+    } else if (m.минулий_місяць > 0) {
+      const diff = m.зміна_до_минулого_відсотків;
+      lines.push(
+        `${arrow(diff)} ${diff == null ? "" : `${percent(Math.abs(diff))} ${diff >= 0 ? "більше" : "менше"} за ${monthLabel(f.минулий_місяць, f.місяць)} `}(${money(m.минулий_місяць)}).`
+      );
+    }
+    lines.push("");
+  }
+
+  for (const b of f.бонуси) {
+    lines.push(
+      b.спрацює === null
+        ? `🎁 ${b.правило}: поріг ${percent(b.поріг_відсотків)} — плану немає, рахувати нема від чого.`
+        : b.спрацює
+          ? `🎁 ${b.правило}: за темпом ${percent(b.прогноз_відсотків ?? 0)} — **бонус спрацьовує**.`
+          : `🎁 ${b.правило}: поріг ${percent(b.поріг_відсотків)}, за темпом виходить ${percent(b.прогноз_відсотків ?? 0)} — поки не вистачає.`
+    );
+  }
+
+  if (f.примітка) lines.push(`_${f.примітка[0].toUpperCase()}${f.примітка.slice(1)}._`);
+  return lines;
+}
+
+/** Окреме питання «чи витягну план», без табла команди. */
+export async function answerForecast(ctx: ToolContext): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const forecast = await timed(
+    { name: "month_forecast", label: "Рахую темп місяця" },
+    () => monthForecast(ctx.scope.repId, ctx.today),
+    tools
+  );
+
+  return {
+    markdown: md([
+      ...forecastBlock(forecast),
+      "",
+      followUps(
+        forecast.показники.some((m) => m.план > 0)
+          ? "Що зробити, щоб дотягнути до плану?"
+          : "Як мені підняти оборот до кінця місяця?",
+        "Кому нагадати про борг, щоб підняти зібране?",
+        "Як я на фоні команди?"
+      ),
+    ]),
     tools,
   };
 }

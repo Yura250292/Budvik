@@ -38,6 +38,19 @@ export const clients = (n: number) => `${n} ${plural(n, "клієнт", "клі�
 export const items = (n: number) => `${n} ${plural(n, "позиція", "позиції", "позицій")}`;
 export const points = (n: number) => `${n} ${plural(n, "точка", "точки", "точок")}`;
 
+/** Назви місяців у називному — для заголовка прогнозу. */
+const MONTHS = [
+  "січень", "лютий", "березень", "квітень", "травень", "червень",
+  "липень", "серпень", "вересень", "жовтень", "листопад", "грудень",
+];
+
+/** «2026-09» → «вересень». Рік дописуємо лише чужий, свій і так зрозумілий. */
+export function monthLabel(monthKey: string, today = ""): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  const name = MONTHS[(m || 1) - 1] ?? monthKey;
+  return today.slice(0, 4) === String(y) ? name : `${name} ${y}`;
+}
+
 /** Посилання на картку клієнта в кабінеті. */
 export const clientLink = (id: string, name: string) => `[${name}](/sales/clients/${id})`;
 

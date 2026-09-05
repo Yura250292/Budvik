@@ -214,6 +214,18 @@ export async function GET(
           toTime: kyivTime(stop.to),
         })),
         pointsCount: shiftPoints.length,
+        /**
+         * Коли записано останню точку — і чи вона ще «жива».
+         *
+         * У відкритій зміні остання точка означає не кінець маршруту, а «де
+         * людина зараз або де її бачили востаннє». Без цих двох полів карта
+         * підписувала її «Кінець зміни» посеред робочого дня.
+         */
+        lastAt: shiftPoints.length > 0 ? shiftPoints[shiftPoints.length - 1].recordedAt : null,
+        lastTime:
+          shiftPoints.length > 0
+            ? kyivTime(shiftPoints[shiftPoints.length - 1].recordedAt)
+            : null,
       },
       afterShift: {
         points: afterPoints,

@@ -108,6 +108,9 @@ type Detail = {
         counterpartyName: string | null;
       }>;
       pointsCount: number;
+      /** Час останньої точки — щоб у відкритій зміні показати «де він зараз». */
+      lastAt: string | null;
+      lastTime: string | null;
     };
     afterShift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
   };
@@ -250,6 +253,9 @@ function sumKm(rows: ShiftRow[]): number {
  * намалював більше, ніж проїхала машина. Більше 1,3 — кілометри в одометрі
  * є, а треку до них немає: саме той випадок, коли день не записався.
  */
+/** Як часто перемальовувати картку відкритої зміни. */
+const LIVE_REFRESH_MS = 60_000;
+
 const RATIO_MIN = 0.8;
 const RATIO_MAX = 1.3;
 
@@ -383,6 +389,31 @@ export function ShiftsTab({
       alive = false;
     };
   }, [selected, onRoads]);
+
+  /**
+   * Відкрита зміна оновлюється сама.
+   *
+   * Питання до неї — «де він ЗАРАЗ», а відповідь на нього застаріває за
+   * хвилини. Досі картку доводилося закривати й відкривати, і це виглядало
+   * так, ніби людина стоїть на місці півдня. Хвилина — компроміс: точка
+   * пишеться раз на 20 секунд, а кожне оновлення тягне весь трек дня.
+   *
+   * Закриту зміну не чіпаємо взагалі: там уже нічого не зміниться.
+   */
+  useEffect(() => {
+    if (!selected || detail?.shift.status !== "OPEN") return;
+    const timer = setInterval(() => {
+      void (async () => {
+        const res = await fetch(`/api/admin/shifts/${selected}${onRoads ? "?roads=1" : ""}`);
+        if (!res.ok) return;
+        const json = await res.json().catch(() => null);
+        // Картку могли вже закрити або перемкнути на іншу зміну, поки
+        // запит летів: писати відповідь у чужий стан не можна.
+        if (json?.shift?.id === selected) setDetail(json);
+      })();
+    }, LIVE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [selected, onRoads, detail?.shift.status]);
 
   /**
    * Зміни, згруповані за київською добою. Порядок від нових до старих
@@ -899,6 +930,10 @@ export function ShiftsTab({
                     orders={detail.orders.dots}
                     focusOrderId={hoverOrder}
                     base={detail.plan.base}
+                    live={detail.shift.status === "OPEN"}
+                    fitKey={detail.shift.id}
+                    lastPointAt={detail.track.shift.lastAt}
+                    lastPointTime={detail.track.shift.lastTime}
                     height="480px"
                   />
                   <div className="flex flex-wrap gap-x-5 gap-y-1" style={{ fontSize: 13, marginTop: 8 }}>

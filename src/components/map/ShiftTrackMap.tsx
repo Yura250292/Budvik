@@ -61,6 +61,14 @@ export type PlanExcursion = {
 
 const PLAN_COLOR = "#16A34A";
 
+/**
+ * Скільки хвилин точка ще означає «зараз».
+ *
+ * Те саме число, що й межа свіжості в діагнозі треку: точка пишеться раз на
+ * хвилину, тож десять хвилин мовчання — це вже не «зараз».
+ */
+const LIVE_FRESH_MIN = 10;
+
 /** Квадратна нумерована мітка пункту плану — щоб не плуталася з круглими точками треку. */
 function planPin(seq: number): L.DivIcon {
   return L.divIcon({
@@ -105,6 +113,10 @@ export default function ShiftTrackMap({
   orders = [],
   focusOrderId = null,
   base = null,
+  live = false,
+  lastPointAt = null,
+  lastPointTime = null,
+  fitKey = null,
   height = "420px",
 }: {
   shiftPath: Array<[number, number]>;
@@ -138,6 +150,26 @@ export default function ShiftTrackMap({
   orders?: OrderDot[];
   /** Клієнт зі списку поруч, на якому зараз тримають курсор. */
   focusOrderId?: string | null;
+  /**
+   * Зміна ще триває — тоді остання точка це не кінець маршруту.
+   *
+   * Без цього прапорця карта підписувала її «Кінець зміни» посеред робочого
+   * дня, і виглядало це так, ніби людина вже закінчила. Насправді питання до
+   * тієї точки інше: де він зараз або де його бачили востаннє.
+   */
+  live?: boolean;
+  /** Час останньої точки: ISO для свіжості й готовий рядок для підпису. */
+  lastPointAt?: string | null;
+  lastPointTime?: string | null;
+  /**
+   * Що саме показуємо (id зміни). Межі карти підганяються лише коли це
+   * значення змінилося.
+   *
+   * Потрібне через самооновлення відкритої зміни: без нього кожні шістдесят
+   * секунд карта стрибала б назад на весь маршрут, і роздивитися щось
+   * зблизька було б неможливо — рівно тоді, коли людина цього й хоче.
+   */
+  fitKey?: string | null;
   /** База торгового — точка відліку подачі */
   base?: { lat: number; lng: number; address: string | null } | null;
   height?: string;
@@ -146,6 +178,8 @@ export default function ShiftTrackMap({
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   /** Кільця замовлень за id клієнта — щоб список поруч міг їх підсвічувати. */
+  /** Для якого саме об'єкта межі вже підганяли — див. fitKey. */
+  const fittedRef = useRef<string | null | undefined>(undefined);
   const orderMarkersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const { wheelActive, onWheelChange } = useWheelGate();
 
@@ -279,10 +313,37 @@ export default function ShiftTrackMap({
         .bindTooltip("Початок зміни", { direction: "top" })
         .addTo(group);
 
+      /**
+       * Остання точка відкритої зміни — це «де він зараз», а не «кінець».
+       *
+       * Підпис тримаємо ПОСТІЙНО відкритим і показуємо час: у відкритій
+       * зміні це найпотрібніше число на карті, і шукати його наведенням
+       * миші людина не мусить. Свіжість вирішує формулювання: щойно
+       * записана точка — «зараз тут», давніша — «востаннє тут», бо
+       * стверджувати, що людина досі там, ми не можемо.
+       */
+      const lastAgoMin = lastPointAt
+        ? Math.floor((Date.now() - new Date(lastPointAt).getTime()) / 60_000)
+        : null;
+      const fresh = lastAgoMin != null && lastAgoMin <= LIVE_FRESH_MIN;
+      const label = !live
+        ? "Кінець зміни"
+        : fresh
+          ? `Зараз тут${lastPointTime ? ` · ${lastPointTime}` : ""}`
+          : `Востаннє тут${lastPointTime ? ` · ${lastPointTime}` : ""}` +
+            (lastAgoMin != null ? ` (${lastAgoMin} хв тому)` : "");
+
       L.circleMarker(shiftPath[shiftPath.length - 1], {
-        radius: 6, color: "#fff", weight: 2, fillColor: "#DC2626", fillOpacity: 1,
+        radius: live ? 8 : 6,
+        color: "#fff",
+        weight: live ? 3 : 2,
+        // Жива точка синя, як і сам трек: червоний на карті вже означає
+        // «після зміни», і другий сенс для того самого кольору тільки
+        // заплутав би.
+        fillColor: live ? (fresh ? "#2563EB" : "#D97706") : "#DC2626",
+        fillOpacity: 1,
       })
-        .bindTooltip("Кінець зміни", { direction: "top" })
+        .bindTooltip(label, { direction: "top", permanent: live, opacity: 0.95 })
         .addTo(group);
     }
 
@@ -366,8 +427,14 @@ export default function ShiftTrackMap({
       orderMarkersRef.current.set(o.counterpartyId, marker);
     });
 
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
-  }, [shiftPath, shiftParts, stops, onlyStops, afterShiftPath, planGeometry, planStops, excursions, orders, base]);
+    if (bounds.isValid() && fittedRef.current !== fitKey) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      fittedRef.current = fitKey;
+    }
+    // Живі поля обов'язково в залежностях: без них мітка «зараз тут» лишалася
+    // б на місці першого малювання, тобто карта відкритої зміни брехала б
+    // рівно про те, заради чого її відкривають.
+  }, [shiftPath, shiftParts, stops, onlyStops, afterShiftPath, planGeometry, planStops, excursions, orders, base, live, lastPointAt, lastPointTime, fitKey]);
 
   /**
    * Наведення на рядок у списку підсвічує його точку.

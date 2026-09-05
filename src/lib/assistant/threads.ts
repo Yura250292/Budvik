@@ -177,8 +177,19 @@ export async function loadHistoryForModel(threadId: string): Promise<ChatMessage
           ? HISTORY_LAST_ASSISTANT_MAX
           : HISTORY_ASSISTANT_MAX
         : Infinity;
-    const content =
-      row.content.length > limit ? `${row.content.slice(0, limit)}…` : row.content;
+    /**
+     * Службовий блок маршруту в історію не йде.
+     *
+     * Це півтори тисячі символів координат, які моделі ні про що не
+     * кажуть: точки вона однаково не читає, а місце в контексті вони
+     * з'їдають при КОЖНОМУ наступному запиті. Людині ж лишається сам
+     * список — його малює кабінет.
+     */
+    const body = row.content.replace(
+      /```budvik-route[\s\S]*?```/g,
+      "(маршрут показано списком у кабінеті)"
+    );
+    const content = body.length > limit ? `${body.slice(0, limit)}…` : body;
     if (chars + content.length > HISTORY_MAX_CHARS) break;
     chars += content.length;
     picked.push(

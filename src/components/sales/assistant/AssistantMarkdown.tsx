@@ -20,6 +20,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import RoutePicker from "./RoutePicker";
 
 type HastNode = {
   tagName?: string;
@@ -117,6 +118,27 @@ export default function AssistantMarkdown({
             <code className="rounded bg-cab-bg px-1 py-0.5 text-[13px]">{children}</code>
           ),
           hr: () => <hr className="my-3 border-cab-line" />,
+
+          /**
+           * Блок ```budvik-route — це список точок із галочками.
+           *
+           * Формат навмисно лишається маркдауном: у стрічці, в історії та
+           * у веб-версії він читається як службовий блок, а тут стає
+           * екраном, де маршрут можна почистити одним дотиком. Так само,
+           * як рядок підказок вище стає кнопками.
+           */
+          pre: ({ children }) => {
+            const node = Array.isArray(children) ? children[0] : children;
+            const props = (node as { props?: { className?: string; children?: unknown } })?.props;
+            if (typeof props?.className === "string" && props.className.includes("budvik-route")) {
+              return <RoutePicker json={String(props.children ?? "")} />;
+            }
+            return (
+              <pre className="my-2 overflow-x-auto rounded-xl bg-cab-bg p-3 text-[12px]">
+                {children}
+              </pre>
+            );
+          },
 
           blockquote: ({ children, node }) => {
             const text = plainText(node).trim();

@@ -211,6 +211,40 @@ function periodOf(today: string, dayCount: number) {
  * таких на один план — це зайві секунди в дорозі.
  */
 /**
+ * «На який день планувати?»
+ *
+ * Питання, а не здогад: «сплануй мій день» о шостій вечора майже завжди
+ * означає завтра, а зранку — сьогодні, і вгадана неправильно дата коштує
+ * цілого виїзду. Кнопки дають найближчі чотири дні — далі вже не
+ * планування, а мрії.
+ */
+export async function answerDayChoice(ctx: ToolContext): Promise<DirectAnswer> {
+  const names = [...WEEKDAY_ACCUSATIVE];
+  const choices: string[] = ["Сплануй день на сьогодні", "Сплануй день на завтра"];
+  for (let i = 2; i <= 3; i++) {
+    const day = shiftDay(ctx.today, i);
+    const idx = (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;
+    choices.push(`Сплануй день на ${names[idx]}`);
+  }
+
+  return {
+    markdown: md([
+      "## 📅 На який день планувати?",
+      "",
+      `Зараз ${planDayLabel(ctx.today, WEEKDAY_ACCUSATIVE[weekdayIndexOfDay(ctx.today)])}.`,
+      "",
+      followUps(...choices),
+    ]),
+    tools: [],
+  };
+}
+
+/** Порядковий номер дня тижня для ISO-дати: понеділок — 0. */
+function weekdayIndexOfDay(day: string): number {
+  return (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+/**
  * План дня — це маршрут в один бік, а не десятка боржників.
  *
  * Що змінилось проти першої версії й чому (вимога власника 05.09.2026):
@@ -249,23 +283,43 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
     tools
   );
 
-  const stopLine = (c: { клієнт_id: string; назва: string; борг: number; прострочено: number; дія: string | null; звичний_для_дня: boolean; днів_з_останньої: number | null }, i: number) => {
+  /**
+   * Підпис під точкою — це ПРИЧИНА ЇХАТИ, а не сума боргу.
+   *
+   * Борг звідси прибрано свідомо (вимога власника 05.09.2026): коли
+   * кожен рядок починався з простроченої суми, план читався як обʼїзд
+   * боржників. Гроші лишилися, але окремим блоком нижче — «по дорозі
+   * можна забрати».
+   */
+  const noteFor = (c: {
+    клієнт_id: string;
+    борг: number;
+    прострочено: number;
+    дія: string | null;
+    звичний_для_дня: boolean;
+    днів_з_останньої: number | null;
+  }) => {
     const parts: string[] = [];
-    if (c.прострочено > 0) parts.push(`🔴 прострочено ${money(c.прострочено)}`);
-    else if (c.борг > 0) parts.push(`🟡 борг ${money(c.борг)}`);
-    if (c.дія) parts.push(c.дія.toLowerCase());
+    if (c.дія && !/борг|дебітор/i.test(c.дія)) parts.push(c.дія.toLowerCase());
     if (c.звичний_для_дня) parts.push("звичний для цього дня");
     if (c.днів_з_останньої != null) parts.push(`не брав ${days(c.днів_з_останньої)}`);
 
     const hook = hooks.get(c.клієнт_id);
-    const withWhat = hook
-      ? ` 🎁 ${productLink(hook.name, hook.sku)} — ${money(hook.price)}${
-          hook.floor ? `, не нижче ${money(hook.floor)}` : ""
-        }`
-      : "";
+    if (hook) parts.push(`🎁 ${short(hook.name, 34)} — ${money(hook.price)}`);
+    if (parts.length === 0 && c.прострочено > 0) parts.push("заодно забрати гроші");
 
-    return `${i + 1}. ${clientLink(c.клієнт_id, c.назва)} — ${parts.join(" · ")}.${withWhat}`;
+    return parts.join(" · ");
   };
+
+  /** Гроші, які лежать по дорозі. Не привід їхати — привід не забути. */
+  const onTheWay = [...(plan.route?.order ?? []), ...chosen.loose]
+    .filter((c) => c.прострочено > 0)
+    .sort((a, b) => b.прострочено - a.прострочено);
+
+  const stopLine = (
+    c: { клієнт_id: string; назва: string; борг: number; прострочено: number; дія: string | null; звичний_для_дня: boolean; днів_з_останньої: number | null },
+    i: number
+  ) => `${i + 1}. ${clientLink(c.клієнт_id, c.назва)} — ${noteFor(c)}`;
 
   const routeHead = plan.route?.km
     ? `🧭 **${chosen.name}** · ${plan.route.km} км, ~${hoursMinutes(plan.route.minutes ?? 0)} у дорозі`
@@ -309,7 +363,16 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
       routeHead,
       "",
       ...(plan.route?.order.length
-        ? plan.route.order.map(stopLine)
+        ? routePicker(
+            `${chosen.name}${plan.route.km ? ` · ${plan.route.km} км` : ""}`,
+            plan.route.order.map((c) => ({
+              id: c.клієнт_id,
+              name: c.назва,
+              lat: c.lat,
+              lng: c.lng,
+              note: noteFor(c),
+            }))
+          )
         : chosen.loose.map(stopLine)),
       ...(plan.route?.order.length && chosen.loose.length
         ? [
@@ -319,7 +382,25 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
           ]
         : []),
       "",
-      ...navBlock(plan.route?.order ?? []),
+      ...(onTheWay.length
+        ? [
+            "",
+            "### 💰 По дорозі можна забрати",
+            "",
+            ...table(
+              ["Клієнт", "🔴 Прострочено", "Платник"],
+              onTheWay
+                .slice(0, 6)
+                .map((c) => [
+                  clientLink(c.клієнт_id, short(c.назва, 26)),
+                  money(c.прострочено),
+                  c.вердикт ? `${payerIcon(c.вердикт)} ${c.вердикт}` : "—",
+                ])
+            ),
+            "",
+            `_Разом на маршруті ${money(onTheWay.reduce((sum, c) => sum + c.прострочено, 0))}. Це не привід їхати саме туди — просто не забудьте, якщо будете поруч._`,
+          ]
+        : []),
       "",
       "### 📦 Чим торгувати на цьому напрямку",
       "",
@@ -368,6 +449,23 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
     ]),
     tools,
   };
+}
+
+/**
+ * Точки маршруту як блок, який кабінет малює списком із галочками.
+ *
+ * Помічник пропонує дев'ять точок, а торговий знає, що до двох сьогодні
+ * не варто — і замість того, щоб переписувати питання, він вимикає рядок
+ * дотиком, а посилання на навігацію перераховуються самі (RoutePicker).
+ * У маркдауні це звичайний блок коду, тож історія й веб-версія від нього
+ * не ламаються.
+ */
+function routePicker(
+  title: string,
+  stops: Array<{ id: string; name: string; lat: number; lng: number; note?: string }>
+): string[] {
+  if (stops.length === 0) return [];
+  return ["```budvik-route", JSON.stringify({ title, stops }), "```"];
 }
 
 /**
@@ -1435,8 +1533,7 @@ export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<
         ? `${pointsWord(order.length)} · ${route.km} км · ~${hoursMinutes(route.minutes ?? 0)} у дорозі`
         : pointsWord(order.length),
       "",
-      ...order.map((c, i) => `${i + 1}. ${clientLink(c.id, c.name)}`),
-      ...navBlock(order),
+      ...routePicker("Маршрут", order.map((c) => ({ id: c.id, name: c.name, lat: c.lat, lng: c.lng }))),
       noPin.length ? `\n_Без точки на карті, у порядок не стали: ${noPin.join(", ")}._` : null,
       unclear.length ? `_Не впізнав: ${unclear.join(", ")} — скажіть точніше._` : null,
       "",

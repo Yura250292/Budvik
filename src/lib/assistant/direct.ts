@@ -20,6 +20,7 @@ import type { DirectAnswer } from "@/lib/assistant/answers";
 import {
   answerChurn,
   answerClientCard,
+  answerDayChoice,
   answerDayPlan,
   answerDeadStock,
   answerDebts,
@@ -43,6 +44,13 @@ import {
 } from "@/lib/assistant/answers";
 import { shiftDay } from "@/lib/analytics/period";
 
+/** Найближчий такий день тижня, не рахуючи сьогоднішнього. */
+function nextWeekday(today: string, weekday: number): string {
+  const current = ((new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
+  const ahead = (weekday - current + 7) % 7;
+  return shiftDay(today, ahead === 0 ? 7 : ahead);
+}
+
 export async function tryDirectAnswer(
   ctx: ToolContext,
   text: string,
@@ -65,11 +73,11 @@ export async function tryDirectAnswer(
   const subjectOf = (raw: string | null) => raw ?? opts.clientHint?.name ?? null;
 
   switch (intent.kind) {
-    case "DAY_PLAN":
-      return answerDayPlan(
-        ctx,
-        intent.day === "tomorrow" ? shiftDay(ctx.today, 1) : ctx.today
-      );
+    case "DAY_PLAN": {
+      if (intent.weekday) return answerDayPlan(ctx, nextWeekday(ctx.today, intent.weekday));
+      if (intent.day === "ask") return answerDayChoice(ctx);
+      return answerDayPlan(ctx, intent.day === "tomorrow" ? shiftDay(ctx.today, 1) : ctx.today);
+    }
 
     case "DEBTS":
       return answerDebts(ctx);

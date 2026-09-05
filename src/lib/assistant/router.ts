@@ -36,7 +36,7 @@ const WEEKDAYS: Array<[RegExp, number]> = [
 ];
 
 export type Intent =
-  | { kind: "DAY_PLAN"; day: "today" | "tomorrow" }
+  | { kind: "DAY_PLAN"; day: "today" | "tomorrow" | "ask"; weekday: number | null }
   | { kind: "DEBTS" }
   | { kind: "CHURN" }
   | { kind: "DEAD_STOCK"; brand: string | null }
@@ -226,12 +226,24 @@ export function detectIntent(
 
   /* Далі — питання без назви клієнта. */
 
+  /**
+   * План дня. День питаємо, коли його не назвали.
+   *
+   * «Сплануй мій день» о шостій вечора найчастіше означає «на завтра», а
+   * о дев'ятій ранку — «на сьогодні». Вгадувати тут дорого: людина
+   * поїде не туди й не тоді. Один дотик по кнопці дешевший за зіпсований
+   * день, тому без явного дня показуємо вибір.
+   */
   if (
-    /(сплануй|план\s+(на\s+)?(день|сьогодні|завтра)|кого\s+(сьогодні|завтра|мені)?\s*(відвід|об.?їх)|куди\s+(мені\s+)?(сьогодні|завтра)\s+(їхати|їздити)|маршрут\s+на\s+(сьогодні|завтра))/i.test(
+    /(сплануй|план\s+(на\s+)?(день|сьогодні|завтра|понеділок|вівторок|середу|четвер|п.?ятницю|суботу|неділю)|кого\s+(сьогодні|завтра|мені)?\s*(відвід|об.?їх)|куди\s+(мені\s+)?(сьогодні|завтра)\s+(їхати|їздити)|маршрут\s+на\s+(сьогодні|завтра|понеділок|вівторок|середу|четвер|п.?ятницю|суботу|неділю))/i.test(
       text
     )
   ) {
-    return { kind: "DAY_PLAN", day: /завтра/i.test(text) ? "tomorrow" : "today" };
+    const weekday = weekdayIn(text);
+    if (/завтра/i.test(text)) return { kind: "DAY_PLAN", day: "tomorrow", weekday: null };
+    if (/сьогодні/i.test(text)) return { kind: "DAY_PLAN", day: "today", weekday: null };
+    if (weekday) return { kind: "DAY_PLAN", day: "ask", weekday };
+    return { kind: "DAY_PLAN", day: "ask", weekday: null };
   }
 
   if (/(мертв|неліквід|залежал|не\s+продаєть|висить\s+на\s+складі|застоял)/i.test(text)) {

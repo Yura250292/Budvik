@@ -85,6 +85,9 @@ export async function GET(
       speedKmh: true,
       accuracyM: true,
       gapGeometry: true,
+      // Є дорога для розриву — значить шлях відомий; немає — лінія між
+      // точками лише здогад, і карта мусить це показати.
+      roadMetersFromPrev: true,
       phase: true,
     },
   });

@@ -22,6 +22,15 @@ import { classifyMovement, type MoveSegment } from "@/lib/track/movement";
 import { markRepeatPasses, type PassKind } from "@/lib/track/repeat-pass";
 import { matchDayPath } from "@/lib/track/road-match";
 
+/**
+ * Пауза між точками, після якої шлях між ними — здогад, а не вимір.
+ *
+ * Точка пишеться раз на двадцять секунд, тож півтори хвилини тиші означають,
+ * що приймач або застосунок мовчали, і що робила машина в цей час, ми не
+ * бачили.
+ */
+const UNKNOWN_MS = 90_000;
+
 export type MovementPart = {
   mode: MoveSegment["mode"];
   path: Array<[number, number]>;
@@ -43,6 +52,8 @@ export type PartPoint = {
   recordedAt: Date;
   accuracyM?: number | null;
   gapGeometry?: unknown;
+  /** Дорога, дорахована для розриву. Є — значить шлях відомий, а не здогад. */
+  roadMetersFromPrev?: number | null;
 };
 
 export async function splitByMovement(
@@ -63,6 +74,23 @@ export async function splitByMovement(
   }
   const passes = markRepeatPasses(points, driveGap);
 
+  /**
+   * Де ми не бачили дороги.
+   *
+   * Ознака саме ЧАС, а не довжина: на трасі точка раз на двадцять секунд дає
+   * пряму на пів кілометра, і шлях там відомий — машина їхала трасою. А от
+   * коли між точками півтори хвилини й більше, планшет мовчав, і будь-яка
+   * лінія між ними — здогад. Розрив, якому вже дорахована дорога
+   * (`roadMetersFromPrev`), здогадом не вважаємо: там шлях відомий.
+   */
+  const unknownGap: boolean[] = new Array(Math.max(0, points.length - 1)).fill(false);
+  for (let i = 0; i < points.length - 1; i++) {
+    if (!driveGap[i]) continue;
+    if (points[i + 1].roadMetersFromPrev != null) continue;
+    unknownGap[i] =
+      points[i + 1].recordedAt.getTime() - points[i].recordedAt.getTime() >= UNKNOWN_MS;
+  }
+
   const parts: MovementPart[] = [];
 
   for (const seg of segments) {
@@ -75,8 +103,12 @@ export async function splitByMovement(
       let runStart = seg.start;
       for (let i = seg.start; i < seg.end; i++) {
         const isLast = i === seg.end - 1;
-        if (!isLast && passes[i + 1] === passes[i]) continue;
-        parts.push(await drivePart(points, runStart, i + 1, passes[i], onRoads));
+        const sameRun =
+          !isLast && passes[i + 1] === passes[i] && unknownGap[i + 1] === unknownGap[i];
+        if (sameRun) continue;
+        parts.push(
+          await drivePart(points, runStart, i + 1, passes[i], unknownGap[i], onRoads)
+        );
         runStart = i + 1;
       }
       continue;
@@ -109,6 +141,7 @@ async function drivePart(
   from: number,
   to: number,
   pass: PassKind,
+  unknown: boolean,
   onRoads: boolean
 ): Promise<MovementPart> {
   const slice = points.slice(from, to + 1);
@@ -134,6 +167,7 @@ async function drivePart(
       (points[to].recordedAt.getTime() - points[from].recordedAt.getTime()) / 60_000
     ),
     pass,
+    ...(unknown ? { unknown: true } : {}),
   };
 }
 

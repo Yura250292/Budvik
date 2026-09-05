@@ -95,7 +95,7 @@ type Detail = {
       points: Array<{ lat: number; lng: number }>;
       path: Array<[number, number]>;
       /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
-      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number; pass?: "FIRST" | "BACK" | "AGAIN" }>;
+      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number; pass?: "FIRST" | "BACK" | "AGAIN"; unknown?: boolean }>;
       movement?: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
       /** Де людина стояла довше п'яти хвилин — головна відповідь на «де був». */
       stops?: Array<{
@@ -809,7 +809,7 @@ export function ShiftsTab({
                     ? ` · назад тією самою дорогою ${detail.track.shift.repeat.backKm} км`
                     : "")
                 }
-                color={detail.track.shift.repeat.sharePct >= 25 ? "#DB2777" : undefined}
+                color={detail.track.shift.repeat.sharePct >= 25 ? "#059669" : undefined}
               />
             )}
             <Metric
@@ -963,10 +963,21 @@ export function ShiftsTab({
                         Трек зміни ({detail.track.shift.pointsCount} точок)
                       </span>
                     )}
+                    {(detail.track.shift.parts?.some((p) => p.unknown) ?? false) && (
+                      <span title="Планшет мовчав: пряма між точками — єдине, що ми знаємо. Дорогу тут не домальовуємо навмисно: маршрутизатор веде своїм шляхом, а не тим, яким їхала людина.">
+                        <span
+                          style={{
+                            display: "inline-block", width: 22, height: 0,
+                            borderTop: "3px dashed #94A3B8", verticalAlign: "middle", marginRight: 6,
+                          }}
+                        />
+                        Дані не доїхали (шлях невідомий)
+                      </span>
+                    )}
                     {(detail.track.shift.repeat?.km ?? 0) > 0 && (
                       <span>
-                        <span style={{ display: "inline-block", width: 22, height: 3, background: "#DB2777", verticalAlign: "middle", marginRight: 6 }} />
-                        Повторний проїзд ({detail.track.shift.repeat!.km} км)
+                        <span style={{ display: "inline-block", width: 22, height: 3, background: "#059669", verticalAlign: "middle", marginRight: 6 }} />
+                        Назад тією самою дорогою ({detail.track.shift.repeat!.km} км)
                       </span>
                     )}
                     {detail.track.afterShift.pointsCount > 0 && (

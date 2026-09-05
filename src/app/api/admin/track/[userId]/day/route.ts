@@ -96,6 +96,9 @@ export async function GET(
         speedKmh: true,
         accuracyM: true,
         gapGeometry: true,
+        // Див. картку зміни: без цього поля карта не відрізнить виміряний
+        // шлях від прямої через мовчання планшета.
+        roadMetersFromPrev: true,
       },
     }),
     prisma.visit.findMany({

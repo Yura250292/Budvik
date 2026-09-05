@@ -81,6 +81,8 @@ export type TrackDetail = {
     minutes: number;
     /** FIRST — уперше цією дорогою, BACK — назад по своєму сліду, AGAIN — удруге туди ж. */
     pass?: "FIRST" | "BACK" | "AGAIN";
+    /** Планшет мовчав: пряма між точками — здогад, а не виміряний шлях. */
+    unknown?: boolean;
   }>;
   /**
    * Де людина стояла довше кількох хвилин — головна відповідь на «де був».
@@ -366,18 +368,31 @@ export default function TrackDayMap({
           // Повернення по власному сліду — окремим кольором, як і в картці
           // зміни торгового: питання «що тут зайве» у водія те саме.
           const repeat = !walk && part.pass && part.pass !== "FIRST";
+          // Пряма через мовчання планшета — блідим пунктиром: це не вимір,
+          // а єдине, що ми знаємо (див. картку зміни торгового).
+          const unknown = !walk && part.unknown;
           L.polyline(part.path, {
-            color: walk ? MOVE_COLOR.WALK : repeat ? MOVE_COLOR.REPEAT : MOVE_COLOR.DRIVE,
-            weight: walk ? 3 : 4,
-            opacity: walk ? 0.9 : 0.8,
-            dashArray: walk ? "2 6" : undefined,
-            lineCap: walk ? "round" : "butt",
+            color: unknown
+              ? "#94A3B8"
+              : walk
+                ? MOVE_COLOR.WALK
+                : repeat
+                  ? part.pass === "BACK"
+                    ? MOVE_COLOR.BACK
+                    : MOVE_COLOR.AGAIN
+                  : MOVE_COLOR.DRIVE,
+            weight: unknown || walk ? 3 : 4,
+            opacity: unknown ? 0.75 : walk ? 0.9 : 0.8,
+            dashArray: unknown ? "6 8" : walk ? "2 6" : undefined,
+            lineCap: unknown || walk ? "round" : "butt",
           })
             .bindTooltip(
-              repeat
-                ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
-                  ` · ${part.km} км · ${part.minutes} хв`
-                : `${walk ? "Пішки" : "Автом"} ${part.km} км · ${part.minutes} хв`,
+              unknown
+                ? `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км`
+                : repeat
+                  ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
+                    ` · ${part.km} км · ${part.minutes} хв`
+                  : `${walk ? "Пішки" : "Автом"} ${part.km} км · ${part.minutes} хв`,
               { direction: "top" }
             )
             .addTo(group);

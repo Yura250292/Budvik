@@ -135,6 +135,8 @@ export default function ShiftTrackMap({
     minutes: number;
     /** FIRST — уперше цією дорогою, BACK — назад по своєму сліду, AGAIN — удруге туди ж. */
     pass?: "FIRST" | "BACK" | "AGAIN";
+    /** Планшет мовчав: пряма між точками — здогад, а не виміряний шлях. */
+    unknown?: boolean;
   }>;
   /** Де людина стояла довше кількох хвилин — головна відповідь на «де був». */
   stops?: TrackStopDot[];
@@ -300,19 +302,41 @@ export default function ShiftTrackMap({
            * зробити.
            */
           const repeat = !walk && part.pass && part.pass !== "FIRST";
+          /**
+           * Шлях невідомий — малюємо блідим пунктиром, а не суцільною лінією.
+           *
+           * Суцільна лінія крізь квартали читається як проїзд, якого ніхто не
+           * бачив: планшет там мовчав. Підставити замість неї дорогу з OSRM
+           * спокусливо й перевірено — на справжніх днях це роздуло пробіг
+           * Передрія з 64 до 85 км при одометрі 69, бо маршрутизатор веде
+           * СВОЇМ найкращим шляхом. Тому лишаємо пряму, але не вдаємо, що
+           * це вимір.
+           */
+          const unknown = !walk && part.unknown;
           L.polyline(part.path, {
-            color: walk ? "#D97706" : repeat ? MOVE_COLOR.REPEAT : "#2563EB",
-            weight: walk ? 3 : 4,
-            opacity: walk ? 0.9 : 0.85,
+            color: unknown
+              ? "#94A3B8"
+              : walk
+                ? "#D97706"
+                : repeat
+                  ? part.pass === "BACK"
+                    ? MOVE_COLOR.BACK
+                    : MOVE_COLOR.AGAIN
+                  : "#2563EB",
+            weight: unknown ? 3 : walk ? 3 : 4,
+            opacity: unknown ? 0.75 : walk ? 0.9 : 0.85,
+            ...(unknown ? { dashArray: "6 8", lineCap: "round" as const } : {}),
             ...(walk ? { dashArray: "2 6", lineCap: "round" as const } : {}),
           })
             .bindTooltip(
-              walk
-                ? `Пішки ${part.km} км, ${part.minutes} хв`
-                : repeat
-                  ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
-                    ` · ${part.km} км, ${part.minutes} хв`
-                  : `Автом ${part.km} км, ${part.minutes} хв`,
+              unknown
+                ? `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км — справжній шлях невідомий`
+                : walk
+                  ? `Пішки ${part.km} км, ${part.minutes} хв`
+                  : repeat
+                    ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
+                      ` · ${part.km} км, ${part.minutes} хв`
+                    : `Автом ${part.km} км, ${part.minutes} хв`,
               { sticky: true }
             )
             .addTo(group);

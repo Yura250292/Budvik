@@ -26,7 +26,7 @@
  *    порожнечу. Карта в найгіршому випадку виглядає як досі.
  */
 
-import { matchTrace } from "@/lib/geo/osrm";
+import { getRoute, matchTrace } from "@/lib/geo/osrm";
 import { haversineM, MAX_ACCURACY_M } from "@/lib/track/geo";
 import { classifyMovement } from "@/lib/track/movement";
 
@@ -131,6 +131,56 @@ export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number
   return matchRun(thin(trusted), started).then((line) => (line.length >= 2 ? line : null));
 }
 
+/**
+ * Другий спосіб покласти шматок на дороги — прокласти по них маршрут.
+ *
+ * Потрібен там, де матчер безсилий: на двох точках за кілометр одна від одної
+ * він не має чого зіставляти й чесно віддає низьку впевненість. А саме такі
+ * шматки й малювали діагоналі крізь квартали — у Славську їх було три з
+ * тринадцяти.
+ *
+ * **Це виключно малюнок.** Пробіг рахується по сирих точках і сюди не
+ * заглядає — і саме тому так можна. Те саме прокладання, застосоване до
+ * КІЛОМЕТРІВ, роздуло день Передрія з 64 до 85 при одометрі 69: маршрутизатор
+ * веде своїм найкращим шляхом, а не тим, яким їхала людина. Малювати цим
+ * шляхом чесніше, ніж різати будинки; рахувати ним — ні.
+ *
+ * Запобіжник той самий, що й у домальовці розривів: дорога, довша за пряму
+ * більш ніж удвічі, — це вже не «та сама дорога», а об'їзд, який ми
+ * вигадали. Тоді краще чесна пряма.
+ */
+const ROUTE_SANITY_FACTOR = 2.5;
+
+async function routeThrough(
+  chunk: TrackVertex[],
+  started: number
+): Promise<Array<[number, number]> | null> {
+  if (chunk.length < 2 || Date.now() - started > BUDGET_MS) return null;
+
+  const from = chunk[0];
+  const to = chunk[chunk.length - 1];
+  const straightM = haversineM(from.lat, from.lng, to.lat, to.lng);
+  // Дуже короткі шматки й так лягають у вулицю оком: не варті запиту.
+  if (straightM < 120) return null;
+
+  try {
+    const route = await getRoute([
+      [from.lng, from.lat],
+      // Проміжні точки ведуть маршрут ТИМ шляхом, а не найкоротшим: без них
+      // OSRM спрямив би заїзд у двір до сусідньої вулиці.
+      ...chunk.slice(1, -1).map((p): [number, number] => [p.lng, p.lat]),
+      [to.lng, to.lat],
+    ]);
+    const roadM = route.totalDistanceKm * 1000;
+    if (roadM < straightM * 0.8 || roadM > straightM * ROUTE_SANITY_FACTOR) return null;
+    const line = route.geometry?.coordinates;
+    if (!Array.isArray(line) || line.length < 2) return null;
+    return line.map(([lng, lat]) => [lat, lng] as [number, number]);
+  } catch {
+    return null;
+  }
+}
+
 /** Кладе на дороги один суцільний відрізок їзди. */
 async function matchRun(
   trusted: TrackVertex[],
@@ -143,13 +193,6 @@ async function matchRun(
     const chunk = trusted.slice(i, i + CHUNK);
     if (chunk.length < 2) break;
 
-    /**
-     * Шматок, який не ліг упевнено, лишається сирим — і це навмисно.
-     *
-     * Дорога малюється там, де ми її знаємо, а де не знаємо — лишається та
-     * сама ламана, що й досі. Лінія від цього не рветься, а карта не починає
-     * брехати рівно в тому місці, де матчер сам зізнався, що не впевнений.
-     */
     const raw = (): Array<[number, number]> =>
       chunk.map((p) => [p.lat, p.lng] as [number, number]);
 
@@ -163,7 +206,7 @@ async function matchRun(
       line =
         matched && matched.confidence >= MIN_CONFIDENCE
           ? matched.line.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])
-          : raw();
+          : ((await routeThrough(chunk, started)) ?? raw());
     }
 
     // Шматки перекриваються однією точкою — не задвоюємо стик.

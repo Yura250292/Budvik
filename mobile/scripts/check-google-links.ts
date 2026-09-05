@@ -129,6 +129,7 @@ const batchCases: Array<[string, MapPoint[], "google" | "waze"]> = [
   ["три точки (Google)", many.slice(0, 3), "google"],
   ["три точки (Waze)", many.slice(0, 3), "waze"],
   ["пʼять точок (Google)", many.slice(0, 5), "google"],
+  ["десять точок (Google)", many.slice(0, 10), "google"],
 ];
 for (const [name, points, app] of batchCases) {
   check(
@@ -146,6 +147,28 @@ check(
   "Waze бере лише першу точку пачки",
   batchNavigateUrl(many.slice(0, 3), "waze") === navigateUrl(many[0], "waze")
 );
+
+/**
+ * Десять точок мусять доїхати ВСІ.
+ *
+ * Тут був запас «мінус одна на старт», успадкований від посилання з origin,
+ * — а origin у цій формі не передається взагалі. Через нього десята точка
+ * зникала з посилання мовчки: у списку десять адрес, у навігаторі девʼять.
+ * Рахуємо саме координати в адресі: девʼять проміжних плюс призначення.
+ */
+{
+  const ten = many.slice(0, 10);
+  const url = batchNavigateUrl(ten, "google");
+  const wp = decodeURIComponent((url.match(/[&?]waypoints=([^&]*)/) ?? ["", ""])[1]);
+  const count = (wp ? wp.split("|").length : 0) + 1; // + призначення
+  check("Пачка з десяти точок везе всі десять", count === 10, { у_посиланні: count, url });
+  const last = ten[9];
+  check(
+    "Остання точка пачки — призначення",
+    url.includes(`destination=${Number(last.lat.toFixed(6))},${Number(last.lng.toFixed(6))}`),
+    url
+  );
+}
 
 /** Кожна наступна частина мусить стартувати там, де скінчилася попередня. */
 const links = googleMapsLinks(many);

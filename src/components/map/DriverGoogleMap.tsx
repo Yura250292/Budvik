@@ -20,7 +20,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import { loadGoogleMaps } from "@/lib/maps/google-loader";
+import { clusterPins } from "@/lib/maps/pin-clusters";
 import {
+  clusterPopupHtml,
   PLAN_COLORS,
   planPopupHtml,
   popupHtml,
@@ -44,28 +46,44 @@ const LVIV = { lat: 49.8397, lng: 24.0297 };
 const MAX_CLIENTS = 300;
 
 /**
- * Квадратик із номером — SVG у data-URI.
+ * Значок точки маршруту — SVG у data-URI.
  *
- * Саме квадрат, а не крапля: круглі маркери зайняті клієнтами, і два
+ * Саме прямокутник, а не крапля: круглі маркери зайняті клієнтами, і два
  * однакові за формою шари читалися б як одне скупчення.
+ *
+ * Ширина рахується з напису, бо написи бувають різні: «7», «12», «4–6».
+ * Раніше квадрат був сталий 28 пікселів, і двозначні номери в ньому
+ * тиснулися до країв, а діапазон не вліз би взагалі.
+ *
+ * Розміри підняті проти початкових (28 → 34, шрифт 13 → 15): цю карту
+ * читають з витягнутої руки, у тримачі на панелі, часто на сонці.
  */
-function planIcon(seq: number, label: string, bg: string, fg: string, current: boolean): google.maps.Icon {
-  const size = current ? 38 : 30;
-  const pad = (size - 30) / 2;
+function planIcon(label: string, bg: string, fg: string, current: boolean): google.maps.Icon {
+  const h = 34;
+  // 15px напівжирного — приблизно 9,5 пікселя на знак; плюс поля.
+  const w = Math.max(h, Math.round(label.length * 9.5) + 20);
+  const halo = current ? 6 : 0;
+  const width = w + halo * 2;
+  const height = h + halo * 2;
+
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
     (current
-      ? `<rect x="1" y="1" width="${size - 2}" height="${size - 2}" rx="12" fill="#2563EB" opacity="0.25"/>`
+      ? `<rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="14" fill="#2563EB" opacity="0.22"/>`
       : "") +
-    `<rect x="${pad + 1}" y="${pad + 1}" width="28" height="28" rx="9" fill="${bg}" stroke="#fff" stroke-width="2"/>` +
-    `<text x="${size / 2}" y="${size / 2}" fill="${fg}" font-family="system-ui,sans-serif"` +
-    ` font-size="13" font-weight="800" text-anchor="middle" dominant-baseline="central">${label}</text>` +
+    // Тінь окремим прямокутником, а не фільтром: SVG-фільтри в data-URI
+    // Google подекуди не малює зовсім, і значок лишався б без відриву від
+    // карти — саме того відриву, якого бракувало на строкатому тлі.
+    `<rect x="${halo + 1}" y="${halo + 3}" width="${w - 2}" height="${h - 2}" rx="10" fill="#0A0A0A" opacity="0.22"/>` +
+    `<rect x="${halo + 1}" y="${halo + 1}" width="${w - 2}" height="${h - 2}" rx="10" fill="${bg}" stroke="#fff" stroke-width="2.5"/>` +
+    `<text x="${width / 2}" y="${height / 2 + 0.5}" fill="${fg}" font-family="system-ui,-apple-system,sans-serif"` +
+    ` font-size="15" font-weight="800" letter-spacing="-0.2" text-anchor="middle" dominant-baseline="central">${label}</text>` +
     `</svg>`;
 
   return {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-    scaledSize: new google.maps.Size(size, size),
-    anchor: new google.maps.Point(size / 2, size / 2),
+    scaledSize: new google.maps.Size(width, height),
+    anchor: new google.maps.Point(width / 2, height / 2),
   };
 }
 
@@ -122,6 +140,8 @@ export default function DriverGoogleMap({
    * пляму, а точки маршруту малюються завжди — їх десятки.
    */
   const [view, setView] = useState<google.maps.LatLngBoundsLiteral | null>(null);
+  /** Поточний масштаб: за ним рахується, які номери злиплися. */
+  const [zoom, setZoom] = useState<number | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   /** Колбеки в рефах: інакше кожен рендер сторінки перемальовував би точки. */
@@ -154,6 +174,11 @@ export default function DriverGoogleMap({
         mapRef.current.addListener("idle", () => {
           const b = mapRef.current?.getBounds();
           if (b) setView(b.toJSON());
+        });
+        // Масштаб окремо від меж: накладання значків залежить лише від
+        // нього, а межі міняє ще й звичайне перетягування.
+        mapRef.current.addListener("zoom_changed", () => {
+          setZoom(mapRef.current?.getZoom() ?? null);
         });
         setReady(true);
       })
@@ -295,28 +320,72 @@ export default function DriverGoogleMap({
       plan.geometry.coordinates.forEach(([lng, lat]) => bounds.extend({ lat, lng }));
     }
 
+    const pins = spread(plan?.stops ?? []);
+
+    /**
+     * Пікселі поточного масштабу — з проєкції карти.
+     *
+     * Світові координати Google не залежать від масштабу, тому множимо на
+     * 2^zoom: саме ця величина каже, чи значки перекриються на екрані.
+     * Проєкція буває ще не готова в перші кадри — тоді нічого не зливаємо,
+     * як було досі, а після першого `idle` шар перемалюється вже з нею.
+     */
+    const projection = map.getProjection();
+    const scale = 2 ** (map.getZoom() ?? 0);
+    const groups = projection
+      ? clusterPins(pins, (p) => {
+          const w = projection.fromLatLngToPoint(new google.maps.LatLng(p.lat, p.lng));
+          return { x: (w?.x ?? 0) * scale, y: (w?.y ?? 0) * scale };
+        })
+      : pins.map((s) => ({ lead: s, items: [s], label: s.errand ? "+" : String(s.seq) }));
+
     // Поточна ціль малюється останньою — щоб не ховалася під сусідами.
-    const pins = spread(plan?.stops ?? []).sort(
-      (a, b) => Number(!!a.current) - Number(!!b.current)
+    const ordered = [...groups].sort(
+      (a, b) => Number(!!a.lead.current) - Number(!!b.lead.current)
     );
-    pins.forEach((s) => {
+
+    ordered.forEach((g) => {
+      const s = g.lead;
+      const many = g.items.length > 1;
       const { bg, fg } = PLAN_COLORS[s.status];
+      /**
+       * Група фарбується як «ще їхати», навіть коли перша точка в ній уже
+       * закрита: зелений значок із написом «4–6» казав би, що зроблено всі
+       * три. Що саме зроблено, видно в підказці.
+       */
+      const anyLeft = g.items.some((x) => x.status === "PENDING");
+      const groupBg = anyLeft ? PLAN_COLORS.PENDING.bg : bg;
+      const groupFg = anyLeft ? PLAN_COLORS.PENDING.fg : fg;
+
       const marker = new google.maps.Marker({
         position: { lat: s.lat, lng: s.lng },
         map,
         icon: planIcon(
-          s.seq,
-          s.errand ? "+" : String(s.seq),
-          s.current ? "#2563EB" : bg,
-          s.current ? "#fff" : fg,
+          g.label,
+          s.current ? "#2563EB" : many ? groupBg : bg,
+          s.current ? "#fff" : many ? groupFg : fg,
           !!s.current
         ),
-        zIndex: s.current ? 1000 : 900,
+        zIndex: s.current ? 1000 : many ? 950 : 900,
+        /**
+         * Растеризацію вимикаємо навмисно.
+         *
+         * З нею Google зводить маркери в спільне полотно й малює SVG раз, у
+         * логічних пікселях, — на планшеті з щільним екраном номер виходить
+         * мильним. Саме на це водії й скаржилися. Точок маршруту десятки, а
+         * не тисячі, тож окремі вузли DOM тут нічого не коштують.
+         */
+        optimized: false,
       });
-      marker.addListener("click", () => openInfo(marker, planPopupHtml(s)));
+
+      marker.addListener("click", () =>
+        openInfo(marker, many ? clusterPopupHtml(g.items) : planPopupHtml(s))
+      );
       planMarkersRef.current.push(marker);
-      byKeyRef.current.set(s.key, marker);
-      bounds.extend({ lat: s.lat, lng: s.lng });
+      // Кожна точка групи має знаходити свій значок: із екрана дня водій
+      // тапає «На карті» на конкретному клієнті.
+      g.items.forEach((x) => byKeyRef.current.set(x.key, marker));
+      g.items.forEach((x) => bounds.extend({ lat: x.lat, lng: x.lng }));
     });
 
     // Перше вікно ставить маршрут, якщо він є, — і лише один раз.
@@ -325,7 +394,7 @@ export default function DriverGoogleMap({
       fittedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planKey, ready]);
+  }, [planKey, zoom, ready]);
 
   /* --- кнопки в підказці. Ті самі рядки HTML, що в нашій карті --- */
   useEffect(() => {

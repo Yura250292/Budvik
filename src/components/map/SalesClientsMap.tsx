@@ -9,12 +9,13 @@
  * керування немає, а маркери більші, бо в них цілять пальцем.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE } from "@/lib/analytics/colors";
 import { clampToUkraine } from "@/components/map/MapFrame";
 import { planCore } from "@/lib/maps/plan-core";
+import { clusterPins } from "@/lib/maps/pin-clusters";
 
 /** Що торговий може зробити з точки, крім переходу в картку. */
 export type SalesMapAction =
@@ -199,26 +200,34 @@ function popupButton(action: string, id: string, label: string, primary: boolean
  * два кола різного змісту поруч читаються як одне скупчення. Квадрат із
  * номером видно як «черга», навіть не читаючи легенди.
  */
-function planIcon(stop: PlanStop): L.DivIcon {
+function planIcon(stop: PlanStop, label: string): L.DivIcon {
   const { bg, fg } = PLAN_COLORS[stop.status];
-  const label = stop.errand ? "+" : String(stop.seq);
   // Поточна ціль — синя, як і дорога до неї, і з пульсуючим кільцем під піном.
   const bgNow = stop.current ? "#2563EB" : bg;
   const fgNow = stop.current ? "#fff" : fg;
 
+  /**
+   * Ширина рахується з напису: «7», «12» і «4–6» займають різне місце, а
+   * сталий квадрат тиснув двозначні номери до країв. Висота 34 замість 30
+   * і шрифт 15 замість 13 — цю карту читають з витягнутої руки, у тримачі
+   * на панелі.
+   */
+  const h = 34;
+  const w = Math.max(h, Math.round(label.length * 9.5) + 20);
+
   return L.divIcon({
     className: "",
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-    popupAnchor: [0, -15],
-    html: `<div style="position:relative;width:30px;height:30px">
+    iconSize: [w, h],
+    iconAnchor: [w / 2, h / 2],
+    popupAnchor: [0, -h / 2],
+    html: `<div style="position:relative;width:${w}px;height:${h}px">
       ${stop.current ? `<span class="driver-target-ring"></span>` : ""}
       <div style="
-        position:relative;width:30px;height:30px;border-radius:9px;
+        position:relative;width:${w}px;height:${h}px;border-radius:10px;
         background:${bgNow};color:${fgNow};
         display:flex;align-items:center;justify-content:center;
-        font-weight:800;font-size:13px;font-family:system-ui,sans-serif;
-        border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35)
+        font-weight:800;font-size:15px;letter-spacing:-.2px;font-family:system-ui,sans-serif;
+        border:2.5px solid #fff;box-shadow:0 2px 8px rgba(10,10,10,0.4)
       ">${escapeHtml(label)}</div>
     </div>`,
   });
@@ -257,6 +266,48 @@ export function planPopupHtml(stop: PlanStop): string {
     ${money_}
     ${debt}
     ${road}
+  </div>`;
+}
+
+/**
+ * Підказка групи злиплих точок.
+ *
+ * Головне тут — СПИСОК, а не кнопка «наблизити». Водій дивиться на день
+ * здалеку і питає «що це за трійка», а не «покажи дрібніше»: список
+ * відповідає одразу, не змінюючи масштаб і не втрачаючи огляд дня. Хто
+ * хоче тапнути конкретну точку — наближає пальцями, і група розпадається
+ * сама.
+ *
+ * Статус кожного рядка кольором: інакше «4–6» приховувало б, що четверту
+ * вже закрито, а пʼята не вийшла.
+ */
+export function clusterPopupHtml(stops: PlanStop[]): string {
+  const rows = stops
+    .map((s) => {
+      const { bg } = PLAN_COLORS[s.status];
+      const money_ =
+        s.amount > 0
+          ? `<span style="color:#6B7280;font-size:12px">${escapeHtml(money.format(s.amount))} грн</span>`
+          : "";
+      return `<li style="display:flex;align-items:baseline;gap:7px;padding:5px 0;border-top:1px solid #F1F1EF">
+        <span style="flex:none;min-width:22px;height:20px;padding:0 5px;border-radius:6px;background:${bg};
+          color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">
+          ${s.errand ? "+" : s.seq}
+        </span>
+        <span style="flex:1 1 auto;min-width:0">
+          <span style="display:block;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${escapeHtml(s.name)}
+          </span>
+          ${money_}
+        </span>
+      </li>`;
+    })
+    .join("");
+
+  return `<div style="font-family:system-ui;font-size:14px;min-width:210px;max-width:260px">
+    <strong style="display:block;font-size:14px">Тут ${stops.length} точки поруч</strong>
+    <div style="color:#6B7280;font-size:12px;margin-top:1px">Наблизьте карту, щоб розділити їх</div>
+    <ul style="list-style:none;margin:6px 0 0;padding:0;max-height:190px;overflow:auto">${rows}</ul>
   </div>`;
 }
 
@@ -385,6 +436,8 @@ export default function SalesClientsMap({
   clickRef.current = onMapClick;
   const pinningRef = useRef(pinning);
   pinningRef.current = pinning;
+  /** Поточний масштаб: за ним рахується, які номери накладаються. */
+  const [zoom, setZoom] = useState<number | null>(null);
 
   const key = useMemo(
     () =>
@@ -421,8 +474,12 @@ export default function SalesClientsMap({
       // перемалюватися, а відмітка точки одразу перефарбувати номер.
       "#" +
       (plan?.number ?? "") +
-      plan?.stops.map((s) => `${s.key}:${s.status}:${s.seq}:${s.current ? 1 : 0}`).join(",") ,
-    [clients, route, plan]
+      plan?.stops.map((s) => `${s.key}:${s.status}:${s.seq}:${s.current ? 1 : 0}`).join(",") +
+      // Масштаб теж: від нього залежить, які номери злипаються в один
+      // значок. Без нього водій, віддаливши карту, бачив би ту саму кашу
+      // з накладених номерів, поки не перемкне лист.
+      `#z${zoom}`,
+    [clients, route, plan, zoom]
   );
 
   useEffect(() => {
@@ -435,6 +492,10 @@ export default function SalesClientsMap({
       }).setView([49.8397, 24.0297], 9);
 
       clampToUkraine(mapRef.current);
+
+      // Масштаб змінився — номери могли злипнутися або розійтися.
+      mapRef.current.on("zoomend", () => setZoom(mapRef.current?.getZoom() ?? null));
+      setZoom(mapRef.current.getZoom());
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; OpenStreetMap',
@@ -538,16 +599,47 @@ export default function SalesClientsMap({
      * менше, ніж є. Зсув — метрів тридцять; дорога від цього не міняється,
      * бо посилання в попапі несе СПРАВЖНЮ координату точки, а не зсунуту.
      */
-    const planPins = spread(plan?.stops ?? []).sort(
-      (a, b) => Number(!!a.current) - Number(!!b.current)
-    );
-    planPins.forEach((stop) => {
-      const marker = L.marker([stop.lat, stop.lng], { icon: planIcon(stop), zIndexOffset: 1000 })
-        .bindPopup(planPopupHtml(stop), { minWidth: 190 })
-        .addTo(group);
-      markersRef.current.set(stop.key, marker);
-      bounds.extend([stop.lat, stop.lng]);
+    const planPins = spread(plan?.stops ?? []);
+
+    /**
+     * Ті, що на цьому масштабі однаково накладаються, — в один значок.
+     *
+     * Розведення вище допомагає лише зблизька: воно зсуває точки на метри,
+     * а на огляді всього дня метри стискаються в пікселі, і номери 4, 5, 6
+     * знову лягають один на одного. Пікселі й рахуємо — через `project`
+     * самої карти, у поточному масштабі.
+     */
+    const zoomNow = map.getZoom();
+    const planGroups = clusterPins(planPins, (p) => {
+      const pt = map.project([p.lat, p.lng], zoomNow);
+      return { x: pt.x, y: pt.y };
     });
+
+    // Поточна ціль малюється ОСТАННЬОЮ — у Leaflet це означає «поверх».
+    [...planGroups]
+      .sort((a, b) => Number(!!a.lead.current) - Number(!!b.lead.current))
+      .forEach((g) => {
+        const stop = g.lead;
+        const many = g.items.length > 1;
+        // Група лишається «ще їхати», поки в ній є незакрита точка: зелений
+        // значок «4–6» казав би, що зроблено всі три.
+        const shown =
+          many && g.items.some((x) => x.status === "PENDING")
+            ? { ...stop, status: "PENDING" as const }
+            : stop;
+
+        const marker = L.marker([stop.lat, stop.lng], {
+          icon: planIcon(shown, g.label),
+          zIndexOffset: 1000,
+        })
+          .bindPopup(many ? clusterPopupHtml(g.items) : planPopupHtml(stop), { minWidth: 190 })
+          .addTo(group);
+
+        // Кожна точка групи мусить знаходити свій значок: із екрана дня
+        // водій тапає «На карті» на конкретному клієнті.
+        g.items.forEach((x) => markersRef.current.set(x.key, marker));
+        g.items.forEach((x) => bounds.extend([x.lat, x.lng]));
+      });
 
     /**
      * Загальне вікно ставимо, лише коли маршруту немає.

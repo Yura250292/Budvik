@@ -20,13 +20,15 @@ const AUTO_NEXT_KEY = "budvik.autoNext";
  * Скільки наступних точок заряджаємо в навігатор за раз.
  *
  * Одна — це «веди мене туди»; три-пʼять — погляд на найближчу годину:
- * видно, в який бік день і чи не доведеться вертатися. Більше не
- * пропонуємо свідомо: посилання Google бере девʼять проміжних точок, але
- * лише коли відкривається в самому Google Maps; у мобільному браузері
- * ліміт падає до трьох, і зайві точки зникають МОВЧКИ.
+ * видно, в який бік день і чи не доведеться вертатися. Десять — увесь
+ * ранок одним посиланням, і це стеля не наша, а Google: api=1 приймає
+ * девʼять проміжних точок плюс призначення.
+ *
+ * Одинадцяту він відкидає МОВЧКИ — саме тому список тут скінченний, а не
+ * поле для будь-якого числа.
  */
-export type NavBatch = 1 | 3 | 5;
-export const NAV_BATCHES: NavBatch[] = [1, 3, 5];
+export type NavBatch = 1 | 3 | 5 | 10;
+export const NAV_BATCHES: NavBatch[] = [1, 3, 5, 10];
 
 export async function getNavApp(): Promise<NavApp> {
   try {
@@ -48,7 +50,7 @@ export async function setNavApp(app: NavApp): Promise<void> {
 export async function getNavBatch(): Promise<NavBatch> {
   try {
     const raw = Number(await AsyncStorage.getItem(BATCH_KEY));
-    return raw === 3 || raw === 5 ? raw : 1;
+    return NAV_BATCHES.includes(raw as NavBatch) ? (raw as NavBatch) : 1;
   } catch {
     return 1;
   }

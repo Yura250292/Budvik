@@ -896,7 +896,15 @@ export default function DriverMapScreen() {
               </span>
               {routeCount > 0 && (
                 <span style={{ fontSize: "12px", color: "#6B7280" }}>
-                  {lineLoading ? "рахую дорогу…" : totals ? `${totals.km} км · ${totals.hours}` : ""}
+                  {/* Подача — і тут, у згорнутій шторці: на телефоні бічну
+                      панель із цим числом не видно взагалі, а «скільки до
+                      першої точки» водієві потрібне саме перед виїздом. */}
+                  {lineLoading
+                    ? "рахую дорогу…"
+                    : totals
+                      ? `${totals.km} км · ${totals.hours}` +
+                        (totals.approach ? ` · ${totals.approach}` : "")
+                      : ""}
                 </span>
               )}
               <svg

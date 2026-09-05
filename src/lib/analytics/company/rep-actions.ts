@@ -177,9 +177,16 @@ function buildCandidates(
       base(
         c,
         "CHURN_RISK",
-        `Бере раз на ${days(c.avgIntervalDays)}, а мовчить уже ${days(
-          c.daysSinceLast
-        )}; за період дав ${money(c.amount)}`
+        /**
+         * Ритм показуємо, лише коли він є.
+         *
+         * У клієнта з двома покупками в один день середній інтервал
+         * дорівнює нулю, і фраза «бере раз на 0 днів» читалася як
+         * поламка — саме її й бачили в кабінеті.
+         */
+        c.avgIntervalDays >= 1
+          ? `Бере раз на ${days(c.avgIntervalDays)}, а мовчить уже ${days(c.daysSinceLast)}; за період дав ${money(c.amount)}`
+          : `Мовчить ${days(c.daysSinceLast)}; за період дав ${money(c.amount)}`
       )
     );
   push(churn);
@@ -196,7 +203,9 @@ function buildCandidates(
           ? `Не брав ${days(c.daysSinceLast)} — уже втрачений; раніше ритм був раз на ${days(
               c.avgIntervalDays
             )}`
-          : `Спить ${days(c.daysSinceLast)} при звичному ритмі раз на ${days(c.avgIntervalDays)}`
+          : c.avgIntervalDays >= 1
+            ? `Спить ${days(c.daysSinceLast)} при звичному ритмі раз на ${days(c.avgIntervalDays)}`
+            : `Спить ${days(c.daysSinceLast)}`
       )
     );
   push(reactivate);

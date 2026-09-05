@@ -59,6 +59,98 @@ import {
 } from "@/lib/assistant/text";
 import type { ToolContext } from "@/lib/assistant/types";
 
+/* ── Оформлення відповіді ─────────────────────────────────────────────────
+ *
+ * Одне оформлення на всі відповіді: заголовок зі знаком, таблиця там, де
+ * числа порівнюються, світлофор замість слів «добре / погано» і рядок
+ * підказок унизу. Це не прикраса: відповідь читають із телефона однією
+ * рукою, і однакова форма означає, що потрібне число завжди в тому самому
+ * місці.
+ *
+ * ЧОГО НЕ РОБИМО ТАБЛИЦЕЮ — списків клієнтів. Пункт, який починається з
+ * посилання на картку, кабінет малює як тапабельний рядок із шевроном
+ * (див. AssistantMarkdown). Усередині таблиці цей рядок зникає, і замість
+ * «натиснув і поїхав» виходить «прочитав і шукай руками».
+ */
+
+/**
+ * Збірка відповіді з рядків.
+ *
+ * Порожній рядок у маркдауні — це роздільник абзаців, тож викидати його
+ * не можна (інакше таблиця злипнеться із заголовком). А два поспіль уже
+ * зайві, і саме вони з'являються там, де секція не заповнилася.
+ */
+function md(lines: Array<string | null | undefined>): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line == null) continue;
+    if (line === "" && out[out.length - 1] === "") continue;
+    out.push(line);
+  }
+  while (out[out.length - 1] === "") out.pop();
+  return out.join("\n");
+}
+
+/** Клітинка таблиці: вертикальна риска в назві зламала б розмітку. */
+const cell = (value: string | number) => String(value).replace(/\|/g, "/");
+
+/** Таблиця GFM. Заголовки короткі: ширина екрана — 360 точок. */
+function table(headers: string[], rows: Array<Array<string | number>>): string[] {
+  if (rows.length === 0) return [];
+  return [
+    `| ${headers.map(cell).join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`),
+  ];
+}
+
+/** Довгу назву в таблиці ріжемо: інакше рядок їде за край екрана. */
+const short = (name: string, max = 38) =>
+  name.length > max ? `${name.slice(0, max - 1).trimEnd()}…` : name;
+
+/** Світлофор: зелений — добре, жовтий — середньо, червоний — погано. */
+const light = (state: "good" | "mid" | "bad") =>
+  state === "good" ? "🟢" : state === "mid" ? "🟡" : "🔴";
+
+/** Знак платника — той самий скрізь, де показуємо вердикт. */
+const payerIcon = (verdict: string | null | undefined) =>
+  !verdict
+    ? "⚪"
+    : /надійн/i.test(verdict)
+      ? "🟢"
+      : /помірн/i.test(verdict)
+        ? "🟡"
+        : /ризиков/i.test(verdict)
+          ? "🟠"
+          : "🔴";
+
+/** Стрілка динаміки. */
+const arrow = (value: number | null): string =>
+  value == null ? "" : value > 0 ? "📈" : value < 0 ? "📉" : "➖";
+
+/** Рядок підказок під відповіддю: у кабінеті це тапабельні кнопки. */
+function followUps(...questions: Array<string | null>): string {
+  const list = questions.filter((q): q is string => Boolean(q));
+  return list.length ? `> 💬 ${list.join(" · ")}` : "";
+}
+
+/**
+ * Смужка виконання з десяти квадратів.
+ *
+ * Кольором тут працює сам символ: у маркдауні кольору немає, а квадрат є
+ * скрізь — і в застосунку, і в браузері. Порогів три, щоб «майже план» і
+ * «провал» не виглядали однаково.
+ */
+function bar(percentValue: number | null): string {
+  if (percentValue == null) return "";
+  const filled = Math.max(0, Math.min(10, Math.round(percentValue / 10)));
+  const block = percentValue >= 100 ? "🟩" : percentValue >= 90 ? "🟨" : "🟥";
+  return block.repeat(filled) + "⬜".repeat(10 - filled);
+}
+
+/** Медаль за місце. Далі третього — просто число, інакше медалі знецінюються. */
+const MEDALS = ["🥇", "🥈", "🥉"];
+
 /** Скільки клієнтів у плані дня. Більше в голові за один виїзд не тримають. */
 const PLAN_LIMIT = 10;
 /** Для скількох перших клієнтів плану добираємо гачок. */
@@ -113,7 +205,7 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
 
   if (plan.кандидати.length === 0) {
     return {
-      markdown: `## План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}\n\nНа цей день немає ні звичних клієнтів, ні термінових справ. Схоже, історії ще замало — спитайте про борги або про клієнтів, які давно не брали.`,
+      markdown: `## 📅 План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}\n\nНа цей день немає ні звичних клієнтів, ні термінових справ. Схоже, історії ще замало — спитайте про борги або про клієнтів, які давно не брали.`,
       tools,
     };
   }
@@ -126,20 +218,20 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
 
   const lines = plan.кандидати.map((c, i) => {
     const parts: string[] = [];
-    if (c.прострочено > 0) parts.push(`прострочено ${money(c.прострочено)}`);
-    else if (c.борг > 0) parts.push(`борг ${money(c.борг)} (робочий)`);
+    if (c.прострочено > 0) parts.push(`🔴 прострочено ${money(c.прострочено)}`);
+    else if (c.борг > 0) parts.push(`🟡 борг ${money(c.борг)}`);
     if (c.дія) parts.push(c.дія.toLowerCase());
     if (c.звичний_для_дня) parts.push(`звичний для ${WEEKDAY_GENITIVE[weekdayIndex(plan.день_тижня)]}`);
     if (c.днів_з_останньої != null) parts.push(`не брав ${days(c.днів_з_останньої)}`);
 
     const hook = hooks.get(c.клієнт_id);
     const withWhat = hook
-      ? ` Заходити з: ${productLink(hook.name, hook.sku)} — ${money(hook.price)}${
+      ? ` 🎁 ${productLink(hook.name, hook.sku)} — ${money(hook.price)}${
           hook.floor ? `, не нижче ${money(hook.floor)}` : ""
-        } (${hook.why}).`
+        }`
       : "";
 
-    return `${i + 1}. ${clientLink(c.клієнт_id, c.назва)} — ${parts.join("; ")}.${withWhat}`;
+    return `${i + 1}. ${clientLink(c.клієнт_id, c.назва)} — ${parts.join(" · ")}.${withWhat}`;
   });
 
   const head = plan.маршрут_за_розкладом
@@ -147,16 +239,22 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
     : "Постійного маршруту на цей день не заведено — список зібрано зі звички й термінових справ.";
 
   return {
-    markdown: [
-      `## План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}`,
+    markdown: md([
+      `## 📅 План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}`,
+      "",
+      ...table(
+        ["📍 Точок", "🔴 Забрати", "💰 Борг усього"],
+        [[plan.разом.точок, money(plan.разом.прострочено), money(plan.разом.борг)]]
+      ),
+      "",
       head,
       "",
       ...lines,
       "",
-      `**Разом:** ${points(plan.разом.точок)}, забрати ≈ ${money(plan.разом.прострочено)} простроченої з ${money(plan.разом.борг)} боргу.`,
+      "_🎁 — з чим заходити. Ціни прайсові; нижче прайсу це пропозиція, знижку затверджує керівник._",
       "",
-      "_Ціни — прайсові; нижче прайсу це пропозиція, знижку затверджує керівник._",
-    ].join("\n"),
+      followUps("Кому з них дзвонити першому?", "Що казати про борг?", "Чи витягну план?"),
+    ]),
     tools,
   };
 }
@@ -227,23 +325,31 @@ export async function answerDebts(ctx: ToolContext): Promise<DirectAnswer> {
 
   const worst = debtors.slice(0, 10).map((d) => {
     const verdict = verdictLabel(discipline.verdicts.get(d.counterpartyId));
-    const age = d.oldestDays != null ? `, найстарішому ${days(d.oldestDays)}` : "";
-    return `- ${clientLink(d.counterpartyId, d.name)} — ${
-      d.overdue > 0 ? `прострочено **${money(d.overdue)}**` : `борг ${money(d.debt)} робочий`
-    } із ${money(d.debt)}${age}${verdict ? `, платник ${verdict}` : ""}`;
+    const age = d.oldestDays != null ? ` · ${days(d.oldestDays)}` : "";
+    return `- ${d.overdue > 0 ? "🔴" : "🟡"} ${clientLink(d.counterpartyId, d.name)} — ${
+      d.overdue > 0 ? `прострочено **${money(d.overdue)}** із ${money(d.debt)}` : `борг ${money(d.debt)} робочий`
+    }${age}${verdict ? ` · ${payerIcon(verdict)} ${verdict}` : ""}`;
   });
 
   const overdueCount = debtors.filter((d) => d.overdue > 0).length;
 
   return {
     markdown: md([
-      `**Дебіторка: ${money(total.total)}**, з них прострочено **${money(total.overdue)}** (${percent(total.overdueRatio)}).`,
-      `Боржників ${debtors.length}, із простроченою — ${overdueCount}.`,
+      "## 💰 Дебіторка",
       "",
-      "Кому нагадати передусім:",
+      ...table(
+        ["💼 Усього", "🔴 Прострочено", "👥 Боржників"],
+        [[
+          money(total.total),
+          `${money(total.overdue)} (${percent(total.overdueRatio)})`,
+          `${debtors.length}, з простроченою ${overdueCount}`,
+        ]]
+      ),
+      "",
+      "**Кому нагадати передусім:**",
       ...worst,
       "",
-      "_Вік боргу відновлено з дат наших відвантажень: 1С передає лише загальне сальдо._",
+      "_Вік боргу відновлено з дат наших відвантажень: 1С передає лише загальне сальдо. Платник: 🟢 надійний · 🟡 помірний · 🟠 ризиковий · 🔴 лише передоплата._",
       "",
       followUps(
         "Кому дзвонити першому і що казати?",
@@ -275,17 +381,26 @@ export async function answerChurn(ctx: ToolContext): Promise<DirectAnswer> {
     };
   }
 
+  const risk = list.filter((a) => a.kind === "CHURN_RISK").length;
+
   return {
-    markdown: [
-      `**${clientsWord(list.length)}, з якими варто звʼязатися:**`,
+    markdown: md([
+      "## 😴 Хто згасає",
+      "",
+      ...table(
+        ["⏳ Відстають від ритму", "💤 Сплять", "💰 Дали за 30 днів"],
+        [[risk, list.length - risk, money(list.reduce((sum, a) => sum + a.amountPeriod, 0))]]
+      ),
       "",
       ...list.map(
         (a) =>
-          `- ${clientLink(a.counterpartyId, a.name)} — ${ACTION_LABELS[a.kind].toLowerCase()}: ${a.why}`
+          `- ${a.kind === "CHURN_RISK" ? "⏳" : "💤"} ${clientLink(a.counterpartyId, a.name)} — ${a.why}`
       ),
       "",
       "_Ритм рахується по днях із покупками за всю історію клієнта, а не по документах._",
-    ].join("\n"),
+      "",
+      followUps("З чим до них заходити?", "Хто з них ще й винен?", "Кого рятувати першим?"),
+    ]),
     tools,
   };
 }
@@ -321,23 +436,30 @@ export async function answerDeadStock(ctx: ToolContext, brand: string | null): P
   const known = list.filter((i) => i.myBuyers > 0);
 
   return {
-    markdown: [
-      `**${items(list.length)} лежить без продажу 90+ днів** на ${money(sum)} за собівартістю${brand ? ` (бренд «${brand}»)` : ""}.`,
+    markdown: md([
+      `## 🧊 Мертвий залишок${brand ? ` · ${brand}` : ""}`,
+      `**${items(list.length)} без продажу 90+ днів** на ${money(sum)} за собівартістю.`,
       "",
-      ...list.map((i) => {
-        const idle = i.lastSale
-          ? `${days((Date.now() - i.lastSale.getTime()) / 86_400_000)} без продажу`
-          : "жодного продажу";
-        const margin = priceMarginPct(i.price, i.lastCost);
-        return `- ${productLink(i.name, i.sku)} — ${i.free} шт, ${idle}, ${money(i.price)}${
-          margin != null ? `, маржа ${percent(margin)}` : ""
-        }${i.myBuyers > 0 ? `, з ваших брали ${i.myBuyers}` : ""}`;
-      }),
+      ...table(
+        ["Товар", "📦 Шт", "💵 Ціна", "📊 Маржа", "👥 Мої"],
+        list.map((i) => {
+          const margin = priceMarginPct(i.price, i.lastCost);
+          return [
+            productLink(short(i.name, 34), i.sku),
+            i.free,
+            money(i.price),
+            margin == null ? "—" : percent(margin),
+            i.myBuyers > 0 ? `${i.myBuyers} 🟢` : "—",
+          ];
+        })
+      ),
       "",
       known.length > 0
-        ? `_Найлегше зрушити перші ${known.length}: ці позиції вже брали ваші клієнти._`
-        : "_Це залишок, якого ваші клієнти ще не брали — починати варто з тих, кому цей бренд знайомий._",
-    ].join("\n"),
+        ? `_🟢 — цю позицію вже брали ваші клієнти: з таких і починати._`
+        : "_Цього залишку ваші клієнти ще не брали — починати варто з тих, кому бренд знайомий._",
+      "",
+      followUps("Кому з клієнтів це можна запропонувати?", "Яку ціну можна дати?"),
+    ]),
     tools,
   };
 }
@@ -355,30 +477,49 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
   );
 
   const change = s.попередній_період?.зміна_суми_відсотків;
-  const trend =
-    change == null
-      ? ""
-      : ` Це на ${percent(Math.abs(change))} ${change >= 0 ? "більше" : "менше"}, ніж за попередні ${days(dayCount)} (${money(s.попередній_період!.сума)}).`;
-
   const plan = s.план_місяця;
-  const planLine =
-    plan.план > 0
-      ? `**План на ${plan.місяць}:** ${money(plan.факт)} із ${money(plan.план)} — ${percent(plan.виконання_відсотків ?? 0)}.${
-          plan.лишилось_добрати ? ` Лишилось добрати ${money(plan.лишилось_добрати)}${plan.треба_на_день ? `, тобто ${money(plan.треба_на_день)} на день` : ""}.` : ""
-        }`
-      : "_План на цей місяць не заведено._";
-
-  const brands = s.бренди.slice(0, 5).map((b) => `- ${b.бренд} — ${money(b.сума)}`);
 
   return {
     markdown: md([
-      `**За ${days(dayCount)}: ${money(s.підсумок.сума)}**, ${s.підсумок.реалізацій} реалізацій, ${clientsWord(s.підсумок.клієнтів)}, середній чек ${money(s.підсумок.середній_чек)}.${trend}`,
-      s.підсумок.повернення > 0 ? `Повернень на ${money(s.підсумок.повернення)}.` : "",
-      `Зібрано грошей: ${money(s.підсумок.зібрано_грошей)}.`,
+      `## 📈 Продажі за ${days(dayCount)}`,
       "",
-      planLine,
-      brands.length ? "\n**Топ брендів:**" : "",
-      ...brands,
+      ...table(
+        ["Показник", "Значення"],
+        [
+          [
+            "💰 Оборот",
+            `**${money(s.підсумок.сума)}**${
+              change == null ? "" : ` ${arrow(change)} ${percent(change)}`
+            }`,
+          ],
+          ["🧾 Середній чек", money(s.підсумок.середній_чек)],
+          ["👥 Клієнтів", `${s.підсумок.клієнтів} · ${s.підсумок.реалізацій} реалізацій`],
+          ["📦 Позицій", s.підсумок.позицій],
+          ["💵 Зібрано грошей", money(s.підсумок.зібрано_грошей)],
+          ["↩️ Повернення", s.підсумок.повернення > 0 ? `🔴 ${money(s.підсумок.повернення)}` : "🟢 немає"],
+        ]
+      ),
+      "",
+      change == null
+        ? ""
+        : `_За попередні ${days(dayCount)} було ${money(s.попередній_період!.сума)}._`,
+      "",
+      plan.план > 0
+        ? md([
+            `### 🎯 План на ${monthLabel(plan.місяць, ctx.today)}`,
+            `${bar(plan.виконання_відсотків ?? 0)} **${percent(plan.виконання_відсотків ?? 0)}** — ${money(plan.факт)} із ${money(plan.план)}`,
+            plan.лишилось_добрати
+              ? `Добрати ${money(plan.лишилось_добрати)}${plan.треба_на_день ? `, тобто ${money(plan.треба_на_день)} на день` : ""}.`
+              : "План уже закритий.",
+          ])
+        : "_🎯 Плану на цей місяць не заведено._",
+      "",
+      s.бренди.length > 0 ? "### 🏷️ Топ брендів" : "",
+      "",
+      ...table(
+        ["Бренд", "💰 Сума", "📊 Вал"],
+        s.бренди.slice(0, 5).map((b) => [short(b.бренд, 24), money(b.сума), money(b.вал)])
+      ),
       "",
       "_Рахуються реалізації (відвантажене), суми нетто — повернення відняті._",
       "",
@@ -411,26 +552,40 @@ export async function answerRoute(ctx: ToolContext, weekday: number | null): Pro
     };
   }
 
-  const blocks = filled.map((d) => {
-    const head = `**${WEEKDAY_NAMES[d.weekday - 1].toUpperCase()}**${d.template ? ` — шаблон «${d.template.name}»` : ""}`;
+  const DAY_ICONS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"];
+
+  const blocks = filled.flatMap((d) => {
+    const head = `### ${DAY_ICONS[d.weekday - 1]} ${WEEKDAY_NAMES[d.weekday - 1]}${
+      d.template ? ` · шаблон «${d.template.name}»` : ""
+    }`;
     const rows = d.clients.slice(0, weekday ? 10 : 5).map((c) => {
       const bits: string[] = [];
-      if (c.orders) bits.push(`${c.orders} зам.`);
-      if (c.visits) bits.push(`${c.visits} візит.`);
-      if (c.stops) bits.push(`${c.stops} зупин.`);
-      return `- ${clientLink(c.counterpartyId, c.name)} — ${bits.join(", ")}`;
+      if (c.orders) bits.push(`🧾 ${c.orders}`);
+      if (c.visits) bits.push(`✅ ${c.visits}`);
+      if (c.stops) bits.push(`📍 ${c.stops}`);
+      return `- ${clientLink(c.counterpartyId, c.name)} — ${bits.join(" · ")}`;
     });
-    return [head, ...rows].join("\n");
+    return [head, "", ...rows, ""];
   });
 
   return {
-    markdown: [
-      `Куди ви звично їздите (за ${habits.weeks} тижнів):`,
+    markdown: md([
+      `## 🗺️ Звичний маршрут`,
+      "",
+      ...table(
+        ["День", "👥 Точок", "🧾 Замовлень"],
+        filled.map((d) => [
+          `${DAY_ICONS[d.weekday - 1]} ${WEEKDAY_NAMES[d.weekday - 1]}`,
+          d.clients.length,
+          d.clients.reduce((sum, c) => sum + c.orders, 0),
+        ])
+      ),
       "",
       ...blocks,
+      "_🧾 замовлення · ✅ візит · 📍 зупинка. Замовлення важать більше: зупинка каже лише, що ви стояли поруч._",
       "",
-      "_Замовлення важать більше за зупинки: зупинка каже лише, що ви стояли поруч._",
-    ].join("\n"),
+      followUps("Сплануй мій день", "Кого з них давно не було?"),
+    ]),
     tools,
   };
 }
@@ -469,14 +624,17 @@ async function resolveClient(
 }
 
 function askWhich(subject: string, hits: ClientHit[]): string {
-  return [
-    `За запитом «${subject}» знайшлося кілька клієнтів. Про кого йдеться?`,
+  return md([
+    `## 🔎 Кілька збігів на «${subject}»`,
+    "Про кого з них ідеться?",
     "",
     ...hits.map(
       (h) =>
-        `- ${clientLink(h.id, h.name)}${h.address ? ` — ${h.address}` : ""}${h.mine ? " (ваш)" : ""}`
+        `- ${h.mine ? "⭐" : "🏪"} ${clientLink(h.id, h.name)}${h.address ? ` — ${h.address}` : ""}`
     ),
-  ].join("\n");
+    "",
+    "_⭐ — ваш клієнт._",
+  ]);
 }
 
 const notFound = (subject: string) =>
@@ -505,49 +663,58 @@ export async function answerEntryOffer(ctx: ToolContext, subject: string): Promi
 
   const debt =
     offer.борг.прострочено > 0
-      ? `**Спершу гроші:** прострочено ${money(offer.борг.прострочено)} із ${money(offer.борг.всього)}, платник ${offer.борг.вердикт}. Новий товар — після розмови про борг.`
+      ? `🔴 **Спершу гроші:** прострочено ${money(offer.борг.прострочено)} із ${money(offer.борг.всього)}, платник ${payerIcon(offer.борг.вердикт)} ${offer.борг.вердикт}. Новий товар — після розмови про борг.`
       : offer.борг.всього > 0
-        ? `Борг ${money(offer.борг.всього)} робочий, прострочки немає (платник ${offer.борг.вердикт}).`
-        : `Боргу немає, платник ${offer.борг.вердикт}.`;
+        ? `🟡 Борг ${money(offer.борг.всього)} робочий, прострочки немає · платник ${payerIcon(offer.борг.вердикт)} ${offer.борг.вердикт}.`
+        : `🟢 Боргу немає · платник ${payerIcon(offer.борг.вердикт)} ${offer.борг.вердикт}.`;
 
-  const blocks = offer.гачки.map((h) => {
-    const head = `**${productLink(h.назва, h.артикул)}** — ${money(h.ціна)}${
-      h.ціна_підлога ? `, не нижче ${money(h.ціна_підлога)}` : ""
-    }; маржа ${percent(h.маржа_прайсова_відсотків)} від прайсу${
-      h.маржа_фактична_відсотків != null ? `, фактично продаємо під ${percent(h.маржа_фактична_відсотків)}` : ""
-    }. ${h.підстава}. Залишок ${h.залишок} шт.`;
-
-    const attach = h.причіп.length
+  const blocks = offer.гачки.flatMap((h) => [
+    `### 🎣 ${productLink(h.назва, h.артикул)}`,
+    "",
+    ...table(
+      ["💵 Ціна", "🛑 Не нижче", "📊 Маржа", "📦 Залишок"],
+      [[
+        money(h.ціна),
+        h.ціна_підлога ? money(h.ціна_підлога) : "—",
+        `${percent(h.маржа_прайсова_відсотків)}${
+          h.маржа_фактична_відсотків != null ? ` (факт ${percent(h.маржа_фактична_відсотків)})` : ""
+        }`,
+        `${h.залишок} шт`,
+      ]]
+    ),
+    `_${h.підстава}._`,
+    ...(h.причіп.length
       ? [
-          "  До нього:",
+          "",
+          "🔗 **Причіп:**",
           ...h.причіп.map(
             (a) =>
-              `  - ${productLink(a.назва, a.артикул)} — ${money(a.ціна)}, маржа ${percent(a.маржа_фактична_відсотків ?? a.маржа_прайсова_відсотків)}, ${a.підстава}`
+              `- ${productLink(a.назва, a.артикул)} — ${money(a.ціна)} · маржа ${percent(a.маржа_фактична_відсотків ?? a.маржа_прайсова_відсотків)} · ${a.підстава}`
           ),
         ]
-      : [];
-
-    const dead = h.розпрацювати.length
+      : []),
+    ...(h.розпрацювати.length
       ? [
-          "  Заодно розпрацювати:",
+          "",
+          "🧊 **Заодно зрушити:**",
           ...h.розпрацювати.map(
-            (d) => `  - ${productLink(d.назва, d.артикул)} — ${d.залишок} шт лежить, ${money(d.ціна)}`
+            (d) => `- ${productLink(d.назва, d.артикул)} — ${d.залишок} шт лежить, ${money(d.ціна)}`
           ),
         ]
-      : [];
-
-    return [`- ${head}`, ...attach, ...dead].join("\n");
-  });
+      : []),
+    "",
+  ]);
 
   return {
-    markdown: [
-      `## З чим заходити до ${clientLink(client.id, client.name)}`,
+    markdown: md([
+      `## 🎁 З чим заходити до ${clientLink(client.id, client.name)}`,
       debt,
       "",
       ...blocks,
-      "",
       "_Ціна нижча за прайс — це пропозиція; остаточну знижку затверджує керівник. Собівартість оцінена за останньою реалізацією._",
-    ].join("\n"),
+      "",
+      followUps("Що ще йому запропонувати?", "Скільки він винен?", "Що ми про нього памʼятаємо?"),
+    ]),
     tools,
   };
 }
@@ -573,17 +740,30 @@ export async function answerRecommend(ctx: ToolContext, subject: string): Promis
     };
   }
 
-  const label = { REPLENISH: "пора повторити", DROPPED: "перестав брати", SIMILAR_CLIENTS: "беруть схожі клієнти" };
+  const label = {
+    REPLENISH: "🔁 пора повторити",
+    DROPPED: "⚠️ перестав брати",
+    SIMILAR_CLIENTS: "👥 беруть схожі",
+  };
 
   return {
-    markdown: [
-      `**Що запропонувати ${clientLink(client.id, client.name)}:**`,
+    markdown: md([
+      `## 🛒 Що запропонувати ${clientLink(client.id, client.name)}`,
       "",
-      ...list.map(
-        (r) =>
-          `- ${productLink(r.name, r.sku)} — ${label[r.reason]}: ${r.why}. ${money(r.price ?? 0)}, на складі ${r.stock} шт`
+      ...table(
+        ["Товар", "Чому", "💵 Ціна", "📦 Склад"],
+        list.map((r) => [
+          productLink(short(r.name, 30), r.sku),
+          label[r.reason],
+          money(r.price ?? 0),
+          r.stock > 0 ? `${r.stock} шт` : "🔴 немає",
+        ])
       ),
-    ].join("\n"),
+      "",
+      ...list.slice(0, 3).map((r) => `- ${short(r.name, 30)}: ${r.why}`),
+      "",
+      followUps("З чим сюди заходити?", "Скільки він винен?"),
+    ]),
     tools,
   };
 }
@@ -607,43 +787,76 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
   if (!profile) return { markdown: notFound(subject), tools };
 
   const debt = aging.get(client.id);
-  const debtLine =
-    (debt?.debt ?? 0) > 0
-      ? `**Борг ${money(debt!.debt)}**${debt!.overdue > 0 ? `, з них прострочено ${money(debt!.overdue)}` : " (робочий, прострочки немає)"}${
-          debt!.oldestDays ? `, найстарішій частині ${days(debt!.oldestDays)}` : ""
-        }. Платник ${profile.платник.вердикт}${
-          profile.платник.рекомендований_ліміт
-            ? `, рекомендований ліміт ${money(profile.платник.рекомендований_ліміт)}`
-            : ""
-        }.`
-      : `Боргу немає. Платник ${profile.платник.вердикт}.`;
+  const overdue = debt?.overdue ?? 0;
+
+  const state = /спить|втрачен/i.test(profile.стан) ? "🔴" : /відстає/i.test(profile.стан) ? "🟡" : "🟢";
 
   const memory = profile.памʼять.length
-    ? ["", "**Памʼять про клієнта:**", ...profile.памʼять.map((m) => `- ${m.вид}: ${m.текст} _(${m.хто}, ${m.дата})_`)]
+    ? [
+        "",
+        "### 🧠 Памʼять про клієнта",
+        ...profile.памʼять.map((m) => `- **${m.вид}:** ${m.текст} _(${m.хто}, ${m.дата})_`),
+      ]
     : [];
 
-  const top = (profile.топ_товари ?? []).slice(0, 5).map((p) => `- ${p.назва} — ${times(p.разів)}, ${money(p.сума)}`);
+  const top = (profile.топ_товари ?? []).slice(0, 5);
 
   return {
-    markdown: [
-      `## ${clientLink(client.id, client.name)}`,
-      `${profile.стан}, ритм ${days(profile.ритм_днів)}${
-        profile.днів_з_останньої_покупки != null
-          ? `, остання покупка ${days(profile.днів_з_останньої_покупки)} тому`
-          : ""
-      }.`,
-      debtLine,
-      `За півроку: ${money(profile.за_період.сума)} у ${profile.за_період.документів} документах${
-        profile.за_період.повернення > 0 ? `, повернень на ${money(profile.за_період.повернення)}` : ""
-      }.`,
-      ...memory,
-      top.length ? "\n**Найчастіше бере:**" : "",
-      ...top,
+    markdown: md([
+      `## 🏪 ${clientLink(client.id, client.name)}`,
       "",
-      `_Спитайте «з чим заходити до ${client.name}» — підберу гачок і причіп._`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
+      ...table(
+        ["Показник", "Значення"],
+        [
+          [
+            "💰 Борг",
+            (debt?.debt ?? 0) > 0
+              ? `${money(debt!.debt)}${overdue > 0 ? ` · 🔴 прострочено ${money(overdue)}` : " · 🟢 робочий"}${
+                  debt!.oldestDays ? ` · ${days(debt!.oldestDays)}` : ""
+                }`
+              : "🟢 немає",
+          ],
+          [
+            "🤝 Платник",
+            `${payerIcon(profile.платник.вердикт)} ${profile.платник.вердикт}${
+              profile.платник.рекомендований_ліміт
+                ? ` · ліміт ${money(profile.платник.рекомендований_ліміт)}`
+                : ""
+            }`,
+          ],
+          [
+            "📊 Стан",
+            `${state} ${profile.стан} · ритм ${days(profile.ритм_днів)}${
+              profile.днів_з_останньої_покупки != null
+                ? ` · не брав ${days(profile.днів_з_останньої_покупки)}`
+                : ""
+            }`,
+          ],
+          [
+            "🧾 За півроку",
+            `${money(profile.за_період.сума)} у ${profile.за_період.документів} документах${
+              profile.за_період.повернення > 0
+                ? ` · ↩️ ${money(profile.за_період.повернення)}`
+                : ""
+            }`,
+          ],
+        ]
+      ),
+      ...memory,
+      "",
+      top.length ? "### 📦 Найчастіше бере" : "",
+      "",
+      ...table(
+        ["Товар", "Разів", "💰 Сума"],
+        top.map((p) => [short(p.назва, 32), times(p.разів), money(p.сума)])
+      ),
+      "",
+      followUps(
+        "З чим сюди заходити?",
+        "Що він брав минулого разу?",
+        overdue > 0 ? "Як говорити про борг?" : "Що йому ще запропонувати?"
+      ),
+    ]),
     tools,
   };
 }
@@ -670,30 +883,48 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
   const statById = new Map(stats.map((s) => [s.productId, s]));
 
   // Підсумок по групі — перше, що треба почути на «скільки ще піни».
-  const head =
-    totals.positions > 0
-      ? `**За запитом «${query}» на складі ${totals.free} шт**, позицій ${totals.positions}.` +
-        (totals.positions > hits.length ? ` Показую ${hits.length} найбільших.` : "")
-      : `**За запитом «${query}» вільного залишку немає.** Ось що знайшлося:`;
-
-  const rows = hits.map((h) => {
-    const s = statById.get(h.productId);
-    const price = h.price > 0 ? money(h.price) : "ціни в 1С немає";
-    const stock = h.free > 0 ? `**${h.free} шт**` : "немає на складі";
-    const margin = priceMarginPct(h.price, h.lastCost);
-    const sold = s ? `, за 180 днів взяли ${clientsWord(s.clients)}` : "";
-    const fact = s && marginPct(s) != null ? `, фактична маржа ${percent(marginPct(s)!)}` : "";
-    return `- ${productLink(h.name, h.sku)} — ${stock}, ${price}${
-      margin != null ? `, маржа від прайсу ${percent(margin)}` : ""
-    }${fact}${sold}${h.myBuyers > 0 ? `, з ваших брали ${h.myBuyers}` : ""}`;
-  });
-
-  const notes = ["_Залишок вільний, з несервісних складів: це те, що реально можна відвантажити._"];
+  const notes = ["_📦 залишок вільний, з несервісних складів: це те, що реально можна відвантажити._"];
   if (totals.noPrice > 0) {
-    notes.push(`_${items(totals.noPrice)} без ціни в 1С — продати їх не вийде, поки ціну не заведуть._`);
+    notes.push(`_🚫 ${items(totals.noPrice)} без ціни в 1С — продати їх не вийде, поки ціну не заведуть._`);
   }
 
-  return { markdown: [head, "", ...rows, "", ...notes].join("\n"), tools };
+  return {
+    markdown: md([
+      `## 📦 ${query}`,
+      "",
+      ...table(
+        ["📦 На складі", "🏷️ Позицій", "👀 Показано"],
+        [[
+          totals.free > 0 ? `**${totals.free} шт**` : "🔴 немає",
+          totals.positions,
+          Math.min(hits.length, totals.positions || hits.length),
+        ]]
+      ),
+      "",
+      ...table(
+        ["Товар", "📦 Шт", "💵 Ціна", "📊 Маржа", "👥 Мої"],
+        hits.map((h) => {
+          const stat = statById.get(h.productId);
+          const margin = priceMarginPct(h.price, h.lastCost);
+          const fact = stat && marginPct(stat) != null ? marginPct(stat)! : null;
+          return [
+            productLink(short(h.name, 32), h.sku),
+            h.free > 0 ? `**${h.free}**` : "🔴 0",
+            h.price > 0 ? money(h.price) : "🚫 —",
+            margin == null
+              ? "—"
+              : `${percent(margin)}${fact != null ? ` (факт ${percent(fact)})` : ""}`,
+            h.myBuyers > 0 ? `${h.myBuyers} 🟢` : "—",
+          ];
+        })
+      ),
+      "",
+      ...notes,
+      "",
+      followUps("Кому з клієнтів це зайде?", "Яку ціну можна дати?"),
+    ]),
+    tools,
+  };
 }
 
 /* ── Повернення ───────────────────────────────────────────────────────── */
@@ -733,39 +964,59 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
     .slice(0, 5)
     .map((c) =>
       c.clientId
-        ? `- ${clientLink(c.clientId, c.name)} — ${money(c.amount)} у ${c.docs} ${plural(c.docs, "документі", "документах", "документах")}`
-        : `- ${c.name} — ${money(c.amount)}`
+        ? `- ↩️ ${clientLink(c.clientId, c.name)} — **${money(c.amount)}** у ${c.docs} ${plural(c.docs, "документі", "документах", "документах")}`
+        : `- ↩️ ${c.name} — **${money(c.amount)}**`
     );
-
-  const products = facts.byProduct
-    .slice(0, 5)
-    .map((p) => `- ${productLink(p.name, null)} — ${money(p.amount)}, ${Math.round(p.qty)} шт`);
 
   const repeatedBlock = repeated.length
     ? [
         "",
-        "**Повторюється** (той самий клієнт повертає той самий товар не вперше):",
+        "### 🔁 Повторюється",
+        "_Той самий клієнт повертає той самий товар не вперше._",
         ...repeated.map(
           (r) =>
-            `- ${clientLink(r.clientId, r.clientName)} — ${r.productName}, ${times(r.times)} на ${money(r.amount)}`
+            `- ${clientLink(r.clientId, r.clientName)} — ${short(r.productName, 34)}, ${times(r.times)} на ${money(r.amount)}`
         ),
       ]
     : [];
 
+  const state: "good" | "mid" | "bad" =
+    facts.share > facts.teamShare * 2 && facts.share > 2
+      ? "bad"
+      : facts.share > facts.teamShare
+        ? "mid"
+        : "good";
+
   return {
-    markdown: [
-      `**Повернень за ${days(dayCount)}: ${money(facts.amount)}** у ${facts.docs} ${plural(facts.docs, "документі", "документах", "документах")}, це ${percent(facts.share)} від валу.`,
-      verdict,
+    markdown: md([
+      `## ↩️ Повернення за ${days(dayCount)}`,
       "",
-      "**Хто повертає:**",
+      ...table(
+        ["💸 Сума", "🧾 Документів", "📊 Частка від валу", "👥 Медіана команди"],
+        [[
+          money(facts.amount),
+          facts.docs,
+          `${light(state)} ${percent(facts.share)}`,
+          percent(facts.teamShare),
+        ]]
+      ),
+      `_${verdict}_`,
+      "",
+      "### 👤 Хто повертає",
       ...clients,
       "",
-      "**Що повертають:**",
-      ...products,
+      "### 📦 Що повертають",
+      "",
+      ...table(
+        ["Товар", "💸 Сума", "Шт"],
+        facts.byProduct.slice(0, 5).map((p) => [short(p.name, 32), money(p.amount), Math.round(p.qty)])
+      ),
       ...repeatedBlock,
       "",
       "_Причину повернення 1С не передає — її видно лише з розмови з клієнтом._",
-    ].join("\n"),
+      "",
+      followUps("Чому вони повертають?", "Як це б'є по моїй маржі?"),
+    ]),
     tools,
   };
 }
@@ -784,26 +1035,7 @@ const MY_METRICS: MetricKey[] = [
   "momentumPct",
 ];
 
-/**
- * Збірка відповіді з рядків.
- *
- * Порожній рядок у маркдауні — це роздільник абзаців, тож викидати його
- * не можна (інакше таблиця злипнеться із заголовком). А два поспіль уже
- * зайві, і саме вони з'являються там, де секція не заповнилася.
- */
-function md(lines: Array<string | null | undefined>): string {
-  const out: string[] = [];
-  for (const line of lines) {
-    if (line == null) continue;
-    if (line === "" && out[out.length - 1] === "") continue;
-    out.push(line);
-  }
-  while (out[out.length - 1] === "") out.pop();
-  return out.join("\n");
-}
 
-/** Медаль за місце. Далі третього — просто число, інакше медалі знецінюються. */
-const MEDALS = ["🥇", "🥈", "🥉"];
 
 /** Іконка метрики: у таблиці з телефона вона читається швидше за слово. */
 const METRIC_ICONS: Partial<Record<MetricKey, string>> = {
@@ -817,28 +1049,6 @@ const METRIC_ICONS: Partial<Record<MetricKey, string>> = {
   momentumPct: "📊",
 };
 
-/**
- * Смужка виконання з десяти квадратів.
- *
- * Кольором тут працює сам символ: у маркдауні кольору немає, а квадрат є
- * скрізь — і в застосунку, і в браузері. Порогів три, щоб «майже план» і
- * «провал» не виглядали однаково.
- */
-function bar(percentValue: number | null): string {
-  if (percentValue == null) return "";
-  const filled = Math.max(0, Math.min(10, Math.round(percentValue / 10)));
-  const block = percentValue >= 100 ? "🟩" : percentValue >= 90 ? "🟨" : "🟥";
-  return block.repeat(filled) + "⬜".repeat(10 - filled);
-}
-
-/** Рядок підказок під відповіддю: у кабінеті це тапабельні кнопки. */
-function followUps(...questions: Array<string | null>): string {
-  const list = questions.filter((q): q is string => Boolean(q));
-  return list.length ? `> 💬 ${list.join(" · ")}` : "";
-}
-
-const arrow = (value: number | null): string =>
-  value == null ? "" : value > 0 ? "📈" : value < 0 ? "📉" : "➖";
 
 /**
  * Де я в команді — з рейтингом, показниками й прогнозом на місяць.
@@ -866,7 +1076,7 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
   }
   if (!report.comparable) {
     return {
-      markdown: "Команда замала для порівняння: перцентилі рахуються від трьох торгових із продажами.",
+      markdown: "Команда замала для порівняння: рахуємо, лише коли продажі є щонайменше в трьох торгових.",
       tools,
     };
   }
@@ -904,8 +1114,8 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
 
   const metricRows = MY_METRICS.filter((key) => me.ranks[key] != null).map((key) => {
     const rank = Math.round(me.ranks[key]!);
-    const light = rank >= STRONG_PERCENTILE ? "🟢" : rank <= WEAK_PERCENTILE ? "🔴" : "🟡";
-    return `| ${METRIC_ICONS[key] ?? ""} ${METRICS[key].label} | **${fmt(key, me[key])}** | ${fmt(key, report.medians[key])} | ${light} ${rank} |`;
+    const lightMark = rank >= STRONG_PERCENTILE ? "🟢" : rank <= WEAK_PERCENTILE ? "🔴" : "🟡";
+    return `| ${METRIC_ICONS[key] ?? ""} ${METRICS[key].label} | **${fmt(key, me[key])}** | ${fmt(key, report.medians[key])} | ${lightMark} ${rank} % |`;
   });
 
   const strengths = me.strengths.filter((k) => MY_METRICS.includes(k)).map((k) => `${METRIC_ICONS[k] ?? ""} ${METRICS[k].label}`);
@@ -926,7 +1136,7 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
       "",
       "### 📊 Ваші показники проти команди",
       "",
-      "| Показник | Ви | Медіана | Перцентиль |",
+      "| Показник | Ви | Медіана команди | 🏅 Позаду вас |",
       "| --- | --- | --- | --- |",
       ...metricRows,
       "",
@@ -935,7 +1145,7 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
       "",
       ...forecastBlock(forecast),
       "",
-      "_🟢 сильно · 🟡 середньо · 🔴 слабко. Перцентиль — скільки % колег ви обійшли._",
+      "_🟢 сильно · 🟡 середньо · 🔴 слабко. «Позаду вас» — яка частка команди слабша за вас у цьому рядку: 72 % означає, що краще за вас лише кожен четвертий._",
       "",
       followUps(
         weakest ? `Чому провисає ${METRICS[weakest].label.toLowerCase()}?` : null,
@@ -954,9 +1164,9 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
  * ішов дотепер, лише коли нічого не змінюється. Обіцяти точність, якої
  * немає, — швидший спосіб втратити довіру, ніж помилитися на 10%.
  */
-export function forecastBlock(f: MonthForecast): string[] {
+export function forecastBlock(f: MonthForecast, level: "##" | "###" = "###"): string[] {
   const lines: string[] = [
-    `### 🔮 Прогноз на ${monthLabel(f.місяць, f.місяць)}`,
+    `${level} 🔮 Прогноз на ${monthLabel(f.місяць, f.місяць)}`,
     `Минуло ${days(f.днів_минуло)} із ${f.днів_усього}, лишилось ${days(f.днів_лишилось)}.`,
     "",
   ];
@@ -1008,7 +1218,7 @@ export async function answerForecast(ctx: ToolContext): Promise<DirectAnswer> {
 
   return {
     markdown: md([
-      ...forecastBlock(forecast),
+      ...forecastBlock(forecast, "##"),
       "",
       followUps(
         forecast.показники.some((m) => m.план > 0)
@@ -1053,35 +1263,43 @@ export async function answerAbcClients(ctx: ToolContext, dayCount: number): Prom
     : null;
 
   const top = a.slice(0, 8).map((r) => {
-    const margin = r.marginPct != null ? `, маржа ${percent(r.marginPct)}` : "";
-    const flag =
-      avgMargin != null && r.marginPct != null && r.marginPct < avgMargin * 0.7 ? " ⚠ низька маржа" : "";
-    return `- ${clientLink(r.id, r.name)} — ${money(r.amount)} (${percent(r.share)} обороту)${margin}${flag}`;
+    const low = avgMargin != null && r.marginPct != null && r.marginPct < avgMargin * 0.7;
+    const margin = r.marginPct != null ? ` · маржа ${low ? "🔴" : "🟢"} ${percent(r.marginPct)}` : "";
+    return `- 🅰️ ${clientLink(r.id, r.name)} — **${money(r.amount)}** (${percent(r.share)} обороту)${margin}`;
   });
 
   const shaky = report.rows
     .filter((r) => r.abc === "A" && r.xyz === "Z")
     .slice(0, 5)
-    .map((r) => `- ${clientLink(r.id, r.name)} — брав лише в ${r.activeMonths} з ${report.months} місяців`);
+    .map((r) => `- ⚠️ ${clientLink(r.id, r.name)} — брав лише в ${r.activeMonths} з ${report.months} місяців`);
+
+  const b = report.rows.filter((r) => r.abc === "B");
 
   return {
-    markdown: [
-      `**За ${days(dayCount)}: ${money(report.total)}, клієнтів ${report.rows.length}.**`,
-      `Клас A: ${clientsWord(a.length)} дають 80 % обороту. Клас C: ${clientsWord(c.length)} разом дають 5 %.`,
-      avgMargin != null ? `Середня маржа по клієнтах класу A: ${percent(avgMargin)}.` : "",
+    markdown: md([
+      `## 🅰️ Хто тримає ваш оборот · ${days(dayCount)}`,
       "",
-      "**Хто тримає оборот:**",
+      ...table(
+        ["Клас", "👥 Клієнтів", "💰 Оборот", "Що це"],
+        [
+          ["🅰️ A", a.length, money(a.reduce((sum, r) => sum + r.amount, 0)), "80 % обороту"],
+          ["🅱️ B", b.length, money(b.reduce((sum, r) => sum + r.amount, 0)), "наступні 15 %"],
+          ["🅲 C", c.length, money(c.reduce((sum, r) => sum + r.amount, 0)), "останні 5 %"],
+        ]
+      ),
+      avgMargin != null ? `_Середня маржа по класу A: ${percent(avgMargin)}._` : "",
+      "",
+      "### 👑 Хто тримає оборот",
       ...top,
-      shaky.length ? "\n**Великі, але нерівні** (оборот є, ритму немає):" : "",
-      ...shaky,
+      ...(shaky.length ? ["", "### ⚠️ Великі, але нерівні", "_Оборот є, ритму немає._", ...shaky] : []),
       "",
       report.coverage < 90
         ? `_Маржа порахована для ${percent(report.coverage)} обороту: у решти рядків 1С не передала собівартість._`
         : "",
       report.xyzAvailable ? "" : `_Рівність закупівель не рахувалась: у періоді лише ${report.months} міс._`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
+      "",
+      followUps("Кого з класу A давно не було?", "У кого з них низька маржа?", "З чим до них заходити?"),
+    ]),
     tools,
   };
 }
@@ -1120,42 +1338,61 @@ export async function answerDriverDay(ctx: ToolContext, day: string): Promise<Di
   }
 
   const left = facts.totals.stops - facts.totals.done;
-  const head = [
-    `## Маршрут на ${planDayLabel(facts.day, WEEKDAY_ACCUSATIVE[weekdayOf(facts.day)])}`,
-    `${points(facts.totals.stops)}${facts.route.number ? `, лист ${facts.route.number}` : ""}${
-      facts.route.vehicle ? `, ${facts.route.vehicle}` : ""
-    }. Відмічено ${facts.totals.done}, лишилось ${left}.`,
-    facts.totals.debt > 0
-      ? `Забрати грошей: **${money(facts.totals.debt)}**. Товару на точках: ${money(facts.totals.amount)}.`
-      : `Товару на точках: ${money(facts.totals.amount)}.`,
-  ];
 
   const rows = facts.stops.map((s) => {
     const bits: string[] = [];
-    if (s.debt > 0) bits.push(`забрати ${money(s.debt)}`);
-    if (s.amount > 0) bits.push(`товару на ${money(s.amount)}`);
+    if (s.debt > 0) bits.push(`💵 забрати ${money(s.debt)}`);
+    if (s.amount > 0) bits.push(`📦 ${money(s.amount)}`);
     if (s.kind !== "DELIVERY") bits.push(STOP_KIND_LABEL[s.kind] ?? s.kind);
-    if (!s.hasPin) bits.push("точки на карті немає");
-    if (s.done) bits.push("вже відмічено");
+    if (!s.hasPin) bits.push("📍 немає на карті");
 
+    const mark = s.done ? "✅" : "⬜";
     const title = s.counterpartyId ? clientLink(s.counterpartyId, s.name) : `**${s.name}**`;
     const address = s.address ? ` — ${s.address}` : "";
-    const phone = s.phone ? ` · ${s.phone}` : "";
-    const note = s.notes ? `\n  Примітка логіста: ${s.notes}` : "";
+    const phone = s.phone ? ` · 📞 ${s.phone}` : "";
+    const note = s.notes ? `\n  📝 ${s.notes}` : "";
 
-    return `${s.seq}. ${title}${address}${phone}${bits.length ? `. ${bits.join("; ")}` : ""}${note}`;
+    return `${s.seq}. ${mark} ${title}${address}${phone}${bits.length ? ` · ${bits.join(" · ")}` : ""}${note}`;
   });
 
   const cash =
     facts.cash.collected > 0 || facts.cash.handed > 0
       ? [
           "",
-          `**Каса:** зібрано ${money(facts.cash.collected)}, здано ${money(facts.cash.handed)}, на руках ${money(facts.cash.onHands)}.`,
+          "### 💰 Каса",
+          "",
+          ...table(
+            ["Зібрано", "Здано", "На руках"],
+            [[money(facts.cash.collected), money(facts.cash.handed), `**${money(facts.cash.onHands)}**`]]
+          ),
         ]
       : [];
 
   return {
-    markdown: [...head, "", ...rows, ...cash].join("\n"),
+    markdown: md([
+      `## 🚚 Маршрут на ${planDayLabel(facts.day, WEEKDAY_ACCUSATIVE[weekdayOf(facts.day)])}`,
+      facts.route.number || facts.route.vehicle
+        ? `_${[facts.route.number ? `лист ${facts.route.number}` : null, facts.route.vehicle]
+            .filter(Boolean)
+            .join(" · ")}_`
+        : "",
+      "",
+      ...table(
+        ["📍 Точок", "✅ Готово", "⬜ Лишилось", "💵 Забрати", "📦 Товару"],
+        [[
+          facts.totals.stops,
+          facts.totals.done,
+          left,
+          facts.totals.debt > 0 ? `**${money(facts.totals.debt)}**` : "—",
+          money(facts.totals.amount),
+        ]]
+      ),
+      "",
+      ...rows,
+      ...cash,
+      "",
+      followUps("Скільки в касі?", "Що це за клієнт?"),
+    ]),
     tools,
   };
 }

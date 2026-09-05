@@ -25,10 +25,29 @@ export type ClientHit = {
 export async function findClients(
   query: string,
   repId: string,
-  { limit = 8, onlyMine = false }: { limit?: number; onlyMine?: boolean } = {}
+  opts: { limit?: number; onlyMine?: boolean } = {}
+): Promise<ClientHit[]> {
+  const rows = await search(query, repId, opts, 0);
+  /**
+   * Друга спроба з коротшою основою.
+   *
+   * «Що з Кунанцем» не знаходило нікого: основа «Кунанц» не збігається з
+   * «Кунанець» через випадну голосну. Одразу різати глибше не можна —
+   * тоді «Ремонт» знаходить пів бази, — тож глибше йдемо лише тоді, коли
+   * перший пошук повернув порожнечу.
+   */
+  if (rows.length > 0) return rows;
+  return search(query, repId, opts, 1);
+}
+
+async function search(
+  query: string,
+  repId: string,
+  { limit = 8, onlyMine = false }: { limit?: number; onlyMine?: boolean },
+  cut: number
 ): Promise<ClientHit[]> {
   // Послівно й по основах — див. search-words.ts.
-  const patterns = searchPatterns(query, 5);
+  const patterns = searchPatterns(query, 5, cut);
   const whole = `%${query.replace(/[%_]/g, "")}%`;
 
   return prisma.$queryRaw<ClientHit[]>`

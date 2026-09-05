@@ -15,12 +15,19 @@
  * Два символи від шести — саме стільки з'їдають українські закінчення з
  * чергуванням (Кунанець → Кунанця), один — від чотирьох (піни → пін).
  * Коротші слова не чіпаємо: від «Біб» після обрізання лишиться шум.
+ *
+ * `cut` відрізає ще стільки ж — це ДРУГА спроба, коли перша не знайшла
+ * нікого. «Кунанцем» після звичайного обрізання дає «Кунанц», а в базі
+ * лежить «Кунанець»: випала та сама голосна, через яку основа й не
+ * збіглася. Одразу різати глибше не можна — коротка основа знаходить
+ * половину бази.
  */
 
 /** Основа слова для пошуку за підрядком. */
-export function stem(word: string): string {
-  if (word.length >= 6) return word.slice(0, -2);
-  if (word.length >= 4) return word.slice(0, -1);
+export function stem(word: string, cut = 0): string {
+  const extra = Math.max(0, cut);
+  if (word.length >= 6) return word.slice(0, -(2 + extra));
+  if (word.length >= 4) return word.slice(0, -(1 + extra));
   return word;
 }
 
@@ -30,12 +37,12 @@ export function stem(word: string): string {
  * Максимум шість слів: довший запит — це вже речення, і кожне зайве
  * слово в ILIKE ALL відсікає правильні збіги замість того, щоб уточнити.
  */
-export function searchPatterns(query: string, limitWords = 6): string[] {
+export function searchPatterns(query: string, limitWords = 6, cut = 0): string[] {
   const words = query
     .split(/\s+/)
     .map((w) => w.replace(/[%_]/g, "").trim())
     .filter((w) => w.length >= 2)
     .slice(0, limitWords);
 
-  return (words.length ? words : [query]).map((w) => `%${stem(w)}%`);
+  return (words.length ? words : [query]).map((w) => `%${stem(w, cut)}%`);
 }

@@ -61,16 +61,16 @@ async function buildFacts(period: ReturnType<typeof parsePeriod>, onlyReps?: str
 
   const reps = bench.reps.map((rep) => {
     const показники: Record<string, number | null> = {};
-    const перцентилі: Record<string, number | null> = {};
+    const позаду_відсотків_команди: Record<string, number | null> = {};
     for (const key of keys) {
       показники[METRICS[key].label] = round(rep[key]);
-      перцентилі[METRICS[key].label] = round(rep.ranks[key]);
+      позаду_відсотків_команди[METRICS[key].label] = round(rep.ranks[key]);
     }
     return {
       торговий: rep.name,
       місце_за_оборотом: rep.place,
       показники,
-      перцентилі,
+      позаду_відсотків_команди,
       сильні_сторони: rep.strengths.map((k) => METRICS[k].label),
       слабкі_сторони: rep.weaknesses.map((k) => METRICS[k].label),
     };
@@ -115,7 +115,7 @@ async function buildFacts(period: ReturnType<typeof parsePeriod>, onlyReps?: str
     // що це не вся команда, і не робити висновків про відсутніх.
     вибірка:
       onlyReps && onlyReps.length > 0
-        ? `порівнюються лише обрані керівником ${bench.reps.length} із ${bench.roster.length} торгових; перцентилі й медіани пораховані всередині вибірки`
+        ? `порівнюються лише обрані керівником ${bench.reps.length} із ${bench.roster.length} торгових; місця й медіани пораховані всередині вибірки`
         : "уся команда з продажами за період",
     порівняння_можливе: bench.comparable,
     команда: reps,

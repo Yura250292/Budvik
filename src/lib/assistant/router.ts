@@ -52,6 +52,7 @@ export type Intent =
   | { kind: "FORECAST" }
   | { kind: "NEARBY"; radiusKm: number | null }
   | { kind: "PAYMENTS"; days: number; subject: string | null }
+  | { kind: "ROUTE_TO"; names: string[] }
   | { kind: "REMIND"; text: string }
   | { kind: "REMINDERS" }
   | { kind: "BASKET"; query: string }
@@ -248,6 +249,25 @@ export function detectIntent(
 
   if (/(поверненн|повертают|повернул|повертає|повернень)/i.test(text)) {
     return { kind: "RETURNS", days: periodIn(text, 90) };
+  }
+
+  /**
+   * «Побудуй маршрут: Кунанець, Левкович, Склад».
+   *
+   * Перед усім, що ловить назви клієнтів: інакше «маршрут до Кунанця»
+   * забрав би шаблон картки клієнта й показав борг замість дороги.
+   */
+  const routeTo = subjectAfter(
+    text,
+    /(побуду(й|вати)\s+маршрут|склади\s+маршрут|проклад[еи]\s+маршрут|маршрут\s+(до|через|по)|покажи\s+(на\s+карті|маршрут)|заїду\s+(до|в))\s*:?\s*/i
+  );
+  if (routeTo) {
+    const names = routeTo
+      .split(/[,;]|\s+(?:і|й|та|потім|далі)\s+/i)
+      .map((n) => n.trim())
+      .filter((n) => n.length >= 3)
+      .slice(0, 12);
+    if (names.length > 0) return { kind: "ROUTE_TO", names };
   }
 
   /**

@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking } from "react-native";
 import { WebView } from "react-native-webview";
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useCallback } from "react";
@@ -428,6 +428,19 @@ export default function CabinetScreen() {
            */
           if (/\/api\/app\/(staff\/)?download(\?|$)/.test(req.url)) {
             startDownload();
+            return false;
+          }
+
+          /**
+           * Карти й навігація відкриваються системою, а не всередині.
+           *
+           * WebView повертає false на все, що не наш домен, — і посилання
+           * «маршрут у Google Maps» у помічника торгового просто нічого не
+           * робило. Google Maps і Waze усередині WebView усе одно не
+           * працюють як навігація: їм потрібен свій застосунок.
+           */
+          if (/^(https:\/\/(www\.)?google\.[a-z.]+\/maps|https:\/\/maps\.app\.goo\.gl|https:\/\/(www\.)?waze\.com|waze:|geo:|tel:)/i.test(req.url)) {
+            Linking.openURL(req.url).catch(() => {});
             return false;
           }
 

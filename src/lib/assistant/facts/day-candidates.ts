@@ -22,7 +22,16 @@ import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 import { shiftDay } from "@/lib/analytics/period";
 import { days as roundDays, uah } from "@/lib/assistant/format";
 
-/** Скільки термінових дій домішуємо до звички. */
+/**
+ * Скільки термінових дій домішуємо до звички.
+ *
+ * Вісім — рівно на один день роботи, і саме стільки треба, коли план
+ * складається списком. План за напрямками читає той самий пул інакше:
+ * він спершу ділить його на куші й лише потім обирає одну, тож із восьми
+ * кандидатів на напрямок лишалося по одному-двох. Тому число залежить від
+ * того, скільки просять: `limit` більший за десяток означає «мені треба
+ * вибір, а не готова десятка».
+ */
 const URGENT_LIMIT = 8;
 
 export async function dayRouteCandidates(repId: string, day: string, limit = 12) {
@@ -51,7 +60,7 @@ export async function dayRouteCandidates(repId: string, day: string, limit = 12)
   const habitual = new Map(habitDay?.clients.map((c) => [c.counterpartyId, c]) ?? []);
   const actionByClient = new Map(actions.map((a) => [a.counterpartyId, a]));
 
-  const urgent = actions.slice(0, URGENT_LIMIT);
+  const urgent = actions.slice(0, Math.max(URGENT_LIMIT, limit));
   const ids = new Set<string>([...habitual.keys(), ...urgent.map((a) => a.counterpartyId)]);
 
   const geo = await prisma.counterparty.findMany({

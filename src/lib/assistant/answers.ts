@@ -17,13 +17,19 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { ymd } from "@/lib/assistant/format";
 import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-actions";
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
 import { clientProductRhythm, recommendations } from "@/lib/analytics/clientOrder";
 import { kyivDayEnd, kyivDayStart, kyivOffsetMs } from "@/lib/date/kyiv";
 import { shiftDay } from "@/lib/analytics/period";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
-import { dayRouteCandidates } from "@/lib/assistant/facts/day-candidates";
+import { orderStops, planDay } from "@/lib/assistant/facts/day-plan";
+import {
+  MAX_POINTS_PER_LINK,
+  batchNavigateUrl,
+  googleMapsLinksFromHere,
+} from "@/lib/maps/google-links";
 import { clientProfileFacts } from "@/lib/assistant/facts/client-profile";
 import { findClients, type ClientHit } from "@/lib/assistant/facts/client-search";
 import {
@@ -63,7 +69,7 @@ import {
   planDayLabel,
   percent,
   plural,
-  points,
+  points as pointsWord,
   productLink,
   times,
 } from "@/lib/assistant/text";
@@ -204,34 +210,51 @@ function periodOf(today: string, dayCount: number) {
  * повного entry_offer: той рахує ще й причіп із аналізом кошика, і шість
  * таких на один план — це зайві секунди в дорозі.
  */
+/**
+ * План дня — це маршрут в один бік, а не десятка боржників.
+ *
+ * Що змінилось проти першої версії й чому (вимога власника 05.09.2026):
+ * список найтерміновіших точок по всій області виконати за день
+ * неможливо, тож ним не користувалися. Тепер день — це НАПРЯМОК:
+ * кандидати збиваються в купки, купка перевіряється на «чи є чим
+ * торгувати», і лише потім вишиковується порядок обʼїзду.
+ */
 export async function answerDayPlan(ctx: ToolContext, day: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
 
   const plan = await timed(
-    { name: "day_route_candidates", label: "Збираю кандидатів на день" },
-    () => dayRouteCandidates(ctx.scope.repId, day, PLAN_LIMIT),
+    { name: "day_plan", label: "Складаю маршрут на день" },
+    () => planDay(ctx.scope.repId, day),
     tools
   );
 
-  if (plan.кандидати.length === 0) {
+  const title = `## 📅 План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.weekday)])}`;
+
+  if (!plan.chosen) {
     return {
-      markdown: `## 📅 План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}\n\nНа цей день немає ні звичних клієнтів, ні термінових справ. Схоже, історії ще замало — спитайте про борги або про клієнтів, які давно не брали.`,
+      markdown: md([
+        title,
+        "",
+        "На цей день немає ні звичних клієнтів, ні термінових справ. Схоже, історії ще замало — спитайте про борги або про клієнтів, які давно не брали.",
+      ]),
       tools,
     };
   }
 
+  const chosen = plan.chosen;
+  const order = plan.route?.order ?? chosen.stops;
   const hooks = await timed(
     { name: "entry_hooks", label: "Підбираю, з чим заходити" },
-    () => hooksFor(plan.кандидати.slice(0, PLAN_HOOKS).map((c) => c.клієнт_id)),
+    () => hooksFor(order.slice(0, PLAN_HOOKS).map((c) => c.клієнт_id)),
     tools
   );
 
-  const lines = plan.кандидати.map((c, i) => {
+  const stopLine = (c: { клієнт_id: string; назва: string; борг: number; прострочено: number; дія: string | null; звичний_для_дня: boolean; днів_з_останньої: number | null }, i: number) => {
     const parts: string[] = [];
     if (c.прострочено > 0) parts.push(`🔴 прострочено ${money(c.прострочено)}`);
     else if (c.борг > 0) parts.push(`🟡 борг ${money(c.борг)}`);
     if (c.дія) parts.push(c.дія.toLowerCase());
-    if (c.звичний_для_дня) parts.push(`звичний для ${WEEKDAY_GENITIVE[weekdayIndex(plan.день_тижня)]}`);
+    if (c.звичний_для_дня) parts.push("звичний для цього дня");
     if (c.днів_з_останньої != null) parts.push(`не брав ${days(c.днів_з_останньої)}`);
 
     const hook = hooks.get(c.клієнт_id);
@@ -242,31 +265,164 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
       : "";
 
     return `${i + 1}. ${clientLink(c.клієнт_id, c.назва)} — ${parts.join(" · ")}.${withWhat}`;
-  });
+  };
 
-  const head = plan.маршрут_за_розкладом
-    ? `Маршрут за розкладом: **${plan.маршрут_за_розкладом.назва}** (${plan.маршрут_за_розкладом.пункти.slice(0, 6).join(", ")}).`
-    : "Постійного маршруту на цей день не заведено — список зібрано зі звички й термінових справ.";
+  const routeHead = plan.route?.km
+    ? `🧭 **${chosen.name}** · ${plan.route.km} км, ~${hoursMinutes(plan.route.minutes ?? 0)} у дорозі`
+    : `🧭 **${chosen.name}**`;
+
+  const goodsRows = chosen.goods.map((g) => [
+    productLink(short(g.name, 30), g.sku),
+    `${g.clients} кл. · ${g.perOrder} шт`,
+    g.short ? `🔴 ${g.free}` : `🟢 ${g.free}`,
+  ]);
+
+  const shortage = chosen.short.length
+    ? [
+        "",
+        "### ⚠️ Чого бракує на цей напрямок",
+        ...chosen.short.map((g) => `- 🔴 ${short(g.name, 40)} — ${arrivalHint(g)}`),
+        /**
+         * Коли замінити напрямок нічим, чесніше сказати про дірку, ніж
+         * промовчати: торговий доїде й дізнається це від клієнта.
+         */
+        !plan.moved && chosen.short.length >= 2
+          ? `Заміни такого ж розміру сьогодні немає, тож їхати варто — але саме ці позиції не обіцяйте. Коли підвезуть, поверніться сюди окремо.`
+          : null,
+      ]
+    : [];
+
+  const movedBlock = plan.moved
+    ? [
+        "",
+        `### 🔁 ${plan.moved.direction.name} — краще пізніше`,
+        `Там ${plan.moved.direction.stops.length + plan.moved.direction.loose.length} точок і ${money(plan.moved.direction.overdue)} простроченої, але ${plan.moved.reason}.`,
+        ...plan.moved.direction.short.map((g) => `- ${short(g.name, 40)}: ${arrivalHint(g)}`),
+      ]
+    : [];
+
+  const others = plan.directions.filter((d) => d.key !== chosen.key).slice(0, 4);
 
   return {
     markdown: md([
-      `## 📅 План на ${planDayLabel(day, WEEKDAY_ACCUSATIVE[weekdayIndex(plan.день_тижня)])}`,
+      title,
+      routeHead,
       "",
-      ...table(
-        ["📍 Точок", "🔴 Забрати", "💰 Борг усього"],
-        [[plan.разом.точок, money(plan.разом.прострочено), money(plan.разом.борг)]]
+      ...(plan.route?.order.length
+        ? plan.route.order.map(stopLine)
+        : chosen.loose.map(stopLine)),
+      ...(plan.route?.order.length && chosen.loose.length
+        ? [
+            "",
+            "_Ці клієнти теж на напрямку, але без точки на карті — у порядок не поставив:_",
+            ...chosen.loose.map((c) => `- ${clientLink(c.клієнт_id, c.назва)}${c.прострочено > 0 ? ` — 🔴 ${money(c.прострочено)}` : ""}`),
+          ]
+        : []),
+      "",
+      ...navBlock(plan.route?.order ?? []),
+      "",
+      "### 📦 Чим торгувати на цьому напрямку",
+      "",
+      ...table(["Товар", "Беруть", "📦 Склад"], goodsRows),
+      ...shortage,
+      ...movedBlock,
+      ...(others.length
+        ? [
+            "",
+            "### 🧭 Інші напрямки",
+            "",
+            ...table(
+              ["Напрямок", "📍 Точок", "🔴 Прострочено", "📦 Товар"],
+              others.map((d) => [
+                d.name,
+                d.stops.length + d.loose.length,
+                d.overdue > 0 ? money(d.overdue) : "—",
+                d.short.length ? `🔴 бракує ${d.short.length}` : "🟢 є",
+              ])
+            ),
+          ]
+        : []),
+      ...(plan.unplaced.length
+        ? [
+            "",
+            "### 📍 Без адреси — тільки телефоном",
+            "_Ці клієнти в маршрут не стають: у картці немає ні координат, ні міста в адресі._",
+            ...plan.unplaced
+              .slice(0, 6)
+              .map(
+                (c) =>
+                  `- ${clientLink(c.клієнт_id, c.назва)}${
+                    c.прострочено > 0 ? ` — 🔴 прострочено ${money(c.прострочено)}` : c.дія ? ` — ${c.дія.toLowerCase()}` : ""
+                  }`
+              ),
+          ]
+        : []),
+      "",
+      "_Ціни прайсові; нижче прайсу це пропозиція, знижку затверджує керівник. Порядок обʼїзду — OSRM, від вашої останньої точки треку._",
+      "",
+      followUps(
+        "Кому з них дзвонити першому?",
+        chosen.short.length ? "Коли буде дефіцитний товар?" : "З чим заходити до першого?",
+        "Чи витягну план?"
       ),
-      "",
-      head,
-      "",
-      ...lines,
-      "",
-      "_🎁 — з чим заходити. Ціни прайсові; нижче прайсу це пропозиція, знижку затверджує керівник._",
-      "",
-      followUps("Кому з них дзвонити першому?", "Що казати про борг?", "Чи витягну план?"),
     ]),
     tools,
   };
+}
+
+/**
+ * Кнопки навігації під маршрутом.
+ *
+ * Google приймає до десяти точок на посилання, тож довгий день ділиться
+ * на частини — рівно так, як це вже зроблено у водіїв. Waze більше однієї
+ * точки не приймає взагалі, тому веде до найближчої: далі торговий
+ * відкриє наступну.
+ *
+ * Посилання зовнішні, і в застосунку вони працюють лише тому, що WebView
+ * кабінету віддає адреси карт системі (див. cabinet.tsx). У браузері
+ * відкриваються новою вкладкою.
+ */
+function navBlock(points: Array<{ lat: number; lng: number }>): string[] {
+  if (points.length === 0) return [];
+
+  const links = googleMapsLinksFromHere(points);
+  const waze = batchNavigateUrl(points.slice(0, 1), "waze");
+
+  const google =
+    links.length <= 1
+      ? [`- 🗺️ [Маршрут у Google Maps (${pointsWord(points.length)})](${links[0]?.url ?? ""})`]
+      : links.map(
+          (l, i) => `- 🗺️ [Google Maps, частина ${i + 1} (${pointsWord(l.points)})](${l.url})`
+        );
+
+  return [
+    "",
+    "### 🧭 Навігація",
+    ...google,
+    waze ? `- 🚗 [Перша точка у Waze](${waze})` : null,
+    links.length > 1
+      ? `_Google веде щонайбільше ${MAX_POINTS_PER_LINK} точок за раз — далі відкривайте наступну частину._`
+      : null,
+  ].filter((l): l is string => l !== null);
+}
+
+/** «1 год 6 хв» — години з хвилинами, а не «1.1 год». */
+function hoursMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return h > 0 ? `${h} год${m ? ` ${m} хв` : ""}` : `${m} хв`;
+}
+
+/** «останній прихід 01.09, зазвичай раз на 14 днів → орієнтовно 15.09». */
+function arrivalHint(g: { free: number; lastArrival: Date | null; arrivalEveryDays: number | null }): string {
+  if (!g.lastArrival) return `на складі ${g.free} — приходів за рік не було, поставку треба питати в закупівлі`;
+  const last = ymd(g.lastArrival)!;
+  if (!g.arrivalEveryDays) return `на складі ${g.free}, останній прихід ${last}`;
+  const next = new Date(g.lastArrival.getTime() + g.arrivalEveryDays * 86_400_000);
+  const wait = Math.round((next.getTime() - Date.now()) / 86_400_000);
+  return `на складі ${g.free}, останній прихід ${last}, зазвичай раз на ${days(g.arrivalEveryDays)} → орієнтовно ${
+    wait <= 0 ? "з дня на день" : `за ${days(wait)}`
+  }`;
 }
 
 function weekdayIndex(name: string): number {
@@ -1168,6 +1324,127 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
       "_Причину повернення 1С не передає — її видно лише з розмови з клієнтом._",
       "",
       followUps("Чому вони повертають?", "Як це б'є по моїй маржі?"),
+    ]),
+    tools,
+  };
+}
+
+/* ── Маршрут за списком клієнтів ──────────────────────────────────────── */
+
+/** Один клієнт зі списку збігів: свій із документами має перевагу. */
+function pickOne(hits: ClientHit[]): ClientHit | null {
+  if (hits.length === 0) return null;
+  if (hits.length === 1) return hits[0];
+  const mine = hits.filter((h) => h.mine && h.lastDocAt);
+  if (mine.length >= 1) return mine[0];
+  const withDocs = hits.filter((h) => h.lastDocAt);
+  return withDocs.length >= 1 ? withDocs[0] : null;
+}
+
+/**
+ * «Побудуй маршрут: Кунанець, Левкович, Склад».
+ *
+ * Торговий часто вже знає, куди їде, — план дня йому потрібен не завжди.
+ * Тоді від помічника треба одне: поставити названих у логічний порядок і
+ * дати посилання, з якого починається навігація.
+ *
+ * Кожне ім'я шукається окремо, і неоднозначні НЕ зупиняють роботу:
+ * маршрут будується з тих, кого впізнали, а решта перелічується внизу.
+ * Зупиняти людину списком однофамільців посеред збору маршруту — це
+ * змусити її повторювати весь перелік заново.
+ */
+export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+
+  const found = await timed(
+    { name: "search_clients", label: "Шукаю клієнтів маршруту" },
+    async () =>
+      Promise.all(
+        names.map(async (name) => ({
+          name,
+          /**
+           * Беремо ОДНОГО, а не питаємо.
+           *
+           * Правила ті самі, що й у решті пошуку: свій клієнт із
+           * документами перемагає однофамільця з чужого портфеля. Інакше
+           * «побудуй маршрут: Левкович, Скуратов, Склад» зупинялося б на
+           * другому імені, і торговому довелося б диктувати список знову.
+           */
+          hit: pickOne(await findClients(name, ctx.scope.repId, { limit: 4 })),
+        }))
+      ),
+    tools
+  );
+
+  const picked: Array<{ id: string; name: string; lat: number; lng: number }> = [];
+  const unclear: string[] = [];
+  const noPin: string[] = [];
+
+  const ids = found.filter((f) => f.hit).map((f) => f.hit!.id);
+  const geo = ids.length
+    ? await prisma.counterparty.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, deliveryLat: true, deliveryLng: true },
+      })
+    : [];
+  const geoById = new Map(geo.map((g) => [g.id, g]));
+
+  for (const f of found) {
+    if (!f.hit) {
+      unclear.push(f.name);
+      continue;
+    }
+    const g = geoById.get(f.hit.id);
+    if (g?.deliveryLat == null || g.deliveryLng == null) {
+      noPin.push(f.hit.name);
+      continue;
+    }
+    picked.push({ id: g.id, name: g.name, lat: g.deliveryLat, lng: g.deliveryLng });
+  }
+
+  if (picked.length === 0) {
+    return {
+      markdown: md([
+        "## 🧭 Маршрут",
+        "",
+        "Жодного з названих клієнтів не вдалося поставити на карту: або не знайшли, або в картці немає координат.",
+        unclear.length ? `_Не впізнав: ${unclear.join(", ")}._` : null,
+        noPin.length ? `_Без точки на карті: ${noPin.join(", ")}._` : null,
+      ]),
+      tools,
+    };
+  }
+
+  const start = await prisma.trackPoint.findFirst({
+    where: { userId: ctx.scope.repId },
+    orderBy: { recordedAt: "desc" },
+    select: { lat: true, lng: true },
+  });
+
+  const route = await timed(
+    { name: "route_order", label: "Шикую порядок обʼїзду" },
+    () => orderStops(picked, start),
+    tools
+  );
+  const order = route?.order ?? picked;
+
+  return {
+    markdown: md([
+      "## 🧭 Маршрут",
+      route?.km
+        ? `${pointsWord(order.length)} · ${route.km} км · ~${hoursMinutes(route.minutes ?? 0)} у дорозі`
+        : pointsWord(order.length),
+      "",
+      ...order.map((c, i) => `${i + 1}. ${clientLink(c.id, c.name)}`),
+      ...navBlock(order),
+      noPin.length ? `\n_Без точки на карті, у порядок не стали: ${noPin.join(", ")}._` : null,
+      unclear.length ? `_Не впізнав: ${unclear.join(", ")} — скажіть точніше._` : null,
+      "",
+      route?.source === "osrm"
+        ? "_Порядок — OSRM, від вашої останньої точки треку._"
+        : "_Порядок за відстанню: дорогу порахувати не вдалося._",
+      "",
+      followUps("З чим заходити до першого?", "Хто з них винен?"),
     ]),
     tools,
   };

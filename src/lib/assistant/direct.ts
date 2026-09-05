@@ -32,6 +32,7 @@ import {
   answerBasket,
   answerNearby,
   answerRemind,
+  answerRouteTo,
   answerReminders,
   answerPayments,
   answerSubstitute,
@@ -114,6 +115,9 @@ export async function tryDirectAnswer(
 
     case "BENCHMARK":
       return answerBenchmark(ctx, intent.days);
+
+    case "ROUTE_TO":
+      return answerRouteTo(ctx, intent.names);
 
     case "REMIND":
       return answerRemind(ctx, intent.text);

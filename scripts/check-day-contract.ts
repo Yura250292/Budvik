@@ -50,7 +50,7 @@ const ROUTE_FIELDS = [
 
 const STOP_FIELDS = [
   "key", "counterpartyId", "name", "address", "lat", "lng", "geoSource",
-  "sequence", "amount", "debtAmount", "kind", "notes", "visit",
+  "sequence", "sheetSeq", "amount", "debtAmount", "kind", "notes", "visit",
   "routeSheetStopId", "deliveryStopId",
 ];
 

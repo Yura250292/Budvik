@@ -97,6 +97,7 @@ export default function RoutePanel({
   totals,
   loading,
   strayCount,
+  noPinCount,
   labels,
 }: {
   /** Точки в поточному порядку, перша невідмічена помічена як current */
@@ -118,6 +119,8 @@ export default function RoutePanel({
   totals: { km: string; hours: string; approach?: string } | null;
   loading: boolean;
   strayCount: number;
+  /** Точки листа, яких на карті немає взагалі: у них немає координат. */
+  noPinCount: number;
   /**
    * Свої підписи для кнопок порядку. Потрібні через маршрут сайту: там
    * «З листа» означає не номери документа, а обʼїзд, прокладений логістом.
@@ -301,6 +304,18 @@ export default function RoutePanel({
           </p>
         )}
       </div>
+
+      {noPinCount > 0 && !editing && (
+        <p
+          className="px-3 py-2"
+          style={{ fontSize: "11px", color: "#B45309", borderTop: "1px solid #F1F1EF", lineHeight: 1.4 }}
+        >
+          Ще {noPinCount}{" "}
+          {noPinCount === 1 ? "точка листа" : "точки листа"} без координат — на карті їх немає, а в
+          списку дня вони стоять у кінці. Дорогу до них навігатор не побудує, поки офіс не поставить
+          пін.
+        </p>
+      )}
 
       {strayCount > 0 && !editing && (
         <p

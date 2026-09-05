@@ -14,7 +14,10 @@ export type DayStop = {
   lat: number | null;
   lng: number | null;
   geoSource: string | null;
+  /** Наскрізний номер обʼїзду, 1..N — той самий, що на карті. */
   sequence: number;
+  /** Номер рядка в маршрутному листі 1С: його називають диспетчеру. */
+  sheetSeq: number;
   amount: number;
   debtAmount: number;
   /** PICKUP/ERRAND — бонусна поїздка: без товару й без інкасації */

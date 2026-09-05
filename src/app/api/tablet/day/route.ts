@@ -23,6 +23,7 @@ import {
 import { buildTrackPath } from "@/lib/track/gaps";
 import { handoversForDay } from "@/lib/drivers/cash";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { DAY_BUDGET_MS, orderedDayStops } from "@/lib/routes/day-order";
 
 export const dynamic = "force-dynamic";
 
@@ -131,20 +132,37 @@ export async function GET(req: NextRequest) {
    * хвіст, а невідомі просто зникають — саме так, як це робить панель на
    * карті. Порядок один на всі екрани, і живе він в одному місці.
    */
-  const ordered = myOrder?.stopKeys.length
-    ? (() => {
-        // Порядок збережено СТАЛИМИ прикметами точок, а не id рядків: ті
-        // перестворюються при кожному обміні (див. stableStopKey).
-        const byStable = new Map(route.stops.map((st) => [stableStopKey(st), st]));
-        const picked = myOrder.stopKeys
-          .map((k) => byStable.get(k))
-          .filter((st): st is (typeof route.stops)[number] => !!st);
-        const used = new Set(picked.map((st) => st.key));
-        return [...picked, ...route.stops.filter((st) => !used.has(st.key))];
-      })()
-    : route.stops;
+  let ordered = route.stops;
 
-  const stops = attachVisits(ordered, visits);
+  if (myOrder?.stopKeys.length) {
+    // Порядок збережено СТАЛИМИ прикметами точок, а не id рядків: ті
+    // перестворюються при кожному обміні (див. stableStopKey).
+    const byStable = new Map(route.stops.map((st) => [stableStopKey(st), st]));
+    const picked = myOrder.stopKeys
+      .map((k) => byStable.get(k))
+      .filter((st): st is (typeof route.stops)[number] => !!st);
+    const used = new Set(picked.map((st) => st.key));
+    ordered = [...picked, ...route.stops.filter((st) => !used.has(st.key))];
+  } else {
+    /**
+     * Логістичний порядок — той самий, що малює карта.
+     *
+     * Раніше тут лишався порядок рядків 1С, і саме через це навігація
+     * розходилася з маршрутом на екрані: карта показувала найкоротший
+     * обʼїзд, а «Їхати» вело чергою документа. На листі 000001852 різниця
+     * була 393,5 км проти 160,6 — тобто не питання смаку.
+     */
+    ordered = await orderedDayStops(route, { budgetMs: DAY_BUDGET_MS });
+  }
+
+  /**
+   * Наскрізна нумерація 1..N — після того, як порядок остаточний.
+   *
+   * Номери документа після злиття рядків за адресою йшли з дірками (1, 2,
+   * 4, 5, 7…), і водій читав це як «третя точка зникла». Номер із листа
+   * лишається в `sheetSeq` — його називають в офіс.
+   */
+  const stops = attachVisits(ordered, visits).map((s, i) => ({ ...s, sequence: i + 1 }));
 
   const done = stops.filter((s) => s.visit?.status === "DONE").length;
   const missed = stops.filter((s) => s.visit?.status === "MISSED").length;

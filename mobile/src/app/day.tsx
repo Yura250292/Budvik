@@ -1025,8 +1025,20 @@ function StopRow({
               це до того, як довіриться навігатору. Те саме підписано й на
               сайті — /driver/tablet.
             */}
-            {stop.geoSource !== "MANUAL" && stop.lat != null && (
-              <Text style={s.metaWarn}>точка приблизна</Text>
+            {/* Без координат дорогу не побудувати — кажемо прямо, а не
+                мовчки ховаємо кнопку «Їхати». */}
+            {stop.lat == null && (
+              <Text style={s.metaWarn}>немає координат — навігатор не поведе</Text>
+            )}
+            {/* Номер із листа: у списку нумерація наскрізна, а диспетчеру
+                називають документний номер. */}
+            {stop.sheetSeq !== stop.sequence && (
+              <Text style={s.metaMuted}>у листі №{stop.sheetSeq}</Text>
+            )}
+            {/* Лише пін за назвою міста: попередження на кожному рядку не
+                попереджає ні про що. */}
+            {stop.geoSource === "CITY" && (
+              <Text style={s.metaWarn}>пін лише до міста</Text>
             )}
           </View>
         </View>
@@ -1406,6 +1418,7 @@ const s = StyleSheet.create({
   metaBad: { fontSize: 12, fontWeight: "600", color: c.badFg },
   metaGood: { fontSize: 12, fontWeight: "600", color: c.goodFg },
   metaWarn: { fontSize: 12, fontWeight: "600", color: c.warnFg },
+  metaMuted: { fontSize: 12, color: c.text3 },
   kind: { backgroundColor: "#FEF3C7", borderRadius: 4, paddingVertical: 1, paddingHorizontal: 6 },
   kindLabel: { fontSize: 11, fontWeight: "700", color: "#92400E" },
 

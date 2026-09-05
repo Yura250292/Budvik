@@ -32,6 +32,7 @@ import { getOptimalTrip, getRoute } from "@/lib/geo/osrm";
 import { resolveDriverRoute } from "@/lib/track/day-stops";
 import { planCore } from "@/lib/maps/plan-core";
 import { defaultDepot } from "@/lib/routes/depot";
+import { orderedDayStops } from "@/lib/routes/day-order";
 import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
@@ -103,7 +104,22 @@ export async function GET(req: NextRequest) {
     (url.searchParams.get("skip") ?? "").split(",").filter(Boolean)
   );
 
-  const route = await resolveDriverRoute(auth.me.userId, routeKey, { anyDriver: true });
+  const resolved = await resolveDriverRoute(auth.me.userId, routeKey, { anyDriver: true });
+
+  /**
+   * «Як у списку» мусить означати САМЕ те, що в списку.
+   *
+   * Резолвер віддає точки в порядку документа, а день показує їх у
+   * логістичному — і лінія лягала б по одному порядку з номерами іншого.
+   * Це та сама розбіжність, через яку навігація не збігалася з маршрутом,
+   * тільки вже всередині карти. Найкоротший обʼїзд (`optimal`) рахується
+   * нижче своїм шляхом, тож для нього порядок входу значення не має.
+   */
+  const route =
+    wantOptimal || customKeys.length > 0
+      ? resolved
+      : { ...resolved, stops: await orderedDayStops(resolved) };
+
   const withCoords = route.stops
     .filter((s) => s.lat != null && s.lng != null)
     .map((s) => ({ key: s.key, lat: s.lat as number, lng: s.lng as number }));

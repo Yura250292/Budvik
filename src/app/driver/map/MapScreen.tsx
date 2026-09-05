@@ -272,9 +272,18 @@ export default function DriverMapScreen() {
    * «порядок справді прокладено». Маршрут без неї — просто список точок,
    * і поважати в ньому нема чого.
    */
-  const logistOrder = day?.route.source === "DELIVERY_ROUTE" && hasOwnGeometry;
-  const order: RouteOrder =
-    orderPick ?? (myOrder?.length ? "mine" : logistOrder ? "sheet" : "optimal");
+  /**
+   * Типово показуємо ТОЙ САМИЙ порядок, що в списку дня.
+   *
+   * Раніше карта за замовчуванням рахувала свій найкоротший обʼїзд, і
+   * виходило найгірше з можливого: на екрані номери одного маршруту, а
+   * кнопка «Їхати» вела чергою іншого. Тепер логістичний порядок рахує
+   * сервер один раз на день — і список, карта й навігація говорять одне.
+   *
+   * «Логістичний» лишається кнопкою: це перерахунок ВІД МІСЦЯ ВОДІЯ,
+   * доречний посеред дня, коли половину точок уже закрито.
+   */
+  const order: RouteOrder = orderPick ?? (myOrder?.length ? "mine" : "sheet");
 
   /**
    * Точки, які водій уже закрив: у дорогу вони не йдуть.
@@ -522,6 +531,15 @@ export default function DriverMapScreen() {
   /** Точки, що вилетіли з робочої області, — майже завжди кривий геокод. */
   const strayCount = routeCount - planCore(planStops).length;
 
+  /**
+   * Скільки точок листа на карту не потрапило взагалі.
+   *
+   * У них немає координат, тож ні пін поставити, ні дорогу прокласти. Досі
+   * вони просто зникали, і водій рахував точки на екрані, не знаючи, що
+   * дві з них існують лише в списку.
+   */
+  const noPinCount = (day?.route.stops.length ?? 0) - routeCount;
+
   const effScope: Scope = scope ?? (routeCount > 0 ? "route" : "all");
 
   /**
@@ -632,21 +650,17 @@ export default function DriverMapScreen() {
    * найкоротший обʼїзд.
    */
   const availableOrders = useMemo<RouteOrder[]>(
-    () => [
-      ...(myOrder?.length ? (["mine"] as RouteOrder[]) : []),
-      ...(logistOrder ? (["sheet", "optimal"] as RouteOrder[]) : (["optimal", "sheet"] as RouteOrder[])),
-    ],
-    [myOrder, logistOrder]
+    () => [...(myOrder?.length ? (["mine"] as RouteOrder[]) : []), "sheet", "optimal"],
+    [myOrder]
   );
 
   /**
-   * «З листа» для маршруту сайту — неправда: це не номери документа, а
-   * прокладений логістом обʼїзд, часто з боржниками наперед.
+   * «З листа» — уже неправда в обох джерелах: у маршруті сайту це обʼїзд,
+   * прокладений логістом, а в листі 1С — логістичний порядок, порахований
+   * сервером. Спільне в них одне, і саме воно важливе водієві: ці номери
+   * збігаються з тими, що в списку дня й у навігації.
    */
-  const orderLabels = useMemo(
-    () => (logistOrder ? { sheet: "Від логіста" } : undefined),
-    [logistOrder]
-  );
+  const orderLabels = useMemo(() => ({ sheet: "Як у списку" }) as const, []);
 
   /**
    * Перетягнули рядок — зберігаємо одразу, без кнопки «зберегти».
@@ -892,7 +906,13 @@ export default function DriverMapScreen() {
               style={{ background: "none", border: "none", minHeight: "48px" }}
             >
               <span style={{ fontSize: "14px", fontWeight: 600, color: "#0A0A0A" }}>
-                {routeCount > 0 ? `Маршрут · ${routeDone} з ${routeCount}` : "Фільтр за станом"}
+                {/* Скільки точок НА КАРТІ. Якщо в листі є ще й без піна,
+                    кажемо це одразу: інакше «0 з 15» під шапкою «0 з 17»
+                    читається як загублені точки. */}
+                {routeCount > 0
+                  ? `Маршрут · ${routeDone} з ${routeCount}` +
+                    (noPinCount > 0 ? ` · ще ${noPinCount} без піна` : "")
+                  : "Фільтр за станом"}
               </span>
               {routeCount > 0 && (
                 <span style={{ fontSize: "12px", color: "#6B7280" }}>
@@ -936,6 +956,7 @@ export default function DriverMapScreen() {
                   onPick={setAskFor}
                   onFocus={(st) => setFocus({ lat: st.lat, lng: st.lng, id: st.key, nonce: Date.now() })}
                   totals={totals}
+                  noPinCount={noPinCount}
                   loading={lineLoading}
                   strayCount={strayCount}
                 />

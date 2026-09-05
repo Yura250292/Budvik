@@ -58,7 +58,18 @@ export type DayStop = {
   lng: number | null;
   /** MANUAL — пін уточнили руками; CITY — точність лише до міста */
   geoSource: string | null;
+  /**
+   * Номер точки в обʼїзді — наскрізний, 1..N.
+   *
+   * Не номер рядка документа: рядки 1С зливаються за адресою (два
+   * замовлення одному клієнту — один заїзд), і номери документа після
+   * злиття йшли з дірками — 1, 2, 4, 5, 7. Водій читав це як «третя точка
+   * зникла» й дзвонив в офіс. Номер із документа лишається поруч у
+   * `sheetSeq`, бо саме його називають диспетчеру.
+   */
   sequence: number;
+  /** Номер рядка в маршрутному листі 1С — для розмови з офісом. */
+  sheetSeq: number;
   /** Сума документів на точці, ₴ */
   amount: number;
   /** Скільки боргу треба забрати, ₴ */
@@ -231,6 +242,7 @@ function mapRouteSheet(sheet: SheetRecord): DayRoute | null {
     lng: s.counterparty?.deliveryLng ?? null,
     geoSource: s.counterparty?.geoSource ?? null,
     sequence: s.sequence || i + 1,
+    sheetSeq: s.sequence || i + 1,
     amount: s.amount,
     debtAmount: s.debtAmount,
     kind: "DELIVERY",
@@ -341,6 +353,7 @@ function mapDeliveryRoute(route: RouteRecord): DayRoute | null {
       lng: s.counterparty?.deliveryLng ?? s.lng ?? null,
       geoSource: s.counterparty?.geoSource ?? (s.lat != null ? "MANUAL" : null),
       sequence: s.sequence || i + 1,
+      sheetSeq: s.sequence || i + 1,
       amount: isErrand ? 0 : (s.salesDocument?.totalAmount ?? 0),
       /**
        * Планувальник сайту борг у точку не кладе, тому беремо сальдо з

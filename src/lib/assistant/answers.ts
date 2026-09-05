@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-actions";
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
 import { clientProductRhythm, recommendations } from "@/lib/analytics/clientOrder";
-import { kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDayEnd, kyivDayStart, kyivOffsetMs } from "@/lib/date/kyiv";
 import { shiftDay } from "@/lib/analytics/period";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { dayRouteCandidates } from "@/lib/assistant/facts/day-candidates";
@@ -50,6 +50,8 @@ import { buildAbcReport } from "@/lib/analytics/abc";
 import { monthForecast, type MonthForecast } from "@/lib/assistant/facts/forecast";
 import { nearbyClients, POSITION_FRESH_HOURS } from "@/lib/assistant/facts/nearby";
 import { clientPayments, repPayments } from "@/lib/assistant/facts/payments";
+import { createReminder, listReminders } from "@/lib/assistant/facts/reminders";
+import { parseWhen, whenLabel } from "@/lib/assistant/facts/when";
 import { OVERDUE_HOOK_MIN } from "@/lib/assistant/config";
 import {
   clientLink,
@@ -1169,6 +1171,134 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
     ]),
     tools,
   };
+}
+
+/* ── Нагадування ──────────────────────────────────────────────────────── */
+
+/** Слова, з яких починається прохання; у самому нагадуванні вони зайві. */
+const REMIND_TRIGGER = /^(нагадай|нагадати|нагадуй|постав(ити)?\s+нагадування|не\s+дай\s+забути)\s*(мені\s*)?/i;
+
+/**
+ * «Нагадай у пʼятницю про борг Кунанця».
+ *
+ * Єдина, крім пам'яті клієнта, відповідь, яка ЩОСЬ ЗАПИСУЄ — і записує
+ * вона рядок у власну таблицю, не чіпаючи ні цін, ні залишків, ні
+ * документів. Дату розбирає код (facts/when.ts); коли не розбирає —
+ * чесно перепитує, бо нагадування без часу не нагадає ніколи.
+ */
+export async function answerRemind(ctx: ToolContext, raw: string): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const body = raw.replace(REMIND_TRIGGER, "").trim();
+
+  const when = parseWhen(raw, ctx.today);
+  if (!when) {
+    return {
+      markdown: md([
+        "## ⏰ Коли нагадати?",
+        "",
+        "Скажіть час — «завтра», «у пʼятницю», «через тиждень», «12.09 о 14:00» — і я поставлю.",
+        "",
+        followUps("Нагадай завтра о 9", "Нагадай у понеділок"),
+      ]),
+      tools,
+    };
+  }
+
+  /**
+   * Клієнт у тексті — необовʼязковий, і питати про нього ми не будемо.
+   *
+   * «Нагадай у пʼятницю про борг Кунанця» краще поставити без привʼязки,
+   * ніж зупинити людину списком однофамільців: нагадування має спрацювати,
+   * а картку вона відкриє сама.
+   */
+  const subject = (/(?:про|щодо)\s+(.{3,40})$/i.exec(body)?.[1] ?? "").trim() || null;
+  let counterpartyId: string | null = null;
+  let clientName: string | null = null;
+  if (subject) {
+    const hits = await findClients(subject, ctx.scope.repId, { limit: 2 });
+    if (hits.length === 1) {
+      counterpartyId = hits[0].id;
+      clientName = hits[0].name;
+    }
+  }
+
+  const text = body.replace(/^\s*(у|в|о|об)\s+[^\s]+\s*/i, "").trim() || body;
+
+  const saved = await timed(
+    { name: "remind_me", label: "Ставлю нагадування" },
+    () => createReminder({ userId: ctx.scope.repId, text, dueAt: when.at, counterpartyId }),
+    tools
+  );
+
+  return {
+    markdown: md([
+      "## ⏰ Нагадаю",
+      "",
+      ...table(
+        ["🕒 Коли", "📝 Про що", "🏪 Клієнт"],
+        [[whenLabel(when, ctx.today), short(saved.text, 40), clientName ? short(clientName, 24) : "—"]]
+      ),
+      "",
+      "_Пуш прийде на телефон. Список — питанням «мої нагадування»._",
+      "",
+      followUps("Мої нагадування", clientName ? `Скільки винен ${clientName}?` : null),
+    ]),
+    tools,
+  };
+}
+
+/** «Мої нагадування», «що я маю зробити». */
+export async function answerReminders(ctx: ToolContext): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const list = await timed(
+    { name: "reminders", label: "Дивлюся нагадування" },
+    () => listReminders(ctx.scope.repId),
+    tools
+  );
+
+  if (list.length === 0) {
+    return {
+      markdown: md([
+        "## ⏰ Нагадування",
+        "",
+        "Порожньо. Скажіть «нагадай завтра зателефонувати Кунанцю» — і поставлю.",
+      ]),
+      tools,
+    };
+  }
+
+  const now = Date.now();
+  return {
+    markdown: md([
+      "## ⏰ Мої нагадування",
+      "",
+      ...table(
+        ["🕒 Коли", "📝 Про що", "🏪 Клієнт"],
+        list.map((r) => [
+          `${r.dueAt.getTime() < now ? "🔴" : "🟢"} ${ymdHm(r.dueAt)}`,
+          short(r.text, 34),
+          r.counterpartyId && r.clientName
+            ? clientLink(r.counterpartyId, short(r.clientName, 20))
+            : "—",
+        ])
+      ),
+      "",
+      "_🔴 — час уже минув. Пуш приходить у вказану годину._",
+      "",
+      followUps("Нагадай завтра о 9", "Хто мені винен?"),
+    ]),
+    tools,
+  };
+}
+
+/** «05.09 о 9:00» київським часом. */
+function ymdHm(at: Date): string {
+  const local = new Date(at.getTime() + kyivOffsetMs(at));
+  const d = String(local.getUTCDate()).padStart(2, "0");
+  const m = String(local.getUTCMonth() + 1).padStart(2, "0");
+  const h = local.getUTCHours();
+  const min = String(local.getUTCMinutes()).padStart(2, "0");
+  return `${d}.${m} ${h}:${min}`;
 }
 
 /* ── Хто поруч ────────────────────────────────────────────────────────── */

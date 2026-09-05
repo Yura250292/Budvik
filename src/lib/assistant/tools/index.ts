@@ -26,6 +26,7 @@ import {
   rememberClient,
 } from "@/lib/assistant/tools/clients";
 import { receivables, salesSummary } from "@/lib/assistant/tools/money";
+import { remindMe, myReminders } from "@/lib/assistant/tools/reminders";
 import { productSearch, deadStock, entryOfferTool } from "@/lib/assistant/tools/products";
 
 export const TOOLS: ToolDef[] = [
@@ -42,6 +43,8 @@ export const TOOLS: ToolDef[] = [
   deadStock,
   productSearch,
   rememberClient,
+  remindMe,
+  myReminders,
   driverDayTool,
 ];
 

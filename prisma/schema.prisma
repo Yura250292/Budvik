@@ -331,6 +331,7 @@ model User {
   assistantThreads      AssistantThread[] @relation("assistantThreadUser")
   assistantThreadsAsRep AssistantThread[] @relation("assistantThreadRep")
   clientMemories        ClientMemory[]    @relation("clientMemoryAuthor")
+  assistantReminders    AssistantReminder[] @relation("assistantReminderUser")
 
   @@index([referredBySalesRepId])
 }
@@ -784,6 +785,7 @@ model Counterparty {
   comments        ClientComment[]
   visits          Visit[]
   memories        ClientMemory[]
+  reminders       AssistantReminder[]
 
   purchaseOrders    PurchaseOrder[]
   salesDocuments    SalesDocument[]
@@ -3420,6 +3422,36 @@ model AssistantMessage {
 ///
 /// Видалення м'яке: факт, що втратив чинність, зникає зі списку, але
 /// лишається в базі — інакше «а хто це стер і чому» відповіді не має.
+/// Нагадування, яке торговий поставив собі сам через помічника.
+///
+/// Окрема таблиця, а не поле в пам'яті клієнта: пам'ять — це те, що про
+/// клієнта ПРАВДА («не платить до 10-го»), а нагадування — разова справа з
+/// датою, яка згорає. Змішати їх означало б показувати торговому в картці
+/// клієнта список власних справ піврічної давності.
+model AssistantReminder {
+  id     String  @id @default(cuid())
+  userId String
+  /// Про кого нагадування. null — просто справа («подзвонити в офіс»).
+  counterpartyId String?
+
+  text  String
+  /// Коли нагадати. Зберігаємо мить у UTC, рахуємо з київського часу.
+  dueAt DateTime
+
+  /// Коли пуш пішов. null — ще попереду; воркер бере саме за цим полем.
+  notifiedAt DateTime?
+  /// Коли торговий закрив справу.
+  doneAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  user         User          @relation("assistantReminderUser", fields: [userId], references: [id], onDelete: Cascade)
+  counterparty Counterparty? @relation(fields: [counterpartyId], references: [id], onDelete: SetNull)
+
+  @@index([userId, dueAt])
+  @@index([notifiedAt, dueAt])
+}
+
 model ClientMemory {
   id             String  @id @default(cuid())
   counterpartyId String

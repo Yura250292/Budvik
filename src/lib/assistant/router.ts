@@ -52,6 +52,8 @@ export type Intent =
   | { kind: "FORECAST" }
   | { kind: "NEARBY"; radiusKm: number | null }
   | { kind: "PAYMENTS"; days: number; subject: string | null }
+  | { kind: "REMIND"; text: string }
+  | { kind: "REMINDERS" }
   | { kind: "BASKET"; query: string }
   | { kind: "SUBSTITUTE"; query: string }
   | { kind: "DRIVER_DAY"; day: "today" | "tomorrow" | "yesterday" };
@@ -246,6 +248,20 @@ export function detectIntent(
 
   if (/(поверненн|повертают|повернул|повертає|повернень)/i.test(text)) {
     return { kind: "RETURNS", days: periodIn(text, 90) };
+  }
+
+  /**
+   * Нагадування — перше, бо в тексті прохання лежить будь-що.
+   *
+   * «Нагадай у пʼятницю про борг Кунанця» містить і «борг», і назву
+   * клієнта: будь-який пізніший шаблон забрав би це собі й показав
+   * дебіторку замість того, щоб поставити нагадування.
+   */
+  if (/(^|\s)(нагадай|нагадати|нагадуй|не\s+дай\s+забути|постав(ити)?\s+нагадування)/i.test(text)) {
+    return { kind: "REMIND", text };
+  }
+  if (/(мої\s+нагадуванн|які\s+(в\s+мене\s+)?нагадуванн|що\s+я\s+маю\s+зробити|що\s+на\s+мені|список\s+нагадувань)/i.test(text)) {
+    return { kind: "REMINDERS" };
   }
 
   /**

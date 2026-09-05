@@ -31,6 +31,7 @@ import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
+import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
 import { kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
@@ -347,6 +348,26 @@ async function pushStandings(): Promise<void> {
 
 const standingsTimer = setInterval(() => void pushStandings(), SILENCE_CHECK_INTERVAL_MS);
 
+/**
+ * Шоста перевірка — нагадування, які торговий поставив собі сам.
+ *
+ * Чверть години — це і крок перевірки, і найгірша похибка: нагадування на
+ * 9:00 прийде між 9:00 і 9:15. Точніше не треба, а частіше — це запит у
+ * базу кожні кілька хвилин заради порожнього списку.
+ */
+async function pushReminders(): Promise<void> {
+  try {
+    const sent = await deliverDueReminders();
+    if (sent.length > 0) {
+      console.log(`worker: нагадувань надіслано — ${sent.length}`);
+    }
+  } catch (e) {
+    console.error("worker: розсилка нагадувань впала", e);
+  }
+}
+
+const remindersTimer = setInterval(() => void pushReminders(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -361,6 +382,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(staleShiftTimer);
     clearInterval(recountTimer);
     clearInterval(standingsTimer);
+    clearInterval(remindersTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

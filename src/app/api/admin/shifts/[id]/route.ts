@@ -16,7 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTrackPath } from "@/lib/track/gaps";
 import { classifyMovement, movementTotals } from "@/lib/track/movement";
-import { splitByMovement } from "@/lib/track/movement-parts";
+import { repeatSummary, splitByMovement } from "@/lib/track/movement-parts";
 import { findStops } from "@/lib/track/stops";
 import { kyivDate, kyivTime } from "@/lib/date/kyiv";
 import { ordersTodayForRep } from "@/lib/track/orders-today";
@@ -91,6 +91,12 @@ export async function GET(
 
   const shiftPoints = points.filter((p) => p.phase !== "AFTER_SHIFT");
   const afterPoints = points.filter((p) => p.phase === "AFTER_SHIFT");
+
+  /**
+   * Ділимо трек один раз: те саме потрібне і карті (кольори), і картці
+   * (скільки з дня — повернення по власному сліду).
+   */
+  const shiftParts = await splitByMovement(shiftPoints, onRoads);
 
   /**
    * Скільки разів торговий перезнімав панель.
@@ -198,7 +204,15 @@ export async function GET(
          * лишається цілим навмисно — по ньому карта рахує межі й будує
          * підказки, і рвати його заради стилю було б обміном шила на мило.
          */
-        parts: await splitByMovement(shiftPoints, onRoads),
+        parts: shiftParts,
+        /**
+         * Скільки денного пробігу — повернення по власному сліду.
+         *
+         * Єдині кілометри дня, з якими взагалі можна щось зробити: їх
+         * прибирає перекладання порядку точок у маршруті. Решта — це відстань
+         * між клієнтами, і вона від нас не залежить.
+         */
+        repeat: repeatSummary(shiftParts),
         movement: movementTotals(classifyMovement(shiftPoints)),
         /**
          * Де людина СТОЯЛА — і це головна відповідь на питання «де були

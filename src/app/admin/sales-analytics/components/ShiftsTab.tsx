@@ -95,7 +95,7 @@ type Detail = {
       points: Array<{ lat: number; lng: number }>;
       path: Array<[number, number]>;
       /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
-      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number }>;
+      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number; pass?: "FIRST" | "BACK" | "AGAIN" }>;
       movement?: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
       /** Де людина стояла довше п'яти хвилин — головна відповідь на «де був». */
       stops?: Array<{
@@ -111,6 +111,8 @@ type Detail = {
       /** Час останньої точки — щоб у відкритій зміні показати «де він зараз». */
       lastAt: string | null;
       lastTime: string | null;
+      /** Скільки з їзди — повернення по власному сліду. */
+      repeat?: { km: number; sharePct: number; backKm: number; againKm: number };
     };
     afterShift: { points: Array<{ lat: number; lng: number }>; path: Array<[number, number]>; pointsCount: number };
   };
@@ -792,6 +794,24 @@ export function ShiftsTab({
                   : `${detail.track.shift.pointsCount} точок`
               }
             />
+            {detail.track.shift.repeat != null && detail.track.shift.repeat.km > 0 && (
+              /*
+                Єдине число в картці, з яким можна щось ЗРОБИТИ. Решта описує
+                день як він був, а це показує, скільки з нього прибирається
+                перекладанням порядку об'їзду.
+              */
+              <Metric
+                label="Повторний проїзд"
+                value={`${detail.track.shift.repeat.km} км`}
+                hint={
+                  `${detail.track.shift.repeat.sharePct}% їзди` +
+                  (detail.track.shift.repeat.backKm > 0
+                    ? ` · назад тією самою дорогою ${detail.track.shift.repeat.backKm} км`
+                    : "")
+                }
+                color={detail.track.shift.repeat.sharePct >= 25 ? "#DB2777" : undefined}
+              />
+            )}
             <Metric
               label="Одометр / трек"
               value={
@@ -941,6 +961,12 @@ export function ShiftsTab({
                       <span>
                         <span style={{ display: "inline-block", width: 22, height: 3, background: "#2563EB", verticalAlign: "middle", marginRight: 6 }} />
                         Трек зміни ({detail.track.shift.pointsCount} точок)
+                      </span>
+                    )}
+                    {(detail.track.shift.repeat?.km ?? 0) > 0 && (
+                      <span>
+                        <span style={{ display: "inline-block", width: 22, height: 3, background: "#DB2777", verticalAlign: "middle", marginRight: 6 }} />
+                        Повторний проїзд ({detail.track.shift.repeat!.km} км)
                       </span>
                     )}
                     {detail.track.afterShift.pointsCount > 0 && (

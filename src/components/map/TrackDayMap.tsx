@@ -79,6 +79,8 @@ export type TrackDetail = {
     path: Array<[number, number]>;
     km: number;
     minutes: number;
+    /** FIRST — уперше цією дорогою, BACK — назад по своєму сліду, AGAIN — удруге туди ж. */
+    pass?: "FIRST" | "BACK" | "AGAIN";
   }>;
   /**
    * Де людина стояла довше кількох хвилин — головна відповідь на «де був».
@@ -361,16 +363,23 @@ export default function TrackDayMap({
         detail.parts.forEach((part) => {
           if (part.mode === "STOP" || part.path.length < 2) return;
           const walk = part.mode === "WALK";
+          // Повернення по власному сліду — окремим кольором, як і в картці
+          // зміни торгового: питання «що тут зайве» у водія те саме.
+          const repeat = !walk && part.pass && part.pass !== "FIRST";
           L.polyline(part.path, {
-            color: walk ? MOVE_COLOR.WALK : MOVE_COLOR.DRIVE,
+            color: walk ? MOVE_COLOR.WALK : repeat ? MOVE_COLOR.REPEAT : MOVE_COLOR.DRIVE,
             weight: walk ? 3 : 4,
             opacity: walk ? 0.9 : 0.8,
             dashArray: walk ? "2 6" : undefined,
             lineCap: walk ? "round" : "butt",
           })
-            .bindTooltip(`${walk ? "Пішки" : "Автом"} ${part.km} км · ${part.minutes} хв`, {
-              direction: "top",
-            })
+            .bindTooltip(
+              repeat
+                ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
+                  ` · ${part.km} км · ${part.minutes} хв`
+                : `${walk ? "Пішки" : "Автом"} ${part.km} км · ${part.minutes} хв`,
+              { direction: "top" }
+            )
             .addTo(group);
         });
       } else {

@@ -30,7 +30,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
-import { escapeHtml, stopPin, stopTooltip, type TrackStopDot } from "./track-pins";
+import { escapeHtml, MOVE_COLOR, stopPin, stopTooltip, type TrackStopDot } from "./track-pins";
 
 /** Пункт призначеного маршруту. */
 /**
@@ -68,6 +68,8 @@ const PLAN_COLOR = "#16A34A";
  * хвилину, тож десять хвилин мовчання — це вже не «зараз».
  */
 const LIVE_FRESH_MIN = 10;
+
+
 
 /** Квадратна нумерована мітка пункту плану — щоб не плуталася з круглими точками треку. */
 function planPin(seq: number): L.DivIcon {
@@ -131,6 +133,8 @@ export default function ShiftTrackMap({
     path: Array<[number, number]>;
     km: number;
     minutes: number;
+    /** FIRST — уперше цією дорогою, BACK — назад по своєму сліду, AGAIN — удруге туди ж. */
+    pass?: "FIRST" | "BACK" | "AGAIN";
   }>;
   /** Де людина стояла довше кількох хвилин — головна відповідь на «де був». */
   stops?: TrackStopDot[];
@@ -286,8 +290,18 @@ export default function ShiftTrackMap({
            */
           if (part.mode === "STOP") continue;
           const walk = part.mode === "WALK";
+          /**
+           * Повернення по власному сліду — окремим кольором.
+           *
+           * Інакше його не видно взагалі: друга лінія лягає точно на першу, і
+           * день із двома заїздами в те саме село виглядає як день з одним.
+           * А це саме ті кілометри, які прибираються перекладанням порядку
+           * точок у маршруті, — тобто єдині, з якими взагалі можна щось
+           * зробити.
+           */
+          const repeat = !walk && part.pass && part.pass !== "FIRST";
           L.polyline(part.path, {
-            color: walk ? "#D97706" : "#2563EB",
+            color: walk ? "#D97706" : repeat ? MOVE_COLOR.REPEAT : "#2563EB",
             weight: walk ? 3 : 4,
             opacity: walk ? 0.9 : 0.85,
             ...(walk ? { dashArray: "2 6", lineCap: "round" as const } : {}),
@@ -295,7 +309,10 @@ export default function ShiftTrackMap({
             .bindTooltip(
               walk
                 ? `Пішки ${part.km} км, ${part.minutes} хв`
-                : `Автом ${part.km} км, ${part.minutes} хв`,
+                : repeat
+                  ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
+                    ` · ${part.km} км, ${part.minutes} хв`
+                  : `Автом ${part.km} км, ${part.minutes} хв`,
               { sticky: true }
             )
             .addTo(group);

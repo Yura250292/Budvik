@@ -55,7 +55,7 @@ export const STAFF_APK_VERSION_NAME = "1.5.1";
  * після кожного `npm run update:staff`.
  */
 export const STAFF_APK_COMMIT = "f3b6d61";
-export const STAFF_OTA_COMMIT = "26c0c99";
+export const STAFF_OTA_COMMIT = "c5375ea";
 
 /**
  * Нижче цього номера застосунок не пускає до роботи, а вимагає оновитися.

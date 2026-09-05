@@ -1179,6 +1179,27 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
 const REMIND_TRIGGER = /^(нагадай|нагадати|нагадуй|постав(ити)?\s+нагадування|не\s+дай\s+забути)\s*(мені\s*)?/i;
 
 /**
+ * Прибирає з тексту сам час.
+ *
+ * «Нагадай завтра о 9 подзвонити Левковичу» — у пуш має піти «подзвонити
+ * Левковичу», бо час у сповіщенні вже видно з того, що воно прийшло. Двома
+ * проходами, бо дата й година стоять поруч: «завтра о 9».
+ */
+function stripWhenWords(raw: string): string {
+  let text = raw;
+  for (let i = 0; i < 2; i++) {
+    text = text
+      .replace(/^(сьогодні|завтра|післязавтра)\s+/i, "")
+      .replace(/^(у|в)\s+(понеділок|вівторок|середу|четвер|п.?ятницю|суботу|неділю)\s+/i, "")
+      .replace(/^через\s+(\d{1,2}\s*)?(дн[а-яіїєґ]*|день|тиждень|тижні|місяць)\s*/i, "")
+      .replace(/^\d{1,2}[.\/]\d{1,2}(?:[.\/]\d{4})?\s*/, "")
+      .replace(/^(о|об)\s*\d{1,2}([:.]\d{2})?\s*(вечора|ранку|дня)?\s*/i, "")
+      .trim();
+  }
+  return text;
+}
+
+/**
  * «Нагадай у пʼятницю про борг Кунанця».
  *
  * Єдина, крім пам'яті клієнта, відповідь, яка ЩОСЬ ЗАПИСУЄ — і записує
@@ -1211,18 +1232,32 @@ export async function answerRemind(ctx: ToolContext, raw: string): Promise<Direc
    * ніж зупинити людину списком однофамільців: нагадування має спрацювати,
    * а картку вона відкриє сама.
    */
-  const subject = (/(?:про|щодо)\s+(.{3,40})$/i.exec(body)?.[1] ?? "").trim() || null;
+  /**
+   * Клієнт у тексті — необовʼязковий, і питати про нього ми не будемо.
+   *
+   * «Нагадай у пʼятницю про борг Кунанця» краще поставити без привʼязки,
+   * ніж зупинити людину списком однофамільців: нагадування має спрацювати,
+   * а картку вона відкриє сама. Тому пробуємо два шляхи й беремо лише
+   * однозначне влучання.
+   */
+  const guesses: string[] = [];
+  const afterPro = /(?:про|щодо)\s+(.{3,40})$/i.exec(body)?.[1]?.trim();
+  if (afterPro) guesses.push(afterPro);
+  // Прізвище в тексті пишуть з великої: «подзвонити Левковичу».
+  for (const w of body.match(/[А-ЯІЇЄҐ][а-яіїєґ'ʼ-]{3,}/g) ?? []) guesses.push(w);
+
   let counterpartyId: string | null = null;
   let clientName: string | null = null;
-  if (subject) {
-    const hits = await findClients(subject, ctx.scope.repId, { limit: 2 });
+  for (const guess of guesses.slice(0, 4)) {
+    const hits = await findClients(guess, ctx.scope.repId, { limit: 2 });
     if (hits.length === 1) {
       counterpartyId = hits[0].id;
       clientName = hits[0].name;
+      break;
     }
   }
 
-  const text = body.replace(/^\s*(у|в|о|об)\s+[^\s]+\s*/i, "").trim() || body;
+  const text = stripWhenWords(body) || body;
 
   const saved = await timed(
     { name: "remind_me", label: "Ставлю нагадування" },

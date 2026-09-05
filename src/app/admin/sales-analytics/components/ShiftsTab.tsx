@@ -95,7 +95,7 @@ type Detail = {
       points: Array<{ lat: number; lng: number }>;
       path: Array<[number, number]>;
       /** Той самий трек, поділений на їзду, ходьбу й стоянки. */
-      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number; pass?: "FIRST" | "BACK" | "AGAIN"; unknown?: boolean }>;
+      parts?: Array<{ mode: "DRIVE" | "WALK" | "STOP"; path: Array<[number, number]>; km: number; minutes: number; pass?: "FIRST" | "BACK" | "AGAIN"; unknown?: boolean; offRoad?: boolean }>;
       movement?: Record<"DRIVE" | "WALK" | "STOP", { km: number; minutes: number }>;
       /** Де людина стояла довше п'яти хвилин — головна відповідь на «де був». */
       stops?: Array<{

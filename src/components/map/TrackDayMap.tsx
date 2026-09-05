@@ -83,6 +83,8 @@ export type TrackDetail = {
     pass?: "FIRST" | "BACK" | "AGAIN";
     /** Планшет мовчав: пряма між точками — здогад, а не виміряний шлях. */
     unknown?: boolean;
+    /** Шлях не ліг на жодну вулицю — причина інша, вигляд той самий. */
+    offRoad?: boolean;
   }>;
   /**
    * Де людина стояла довше кількох хвилин — головна відповідь на «де був».
@@ -388,7 +390,9 @@ export default function TrackDayMap({
           })
             .bindTooltip(
               unknown
-                ? `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км`
+                ? part.offRoad
+                  ? `Дороги під цим слідом немає: ${part.km} км навпростець — шлях невідомий`
+                  : `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км`
                 : repeat
                   ? `${part.pass === "BACK" ? "Назад тією самою дорогою" : "Той самий проїзд удруге"}` +
                     ` · ${part.km} км · ${part.minutes} хв`

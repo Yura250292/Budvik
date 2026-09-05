@@ -137,6 +137,8 @@ export default function ShiftTrackMap({
     pass?: "FIRST" | "BACK" | "AGAIN";
     /** Планшет мовчав: пряма між точками — здогад, а не виміряний шлях. */
     unknown?: boolean;
+    /** Шлях не ліг на жодну вулицю — причина інша, вигляд той самий. */
+    offRoad?: boolean;
   }>;
   /** Де людина стояла довше кількох хвилин — головна відповідь на «де був». */
   stops?: TrackStopDot[];
@@ -330,7 +332,9 @@ export default function ShiftTrackMap({
           })
             .bindTooltip(
               unknown
-                ? `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км — справжній шлях невідомий`
+                ? part.offRoad
+                  ? `Дороги під цим слідом немає: ${part.km} км навпростець — шлях невідомий`
+                  : `Дані не доїхали: ${part.minutes} хв тиші, пряма ${part.km} км — справжній шлях невідомий`
                 : walk
                   ? `Пішки ${part.km} км, ${part.minutes} хв`
                   : repeat

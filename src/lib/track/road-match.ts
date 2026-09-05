@@ -92,7 +92,35 @@ function thin(points: TrackVertex[]): TrackVertex[] {
  * Кладе денний трек на дороги. Повертає лінію [lat, lng] або null, якщо
  * прив'язувати нічого.
  */
+/**
+ * Чи справді лінія лягла на дороги.
+ *
+ * Потрібне, щоб не малювати суцільною лінією те, чого ми не змогли покласти
+ * на жодну вулицю: така лінія йде крізь будинки й через річку, і виглядає як
+ * твердження про шлях, якого ніхто не бачив. Не лягло — малюємо пунктиром.
+ */
+export type RoadLine = { path: Array<[number, number]>; onRoad: boolean };
+
+export async function matchDayLine(points: TrackVertex[]): Promise<RoadLine | null> {
+  const report = { chunks: 0, onRoad: 0 };
+  const path = await matchDayPathInner(points, report);
+  if (!path) return null;
+  /**
+   * «Лягло» означає більшість шматків, а не всі: у довгій ділянці один
+   * невдалий шматок серед двадцяти нічого не псує, а от половина невдалих —
+   * це вже не дорога, а здогад.
+   */
+  return { path, onRoad: report.chunks === 0 || report.onRoad * 2 >= report.chunks };
+}
+
 export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number, number]> | null> {
+  return matchDayPathInner(points);
+}
+
+async function matchDayPathInner(
+  points: TrackVertex[],
+  report?: { chunks: number; onRoad: number }
+): Promise<Array<[number, number]> | null> {
   const trusted = points.filter((p) => p.accuracyM == null || p.accuracyM <= MAX_ACCURACY_M);
   if (trusted.length < 2) return null;
 
@@ -122,13 +150,13 @@ export async function matchDayPath(points: TrackVertex[]): Promise<Array<[number
           ? [[part[0].lat, part[0].lng] as [number, number]]
           : seg.mode === "WALK"
             ? thin(part).map((p) => [p.lat, p.lng] as [number, number])
-            : await matchRun(thin(part), started);
+            : await matchRun(thin(part), started, report);
       for (const v of out.length > 0 ? line.slice(1) : line) out.push(v);
     }
     return out.length >= 2 ? out : null;
   }
 
-  return matchRun(thin(trusted), started).then((line) => (line.length >= 2 ? line : null));
+  return matchRun(thin(trusted), started, report).then((line) => (line.length >= 2 ? line : null));
 }
 
 /**
@@ -184,7 +212,8 @@ async function routeThrough(
 /** Кладе на дороги один суцільний відрізок їзди. */
 async function matchRun(
   trusted: TrackVertex[],
-  started: number
+  started: number,
+  report?: { chunks: number; onRoad: number }
 ): Promise<Array<[number, number]>> {
   const out: Array<[number, number]> = [];
   if (trusted.length < 2) return trusted.map((p) => [p.lat, p.lng] as [number, number]);
@@ -197,16 +226,25 @@ async function matchRun(
       chunk.map((p) => [p.lat, p.lng] as [number, number]);
 
     let line: Array<[number, number]>;
+    let onRoad = false;
     if (Date.now() - started > BUDGET_MS) {
       line = raw();
     } else {
       const matched = await matchTrace(
         chunk.map((p) => ({ lng: p.lng, lat: p.lat, accuracyM: p.accuracyM }))
       ).catch(() => null);
-      line =
-        matched && matched.confidence >= MIN_CONFIDENCE
-          ? matched.line.coordinates.map(([lng, lat]) => [lat, lng] as [number, number])
-          : ((await routeThrough(chunk, started)) ?? raw());
+      if (matched && matched.confidence >= MIN_CONFIDENCE) {
+        line = matched.line.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+        onRoad = true;
+      } else {
+        const routed = await routeThrough(chunk, started);
+        line = routed ?? raw();
+        onRoad = routed != null;
+      }
+    }
+    if (report) {
+      report.chunks++;
+      if (onRoad) report.onRoad++;
     }
 
     // Шматки перекриваються однією точкою — не задвоюємо стик.

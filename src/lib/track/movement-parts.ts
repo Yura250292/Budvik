@@ -17,11 +17,11 @@
  */
 
 import { buildTrackPath } from "@/lib/track/gaps";
-import { haversineM } from "@/lib/track/geo";
+import { haversineM, MAX_PLAUSIBLE_KMH } from "@/lib/track/geo";
 import { classifyMovement, type MoveSegment } from "@/lib/track/movement";
 import { markRepeatPasses, type PassKind } from "@/lib/track/repeat-pass";
 import { collapseSimultaneous, dropSpikes } from "@/lib/track/spikes";
-import { matchDayPath } from "@/lib/track/road-match";
+import { matchDayLine } from "@/lib/track/road-match";
 
 /**
  * Пауза між точками, після якої шлях між ними — здогад, а не вимір.
@@ -31,6 +31,20 @@ import { matchDayPath } from "@/lib/track/road-match";
  * бачили.
  */
 const UNKNOWN_MS = 90_000;
+
+/**
+ * Коротші шматки не позначаємо як «поза дорогою».
+ *
+ * На двохстах метрах пряма й вулиця однакові оком, а пунктир там лише рябив
+ * би карту без жодної нової звістки.
+ */
+const OFF_ROAD_MIN_M = 200;
+
+/**
+ * Довші шматки без дороги не позначаємо: це дорога, якої немає в мапі, а не
+ * наша галюцинація.
+ */
+const OFF_ROAD_MAX_M = 2_000;
 
 export type MovementPart = {
   mode: MoveSegment["mode"];
@@ -53,6 +67,13 @@ export type MovementPart = {
    * тут була б вигадкою, а пунктир чесно каже «не бачили».
    */
   unknown?: boolean;
+  /**
+   * Шлях не вдалося покласти на жодну вулицю — ні матчером, ні маршрутом.
+   *
+   * Малюється так само, як мовчання планшета (пунктиром), але причина інша,
+   * і підпис має це казати: тут дані є, а дороги під ними немає.
+   */
+  offRoad?: boolean;
 };
 
 export type PartPoint = {
@@ -107,8 +128,28 @@ export async function splitByMovement(
   for (let i = 0; i < points.length - 1; i++) {
     if (!driveGap[i]) continue;
     if (points[i + 1].roadMetersFromPrev != null) continue;
-    unknownGap[i] =
-      points[i + 1].recordedAt.getTime() - points[i].recordedAt.getTime() >= UNKNOWN_MS;
+
+    const ms = points[i + 1].recordedAt.getTime() - points[i].recordedAt.getTime();
+    const meters = haversineM(
+      points[i].lat,
+      points[i].lng,
+      points[i + 1].lat,
+      points[i + 1].lng
+    );
+    /**
+     * Друга ознака незнання — неможлива швидкість.
+     *
+     * Передрій 04.09 дав пряму крізь усе Миколаїв: 16 596 метрів за 81
+     * секунду, тобто 738 км/год, і ОБИДВІ точки з похибкою 4-5 метрів. Тобто
+     * він там справді був — але між ними бракує проміжних точок, а часу
+     * минуло стільки, що жодна машина цього не проїде.
+     *
+     * За часом таку діру не впіймати: 81 секунда не дотягує до порога
+     * мовчання. Ловить її саме швидкість — та сама стеля, за якою прийом
+     * пачки не рахує кілометри (MAX_PLAUSIBLE_KMH у geo.ts).
+     */
+    const impossible = ms > 0 && meters / 1000 / (ms / 3_600_000) > MAX_PLAUSIBLE_KMH;
+    unknownGap[i] = ms >= UNKNOWN_MS || impossible;
   }
 
   const parts: MovementPart[] = [];
@@ -180,10 +221,36 @@ async function drivePart(
    * Там планшет мовчав, і будь-яка дорога між двома точками — здогад
    * маршрутизатора. Пунктир чесніший: він каже, що ми не бачили.
    */
-  const path =
-    onRoads && !unknown
-      ? ((await matchDayPath(slice).catch(() => null)) ?? buildTrackPath(slice))
-      : buildTrackPath(slice);
+  const road = onRoads && !unknown ? await matchDayLine(slice).catch(() => null) : null;
+  const path = road?.path ?? buildTrackPath(slice);
+
+  /**
+   * Не лягло на жодну вулицю — значить шляху ми не знаємо.
+   *
+   * Саме такі шматки лишалися «язиками» крізь хати й через річку: суцільна
+   * синя лінія стверджувала проїзд там, де ні матчер, ні маршрутизатор дороги
+   * не знайшли. Тепер вона стає пунктиром — тим самим, що й у мовчання
+   * планшета, бо відповідь та сама: шлях невідомий.
+   *
+   * Дрібні шматки не чіпаємо: на двохстах метрах пряма й дорога однакові
+   * оком, а пунктир там лише рябив би.
+   */
+  /**
+   * «Поза дорогою» позначаємо лише КОРОТКІ шматки.
+   *
+   * Довгий шматок, який не ліг на дороги, — це майже завжди дорога, якої
+   * немає в OpenStreetMap (село, промзона, лісова), а не наша помилка. У
+   * Передрія 04.09 без цієї межі пунктиром ставала половина дня: 27 із 57
+   * кілометрів. А от «язик» на кількасот метрів крізь хати й через річку —
+   * це саме те, чого не буває.
+   */
+  const offRoad =
+    onRoads &&
+    !unknown &&
+    road != null &&
+    !road.onRoad &&
+    meters >= OFF_ROAD_MIN_M &&
+    meters <= OFF_ROAD_MAX_M;
 
   return {
     mode: "DRIVE",
@@ -193,7 +260,8 @@ async function drivePart(
       (points[to].recordedAt.getTime() - points[from].recordedAt.getTime()) / 60_000
     ),
     pass,
-    ...(unknown ? { unknown: true } : {}),
+    ...(unknown || offRoad ? { unknown: true } : {}),
+    ...(offRoad ? { offRoad: true } : {}),
   };
 }
 

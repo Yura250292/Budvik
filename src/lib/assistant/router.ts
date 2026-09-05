@@ -89,6 +89,16 @@ const TAIL_NOT_NAME = /^(і|й|та|а|чи|що|як|коли|скільки|д
 const PRODUCT_ASK =
   /(чи\s+є\s+(в\s+наявності\s+)?|скільки\s+(ще\s+)?(на\s+складі|залишилось|лишилось|є)\s*|який\s+залишок\s*|залишк[а-яіїєґ]*\s+(по\s+)?|є\s+на\s+складі\s*|що\s+по\s+|яка\s+ціна\s+(на\s+)?|почім\s+|скільки\s+кошту[а-яіїєґ]*\s+|скільки\s+ще\s+)/i;
 
+/**
+ * Те саме питання з товаром ПОСЕРЕДИНІ: «скільки піни залишилось».
+ *
+ * PRODUCT_ASK ловить лише хвіст після ключових слів, а тут назва стоїть
+ * між «скільки» і «залишилось» — і найчастіше питають саме так. Без цієї
+ * гілки просте питання про залишок ішло в модель за дев'ять тисяч токенів.
+ */
+const PRODUCT_MIDDLE =
+  /(?:скільки|чи)\s+(?:ще\s+|є\s+)?(.{2,40}?)\s+(?:ще\s+)?(?:залишилось|лишилось|залишилося|є\s+в\s+наявності|є\s+на\s+складі|на\s+складі|в\s+наявності)/i;
+
 const clean = (raw: string) =>
   raw
     .replace(/[«»"'’`]/g, "")
@@ -109,6 +119,17 @@ function subjectAfter(text: string, re: RegExp): string | null {
   if (!/[а-яіїєґa-z]/i.test(tail)) return null;
   // Довгий хвіст — це вже не назва, а окреме питання.
   return tail.length > 60 ? null : tail;
+}
+
+/** Назва, затиснута між двома половинами питання. */
+function subjectBetween(text: string, re: RegExp): string | null {
+  const match = re.exec(text);
+  if (!match?.[1]) return null;
+
+  const name = clean(match[1]).replace(/^(ще|там|у\s+нас|в\s+нас|нам|мені)\s+/i, "");
+  if (name.length < 3 || NOT_A_NAME.test(name) || TAIL_NOT_NAME.test(name)) return null;
+  if (!/[а-яіїєґa-z]/i.test(name)) return null;
+  return name;
 }
 
 function weekdayIn(text: string): number | null {
@@ -254,7 +275,7 @@ export function detectIntent(
     return { kind: "ROUTE", weekday: weekdayIn(text) };
   }
 
-  const product = subjectAfter(text, PRODUCT_ASK);
+  const product = subjectAfter(text, PRODUCT_ASK) ?? subjectBetween(text, PRODUCT_MIDDLE);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
@@ -286,7 +307,7 @@ function driverIntent(text: string): Intent | null {
     subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+|як\s+доїхати\s+до\s+)/i);
   if (card) return { kind: "CLIENT_CARD", subject: card };
 
-  const product = subjectAfter(text, PRODUCT_ASK);
+  const product = subjectAfter(text, PRODUCT_ASK) ?? subjectBetween(text, PRODUCT_MIDDLE);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;

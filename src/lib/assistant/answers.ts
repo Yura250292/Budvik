@@ -449,6 +449,14 @@ async function resolveClient(
   // питання майже завжди про того, з ким торговий працює.
   const mine = hits.filter((h) => h.mine && h.lastDocAt);
   if (mine.length === 1) return { hit: mine[0] };
+
+  // Дубль картки 1С: та сама точка заведена двічі («Налисник Юрій» і «ФОП
+  // Налиснік Юрій Вячеславович», одна адреса й телефон), а покупки йдуть
+  // лише на одній. Питати, котра з них, — питати про різницю, якої для
+  // торгового не існує.
+  const withDocs = hits.filter((h) => h.lastDocAt);
+  if (withDocs.length === 1) return { hit: withDocs[0] };
+
   return { ambiguous: hits };
 }
 
@@ -606,7 +614,7 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
     ? ["", "**Памʼять про клієнта:**", ...profile.памʼять.map((m) => `- ${m.вид}: ${m.текст} _(${m.хто}, ${m.дата})_`)]
     : [];
 
-  const top = profile.топ_товари.slice(0, 5).map((p) => `- ${p.назва} — ${times(p.разів)}, ${money(p.сума)}`);
+  const top = (profile.топ_товари ?? []).slice(0, 5).map((p) => `- ${p.назва} — ${times(p.разів)}, ${money(p.сума)}`);
 
   return {
     markdown: [

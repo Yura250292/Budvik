@@ -76,19 +76,25 @@ export const clientProfile: ToolDef = {
   name: "client_profile",
   label: "Читаю картку клієнта",
   description:
-    "Повна картка клієнта: борг із розбивкою й вердикт платника, стан і власний ритм закупівель, топ брендів і товарів, останні документи, памʼять про клієнта (записи торгових), коментарі й візити. Викликай перед будь-якою порадою по конкретному клієнту.",
+    "Повна картка клієнта: борг із розбивкою й вердикт платника, стан і власний ритм закупівель, топ брендів і товарів, останні документи, памʼять про клієнта (записи торгових), коментарі й візити. Викликай перед будь-якою порадою по конкретному клієнту. Картка відкрита по БУДЬ-ЯКОМУ клієнту бази, не лише по своєму.",
   parameters: {
     type: "object",
     properties: {
       counterpartyId: { type: "string", description: "Ідентифікатор клієнта з search_clients або іншого інструмента." },
       months: { type: "integer", description: "За скільки місяців історія: 3, 6 або 12. За замовчуванням 6." },
+      product: {
+        type: "string",
+        description:
+          "Питання про конкретний товар («коли брав піну», «скільки брав кругів») — передай сюди слово з назви або артикул. У відповідь прийдуть закупівлі саме цього товару за всю історію: дата, кількість, ціна.",
+      },
     },
     required: ["counterpartyId"],
   },
   async run(_ctx, args) {
     const counterpartyId = validId(args.counterpartyId, "counterpartyId");
     const months = int(args.months, "months", { min: 3, max: 12, fallback: 6 });
-    const facts = await clientProfileFacts(counterpartyId, months);
+    const product = args.product == null ? null : str(args.product, "product", { min: 2, max: 60 });
+    const facts = await clientProfileFacts(counterpartyId, months, product);
     if (!facts) return { помилка: "клієнта з таким ідентифікатором немає" };
     return facts;
   },

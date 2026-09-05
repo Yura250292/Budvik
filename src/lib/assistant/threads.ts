@@ -21,8 +21,14 @@ import { emptyEntities, type SeenEntities } from "@/lib/assistant/guards";
 /** Скільки часу тримається замок на розмову, поки формується відповідь. */
 const BUSY_MS = 130_000;
 
-/** Обрізана репліка помічника в історії: подробиці вже не потрібні. */
-const HISTORY_ASSISTANT_MAX = 2_000;
+/**
+ * Обрізана репліка помічника в історії: подробиці вже не потрібні.
+ *
+ * Числа з відповіді потрібні тому, хто читає, а не моделі: наступного разу
+ * вона однаково піде по свіжі дані. Лишається початок — там імена,
+ * посилання й суть сказаного.
+ */
+const HISTORY_ASSISTANT_MAX = 900;
 
 export async function createThread(userId: string, repId: string) {
   return prisma.assistantThread.create({

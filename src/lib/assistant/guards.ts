@@ -16,10 +16,18 @@
 export type SeenEntities = {
   clients: Set<string>;
   products: Map<string, string | null>;
+  /**
+   * Усі числа з результатів інструментів ЦЬОГО ходу.
+   *
+   * Потрібні числовому вартовому: сума у відповіді має походити з даних,
+   * а не з памʼяті моделі. Через розмови не переносяться — перевіряти
+   * торішні числа в новій відповіді немає сенсу.
+   */
+  numbers: Set<number>;
 };
 
 export function emptyEntities(): SeenEntities {
-  return { clients: new Set(), products: new Map() };
+  return { clients: new Set(), products: new Map(), numbers: new Set() };
 }
 
 const CLIENT_KEYS = new Set(["клієнт_id", "counterpartyId"]);
@@ -43,6 +51,12 @@ function walk(value: unknown, into: SeenEntities) {
 
   const obj = value as Record<string, unknown>;
   for (const [key, raw] of Object.entries(obj)) {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      into.numbers.add(Math.round(raw));
+      // Відсотки приходять із десятковою частиною («7,5»), а в тексті
+      // модель пише їх так само — тримаємо обидва вигляди.
+      into.numbers.add(Math.round(raw * 10) / 10);
+    }
     if (typeof raw === "string") {
       if (CLIENT_KEYS.has(key)) {
         into.clients.add(raw);
@@ -58,6 +72,77 @@ function walk(value: unknown, into: SeenEntities) {
 /** Плоский список id — його зберігаємо разом із повідомленням інструмента. */
 export function entityIdList(entities: SeenEntities): string[] {
   return [...entities.clients, ...entities.products.keys()];
+}
+
+/**
+ * Числа у відповіді, які ЗУСТРІЧАЮТЬСЯ у виданих даних.
+ *
+ * Модель не бачить бази, але вміє впевнено написати суму, якої їй ніхто
+ * не показував, — і саме така відповідь найнебезпечніша: вона виглядає
+ * як усі інші. Тут кожне число з тексту звіряється з тим, що справді
+ * повернули інструменти цього ходу.
+ *
+ * ЩО НЕ РАХУЄМО ПОМИЛКОЮ:
+ * • відсотки — їх модель законно РАХУЄ («78,9 % від обороту»), і жодна
+ *   з двох сум, з яких вони вийшли, від цього не стає вигаданою;
+ * • дрібні числа (до 40) — це «5 клієнтів», «за 30 днів», номери пунктів;
+ * • роки й дати — вони не з бази, а з календаря;
+ * • числа, які людина сама назвала в питанні;
+ * • суми, які збігаються з даними після заокруглення до сотні: модель
+ *   має право написати «12 300» там, де в даних 12 297.
+ */
+export type NumberCheck = { checked: number; unverified: number[] };
+
+const NUMBER_RE = /(?<![\w./-])(\d{1,3}(?:[\s\u00A0\u202F]\d{3})+|\d+(?:[.,]\d+)?)(?![\w./-])/g;
+
+/** Нижче цього числа вважаємо лічильником, а не сумою з бази. */
+const SMALL = 40;
+
+export function verifyNumbers(answer: string, question: string, seen: SeenEntities): NumberCheck {
+  const fromQuestion = new Set<number>();
+  for (const m of question.matchAll(NUMBER_RE)) {
+    fromQuestion.add(parseNumber(m[1]));
+  }
+
+  const unverified: number[] = [];
+  let checked = 0;
+
+  // Дати («2026-09-06», «06.09») до перевірки не потрапляють: NUMBER_RE
+  // не бере числа, приклеєні до крапки чи дефіса з обох боків.
+  for (const m of answer.matchAll(NUMBER_RE)) {
+    const value = parseNumber(m[1]);
+    if (!Number.isFinite(value)) continue;
+    if (Math.abs(value) <= SMALL) continue;
+    // Відсоток одразу за числом — ознака порахованого, а не взятого.
+    if (/^\s*%/.test(answer.slice(m.index + m[0].length))) continue;
+    if (value >= 1900 && value <= 2100 && Number.isInteger(value)) continue;
+    if (fromQuestion.has(value)) continue;
+
+    checked++;
+    if (isKnown(value, seen.numbers)) continue;
+    unverified.push(value);
+  }
+
+  return { checked, unverified };
+}
+
+function parseNumber(raw: string): number {
+  return Number(raw.replace(/[\s\u00A0\u202F]/g, "").replace(",", "."));
+}
+
+/** Точний збіг, або збіг після заокруглення — до сотні й до десятків. */
+function isKnown(value: number, known: Set<number>): boolean {
+  if (known.has(value)) return true;
+  const rounded = [Math.round(value), Math.round(value * 10) / 10];
+  if (rounded.some((r) => known.has(r))) return true;
+
+  for (const step of [10, 100, 1000]) {
+    if (value % step !== 0) continue;
+    for (const k of known) {
+      if (Math.round(k / step) * step === value) return true;
+    }
+  }
+  return false;
 }
 
 const LINK_RE = /\[([^\]]{1,120})\]\((client|product):([A-Za-z0-9_-]{6,40})\)/g;

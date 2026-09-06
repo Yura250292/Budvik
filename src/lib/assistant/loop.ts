@@ -32,7 +32,8 @@ import { streamChat, DeepSeekError } from "@/lib/assistant/deepseek";
 import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
 import { compact } from "@/lib/assistant/format";
-import { collectEntities, entityIdList, rewriteLinks } from "@/lib/assistant/guards";
+import { collectEntities, entityIdList, rewriteLinks, verifyNumbers } from "@/lib/assistant/guards";
+import { recordNumberCheck } from "@/lib/assistant/number-guard";
 import { ToolArgError } from "@/lib/assistant/validate";
 import {
   addUsage,
@@ -190,6 +191,24 @@ export async function runTurn(input: RunTurnInput) {
     input.emit({ event: "drop", data: {} });
     input.emit({ event: "delta", data: { text: final.text } });
 
+    /**
+     * Числовий вартовий.
+     *
+     * Посилання ми звіряємо давно, а числа — ні, хоч саме вони й
+     * потрапляють у розмову з клієнтом. Відповідь не переписуємо: сума
+     * може бути правильною й просто інакше поданою, а мовчки правити
+     * текст моделі — це вигадувати замість неї. Натомість рахуємо частку
+     * незвірених і лишаємо слід у журналі: так видно, чи вигадує вона
+     * взагалі, і скільки.
+     */
+    const numbers = verifyNumbers(final.text, input.userText, seen);
+    if (numbers.unverified.length > 0) {
+      console.warn(
+        `[помічник] числа поза даними (${numbers.unverified.join(", ")}) · розмова ${input.threadId}`
+      );
+    }
+    void recordNumberCheck(input.ctx.today, numbers);
+
     const saved = await appendMessage({
       threadId: input.threadId,
       role: "ASSISTANT",
@@ -212,6 +231,7 @@ export async function runTurn(input: RunTurnInput) {
       },
       rounds,
       strippedLinks: final.stripped,
+      numbers,
     };
   }
 
@@ -320,6 +340,8 @@ async function runOneTool(
     for (const [id, sku] of entities.products) {
       if (sku || !seen.products.has(id)) seen.products.set(id, sku);
     }
+    // Числа теж переносимо: за ними числовий вартовий звіряє відповідь.
+    for (const n of entities.numbers) seen.numbers.add(n);
 
     await appendMessage({
       threadId: input.threadId,

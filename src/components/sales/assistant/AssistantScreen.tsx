@@ -152,6 +152,15 @@ export default function AssistantScreen({
       ? `Як ${activeRep.name}`
       : (profile?.name ?? (section === "driver" ? COPY.subtitleDriver : COPY.subtitleSelf));
 
+  /**
+   * Адреса ЦІЄЇ розмови — її несуть усі посилання у відповідях.
+   *
+   * Без неї «назад» із картки клієнта вело в список клієнтів, і розмова,
+   * заради якої торговий туди й пішов, лишалася позаду. Ключ розмови в
+   * адресі вже є (`?t=`), тож досить передати її вниз.
+   */
+  const backHref = threadId ? `${base}?t=${threadId}` : base;
+
   const goto = (params: URLSearchParams) =>
     router.replace(`${base}${params.toString() ? `?${params}` : ""}`, { scroll: false });
 
@@ -214,7 +223,7 @@ export default function AssistantScreen({
           )}
 
           {messages.map((m) => (
-            <MessageBubble key={m.id} message={m} onAsk={submit} />
+            <MessageBubble key={m.id} message={m} onAsk={submit} backHref={backHref} />
           ))}
 
           {stream && stream.text.length === 0 && (
@@ -222,7 +231,7 @@ export default function AssistantScreen({
           )}
           {stream && stream.text.length > 0 && (
             <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-              <AssistantMarkdown content={stream.text} />
+              <AssistantMarkdown content={stream.text} backHref={backHref} />
             </div>
           )}
 

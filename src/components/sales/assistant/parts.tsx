@@ -18,9 +18,11 @@ import type { ToolTrace, UiMessage } from "./api";
 export function MessageBubble({
   message,
   onAsk,
+  backHref,
 }: {
   message: UiMessage;
   onAsk?: (text: string) => void;
+  backHref?: string;
 }) {
   if (message.role === "USER") {
     return (
@@ -43,7 +45,7 @@ export function MessageBubble({
 
   return (
     <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-      <AssistantMarkdown content={message.content} onAsk={onAsk} />
+      <AssistantMarkdown content={message.content} onAsk={onAsk} backHref={backHref} />
       {message.tools.length > 0 && (
         <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />
       )}

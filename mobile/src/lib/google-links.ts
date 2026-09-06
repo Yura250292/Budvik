@@ -55,11 +55,11 @@ export function googleMapsLinks(points: MapPoint[]): MapLink[] {
  * наших точок. Через той запас десята зникала з посилання МОВЧКИ: водій
  * бачив у списку десять адрес, а в навігаторі девʼять.
  */
-export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
+export function googleMapsLinksFromHere(points: MapPoint[], from?: MapPoint | null): MapLink[] {
   if (points.length === 0) return [];
 
   const head = points.slice(0, MAX_POINTS_PER_LINK);
-  const links: MapLink[] = [{ url: fromHereUrl(head), points: head.length }];
+  const links: MapLink[] = [{ url: fromHereUrl(head, from), points: head.length }];
 
   // Хвіст їде звичайними частинами: кожна стартує з останньої точки
   // попередньої, щоб дорога не рвалася.
@@ -70,7 +70,18 @@ export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
 }
 
 /** Дорога від поточного місця водія через усі задані точки по порядку. */
-export function fromHereUrl(points: MapPoint[]): string {
+export function fromHereUrl(points: MapPoint[], from?: MapPoint | null): string {
+  /**
+   * Без origin Google викидає не лише старт, а й ПРОМІЖНІ точки: у
+   * застосунку відкривається сама остання (06.09.2026, бойова перевірка з
+   * маршруту помічника). Тому коли позиція невідома, беремо форму-шлях —
+   * вона показує всі точки, хоч і починає з першої.
+   */
+  if (!from) {
+    const path = points.map((p) => `${round(p.lat)},${round(p.lng)}`).join("/");
+    return `https://www.google.com/maps/dir/${path}/?travelmode=driving`;
+  }
+
   const dest = points[points.length - 1];
   const waypoints = points
     .slice(0, -1)
@@ -79,6 +90,7 @@ export function fromHereUrl(points: MapPoint[]): string {
 
   return (
     `https://www.google.com/maps/dir/?api=1` +
+    `&origin=${round(from.lat)},${round(from.lng)}` +
     `&destination=${round(dest.lat)},${round(dest.lng)}` +
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ChevronLeft, Sparkles } from "lucide-react";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
@@ -51,6 +51,23 @@ export function CabinetHeader({
 }) {
   const isApp = useIsNativeApp();
   const pathname = usePathname();
+  const search = useSearchParams();
+
+  /**
+   * «Назад» веде туди, звідки прийшли, коли це сказано в адресі.
+   *
+   * Помічник відкриває картку клієнта посеред розмови, і кнопка «назад»
+   * зі сторінки клієнта вела в список клієнтів — тобто розмова, у якій
+   * торговий щойно розбирався, лишалася позаду без жодного шляху до неї.
+   * Тепер посилання з помічника несуть `?back=`, а шапка його поважає.
+   *
+   * Приймаємо ЛИШЕ внутрішні шляхи кабінету: у параметрі адреси може
+   * опинитися будь-що, і відкривати за ним чужий сайт з логотипом Budvik
+   * ми не будемо.
+   */
+  const requested = search.get("back");
+  const backHref =
+    requested && /^\/(sales|driver)(\/|\?|$)/.test(requested) ? requested : backTo;
 
   /**
    * Помічник лежить у своїй секції, а не в спільній.
@@ -85,9 +102,9 @@ export function CabinetHeader({
           paddingBottom: "14px",
         }}
       >
-        {backTo ? (
+        {backHref ? (
           <Link
-            href={backTo}
+            href={backHref}
             aria-label="Назад"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
             style={{ background: "rgba(255,255,255,0.08)" }}

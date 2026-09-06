@@ -31,9 +31,18 @@ type Stop = {
   note?: string;
 };
 
-type Payload = { title?: string; stops: Stop[] };
+type Payload = {
+  title?: string;
+  stops: Stop[];
+  /**
+   * Де торговий зараз. Без неї Google Maps відкриває лише останню точку:
+   * проміжні він показує тільки поруч із явним стартом (див.
+   * lib/maps/google-links.ts).
+   */
+  from?: { lat: number; lng: number } | null;
+};
 
-export default function RoutePicker({ json }: { json: string }) {
+export default function RoutePicker({ json, backHref }: { json: string; backHref?: string }) {
   const payload = useMemo<Payload | null>(() => {
     try {
       const parsed = JSON.parse(json) as Payload;
@@ -50,7 +59,10 @@ export default function RoutePicker({ json }: { json: string }) {
     [payload, dropped]
   );
 
-  const links = useMemo(() => googleMapsLinksFromHere(chosen), [chosen]);
+  const links = useMemo(
+    () => googleMapsLinksFromHere(chosen, payload?.from ?? null),
+    [chosen, payload]
+  );
   const waze = useMemo(() => batchNavigateUrl(chosen.slice(0, 1), "waze"), [chosen]);
 
   if (!payload) return null;
@@ -108,7 +120,11 @@ export default function RoutePicker({ json }: { json: string }) {
                 </span>
               </button>
               <Link
-                href={`/sales/clients/${stop.id}`}
+                href={
+                  backHref
+                    ? `/sales/clients/${stop.id}?back=${encodeURIComponent(backHref)}`
+                    : `/sales/clients/${stop.id}`
+                }
                 aria-label="Відкрити картку клієнта"
                 className="flex items-center px-3 text-cab-t3"
               >

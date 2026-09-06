@@ -98,6 +98,8 @@ export type DayPlan = {
   /** Чому обрали не найтерміновіший напрямок. */
   moved: { direction: PlanDirection; reason: string } | null;
   route: RouteOrder | null;
+  /** Де торговий був востаннє — старт маршруту й точка відліку «поруч». */
+  start: { lat: number; lng: number } | null;
   note: string;
 };
 
@@ -289,6 +291,7 @@ export async function planDay(repId: string, day: string, limit = 30): Promise<D
     chosen,
     moved,
     route,
+    start: start ? { lat: start.lat, lng: start.lng } : null,
     note: base.примітка,
   };
 }

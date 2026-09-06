@@ -371,7 +371,8 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
               lat: c.lat,
               lng: c.lng,
               note: noteFor(c),
-            }))
+            })),
+            plan.start
           )
         : chosen.loose.map(stopLine)),
       ...(plan.route?.order.length && chosen.loose.length
@@ -462,10 +463,13 @@ export async function answerDayPlan(ctx: ToolContext, day: string): Promise<Dire
  */
 function routePicker(
   title: string,
-  stops: Array<{ id: string; name: string; lat: number; lng: number; note?: string }>
+  stops: Array<{ id: string; name: string; lat: number; lng: number; note?: string }>,
+  from?: { lat: number; lng: number } | null
 ): string[] {
   if (stops.length === 0) return [];
-  return ["```budvik-route", JSON.stringify({ title, stops }), "```"];
+  // `from` — остання точка треку: без неї Google губить проміжні зупинки
+  // (див. fromHereUrl у lib/maps/google-links.ts).
+  return ["```budvik-route", JSON.stringify({ title, stops, from: from ?? null }), "```"];
 }
 
 /**
@@ -1533,7 +1537,11 @@ export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<
         ? `${pointsWord(order.length)} · ${route.km} км · ~${hoursMinutes(route.minutes ?? 0)} у дорозі`
         : pointsWord(order.length),
       "",
-      ...routePicker("Маршрут", order.map((c) => ({ id: c.id, name: c.name, lat: c.lat, lng: c.lng }))),
+      ...routePicker(
+        "Маршрут",
+        order.map((c) => ({ id: c.id, name: c.name, lat: c.lat, lng: c.lng })),
+        start
+      ),
       noPin.length ? `\n_Без точки на карті, у порядок не стали: ${noPin.join(", ")}._` : null,
       unclear.length ? `_Не впізнав: ${unclear.join(", ")} — скажіть точніше._` : null,
       "",

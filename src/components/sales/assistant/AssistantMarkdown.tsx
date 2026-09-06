@@ -62,10 +62,21 @@ function clientHref(node: unknown): string | null {
 export default function AssistantMarkdown({
   content,
   onAsk,
+  backHref,
 }: {
   content: string;
   onAsk?: (text: string) => void;
+  /**
+   * Адреса цієї розмови. Дописується до кожного внутрішнього посилання,
+   * щоб «назад» із картки клієнта повертало сюди, а не в список клієнтів
+   * (див. CabinetHeader).
+   */
+  backHref?: string;
 }) {
+  const withBack = (url: string) => {
+    if (!backHref || !url.startsWith("/") || url.includes("back=")) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}back=${encodeURIComponent(backHref)}`;
+  };
   return (
     <div className="assistant-md text-[14px] leading-relaxed text-bk">
       <ReactMarkdown
@@ -75,7 +86,7 @@ export default function AssistantMarkdown({
             const url = String(href ?? "");
             if (url.startsWith("/")) {
               return (
-                <Link href={url} className="font-semibold text-bk underline underline-offset-2">
+                <Link href={withBack(url)} className="font-semibold text-bk underline underline-offset-2">
                   {children}
                 </Link>
               );
@@ -99,7 +110,7 @@ export default function AssistantMarkdown({
               <li className="my-1.5 list-none">
                 <span className="flex items-start gap-2 rounded-xl bg-cab-bg px-3 py-2.5">
                   <span className="min-w-0 flex-1 [&_a]:no-underline">{children}</span>
-                  <Link href={href} aria-label="Відкрити картку клієнта" className="pt-0.5">
+                  <Link href={withBack(href)} aria-label="Відкрити картку клієнта" className="pt-0.5">
                     <ChevronRight size={16} className="shrink-0 text-cab-t3" />
                   </Link>
                 </span>
@@ -131,7 +142,7 @@ export default function AssistantMarkdown({
             const node = Array.isArray(children) ? children[0] : children;
             const props = (node as { props?: { className?: string; children?: unknown } })?.props;
             if (typeof props?.className === "string" && props.className.includes("budvik-route")) {
-              return <RoutePicker json={String(props.children ?? "")} />;
+              return <RoutePicker json={String(props.children ?? "")} backHref={backHref} />;
             }
             return (
               <pre className="my-2 overflow-x-auto rounded-xl bg-cab-bg p-3 text-[12px]">

@@ -42,8 +42,11 @@ export function googleMapsLinks(points: MapPoint[]): MapLink[] {
  *
  * Порожній сегмент у формі-шляху (`/dir//точка/точка`) цього НЕ дає — Google
  * його просто ігнорує й починає з першої точки. Текст «My+Location» теж не
- * годиться: він геокодується як назва й веде в випадкове місто. Працює лише
- * api=1 без origin.
+ * годиться: він геокодується як назва й веде в випадкове місто.
+ *
+ * Ціна api=1 без origin виявилась вищою, ніж здавалося: разом зі стартом
+ * Google викидає й проміжні точки. Коли позиція людини відома, передавайте
+ * її другим аргументом — див. `fromHereUrl`.
  *
  * Перша частина везе РІВНО десять точок, а не девʼять.
  *
@@ -54,11 +57,11 @@ export function googleMapsLinks(points: MapPoint[]): MapLink[] {
  * наших точок. Через той запас десята зникала з посилання МОВЧКИ: водій
  * бачив у списку десять адрес, а в навігаторі девʼять.
  */
-export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
+export function googleMapsLinksFromHere(points: MapPoint[], from?: MapPoint | null): MapLink[] {
   if (points.length === 0) return [];
 
   const head = points.slice(0, MAX_POINTS_PER_LINK);
-  const links: MapLink[] = [{ url: fromHereUrl(head), points: head.length }];
+  const links: MapLink[] = [{ url: fromHereUrl(head, from), points: head.length }];
 
   // Хвіст їде звичайними частинами: кожна стартує з останньої точки
   // попередньої, щоб дорога не рвалася.
@@ -68,8 +71,32 @@ export function googleMapsLinksFromHere(points: MapPoint[]): MapLink[] {
   return links;
 }
 
-/** Дорога від поточного місця водія через усі задані точки по порядку. */
-export function fromHereUrl(points: MapPoint[]): string {
+/**
+ * Дорога через усі задані точки по порядку.
+ *
+ * ДВА ФОРМАТИ, і кожен має свою ваду — тому вибір залежить від того, чи
+ * знаємо ми, де людина зараз.
+ *
+ * `api=1` показує «Ваше місцезнаходження» стартом, коли origin не
+ * заданий, — але тоді Google ІГНОРУЄ `waypoints`, і в застосунку
+ * відкривається рівно одна точка, призначення (06.09.2026, бойова
+ * перевірка: у списку девʼять адрес, у навігаторі одна). Проміжні точки
+ * живуть лише поруч із явним origin.
+ *
+ * Форма-шлях `dir/A/B/C` показує всі точки завжди, але старт бере з
+ * першої: порожній перший сегмент Google просто викидає (перевірено
+ * 03.09.2026), а «My+Location» геокодує як назву міста.
+ *
+ * Тому: є координати людини — беремо api=1 з origin і маємо обидва
+ * потрібні; немає — форма-шлях, бо всі точки важливіші за красивий
+ * старт.
+ */
+export function fromHereUrl(points: MapPoint[], from?: MapPoint | null): string {
+  if (!from) {
+    const path = points.map((p) => `${round(p.lat)},${round(p.lng)}`).join("/");
+    return `https://www.google.com/maps/dir/${path}/?travelmode=driving`;
+  }
+
   const dest = points[points.length - 1];
   const waypoints = points
     .slice(0, -1)
@@ -78,6 +105,7 @@ export function fromHereUrl(points: MapPoint[]): string {
 
   return (
     `https://www.google.com/maps/dir/?api=1` +
+    `&origin=${round(from.lat)},${round(from.lng)}` +
     `&destination=${round(dest.lat)},${round(dest.lng)}` +
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`
@@ -98,18 +126,23 @@ function splitIntoLinks(
   return links;
 }
 
-/** Посилання «прокласти дорогу» через усі задані точки по порядку. */
+/**
+ * Посилання «прокласти дорогу» через усі задані точки по порядку.
+ *
+ * Тут origin явний — це перша точка частини, — тож проміжні Google
+ * показує без сюрпризів.
+ */
 export function directionsUrl(points: MapPoint[]): string {
   const origin = points[0];
   const dest = points[points.length - 1];
   const waypoints = points
     .slice(1, -1)
-    .map((p) => `${p.lat},${p.lng}`)
+    .map((p) => `${round(p.lat)},${round(p.lng)}`)
     .join("|");
 
   return (
-    `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}` +
-    `&destination=${dest.lat},${dest.lng}` +
+    `https://www.google.com/maps/dir/?api=1&origin=${round(origin.lat)},${round(origin.lng)}` +
+    `&destination=${round(dest.lat)},${round(dest.lng)}` +
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`
   );
@@ -176,9 +209,13 @@ export function navigateUrl(point: MapPoint, app: NavApp = "google"): string {
  * Порожня пачка дає порожній рядок, а не помилку: наприкінці дня вести
  * просто нікуди, і викликач має право цього не перевіряти.
  */
-export function batchNavigateUrl(points: MapPoint[], app: NavApp = "google"): string {
+export function batchNavigateUrl(
+  points: MapPoint[],
+  app: NavApp = "google",
+  from?: MapPoint | null
+): string {
   if (points.length === 0) return "";
   if (app === "waze" || points.length === 1) return navigateUrl(points[0], app);
-  return googleMapsLinksFromHere(points)[0]?.url ?? "";
+  return googleMapsLinksFromHere(points, from)[0]?.url ?? "";
 }
 

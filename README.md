@@ -20,6 +20,15 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## 1С — тільки читання
+
+**У базах 1С не робиться жодної зміни.** Ні даних, ні документів, ні
+реквізитів, ні довідників, ні користувачів, ні прав. Дозволено лише
+`SELECT` через COM і вивантаження прочитаного. Дані течуть в один бік:
+1С → сайт. Бракує даних або вони криві — виправляємо на боці сайту.
+
+Повний текст правила: [docs/1c-read-only.md](docs/1c-read-only.md).
+
 ## Міграції бази
 
 Білд на Vercel виконує лише `prisma generate`, **міграції він не накочує**. Тобто

@@ -64,6 +64,59 @@ export async function collectedByRepBrand(
   `;
 }
 
+export type CollectedByMethodRow = {
+  repId: string;
+  /** "cash" | "bank_transfer" | "online" — правило в apply-payments.ts */
+  method: string;
+  amount: number;
+};
+
+/**
+ * Зібрані кошти по торгових у розрізі способу оплати.
+ *
+ * Потрібно, бо «зібрано» досі змішувало дві різні речі: гроші, які
+ * торговий фізично привіз, і перекази клієнтів на рахунок, що прийшли
+ * без нього. У 1С обидва оформлені однаковим касовим ордером, тому до
+ * 05.09.2026 їх взагалі не можна було розрізнити на сайті.
+ *
+ * Окремим запитом, а не колонкою в collectedByRepBrand: там розріз по
+ * брендах, і додавання третього виміру роздуло б результат утричі
+ * заради числа, яке потрібне лише підсумком.
+ */
+export async function collectedByMethod(
+  from: Date,
+  to: Date,
+  repId?: string | null
+): Promise<CollectedByMethodRow[]> {
+  const repCondition = repId ? Prisma.sql`AND a."repId" = ${repId}` : Prisma.empty;
+
+  return prisma.$queryRaw<CollectedByMethodRow[]>`
+    SELECT
+      a."repId"            AS "repId",
+      COALESCE(p.method, 'cash') AS method,
+      SUM(a.amount)::float AS amount
+    FROM "PaymentAllocation" a
+    JOIN "Payment" p ON p.id = a."paymentId"
+    WHERE COALESCE(p."paidAt", p."createdAt") >= ${from}
+      AND COALESCE(p."paidAt", p."createdAt") <= ${to}
+      ${repCondition}
+    GROUP BY a."repId", COALESCE(p.method, 'cash')
+  `;
+}
+
+/** Спосіб оплати → сума, по кожному торговому. */
+export function collectedMethodMap(
+  rows: CollectedByMethodRow[]
+): Map<string, Record<string, number>> {
+  const map = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    const acc = map.get(row.repId) ?? {};
+    acc[row.method] = (acc[row.method] ?? 0) + row.amount;
+    map.set(row.repId, acc);
+  }
+  return map;
+}
+
 /** Підсумки по торгових без розрізу брендів. */
 export function collectedTotals(rows: CollectedRow[]): Map<string, { amount: number; profit: number }> {
   const map = new Map<string, { amount: number; profit: number }>();

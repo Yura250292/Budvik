@@ -44,6 +44,8 @@ type SummaryRow = {
   fuel: { cost: number; workKm: number; hasVehicle: boolean };
   collected: number;
   collectedProfit: number;
+  /** Із чого складається «зібрано»: ключ — Payment.method, значення — сума */
+  collectedByMethod: Record<string, number>;
   receivables: {
     total: number;
     overdue: number;
@@ -70,6 +72,7 @@ type SummaryResponse = {
     plan: { target: number; actual: number; attainment: number };
     fuelCost: number;
     collected: number;
+    collectedByMethod: Record<string, number>;
     receivableTotal: number;
     receivableOverdue: number;
     receivableUnknown: number;
@@ -236,6 +239,26 @@ function ReceivablesPanel({ repId }: { repId: string }) {
   );
 }
 
+/**
+ * Підпис під «зібрано»: скільки з цих грошей прийшло не готівкою.
+ *
+ * Показуємо саме неготівкову частину, а не всі три числа: питання, на яке
+ * відповідає колонка, — «скільки торговий реально привіз». Переказ на
+ * рахунок приходить без нього, хоч у 1С і оформлений тим самим касовим
+ * ордером.
+ *
+ * Порожньо, поки бекфіл агента не доїхав: до 05.09.2026 усі оплати лежали
+ * пласкою «готівкою», і підпис «усе готівка» був би неправдою.
+ */
+function nonCashHint(byMethod: Record<string, number>): string | null {
+  const bank = byMethod.bank_transfer ?? 0;
+  const online = byMethod.online ?? 0;
+  const parts: string[] = [];
+  if (bank > 0) parts.push(`банк ${money(bank)}`);
+  if (online > 0) parts.push(`інтернет ${money(online)}`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 export function SummaryTab({ period }: { period: Period }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -333,7 +356,14 @@ export function SummaryTab({ period }: { period: Period }) {
                     )}
                   </td>
 
-                  <td className="px-4 py-3 text-right tabular-nums text-g600">{money(r.collected)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-g600">
+                    {money(r.collected)}
+                    {nonCashHint(r.collectedByMethod) && (
+                      <span className="block text-[11px] font-normal text-g400">
+                        {nonCashHint(r.collectedByMethod)}
+                      </span>
+                    )}
+                  </td>
 
                   <td className="px-4 py-3 text-right">
                     <button
@@ -420,7 +450,14 @@ export function SummaryTab({ period }: { period: Period }) {
                   )}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-g600">{money(totals.fuelCost)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-g600">{money(totals.collected)}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-g600">
+                  {money(totals.collected)}
+                  {nonCashHint(totals.collectedByMethod) && (
+                    <span className="block text-[11px] font-normal text-g400">
+                      {nonCashHint(totals.collectedByMethod)}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right tabular-nums text-bk">
                   {money(totals.receivableTotal)}
                   {totals.receivableOverdue > 0 && (

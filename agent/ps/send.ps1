@@ -167,6 +167,7 @@ $totals = [ordered]@{ created = 0; updated = 0; skipped = 0; failed = 0; discrep
 $realizationsSent = 0
 $returnsSent = 0
 $receiptsSent = 0
+$paymentsSent = 0
 $seq = 0
 $sendError = $null
 
@@ -271,6 +272,7 @@ try {
         if ($step.entity -eq "realization_doc") { $realizationsSent = $sent }
         if ($step.entity -eq "return_doc") { $returnsSent = $sent }
         if ($step.entity -eq "purchase_doc") { $receiptsSent = $sent }
+        if ($step.entity -eq "payment") { $paymentsSent = $sent }
         Log ("{0}: {1} records sent" -f $step.entity, $sent)
     }
 }
@@ -316,7 +318,8 @@ if (-not $sendError -and $complete.status -eq "completed") {
         @{ flag = "realizationsBackfilledAt"; sent = $realizationsSent; label = "realization" },
         @{ flag = "returnsBackfilledAt";      sent = $returnsSent;      label = "returns"     },
         @{ flag = "costBackfilledAt";         sent = $realizationsSent; label = "cost of sales" },
-        @{ flag = "receiptsBackfilledAt";     sent = $receiptsSent;     label = "goods receipts" }
+        @{ flag = "receiptsBackfilledAt";     sent = $receiptsSent;     label = "goods receipts" },
+        @{ flag = "paymentsBackfilledAt";     sent = $paymentsSent;     label = "payments" }
     )
     foreach ($bf in $backfills) {
         if ($bf.sent -le 0) { continue }

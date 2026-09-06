@@ -185,6 +185,13 @@ $costBackfilledAt = $null
 # and no producer here at all, so its history starts from scratch and needs
 # its own one-off reach-back.
 $receiptsBackfilledAt = $null
+# Payments have been shipped since day one, but only as a flat "cash": the
+# contract and cash-desk columns were added on 05.09.2026, and every payment
+# already on the site carries neither. One reach-back re-reads them so the
+# server can classify bank transfers apart from a rep's cash. It deliberately
+# stops at the earliest payment the site already has (2026-05-12): reaching
+# further would invent collection history that never existed here.
+$paymentsBackfilledAt = $null
 if (Test-Path $statePath) {
     try {
         $s = ReadJsonUtf8 $statePath
@@ -192,6 +199,7 @@ if (Test-Path $statePath) {
         if ($s.returnsBackfilledAt) { $returnsBackfilledAt = [string]$s.returnsBackfilledAt }
         if ($s.costBackfilledAt) { $costBackfilledAt = [string]$s.costBackfilledAt }
         if ($s.receiptsBackfilledAt) { $receiptsBackfilledAt = [string]$s.receiptsBackfilledAt }
+        if ($s.paymentsBackfilledAt) { $paymentsBackfilledAt = [string]$s.paymentsBackfilledAt }
     } catch {
         # Unreadable state means the backfill simply repeats -- upserts by
         # Ref_Key, so a repeat costs time, not correctness.
@@ -1395,15 +1403,37 @@ try {
             Log ("debt: SKIPPED -- " + $_.Exception.Message)
         }
 
-        # --- cash payments ---
+        # --- customer payments (cash order documents) ---
         # Best-effort, same reasoning as debt above.
+        #
+        # The document is a CASH order, but the money is not necessarily cash:
+        # bank transfers from customers are booked with the very same document
+        # under the "Bezgotivka" contract -- 996 of them, 16.2M UAH a year.
+        # So the contract and cash-desk names travel with every record and the
+        # SERVER decides the method (classifyPaymentMethod in apply-payments.ts).
+        # Deciding here would bury a business rule in PowerShell on a machine
+        # only reachable through RDP.
         Log "reading payments..."
         try {
+            $paymentsFrom = $docsFrom
+            if (-not $paymentsBackfilledAt) {
+                # One-off reach-back so payments already on the site get their
+                # contract and cash desk. Default is the earliest payment the
+                # site holds; earlier dates would create collection history
+                # that never existed here.
+                $bf = "2026-05-12"
+                if ($config.documents -and $config.documents.paymentsFrom) {
+                    $bf = [string]$config.documents.paymentsFrom
+                }
+                try { $paymentsFrom = ParseDay $bf; Log ("payments: one-off backfill from {0}" -f $bf) }
+                catch { Log ("payments: bad paymentsFrom '" + $bf + "', using normal window"); $paymentsFrom = $docsFrom }
+            }
+
             $w = NewWriter (Join-Path $OutDir "payment.ndjson")
             $n = 0
             $q = $ib.NewObject("Query")
             $q.Text = [string]$queries.paymentsSince
-            $q.SetParameter([string]$queries.paramFrom, $docsFrom)
+            $q.SetParameter([string]$queries.paramFrom, $paymentsFrom)
             $rs = $q.Execute()
             if ($null -eq $rs) { throw "Execute() returned null on payments query" }
             $r = $rs.Choose()
@@ -1411,14 +1441,19 @@ try {
                 $id = RefId $ib $r.Get(0)
                 $cp = RefId $ib $r.Get(3)
                 if (-not $id -or -not $cp) { continue }
-                WriteRecord $w ([ordered]@{
+                $rec = [ordered]@{
                     externalId              = $id
                     counterpartyExternalId  = $cp
                     number                  = Str $r.Get(1)
                     date                    = IsoDate $r.Get(2)
                     amount                  = Num $r.Get(4)
-                    method                  = "cash"
-                })
+                }
+                # Own try/catch each: an agent running against a base whose
+                # query still lacks these columns must keep shipping payments,
+                # not fall over reading past the end of the row.
+                try { $v = Str $r.Get(5); if ($v) { $rec.contractName = $v } } catch { }
+                try { $v = Str $r.Get(6); if ($v) { $rec.cashDesk = $v } } catch { }
+                WriteRecord $w $rec
                 $n++
             }
             $w.Close()
@@ -1602,6 +1637,9 @@ try {
     }
     if ($receiptsBackfilledAt) {
         $newState.receiptsBackfilledAt = $receiptsBackfilledAt
+    }
+    if ($paymentsBackfilledAt) {
+        $newState.paymentsBackfilledAt = $paymentsBackfilledAt
     }
     [IO.File]::WriteAllText(
         $statePath,

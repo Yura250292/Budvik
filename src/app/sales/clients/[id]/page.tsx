@@ -65,6 +65,17 @@ function Thumb({ src, size = 44 }: { src?: string | null; size?: number }) {
   );
 }
 
+/**
+ * Підписи способів оплати. Значення пише обмін
+ * (classifyPaymentMethod у src/lib/sync-ingest/apply-payments.ts);
+ * "bank_transfer" також стоїть у ручних оплатах за замовчуванням.
+ */
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  cash: "Готівка",
+  bank_transfer: "Безготівково",
+  online: "Інтернет-магазин",
+};
+
 export default function ClientDetailPage() {
   const { data: session } = useSession();
   const params = useParams();
@@ -215,7 +226,13 @@ export default function ClientDetailPage() {
                       {formatDate(p.paidAt || p.createdAt)}
                     </span>
                     <span className="block truncate text-[11px] text-cab-t3">
-                      {p.notes || (p.method === "cash" ? "Готівка" : "Безготівково")}
+                      {/* Спосіб оплати поруч із номером ордера, а не замість
+                          нього: у 1С банківський переказ оформлюють тим самим
+                          касовим ордером, тож із самого номера не видно, чи
+                          торговий ці гроші справді забирав. */}
+                      {[p.notes, PAYMENT_METHOD_LABEL[p.method as string]]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </span>
                   <span className="shrink-0 text-[15px] font-bold text-ok-fg">

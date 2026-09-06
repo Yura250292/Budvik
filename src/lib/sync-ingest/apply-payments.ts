@@ -18,6 +18,44 @@ import type { PaymentRecord } from "./types";
 import type { ApplyContext } from "./context";
 import { rollbackPayment } from "./rollback-payment";
 
+/**
+ * Спосіб оплати за назвою договору й каси з 1С.
+ *
+ * Документ, який шле обмін, — ПРИБУТКОВИЙ КАСОВИЙ ОРДЕР, тому донедавна
+ * усі оплати лежали як «готівка». Це неправда: банківські перекази
+ * клієнтів у цій базі оформлюють тим самим ордером, за договором
+ * «Безготівка» — 996 документів на 16,2 млн за рік проти 15,9 млн
+ * реалізацій за цим договором (проба probe-costs.ps1 E1, 05.09.2026).
+ * Каса «БЕЗГОТІВКА ГРН» при цьому майже не використовується, тож
+ * визначати спосіб лише по касі не можна.
+ *
+ * Різниця не косметична: «зібрано» торгового — це гроші, які він
+ * фізично привіз. Переказ на рахунок приходить без нього.
+ *
+ * Правило свідомо живе на сервері, а не в агенті: PowerShell на сервері
+ * 1С правиться лише через RDP руками, і будь-яке уточнення (в 1С
+ * трапляються описки на кшталт «Безготіка») коштувало б виїзду в сесію.
+ * Сирі `contractName` і `cashDesk` зберігаються поруч, щоб правило можна
+ * було переграти на вже завантажених оплатах.
+ */
+export function classifyPaymentMethod(rec: {
+  contractName?: string;
+  cashDesk?: string;
+  method?: string;
+}): string {
+  const hay = `${rec.contractName ?? ""} ${rec.cashDesk ?? ""}`.toLowerCase();
+
+  // Порожній рядок = старий агент або порожні поля в 1С. Тоді лишаємо
+  // те, що прислали, а без нього — готівку: це все-таки касовий ордер.
+  if (!hay.trim()) return rec.method || "cash";
+
+  // «безгот» ловить і «Безготівка», і «БЕЗГОТІВКА ГРН», і описку «Безготіка».
+  if (hay.includes("безгот")) return "bank_transfer";
+  // «Інтернет покупець» (договір) і «ГРН Інтернет» (каса) — інтернет-магазин.
+  if (hay.includes("інтернет")) return "online";
+  return "cash";
+}
+
 /** Синтетичний контрагент-заглушка не створюється: без клієнта оплату не застосовуємо. */
 export async function applyPayments(
   records: PaymentRecord[],
@@ -51,10 +89,12 @@ async function applyOne(rec: PaymentRecord, ctx: ApplyContext): Promise<void> {
     return;
   }
 
+  const method = classifyPaymentMethod(rec);
+
   // Ідемпотентність: та сама оплата з 1С не має подвоїти нарахування.
   const existing = await prisma.payment.findUnique({
     where: { externalId: rec.externalId },
-    select: { id: true, amount: true },
+    select: { id: true, amount: true, method: true, contractName: true, cashDesk: true },
   });
 
   if (existing) {
@@ -63,7 +103,33 @@ async function applyOne(rec: PaymentRecord, ctx: ApplyContext): Promise<void> {
     // інша, і жодного сліду про розбіжність. Відкочуємо старий запис і
     // створюємо наново — так само, як робить 1С, переписуючи документ.
     if (Math.abs(existing.amount - rec.amount) < 0.01) {
-      ctx.skipped++;
+      // Сума та сама, але спосіб оплати міг доїхати вперше: усі 3 025
+      // оплат, завантажених до 05.09.2026, лежать як «готівка» без
+      // договору й каси. Оновлюємо тільки ці поля — рознесення на
+      // торгового (PaymentAllocation) не чіпаємо, воно від способу не
+      // залежить.
+      const stale =
+        existing.method !== method ||
+        (rec.contractName ?? null) !== existing.contractName ||
+        (rec.cashDesk ?? null) !== existing.cashDesk;
+
+      if (!stale) {
+        ctx.skipped++;
+        return;
+      }
+      if (ctx.isPreview) {
+        ctx.updated++;
+        return;
+      }
+      await prisma.payment.update({
+        where: { id: existing.id },
+        data: {
+          method,
+          contractName: rec.contractName ?? null,
+          cashDesk: rec.cashDesk ?? null,
+        },
+      });
+      ctx.updated++;
       return;
     }
 
@@ -140,7 +206,9 @@ async function applyOne(rec: PaymentRecord, ctx: ApplyContext): Promise<void> {
     data: {
       invoiceId: invoice.id,
       amount: rec.amount,
-      method: rec.method || "bank_transfer",
+      method,
+      contractName: rec.contractName ?? null,
+      cashDesk: rec.cashDesk ?? null,
       notes: rec.number ? `№${rec.number} (1С)` : null,
       paidAt,
       externalId: rec.externalId,

@@ -17,7 +17,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod, parseMonth } from "@/lib/analytics/period";
 import { fuelCost, revenueByRep, shiftFactsByUser, NO_SHIFTS } from "@/lib/analytics/facts";
-import { collectedByRepBrand, collectedTotals, receivableRowsByRep, agingByRep } from "@/lib/analytics/money-facts";
+import {
+  collectedByRepBrand,
+  collectedTotals,
+  collectedByMethod,
+  collectedMethodMap,
+  receivableRowsByRep,
+  agingByRep,
+} from "@/lib/analytics/money-facts";
 import { EMPTY_AGING } from "@/lib/erp/receivables";
 import { earningsByRep } from "@/lib/motivation/period-facts";
 import { attainmentPercent } from "@/lib/motivation/engine";
@@ -51,7 +58,17 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
 
-  const [reps, revenue, shiftFacts, vehicles, collected, receivableRows, plans, monthRevenue] = await Promise.all([
+  const [
+    reps,
+    revenue,
+    shiftFacts,
+    vehicles,
+    collected,
+    collectedMethods,
+    receivableRows,
+    plans,
+    monthRevenue,
+  ] = await Promise.all([
     // База рядків — усі торгові, а не лише ті, хто продавав: торговий без
     // продажів, але з дебіторкою і витратами на паливо — теж рядок, і саме
     // такий рядок найцікавіший.
@@ -66,6 +83,9 @@ export async function GET(req: NextRequest) {
       select: { repId: true, label: true, fuelConsumption: true, fuelPricePerL: true },
     }),
     collectedByRepBrand(period.from, period.to, repFilter),
+    // Розбивка того самого «зібрано» за способом оплати: готівка торгового
+    // проти переказу, що прийшов на рахунок без нього.
+    collectedByMethod(period.from, period.to, repFilter),
     receivableRowsByRep(repFilter),
     prisma.salesPlan.findMany({
       where: {
@@ -95,6 +115,7 @@ export async function GET(req: NextRequest) {
   const shiftsByRepId = new Map(shiftFacts.map((f) => [f.userId, f]));
   const vehicleByRepId = new Map(vehicles.map((v) => [v.repId, v]));
   const collectedByRepId = collectedTotals(collected);
+  const methodsByRepId = collectedMethodMap(collectedMethods);
   const aging = agingByRep(receivableRows);
   const planByRepId = new Map(plans.map((p) => [p.repId ?? "", p.targetValue]));
 
@@ -128,6 +149,11 @@ export async function GET(req: NextRequest) {
       fuel: { cost: fuel.cost, workKm: fuel.workKm, hasVehicle: vehicleByRepId.has(rep.id) },
       collected: money.amount,
       collectedProfit: money.profit,
+      /**
+       * Із чого складається «зібрано»: готівка, переказ, інтернет-магазин.
+       * Ключі — значення Payment.method, суми в гривні.
+       */
+      collectedByMethod: methodsByRepId.get(rep.id) ?? {},
       receivables: {
         total: debt.total,
         overdue: debt.overdue,
@@ -183,6 +209,12 @@ export async function GET(req: NextRequest) {
       },
       fuelCost: sum((r) => r.fuel.cost),
       collected: sum((r) => r.collected),
+      collectedByMethod: rows.reduce<Record<string, number>>((acc, r) => {
+        for (const [method, value] of Object.entries(r.collectedByMethod)) {
+          acc[method] = (acc[method] ?? 0) + value;
+        }
+        return acc;
+      }, {}),
       receivableTotal: sum((r) => r.receivables.total),
       receivableOverdue: sum((r) => r.receivables.overdue),
       receivableUnknown: sum((r) => r.receivables.unknown),

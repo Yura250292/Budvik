@@ -109,6 +109,8 @@ type Detail = {
         counterpartyName: string | null;
       }>;
       pointsCount: number;
+      /** День, проріджений для прокручування: де людина була о котрій. */
+      timeline?: Array<{ at: string; lat: number; lng: number; speedKmh: number | null }>;
       /** Час останньої точки — щоб у відкритій зміні показати «де він зараз». */
       lastAt: string | null;
       lastTime: string | null;
@@ -969,6 +971,7 @@ export function ShiftsTab({
                     base={detail.plan.base}
                     live={detail.shift.status === "OPEN"}
                     fitKey={detail.shift.id}
+                    timeline={detail.track.shift.timeline ?? []}
                     lastPointAt={detail.track.shift.lastAt}
                     lastPointTime={detail.track.shift.lastTime}
                     height="480px"

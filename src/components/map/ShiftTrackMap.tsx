@@ -26,7 +26,7 @@
  * вона там пробула. Режим «тільки зупинки» ховає лінію зовсім.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FRAMED_MAP_OPTIONS, MapFrame, attachWheelGate, useWheelGate } from "./MapFrame";
@@ -116,6 +116,7 @@ export default function ShiftTrackMap({
   focusOrderId = null,
   base = null,
   live = false,
+  timeline = [],
   lastPointAt = null,
   lastPointTime = null,
   fitKey = null,
@@ -166,6 +167,12 @@ export default function ShiftTrackMap({
    * тієї точки інше: де він зараз або де його бачили востаннє.
    */
   live?: boolean;
+  /**
+   * День, проріджений для прокручування: де людина була о котрій.
+   *
+   * Порожньо — повзунка немає й карта поводиться як раніше.
+   */
+  timeline?: Array<{ at: string; lat: number; lng: number; speedKmh: number | null }>;
   /** Час останньої точки: ISO для свіжості й готовий рядок для підпису. */
   lastPointAt?: string | null;
   lastPointTime?: string | null;
@@ -189,6 +196,29 @@ export default function ShiftTrackMap({
   /** Для якого саме об'єкта межі вже підганяли — див. fitKey. */
   const fittedRef = useRef<string | null | undefined>(undefined);
   const orderMarkersRef = useRef<Map<string, L.CircleMarker>>(new Map());
+  /**
+   * Машинка на треку живе ОКРЕМИМ шаром і окремим ефектом.
+   *
+   * Інакше кожен рух повзунка перемальовував би весь день — усі лінії,
+   * зупинки, замовлення й план, — і тягнути машинку було б неможливо.
+   */
+  const carRef = useRef<L.Marker | null>(null);
+  const [cursor, setCursor] = useState(0);
+  const [playing, setPlaying] = useState(false);
+
+  /**
+   * Новий день — повзунок на початок.
+   *
+   * Скидаємо ПІД ЧАС РЕНДЕРУ, а не в ефекті: інакше після відкриття іншої
+   * зміни встиг би промалюватися кадр із машинкою на позиції з попереднього
+   * дня. Це офіційний спосіб React для стану, похідного від пропса.
+   */
+  const [shownKey, setShownKey] = useState(fitKey);
+  if (fitKey !== shownKey) {
+    setShownKey(fitKey);
+    setCursor(0);
+    setPlaying(false);
+  }
   const { wheelActive, onWheelChange } = useWheelGate();
 
   useEffect(() => {
@@ -509,9 +539,131 @@ export default function ShiftTrackMap({
     };
   }, []);
 
+  /**
+   * Машинка на позиції повзунка.
+   *
+   * Ефект залежить ЛИШЕ від курсора й самої стрічки: карта під ним не
+   * перемальовується, тож тягнути можна скільки завгодно плавно.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const at = timeline[Math.min(cursor, timeline.length - 1)];
+    if (!at) {
+      carRef.current?.remove();
+      carRef.current = null;
+      return;
+    }
+
+    const label = new Date(at.at).toLocaleTimeString("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const speed = at.speedKmh != null && at.speedKmh > 0 ? ` · ${at.speedKmh} км/год` : "";
+
+    const icon = L.divIcon({
+      className: "",
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+      html: `<div style="
+        width:34px;height:34px;border-radius:50%;
+        background:#111827;border:3px solid #fff;
+        box-shadow:0 3px 10px rgba(0,0,0,0.35);
+        display:flex;align-items:center;justify-content:center;font-size:17px;
+      ">🚚</div>`,
+    });
+
+    if (carRef.current) {
+      carRef.current.setLatLng([at.lat, at.lng]).setIcon(icon);
+    } else {
+      carRef.current = L.marker([at.lat, at.lng], { icon, zIndexOffset: 1000 }).addTo(map);
+    }
+    carRef.current
+      .bindTooltip(`${label}${speed}`, { permanent: true, direction: "top", offset: [0, -14] })
+      .openTooltip();
+
+    // Машинка не має тікати за край: якщо вийшла з видимого — підводимо карту.
+    if (!map.getBounds().pad(-0.15).contains([at.lat, at.lng])) {
+      map.panTo([at.lat, at.lng], { animate: true });
+    }
+  }, [cursor, timeline]);
+
+  /** Програвання: крок стрічки за десяту секунди. */
+  useEffect(() => {
+    if (!playing || timeline.length === 0) return;
+    const timer = setInterval(() => {
+      // Зупинку вирішуємо ЗОВНІ оновлювача: викликати setState усередині
+      // іншого setState — шлях до подвійних спрацювань у строгому режимі.
+      setCursor((c) => Math.min(c + 1, timeline.length - 1));
+    }, 100);
+    return () => clearInterval(timer);
+  }, [playing, timeline.length]);
+
+
+  // Доїхали до кінця — зупиняємось (теж під час рендеру, без ефекту).
+  if (playing && timeline.length > 0 && cursor >= timeline.length - 1) setPlaying(false);
+
+  const at = timeline[Math.min(cursor, Math.max(0, timeline.length - 1))];
+  const hhmm = (iso: string) =>
+    new Date(iso).toLocaleTimeString("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
   return (
-    <MapFrame height={height} wheelActive={wheelActive}>
-      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
-    </MapFrame>
+    <>
+      <MapFrame height={height} wheelActive={wheelActive}>
+        <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+      </MapFrame>
+
+      {timeline.length > 1 && (
+        /*
+          Прокручування дня. Питання, на яке воно відповідає, — «де він був о
+          котрій», і саме тому час стоїть великим числом поруч із повзунком, а
+          не в підказці: його читають, а не шукають.
+        */
+        <div className="flex items-center gap-3" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            onClick={() => setPlaying((p) => !p)}
+            style={{
+              width: 34, height: 34, borderRadius: "50%", border: "1px solid #D1D5DB",
+              background: playing ? "#111827" : "#fff", color: playing ? "#fff" : "#111827",
+              fontSize: 13, lineHeight: 1, cursor: "pointer", flexShrink: 0,
+            }}
+            title={playing ? "Пауза" : "Програти день"}
+          >
+            {playing ? "❚❚" : "▶"}
+          </button>
+
+          <input
+            type="range"
+            min={0}
+            max={timeline.length - 1}
+            value={Math.min(cursor, timeline.length - 1)}
+            onChange={(e) => {
+              setPlaying(false);
+              setCursor(Number(e.target.value));
+            }}
+            style={{ flex: 1, accentColor: "#2563EB" }}
+            aria-label="Час дня"
+          />
+
+          <span
+            style={{
+              fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: 15,
+              minWidth: 52, textAlign: "right",
+            }}
+          >
+            {at ? hhmm(at.at) : "—"}
+          </span>
+          <span style={{ fontSize: 12, color: "#6B7280", minWidth: 96 }}>
+            {timeline.length > 0 && `${hhmm(timeline[0].at)}–${hhmm(timeline[timeline.length - 1].at)}`}
+          </span>
+        </div>
+      )}
+    </>
   );
 }

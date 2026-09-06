@@ -33,6 +33,34 @@ import { autoCloseNote, closeWithoutPhoto } from "@/lib/shift/reconcile";
 
 export const dynamic = "force-dynamic";
 
+/** Скільки точок віддаємо в стрічку прокручування. */
+const TIMELINE_POINTS = 500;
+
+/**
+ * Рівномірно проріджує день для повзунка.
+ *
+ * Рівномірно за ПОРЯДКОМ, а не за часом: там, де точок густо (місто), крок
+ * виходить дрібніший, і машинка рухається плавніше саме там, де це цікаво.
+ * Перша й остання точки лишаються завжди — інакше повзунок не доїжджав би до
+ * країв дня.
+ */
+function thinForTimeline(
+  points: Array<{ lat: number; lng: number; recordedAt: Date; speedKmh: number | null }>
+): Array<{ at: string; lat: number; lng: number; speedKmh: number | null }> {
+  if (points.length === 0) return [];
+  const step = Math.max(1, Math.ceil(points.length / TIMELINE_POINTS));
+  const out: Array<{ at: string; lat: number; lng: number; speedKmh: number | null }> = [];
+  for (let i = 0; i < points.length; i += step) {
+    const p = points[i];
+    out.push({ at: p.recordedAt.toISOString(), lat: p.lat, lng: p.lng, speedKmh: p.speedKmh });
+  }
+  const last = points[points.length - 1];
+  if (out[out.length - 1]?.at !== last.recordedAt.toISOString()) {
+    out.push({ at: last.recordedAt.toISOString(), lat: last.lat, lng: last.lng, speedKmh: last.speedKmh });
+  }
+  return out;
+}
+
 const ALLOWED_ROLES = ["ADMIN", "MANAGER"];
 
 export async function GET(
@@ -238,6 +266,15 @@ export async function GET(
          * людина зараз або де її бачили востаннє». Без цих двох полів карта
          * підписувала її «Кінець зміни» посеред робочого дня.
          */
+        /**
+         * Стрічка для прокручування дня: де торговий був о котрій.
+         *
+         * Проріджена навмисно. Повний день — це до трьох тисяч точок, і
+         * тягнути їх у браузер заради повзунка немає сенсу: людина рухає
+         * машинку, а не рахує фікси. Півтисячі вистачає, щоб на десятигодинній
+         * зміні крок був близько хвилини.
+         */
+        timeline: thinForTimeline(shiftPoints),
         lastAt: shiftPoints.length > 0 ? shiftPoints[shiftPoints.length - 1].recordedAt : null,
         lastTime:
           shiftPoints.length > 0

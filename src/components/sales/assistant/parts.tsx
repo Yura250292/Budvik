@@ -10,9 +10,16 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, RotateCcw, SendHorizontal, Square, Wrench } from "lucide-react";
+import { ChevronDown, Mic, RotateCcw, SendHorizontal, Square, Volume2, VolumeX, Wrench } from "lucide-react";
 import AssistantMarkdown from "./AssistantMarkdown";
 import { COPY } from "./copy";
+import {
+  createRecognition,
+  speak,
+  speechOutputSupported,
+  stopSpeaking,
+  voiceInputSupported,
+} from "./voice";
 import type { ToolTrace, UiMessage } from "./api";
 
 export function MessageBubble({
@@ -46,10 +53,58 @@ export function MessageBubble({
   return (
     <div className="rounded-2xl border border-cab-line bg-white p-3.5">
       <AssistantMarkdown content={message.content} onAsk={onAsk} backHref={backHref} />
-      {message.tools.length > 0 && (
-        <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />
-      )}
+      <div className="mt-1 flex items-center gap-2">
+        <SpeakButton text={message.content} />
+        {message.tools.length > 0 && (
+          <div className="min-w-0 flex-1">
+            <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/**
+ * «Прочитати вголос».
+ *
+ * Кнопки немає там, де синтезу немає взагалі, — щоб не обіцяти того, чого
+ * не буде. Друге натискання зупиняє: відповідь на пів екрана слухати до
+ * кінця ніхто не буде.
+ */
+function SpeakButton({ text }: { text: string }) {
+  const [on, setOn] = useState(false);
+  const supported = typeof window !== "undefined" && speechOutputSupported();
+
+  useEffect(() => () => stopSpeaking(), []);
+  if (!supported) return null;
+
+  return (
+    <button
+      type="button"
+      aria-label={on ? "Зупинити читання" : "Прочитати вголос"}
+      onClick={() => {
+        if (on) {
+          stopSpeaking();
+          setOn(false);
+          return;
+        }
+        speak(text);
+        setOn(true);
+        // Стан повертається сам, коли синтез замовк: окремої події в
+        // браузерах на це немає, тому просто опитуємо.
+        const timer = setInterval(() => {
+          if (!window.speechSynthesis.speaking) {
+            setOn(false);
+            clearInterval(timer);
+          }
+        }, 500);
+      }}
+      className="flex h-7 items-center gap-1 rounded-full border border-cab-line px-2 text-[11px] font-semibold text-cab-t3"
+    >
+      {on ? <VolumeX size={12} /> : <Volume2 size={12} />}
+      {on ? "Стоп" : "Вголос"}
+    </button>
   );
 }
 
@@ -205,6 +260,50 @@ export function Composer({
   busy: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [listening, setListening] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
+  const recognition = useRef<ReturnType<typeof createRecognition>>(null);
+  const supportsVoice = typeof window !== "undefined" && voiceInputSupported();
+
+  /**
+   * Продиктоване лягає в поле, а не летить одразу в чат.
+   *
+   * Розпізнавання плутає прізвища й артикули, а питання з помилкою
+   * коштує ходу моделі. Людина бачить текст і виправляє одним дотиком —
+   * або просто тисне «надіслати».
+   */
+  const startVoice = () => {
+    if (listening) {
+      recognition.current?.stop();
+      return;
+    }
+    setMicError(null);
+    const started = new Date().toISOString();
+    const instance = createRecognition({
+      onText: (text) => onChange(text),
+      onEnd: () => {
+        setListening(false);
+        recognition.current = null;
+      },
+      onError: (error) => {
+        setListening(false);
+        setMicError(
+          error === "not-allowed" || error === "service-not-allowed"
+            ? "Мікрофон заборонено — дозвольте його в налаштуваннях браузера"
+            : error === "no-speech"
+              ? "Не почув — спробуйте ще раз"
+              : "Не вдалося розпізнати"
+        );
+      },
+    });
+    if (!instance) return;
+    recognition.current = instance;
+    setListening(true);
+    void started;
+    instance.start();
+  };
+
+  useEffect(() => () => recognition.current?.abort(), []);
 
   // Поле росте до чотирьох рядків і далі прокручується: питання на пів
   // екрана витіснило б саму розмову.
@@ -216,7 +315,12 @@ export function Composer({
   }, [value]);
 
   return (
-    <div className="flex items-end gap-2 border-t border-cab-line bg-white px-4 py-2.5">
+    <div className="border-t border-cab-line bg-white px-4 py-2.5">
+      {micError && <p className="mb-1.5 text-[11px] text-bad-fg">{micError}</p>}
+      {listening && (
+        <p className="mb-1.5 text-[11px] font-semibold text-info-fg">🎤 Слухаю — говоріть</p>
+      )}
+      <div className="flex items-end gap-2">
       <textarea
         ref={ref}
         rows={1}
@@ -247,6 +351,19 @@ export function Composer({
       >
         {busy ? <Square size={16} fill="currentColor" /> : <SendHorizontal size={18} />}
       </button>
+      {supportsVoice && !busy && (
+        <button
+          type="button"
+          aria-label={listening ? "Зупинити диктування" : "Сказати питання"}
+          onClick={startVoice}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+            listening ? "bg-bk text-white" : "border border-cab-line text-cab-t2"
+          }`}
+        >
+          <Mic size={18} />
+        </button>
+      )}
+      </div>
     </div>
   );
 }

@@ -46,29 +46,49 @@ export async function searchProducts(
   repId: string,
   limit = 8
 ): Promise<ProductHit[]> {
-  const rows = await searchProductsOnce(query, repId, limit, 0);
   /**
-   * Друга спроба з коротшою основою.
+   * Три спроби, від найточнішої до найширшої.
    *
-   * «Що беруть разом із кругами Ataman» не знаходило нічого: основа
-   * «круга» не збігається з «Круг». Те саме, що з клієнтами (див.
-   * client-search.ts), і так само лише тоді, коли перша спроба порожня —
-   * коротка основа сама по собі знаходить пів каталогу.
+   * Пошук іде підрядком, а підрядок бреше: «пін» сидить усередині
+   * «стуПІНчастих свердел» і «кемПІНгу», тож на питання про піну
+   * відповідь починалася з набору свердел, у якого якраз був залишок.
+   * Тому спершу шукаємо слово — назви, де основа стоїть на початку
+   * слова, або товари того самого ВИДУ з класифікатора. І лише коли
+   * таких немає взагалі, вертаємось до чесного підрядка: краще показати
+   * зайве, ніж «не знайшли» на товар, який лежить на складі.
    */
-  if (rows.length > 0) return rows;
-  return searchProductsOnce(query, repId, limit, 1);
+  const strict = await searchProductsOnce(query, repId, limit, 0, true);
+  if (strict.length > 0) return strict;
+
+  const loose = await searchProductsOnce(query, repId, limit, 0, false);
+  if (loose.length > 0) return loose;
+
+  // Остання спроба — коротша основа: «кругами» → «круг» (див. search-words).
+  return searchProductsOnce(query, repId, limit, 1, false);
 }
 
 async function searchProductsOnce(
   query: string,
   repId: string,
   limit: number,
-  cut: number
+  cut: number,
+  strict: boolean
 ): Promise<ProductHit[]> {
   // Послівно й по основах: питають «скільки ще піни Soma fix», а в базі
   // «SOMA FIX Піна монтажна…». Див. search-words.ts.
   const patterns = searchPatterns(query, 6, cut);
   const like = `%${query.replace(/[%_]/g, "")}%`;
+
+  /**
+   * Збіг НА ПОЧАТКУ СЛОВА важить більше за збіг усередині.
+   *
+   * На «піна» каталог чесно повертав і «Лампочку для кемПІНгу», і скотч
+   * «ПІНо-акриловий» — підрядок той самий. Людина ж має на увазі слово,
+   * тому спершу показуємо ті назви, де воно окреме, а решту лишаємо
+   * нижче: викидати їх не можна, бо саме там ховається «Піна-клей».
+   */
+  const firstWord = (query.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{3,}/) ?? [])[0] ?? "";
+  const wordStart = firstWord ? `(^|[^А-Яа-яІіЇїЄєҐґA-Za-z])${stem(firstWord)}` : null;
 
   return prisma.$queryRaw<ProductHit[]>`
     WITH ${LAST_COST}, ${LAST_SALE}, ${FREE_STOCK_ALL}, ${myClientsCte(repId)},
@@ -102,7 +122,28 @@ async function searchProductsOnce(
         OR p.sku ILIKE ${like}
         OR ${query} = ANY(p.barcodes)
       )
-    ORDER BY (p.sku = ${query}) DESC, (p.price > 0) DESC, COALESCE(fs.free, 0) DESC, p.priority DESC
+      ${
+        strict && wordStart
+          ? Prisma.sql`AND (p.name ~* ${wordStart} OR p."typeKey" ~* ${wordStart} OR p.sku ILIKE ${like})`
+          : Prisma.empty
+      }
+    ORDER BY
+      (p.sku = ${query}) DESC,
+      -- Доречність уже забезпечена умовою вище, тож тут — те, що можна
+      -- продати сьогодні: спитали «скільки є», а не «що це таке».
+      (p.price > 0 AND COALESCE(fs.free, 0) > 0) DESC,
+      /**
+       * Далі — просто залишок.
+       *
+       * Пробував додати сюди вид із класифікатора, щоб «піна» стояла
+       * вище за «піно-акриловий скотч». Вийшло гірше: у типі «піна»
+       * лежать і очищувач, і пістолет для піни, зате «Піна-клей» —
+       * найходовіша позиція — має тип «клей» і провалилася вниз.
+       * Класифікатор для цього завузький.
+       */
+      COALESCE(fs.free, 0) DESC,
+      (p.price > 0) DESC,
+      p.priority DESC
     LIMIT ${limit}
   `;
 }

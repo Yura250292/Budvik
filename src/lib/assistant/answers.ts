@@ -1116,7 +1116,18 @@ export async function answerRecommend(ctx: ToolContext, subject: string): Promis
 export async function answerClientCard(ctx: ToolContext, subject: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
-  if ("none" in found) return { markdown: notFound(subject), tools };
+  /**
+   * Клієнта немає — можливо, питали про товар.
+   *
+   * «Що там з піною» шаблон читає як питання про клієнта, і чесна
+   * відповідь «такого клієнта немає» тут — найгірша з можливих: людина
+   * бачить, що її не зрозуміли, і більше так не питає.
+   */
+  if ("none" in found) {
+    const asProduct = await searchProducts(subject, ctx.scope.repId, 1);
+    if (asProduct.length > 0) return answerProduct(ctx, subject);
+    return { markdown: notFound(subject), tools };
+  }
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
 
   const client = found.hit;
@@ -1221,7 +1232,25 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
   ]);
 
   if (hits.length === 0) {
-    return { markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`, tools };
+    /**
+     * Не товар — може, клієнт.
+     *
+     * «Що там з піною» і «що там з Кунанцем» — та сама фраза, і розділити
+     * їх наперед неможливо. Тому замість «не знайшли» пробуємо другий
+     * довідник: людина питала про щось конкретне, а не про наш поділ на
+     * товари й контрагентів.
+     */
+    const asClient = await findClients(query, ctx.scope.repId, { limit: 2 });
+    if (asClient.length > 0) return answerClientCard(ctx, query);
+
+    return {
+      markdown: md([
+        `## 📦 ${query}`,
+        "",
+        "Ні товару, ні клієнта з такою назвою не знайшли. Спробуйте артикул або одне точне слово з назви.",
+      ]),
+      tools,
+    };
   }
 
   const statById = new Map(stats.map((s) => [s.productId, s]));

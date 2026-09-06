@@ -22,7 +22,9 @@ import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
 import { clientProductRhythm, recommendations } from "@/lib/analytics/clientOrder";
 import { kyivDayEnd, kyivDayStart, kyivOffsetMs } from "@/lib/date/kyiv";
-import { shiftDay } from "@/lib/analytics/period";
+import { parseMonth, shiftDay } from "@/lib/analytics/period";
+import { kyivDate } from "@/lib/date/kyiv";
+import type { PeriodSpec } from "@/lib/assistant/router";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { orderStops, planDay } from "@/lib/assistant/facts/day-plan";
 import {
@@ -187,18 +189,90 @@ async function timed<T>(meta: Timed, job: () => Promise<T>, into: DirectAnswer["
   return value;
 }
 
-/** Період у тому вигляді, який очікує аналітика. */
-function periodOf(today: string, dayCount: number) {
-  let fromDay = shiftDay(today, -(dayCount - 1));
-  if (fromDay < ANALYTICS_SINCE_DAY) fromDay = ANALYTICS_SINCE_DAY;
+/**
+ * Період у тому вигляді, який очікує аналітика, — і його підпис.
+ *
+ * «Місяць» тут означає КАЛЕНДАРНИЙ місяць (рішення власника 06.09.2026):
+ * саме так живуть план і мотивація, і саме так це слово розуміє людина.
+ * Ковзні 30 днів лишаються, але тільки коли їх попросили явно.
+ *
+ * Підпис віддається разом із періодом навмисно: та сама відповідь раніше
+ * показувала суму за 7 серпня — 6 вересня, а блок плану під нею — з
+ * 1 вересня, і жодне з двох чисел не було підписане.
+ */
+function periodOf(today: string, spec: PeriodSpec) {
+  const clamp = (day: string) => (day < ANALYTICS_SINCE_DAY ? ANALYTICS_SINCE_DAY : day);
+
+  if (spec.kind === "month") {
+    const monthKey = spec.offset === 0 ? today.slice(0, 7) : shiftMonthKey(today.slice(0, 7), -1);
+    const parsed = parseMonth(monthKey);
+    const toDay = spec.offset === 0 ? today : kyivDate(parsed.to);
+    return buildPeriod(
+      clamp(`${monthKey}-01`),
+      toDay,
+      spec.offset === 0
+        ? `за ${monthLabel(monthKey, today)} (1–${Number(today.slice(8, 10))})`
+        : `за ${monthLabel(monthKey, today)}`
+    );
+  }
+
+  if (spec.kind === "range") {
+    const toDay = spec.to > today ? today : spec.to;
+    const fromDay = clamp(spec.from);
+    return buildPeriod(fromDay, toDay, `з ${dayMonth(fromDay)} по ${dayMonth(toDay)}`);
+  }
+
+  const fromDay = clamp(shiftDay(today, -(spec.days - 1)));
+  return buildPeriod(fromDay, today, `за ${days(spec.days)} (${dayMonth(fromDay)} — ${dayMonth(today)})`);
+}
+
+function buildPeriod(fromDay: string, toDay: string, label: string) {
+  const span = Math.round(
+    (new Date(`${toDay}T12:00:00Z`).getTime() - new Date(`${fromDay}T12:00:00Z`).getTime()) / 86_400_000
+  );
   return {
     fromDay,
-    toDay: today,
+    toDay,
     from: kyivDayStart(fromDay),
-    to: kyivDayEnd(today),
-    days: dayCount,
+    to: kyivDayEnd(toDay),
+    days: Math.max(1, span + 1),
     clamped: false,
+    label,
   };
+}
+
+/** Перша літера велика — підпис періоду вживається і як початок речення. */
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** «7 серпня» — день і місяць так, як їх вимовляють. */
+function dayMonth(day: string): string {
+  const MONTHS_GEN = [
+    "січня", "лютого", "березня", "квітня", "травня", "червня",
+    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+  ];
+  return `${Number(day.slice(8, 10))} ${MONTHS_GEN[Number(day.slice(5, 7)) - 1]}`;
+}
+
+/** «2026-09» + (−1) → «2026-08». */
+function shiftMonthKey(monthKey: string, delta: number): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Кнопки вибору періоду під аналітичною відповіддю.
+ *
+ * Питання торгового звучить однаково, а період у голові різний: одному
+ * треба місяць, іншому «а за два». Замість того щоб учити формулювань,
+ * показуємо готові.
+ */
+function periodChips(question: string): string {
+  return followUps(
+    `${question} за 30 днів`,
+    `${question} за 60 днів`,
+    `${question} за минулий місяць`
+  );
 }
 
 /* ── План дня ─────────────────────────────────────────────────────────── */
@@ -633,7 +707,7 @@ export async function answerDebts(ctx: ToolContext): Promise<DirectAnswer> {
 
 export async function answerChurn(ctx: ToolContext): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, 30);
+  const period = periodOf(ctx.today, { kind: "days", days: 30 });
 
   const all = await timed(
     { name: "action_candidates", label: "Дивлюся, хто згасає" },
@@ -734,9 +808,9 @@ export async function answerDeadStock(ctx: ToolContext, brand: string | null): P
 
 /* ── Продажі за період ────────────────────────────────────────────────── */
 
-export async function answerSales(ctx: ToolContext, dayCount: number): Promise<DirectAnswer> {
+export async function answerSales(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, dayCount);
+  const period = periodOf(ctx.today, spec);
 
   const s = await timed(
     { name: "sales_summary", label: "Рахую продажі за період" },
@@ -749,7 +823,7 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
 
   return {
     markdown: md([
-      `## 📈 Продажі за ${days(dayCount)}`,
+      `## 📈 Продажі ${period.label}`,
       "",
       ...table(
         ["Показник", "Значення"],
@@ -770,7 +844,7 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
       "",
       change == null
         ? ""
-        : `_За попередні ${days(dayCount)} було ${money(s.попередній_період!.сума)}._`,
+        : `_За попередній такий самий відрізок було ${money(s.попередній_період!.сума)}._`,
       "",
       plan.план > 0
         ? md([
@@ -790,6 +864,8 @@ export async function answerSales(ctx: ToolContext, dayCount: number): Promise<D
       ),
       "",
       "_Рахуються реалізації (відвантажене), суми нетто — повернення відняті._",
+      "",
+      periodChips("Скільки я продав"),
       "",
       followUps("Чи витягну план?", "Як я на фоні команди?", "Чому змінився оборот?"),
     ]),
@@ -1347,9 +1423,9 @@ export async function answerSubstitute(ctx: ToolContext, query: string): Promise
  * Причин повернень 1С не передає, тож пояснювати «чому» ми не беремося —
  * показуємо повторюваність, і це вже привід для розмови.
  */
-export async function answerReturns(ctx: ToolContext, dayCount: number): Promise<DirectAnswer> {
+export async function answerReturns(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, dayCount);
+  const period = periodOf(ctx.today, spec);
 
   const [facts, repeated] = await Promise.all([
     timed({ name: "returns", label: "Розбираю повернення" }, () => returnsFacts(ctx.scope.repId, period), tools),
@@ -1358,7 +1434,7 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
 
   if (facts.docs === 0) {
     return {
-      markdown: `За ${days(dayCount)} у вас жодного повернення. По команді середня частка ${percent(facts.teamShare)} від валу.`,
+      markdown: `${capitalize(period.label)} — жодного повернення. По команді середня частка ${percent(facts.teamShare)} від валу.`,
       tools,
     };
   }
@@ -1399,7 +1475,7 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
 
   return {
     markdown: md([
-      `## ↩️ Повернення за ${days(dayCount)}`,
+      `## ↩️ Повернення ${period.label}`,
       "",
       ...table(
         ["💸 Сума", "🧾 Документів", "📊 Частка від валу", "👥 Медіана команди"],
@@ -1424,6 +1500,8 @@ export async function answerReturns(ctx: ToolContext, dayCount: number): Promise
       ...repeatedBlock,
       "",
       "_Причину повернення 1С не передає — її видно лише з розмови з клієнтом._",
+      "",
+      periodChips("Скільки в мене повернень"),
       "",
       followUps("Чому вони повертають?", "Як це б'є по моїй маржі?"),
     ]),
@@ -1807,11 +1885,11 @@ export async function answerNearby(ctx: ToolContext, radiusKm: number | null): P
  */
 export async function answerPayments(
   ctx: ToolContext,
-  dayCount: number,
+  spec: PeriodSpec,
   subject: string | null
 ): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, dayCount);
+  const period = periodOf(ctx.today, spec);
 
   if (subject) {
     const found = await resolveClient(ctx, subject, tools);
@@ -1819,7 +1897,10 @@ export async function answerPayments(
     if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
 
     const client = found.hit;
-    const wide = periodOf(ctx.today, Math.max(dayCount, 60));
+    // Питання «чи заплатив» майже завжди про «останнім часом», а не про
+    // вибраний період: беремо ширше вікно, щоб не відповідати «немає» на
+    // оплату двотижневої давнини.
+    const wide = periodOf(ctx.today, { kind: "days", days: 60 });
     const list = await timed(
       { name: "client_payments", label: "Дивлюся оплати клієнта" },
       () => clientPayments(client.id, wide),
@@ -1831,7 +1912,7 @@ export async function answerPayments(
         markdown: md([
           `## 💵 Оплати · ${clientLink(client.id, client.name)}`,
           "",
-          `За ${days(wide.days)} жодної оплати від цього клієнта не бачимо.`,
+          `За останні 60 днів жодної оплати від цього клієнта не бачимо.`,
           "",
           followUps("Скільки він винен?", "Як говорити про борг?"),
         ]),
@@ -1848,7 +1929,7 @@ export async function answerPayments(
           list.map((p) => [p.дата, money(p.сума), p.спосіб ?? "—"])
         ),
         "",
-        `_Разом за ${days(wide.days)}: **${money(list.reduce((sum, p) => sum + p.сума, 0))}**._`,
+        `_Разом за останні 60 днів: **${money(list.reduce((sum, p) => sum + p.сума, 0))}**._`,
         "",
         followUps("Скільки він ще винен?", "З чим до нього заходити?"),
       ]),
@@ -1865,7 +1946,7 @@ export async function answerPayments(
   if (facts.оплат === 0) {
     return {
       markdown: md([
-        `## 💵 Оплати за ${days(dayCount)}`,
+        `## 💵 Оплати ${period.label}`,
         "",
         "Жодної оплати за цей період на вас не рознесено.",
         "",
@@ -1877,7 +1958,7 @@ export async function answerPayments(
 
   return {
     markdown: md([
-      `## 💵 Оплати за ${days(dayCount)}`,
+      `## 💵 Оплати ${period.label}`,
       "",
       ...table(
         ["💰 Разом", "🧾 Оплат", "👥 Клієнтів"],
@@ -1945,9 +2026,9 @@ const METRIC_ICONS: Partial<Record<MetricKey, string>> = {
  * самі перцентилі, і торговий бачив «6 з 9», не розуміючи, скільки саме
  * не вистачає до п'ятого місця — тобто змагання без табло.
  */
-export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promise<DirectAnswer> {
+export async function answerBenchmark(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, dayCount);
+  const period = periodOf(ctx.today, spec);
 
   const [report, forecast] = await Promise.all([
     timed({ name: "team_benchmark", label: "Порівнюю з командою" }, () => teamBenchmark(period), tools),
@@ -1957,7 +2038,7 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
   const me = report.reps.find((r) => r.repId === ctx.scope.repId);
   if (!me) {
     return {
-      markdown: `За ${days(dayCount)} у вас немає реалізацій, тож порівнювати нема з чим.`,
+      markdown: `${capitalize(period.label)} у вас немає реалізацій, тож порівнювати нема з чим.`,
       tools,
     };
   }
@@ -1993,6 +2074,15 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
   // Скільки бракує, щоб піднятися на сходинку. Це і є мета на завтра.
   const ahead = board[board.indexOf(me) - 1];
   const gap = ahead ? (ahead.revenue ?? 0) - (me.revenue ?? 0) : 0;
+  /**
+   * На початку місяця табло майже порожнє.
+   *
+   * Третього числа різниця між людьми — це різниця в тому, хто встиг
+   * виписати накладну вранці, а не в роботі. Мовчати про це не можна:
+   * саме за таким рейтингом ухвалюють «він провалює місяць».
+   */
+  const early = period.label.includes("(1–") && Number(ctx.today.slice(8, 10)) <= 7;
+
   const chase = ahead
     ? `🎯 До ${board.indexOf(ahead) + 1} місця (${ahead.name}) бракує **${money(gap)}** — це ${money(gap / Math.max(1, forecast.днів_лишилось || 1))} на день до кінця місяця.`
     : "👑 Ви перший у команді за оборотом — тримайте.";
@@ -2012,7 +2102,7 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
 
   return {
     markdown: md([
-      `## 🏆 Табло команди · ${days(dayCount)}`,
+      `## 🏆 Табло команди · ${period.label}`,
       `Ваше місце за оборотом: **${me.place} з ${report.reps.length}**.`,
       "",
       "| # | Торговий | Оборот | Від лідера | Динаміка |",
@@ -2020,6 +2110,9 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
       ...boardRows,
       "",
       chase,
+      early
+        ? "_⏳ Місяць щойно почався — числа ще випадкові. Для порівняння людей надійніші 30 днів._"
+        : "",
       "",
       "### 📊 Ваші показники проти команди",
       "",
@@ -2033,6 +2126,8 @@ export async function answerBenchmark(ctx: ToolContext, dayCount: number): Promi
       ...forecastBlock(forecast),
       "",
       "_🟢 сильно · 🟡 середньо · 🔴 слабко. «Позаду вас» — яка частка команди слабша за вас у цьому рядку: 72 % означає, що краще за вас лише кожен четвертий._",
+      "",
+      periodChips("Як я на фоні команди"),
       "",
       followUps(
         weakest ? `Чому провисає ${METRICS[weakest].label.toLowerCase()}?` : null,
@@ -2128,9 +2223,9 @@ export async function answerForecast(ctx: ToolContext): Promise<DirectAnswer> {
  * маржею нижче середньої — це не «найкращий клієнт», а найбільший
  * споживач знижки, і поводитися з ним треба інакше.
  */
-export async function answerAbcClients(ctx: ToolContext, dayCount: number): Promise<DirectAnswer> {
+export async function answerAbcClients(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const period = periodOf(ctx.today, dayCount);
+  const period = periodOf(ctx.today, spec);
 
   const report = await timed(
     { name: "abc_clients", label: "Рахую ABC по клієнтах" },
@@ -2139,7 +2234,7 @@ export async function answerAbcClients(ctx: ToolContext, dayCount: number): Prom
   );
 
   if (report.rows.length === 0) {
-    return { markdown: `За ${days(dayCount)} продажів немає, ABC рахувати нема на чому.`, tools };
+    return { markdown: `${capitalize(period.label)} продажів немає, ABC рахувати нема на чому.`, tools };
   }
 
   const a = report.rows.filter((r) => r.abc === "A");
@@ -2164,7 +2259,7 @@ export async function answerAbcClients(ctx: ToolContext, dayCount: number): Prom
 
   return {
     markdown: md([
-      `## 🅰️ Хто тримає ваш оборот · ${days(dayCount)}`,
+      `## 🅰️ Хто тримає ваш оборот · ${period.label}`,
       "",
       ...table(
         ["Клас", "👥 Клієнтів", "💰 Оборот", "Що це"],

@@ -40,18 +40,18 @@ export type Intent =
   | { kind: "DEBTS" }
   | { kind: "CHURN" }
   | { kind: "DEAD_STOCK"; brand: string | null }
-  | { kind: "SALES"; days: number }
+  | { kind: "SALES"; period: PeriodSpec }
   | { kind: "ROUTE"; weekday: number | null }
   | { kind: "ENTRY_OFFER"; subject: string | null }
   | { kind: "RECOMMEND"; subject: string | null }
   | { kind: "CLIENT_CARD"; subject: string | null }
   | { kind: "PRODUCT"; query: string }
-  | { kind: "RETURNS"; days: number }
-  | { kind: "BENCHMARK"; days: number }
-  | { kind: "ABC_CLIENTS"; days: number }
+  | { kind: "RETURNS"; period: PeriodSpec }
+  | { kind: "BENCHMARK"; period: PeriodSpec }
+  | { kind: "ABC_CLIENTS"; period: PeriodSpec }
   | { kind: "FORECAST" }
   | { kind: "NEARBY"; radiusKm: number | null }
-  | { kind: "PAYMENTS"; days: number; subject: string | null }
+  | { kind: "PAYMENTS"; period: PeriodSpec; subject: string | null }
   | { kind: "ROUTE_TO"; names: string[] }
   | { kind: "REMIND"; text: string }
   | { kind: "REMINDERS" }
@@ -146,6 +146,22 @@ function weekdayIn(text: string): number | null {
 }
 
 /**
+ * Який період мали на увазі.
+ *
+ * «Місяць» — це КАЛЕНДАРНИЙ місяць, з першого числа (рішення власника
+ * 06.09.2026). Доти будь-яке «за місяць» перетворювалося на ковзні 30
+ * днів, і в одній відповіді верхня сума йшла за 7 серпня — 6 вересня, а
+ * блок плану під нею — з 1 вересня. Пояснити цю різницю неможливо, а
+ * помічатися вона починає рівно тоді, коли за нею ухвалюють рішення.
+ */
+export type PeriodSpec =
+  | { kind: "days"; days: number }
+  /** offset 0 — поточний місяць, -1 — попередній. */
+  | { kind: "month"; offset: 0 | -1 }
+  /** Руками названі межі: «з 01.08 по 15.08». */
+  | { kind: "range"; from: string; to: string };
+
+/**
  * «за тиждень», «за місяць», «за 45 днів» — інакше типові 30.
  *
  * Межа слова тут виписана як (^|\s), а не \b. У JavaScript \b визначена
@@ -153,13 +169,43 @@ function weekdayIn(text: string): number | null {
  * /\bтижд/ не знаходить «за тиждень» узагалі, і період мовчки лишався
  * місячним на кожне питання про тиждень.
  */
-function periodIn(text: string, fallback = 30): number {
-  if (/(^|\s)сьогодн/i.test(text)) return 1;
-  if (/(^|\s)тижд|(^|\s)тижн/i.test(text)) return 7;
-  if (/(^|\s)квартал/i.test(text)) return 90;
+function periodIn(
+  text: string,
+  fallback: PeriodSpec = { kind: "month", offset: 0 }
+): PeriodSpec {
+  if (/(^|\s)сьогодн/i.test(text)) return { kind: "days", days: 1 };
+  if (/(^|\s)тижд|(^|\s)тижн/i.test(text)) return { kind: "days", days: 7 };
+  if (/(^|\s)квартал/i.test(text)) return { kind: "days", days: 90 };
+
+  /**
+   * Межі руками: «з 01.08 по 15.08».
+   *
+   * Рік можна не називати — беремо поточний; якщо початок виявився
+   * пізнішим за кінець, це минулорічний хвіст (грудень → січень).
+   */
+  const range = /з\s+(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{2,4}))?\s+(?:по|до)\s+(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{2,4}))?/i.exec(
+    text
+  );
+  if (range) {
+    const iso = (d: string, m: string, y: string | undefined, fallbackYear: number) => {
+      const year = y ? (y.length === 2 ? 2000 + Number(y) : Number(y)) : fallbackYear;
+      return `${year}-${String(Number(m)).padStart(2, "0")}-${String(Number(d)).padStart(2, "0")}`;
+    };
+    const year = new Date().getFullYear();
+    const from = iso(range[1], range[2], range[3], year);
+    const to = iso(range[4], range[5], range[6], year);
+    if (from <= to) return { kind: "range", from, to };
+    return { kind: "range", from: `${Number(from.slice(0, 4)) - 1}${from.slice(4)}`, to };
+  }
+
   const explicit = /за\s+(\d{1,3})\s*(дн|день|днів|дні)/i.exec(text);
-  if (explicit) return Math.min(365, Math.max(1, Number(explicit[1])));
-  if (/(^|\s)(місяц|місяць)/i.test(text)) return 30;
+  if (explicit) {
+    return { kind: "days", days: Math.min(365, Math.max(1, Number(explicit[1]))) };
+  }
+
+  if (/(минул|попередн)[а-яіїєґ]*\s+місяц/i.test(text)) return { kind: "month", offset: -1 };
+  if (/(^|\s)(місяц|місяць)/i.test(text)) return { kind: "month", offset: 0 };
+
   return fallback;
 }
 
@@ -260,7 +306,7 @@ export function detectIntent(
   }
 
   if (/(поверненн|повертают|повернул|повертає|повернень)/i.test(text)) {
-    return { kind: "RETURNS", days: periodIn(text, 90) };
+    return { kind: "RETURNS", period: periodIn(text, { kind: "days", days: 90 }) };
   }
 
   /**
@@ -327,7 +373,7 @@ export function detectIntent(
     const subject =
       subjectAfter(text, /(чи\s+заплатив|заплатив|платив|оплатив)\s+/i) ??
       subjectAfter(text, /(оплати\s+(від|по))\s*/i);
-    return { kind: "PAYMENTS", days: periodIn(text, 7), subject };
+    return { kind: "PAYMENTS", period: periodIn(text, { kind: "days", days: 7 }), subject };
   }
 
   /**
@@ -350,7 +396,7 @@ export function detectIntent(
       text
     )
   ) {
-    return { kind: "BENCHMARK", days: periodIn(text) };
+    return { kind: "BENCHMARK", period: periodIn(text) };
   }
 
   if (
@@ -358,7 +404,7 @@ export function detectIntent(
       text
     )
   ) {
-    return { kind: "ABC_CLIENTS", days: periodIn(text, 180) };
+    return { kind: "ABC_CLIENTS", period: periodIn(text, { kind: "days", days: 180 }) };
   }
 
   if (/(борг|дебіторк|прострочен|прострочк|заборгован|хто\s+(мені\s+)?винен|нагадати\s+про\s+гроші)/i.test(text)) {
@@ -370,7 +416,7 @@ export function detectIntent(
       text
     )
   ) {
-    return { kind: "SALES", days: periodIn(text) };
+    return { kind: "SALES", period: periodIn(text) };
   }
 
   if (/(маршрут|куди\s+я\s+(їжджу|їзжу)|де\s+я\s+буваю|звичн\w+\s+маршрут)/i.test(text)) {

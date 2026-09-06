@@ -89,7 +89,7 @@ export async function tryDirectAnswer(
       return answerDeadStock(ctx, intent.brand);
 
     case "SALES":
-      return answerSales(ctx, intent.days);
+      return answerSales(ctx, intent.period);
 
     case "ROUTE":
       return answerRoute(ctx, intent.weekday);
@@ -119,10 +119,10 @@ export async function tryDirectAnswer(
       return answerProduct(ctx, intent.query);
 
     case "RETURNS":
-      return answerReturns(ctx, intent.days);
+      return answerReturns(ctx, intent.period);
 
     case "BENCHMARK":
-      return answerBenchmark(ctx, intent.days);
+      return answerBenchmark(ctx, intent.period);
 
     case "ROUTE_TO":
       return answerRouteTo(ctx, intent.names);
@@ -137,13 +137,13 @@ export async function tryDirectAnswer(
       return answerNearby(ctx, intent.radiusKm);
 
     case "PAYMENTS":
-      return answerPayments(ctx, intent.days, subjectOf(intent.subject));
+      return answerPayments(ctx, intent.period, subjectOf(intent.subject));
 
     case "FORECAST":
       return answerForecast(ctx);
 
     case "ABC_CLIENTS":
-      return answerAbcClients(ctx, intent.days);
+      return answerAbcClients(ctx, intent.period);
 
     case "DRIVER_DAY": {
       const day =

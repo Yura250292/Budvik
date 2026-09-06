@@ -20,7 +20,8 @@ import { prisma } from "@/lib/prisma";
 import { ymd } from "@/lib/assistant/format";
 import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-actions";
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
-import { clientProductRhythm, recommendations } from "@/lib/analytics/clientOrder";
+import { clientProductRhythm, lastOrders, ordersSince, recommendations } from "@/lib/analytics/clientOrder";
+import { clientProductPurchases } from "@/lib/assistant/facts/client-purchases";
 import { kyivDayEnd, kyivDayStart, kyivOffsetMs } from "@/lib/date/kyiv";
 import { parseMonth, shiftDay } from "@/lib/analytics/period";
 import { kyivDate } from "@/lib/date/kyiv";
@@ -1213,6 +1214,189 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
       ),
     ]),
     tools,
+  };
+}
+
+/* ── Остання накладна й «чи брав він…» ────────────────────────────────── */
+
+/**
+ * «Покажи останню накладну Кунанця».
+ *
+ * Двічі за тестування це питання йшло в модель по 17 тисяч токенів — і
+ * то заради переказу трьох рядків документа, які код віддає за секунду.
+ */
+export async function answerLastOrder(ctx: ToolContext, subject: string): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const found = await resolveClient(ctx, subject, tools);
+  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+
+  const client = found.hit;
+  const orders = await timed(
+    { name: "last_orders", label: "Дивлюся останні документи" },
+    () => lastOrders(client.id, { since: ordersSince(12), limit: 3 }),
+    tools
+  );
+
+  if (orders.length === 0) {
+    return {
+      markdown: md([
+        `## 🧾 ${clientLink(client.id, client.name)}`,
+        "",
+        "За рік жодного документа — цей клієнт у нас ще нічого не брав.",
+        "",
+        followUps("Що йому запропонувати?", "З чим сюди заходити?"),
+      ]),
+      tools,
+    };
+  }
+
+  const last = orders[0];
+  const earlier = orders.slice(1);
+
+  return {
+    markdown: md([
+      `## 🧾 ${last.docType === "RETURN" ? "Останнє повернення" : "Остання накладна"} · ${clientLink(client.id, client.name)}`,
+      "",
+      ...table(
+        ["№", "📅 Дата", "💰 Сума"],
+        [[last.number, `${last.createdAt.slice(0, 10)} (${days(last.daysAgo)} тому)`, money(last.totalAmount)]]
+      ),
+      "",
+      ...table(
+        ["Товар", "Кіл.", "💵 Ціна", "Сума"],
+        last.items
+          .slice(0, 12)
+          .map((i) => [
+            productLink(short(i.name, 30), i.sku),
+            Math.round(i.quantity * 100) / 100,
+            money(i.sellingPrice),
+            money(i.amount),
+          ])
+      ),
+      last.items.length > 12 ? `_…і ще ${items(last.items.length - 12)}._` : "",
+      ...(earlier.length
+        ? [
+            "",
+            "### 📚 Попередні",
+            ...earlier.map(
+              (o) =>
+                `- ${o.docType === "RETURN" ? "↩️" : "🧾"} ${o.number} · ${o.createdAt.slice(0, 10)} · ${money(o.totalAmount)}`
+            ),
+          ]
+        : []),
+      "",
+      followUps("Що йому запропонувати?", "Скільки він винен?", "З чим сюди заходити?"),
+    ]),
+    tools,
+  };
+}
+
+/**
+ * «Чи брав Налисник піну і коли».
+ *
+ * Питання про ПЕРЕТИН клієнта й товару, і саме воно найдорожче йшло в
+ * модель: п'ять ходів по 12–24 тисячі токенів за одну відповідь. Дані
+ * ті самі, що й у картці з фільтром товару, — просто тепер їх дістає код.
+ */
+export async function answerClientProduct(
+  ctx: ToolContext,
+  subject: string,
+  product: string
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const found = await resolveClient(ctx, subject, tools);
+  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+
+  const client = found.hit;
+  const facts = await timed(
+    { name: "client_purchases", label: "Дивлюся закупівлі клієнта" },
+    () => clientProductPurchases(client.id, product),
+    tools
+  );
+
+  if (!facts.брав) {
+    return {
+      markdown: md([
+        `## 📦 ${clientLink(client.id, client.name)} · ${product}`,
+        "",
+        `Такого товару в накладних цього клієнта немає — жодного разу за всю історію.`,
+        "",
+        followUps(`Хто ще бере ${product}?`, "Що він бере зазвичай?"),
+      ]),
+      tools,
+    };
+  }
+
+  return {
+    markdown: md([
+      `## 📦 ${clientLink(client.id, client.name)} · ${product}`,
+      "",
+      ...table(
+        ["🧾 Разів", "📦 Кількість", "💰 Сума", "📅 Останній раз"],
+        [[
+          facts.разом!.документів,
+          facts.разом!.кількість,
+          money(facts.разом!.сума),
+          facts.разом!.останній_раз ?? "—",
+        ]]
+      ),
+      "",
+      ...table(
+        ["📅 Дата", "Товар", "Кіл.", "💵 Ціна"],
+        (facts.рядки ?? [])
+          .slice(0, 8)
+          .map((r) => [
+            r.дата ?? "—",
+            productLink(short(r.назва, 28), r.артикул),
+            `${r.кількість}${r.вид === "повернення" ? " ↩️" : ""}`,
+            money(r.ціна),
+          ])
+      ),
+      "",
+      followUps("Пора повторити?", "Скільки цього на складі?", "З чим сюди заходити?"),
+    ]),
+    tools,
+  };
+}
+
+/** «Що ти вмієш» — коротка карта можливостей, без моделі. */
+export async function answerHelp(ctx: ToolContext): Promise<DirectAnswer> {
+  const driver = ctx.kind === "DRIVER";
+  return {
+    markdown: md(
+      driver
+        ? [
+            "## 🤖 Що я вмію",
+            "",
+            "- 🚚 **Маршрут на день** — точки, гроші до забору, примітки логіста",
+            "- 💰 **Каса** — скільки зібрано, здано й лишилось на руках",
+            "- 🏪 **Клієнт** — адреса, телефон, борг, що про нього знаємо",
+            "- 📦 **Товар** — чи є на складі й почім",
+            "- ⏰ **Нагадування** — «нагадай завтра о 9 заїхати на склад»",
+            "",
+            followUps("Що в мене сьогодні на маршруті", "Скільки в касі"),
+          ]
+        : [
+            "## 🤖 Що я вмію",
+            "",
+            "- 📅 **План дня** — маршрут в один бік, з тим, чим торгувати",
+            "- 🧭 **Маршрут за списком** — «побудуй маршрут: Кунанець, Левкович»",
+            "- 📍 **Хто поруч** — кого захопити, поки ви в цьому районі",
+            "- 💰 **Борги й оплати** — хто винен, хто заплатив, скільки зібрано",
+            "- 🏆 **Табло команди** і 🔮 **прогноз місяця**",
+            "- 🏪 **Клієнт** — картка, остання накладна, чи брав конкретний товар",
+            "- 📦 **Товар** — залишок, ціна, чим замінити, що беруть разом",
+            "- 🎁 **З чим заходити** — гачок і причіп під конкретного клієнта",
+            "- ⏰ **Нагадування** — «нагадай у пʼятницю про борг Кунанця»",
+            "",
+            "_Складніше — «чи давати відстрочку», «чому впав оборот» — теж питайте: там я думаю, а не показую готове._",
+            "",
+            followUps("Сплануй мій день", "Хто мені винен", "Як я на фоні команди"),
+          ]
+    ),
+    tools: [],
   };
 }
 

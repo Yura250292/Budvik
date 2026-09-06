@@ -20,6 +20,9 @@ import type { DirectAnswer } from "@/lib/assistant/answers";
 import {
   answerChurn,
   answerClientCard,
+  answerClientProduct,
+  answerHelp,
+  answerLastOrder,
   answerDayChoice,
   answerDayPlan,
   answerDeadStock,
@@ -103,6 +106,17 @@ export async function tryDirectAnswer(
       const subject = subjectOf(intent.subject);
       return subject ? answerRecommend(ctx, subject) : null;
     }
+
+    case "HELP":
+      return answerHelp(ctx);
+
+    case "LAST_ORDER": {
+      const subject = subjectOf(intent.subject);
+      return subject ? answerLastOrder(ctx, subject) : null;
+    }
+
+    case "CLIENT_PRODUCT":
+      return answerClientProduct(ctx, intent.subject, intent.product);
 
     case "CLIENT_CARD": {
       const subject = subjectOf(intent.subject);

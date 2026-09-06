@@ -14,7 +14,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
-import { searchPatterns } from "@/lib/assistant/facts/search-words";
+import { Prisma } from "@prisma/client";
+import { searchPatterns, stem } from "@/lib/assistant/facts/search-words";
 import { uah, ymd } from "@/lib/assistant/format";
 
 type LineRow = {
@@ -43,8 +44,40 @@ export async function clientProductPurchases(
   query: string,
   limit = 12
 ) {
+  /**
+   * Спершу СЛОВО, і лише потім підрядок.
+   *
+   * «Чи брав Левкович дріт» знаходило «віДРІзний диск»: основа «дрі»
+   * сидить усередині чужого слова. Та сама пастка, що й у пошуку товару
+   * (див. product-facts.ts), і те саме лікування — вимога, щоб основа
+   * стояла на початку слова, з відкатом на підрядок, коли інакше порожньо.
+   */
+  const strict = await purchasesOnce(counterpartyId, query, limit, true);
+  if (strict.брав) return strict;
+
+  /**
+   * Відкату на підрядок тут НЕМАЄ навмисно.
+   *
+   * «Чи брав Левкович дріт» на підрядку знаходило «віДРІзний диск» — і
+   * відповідь виглядала як «так, брав», хоча дроту він не брав ніколи.
+   * Чесне «не брав» дорожче за знайдений хоч щось: на цю відповідь
+   * торговий спирається в розмові з клієнтом.
+   */
+  return strict;
+}
+
+async function purchasesOnce(
+  counterpartyId: string,
+  query: string,
+  limit: number,
+  strictWord: boolean
+) {
   const patterns = searchPatterns(query);
   const like = `%${query.replace(/[%_]/g, "")}%`;
+  const first = (query.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{3,}/) ?? [])[0] ?? "";
+  const wordStart = first ? `(^|[^А-Яа-яІіЇїЄєҐґA-Za-z])${stem(first)}` : null;
+  const strictCond =
+    strictWord && wordStart ? Prisma.sql`AND p.name ~* ${wordStart}` : Prisma.empty;
   const match = { patterns, like };
 
   const [lines, totals] = await Promise.all([
@@ -61,6 +94,7 @@ export async function clientProductPurchases(
       WHERE ${SOURCE_FILTER}
         AND s."counterpartyId" = ${counterpartyId}
         AND (p.name ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
+        ${strictCond}
       ORDER BY s."createdAt" DESC
       LIMIT ${limit}
     `,
@@ -78,6 +112,7 @@ export async function clientProductPurchases(
         AND s."counterpartyId" = ${counterpartyId}
         AND s."docType" <> 'RETURN'
         AND (p.name ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
+        ${strictCond}
     `,
   ]);
 

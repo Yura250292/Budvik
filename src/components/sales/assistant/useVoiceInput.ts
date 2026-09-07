@@ -153,9 +153,38 @@ export function useVoiceInput(onText: (text: string) => void) {
       setTimeout(() => {
         if (recorder.current === instance && instance.state === "recording") instance.stop();
       }, 60_000);
-    } catch {
+    } catch (e) {
       setState("idle");
-      setError("Мікрофон недоступний — перевірте дозвіл");
+
+      /**
+       * Кажемо, ЩО САМЕ сталося, а не «перевірте дозвіл».
+       *
+       * У цьому `try` лежать два різні кроки — запит мікрофона й створення
+       * записувача, — і обидва списувалися на дозвіл. 07.09 власник оновив
+       * застосунок, побачив «перевірте дозвіл», перевірив (дозвіл був) і
+       * лишився без жодної підказки, що робити далі. Ім'я помилки розрізняє
+       * випадки: NotAllowedError — справді заборона, NotFoundError — немає
+       * мікрофона, NotSupportedError — WebView не вміє цей формат.
+       */
+      const name = e instanceof Error ? e.name : "";
+      const inApp = typeof window !== "undefined" && !!window.BudvikApp;
+
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        /*
+          У застосунку просимо дозвіл самі: системний діалог із WebView
+          з'являється не завжди, а другий дотик уже спрацює.
+        */
+        if (inApp && window.BudvikApp?.requestMic) {
+          window.BudvikApp.requestMic();
+          setError("Дозвольте мікрофон і натисніть ще раз");
+        } else {
+          setError("Мікрофон заборонено — дозвольте його в налаштуваннях");
+        }
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        setError("Мікрофон не знайдено");
+      } else {
+        setError(`Мікрофон не запустився${name ? `: ${name}` : ""}`);
+      }
     }
   }, [send]);
 

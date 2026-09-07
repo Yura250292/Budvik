@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking, PermissionsAndroid } from "react-native";
 import { WebView } from "react-native-webview";
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useCallback } from "react";
@@ -193,6 +193,24 @@ export default function CabinetScreen() {
       }
       if (msg.type === "openScanner") {
         router.push("/warehouse/scan");
+        return;
+      }
+      if (msg.type === "requestMic") {
+        /*
+          Дозвіл на мікрофон — напряму в системи.
+
+          WebView уміє просити його сам, але діалог з'являється не завжди:
+          07.09 власник оновився на 1.6.0, натиснув мікрофон і прочитав
+          «мікрофон недоступний, перевірте дозвіл» при виданому дозволі.
+          PermissionsAndroid — ядро RN, тож нового нативного модуля не треба
+          й виправлення доїжджає повітрям.
+        */
+        void PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
+          title: "Мікрофон для помічника",
+          message: "Щоб ставити питання голосом, застосунку потрібен мікрофон.",
+          buttonPositive: "Дозволити",
+          buttonNegative: "Не зараз",
+        }).catch(() => {});
         return;
       }
       if (msg.type === "openDay") {

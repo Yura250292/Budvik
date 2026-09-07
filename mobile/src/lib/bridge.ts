@@ -28,6 +28,7 @@ export type BridgeMessage =
   | { type: "openShift" }
   | { type: "openScanner" }
   | { type: "openDay"; route?: string }
+  | { type: "requestMic" }
   | { type: "logout" }
   | { type: "downloadUpdate" };
 
@@ -71,6 +72,16 @@ export function bridgeScript(state: BridgeState): string {
      * відсутність зв'язку, а у WebView вона просто падає.
      */
     openDay: function (route) { send("openDay", { route: route }); },
+    /**
+     * Дозвіл на мікрофон просить САМ застосунок.
+     *
+     * WebView уміє питати його сам (RNCWebChromeClient.onPermissionRequest),
+     * але на практиці діалог з'являється не завжди, і людина бачить
+     * «мікрофон недоступний» при виданому в налаштуваннях дозволі. Тут
+     * питаємо напряму через PermissionsAndroid — це ядро RN, без нових
+     * нативних модулів, тож доїжджає повітрям.
+     */
+    requestMic: function () { send("requestMic"); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
     shiftStateJson: function () {
@@ -91,6 +102,7 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
       data.type === "openShift" ||
       data.type === "openScanner" ||
       data.type === "openDay" ||
+      data.type === "requestMic" ||
       data.type === "logout" ||
       data.type === "downloadUpdate"
     ) {

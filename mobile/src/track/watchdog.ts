@@ -15,6 +15,7 @@ import * as BackgroundTask from "expo-background-task";
 import { hasOfflineGuard, scheduleOfflineGuard, cancelOfflineGuard } from "@modules/track-guard";
 import { WATCHDOG_TASK } from "./task-name";
 import {
+  getLastFixAt,
   getMode,
   getRole,
   isShiftOpen,
@@ -25,9 +26,19 @@ import {
 import { heartbeat, maybeFlush } from "./uploader";
 import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
-import { ensureRecording, isTracking, startTracking } from "./controller";
+import { ensureRecording, isTracking, startTracking, warnRecordingDown } from "./controller";
 import { ensureFreshFixes } from "./health";
 import { checkJsUpdate } from "@/lib/self-update";
+
+/**
+ * Скільки хвилин без жодної координати означають, що трек стоїть.
+ *
+ * Точка пишеться щонайрідше раз на хвилину навіть на місці, тож двадцять
+ * хвилин тиші при відкритій зміні — це вже не «не встиг», а поламка. Межа
+ * навмисно більша за крок сторожа (чверть години): інакше перше ж пробудження
+ * після відкриття зміни лякало б людину до першого фікса.
+ */
+const FIX_STALE_MS = 20 * 60_000;
 
 export async function runWatchdog(): Promise<void> {
   /**
@@ -60,6 +71,28 @@ export async function runWatchdog(): Promise<void> {
     isTracking(),
     getMode(),
   ]);
+
+  /**
+   * Прапорець «пишемо» бреше — і саме на цьому все й трималося 07.09.
+   *
+   * `hasStartedLocationUpdatesAsync` читає збережену позначку, а не живу
+   * службу. Після того, як Android прибив процес і підняв його у фоні,
+   * позначка лишається піднятою, `ensureRecording` бачить «усе гаразд» і
+   * нічого не робить, а фіксів немає. З сервера це виглядало бездоганно:
+   * mode SHIFT, tracking true, subscribed true, дозвіл ALWAYS, проба
+   * приймача ±5 м — і НУЛЬ точок за чотири години у чотирьох торгових.
+   *
+   * Підняти службу з фону Android не дасть, тож єдиний, хто може це
+   * полагодити, — людина з відкритим застосунком. Значить їй треба сказати,
+   * і сказати незалежно від прапорців: питаємо не «чи ми пишемо», а «чи
+   * прийшла хоч одна координата».
+   */
+  if (shiftOpen) {
+    const fixAt = await getLastFixAt().catch(() => 0);
+    if (!fixAt || Date.now() - fixAt > FIX_STALE_MS) {
+      await warnRecordingDown().catch(() => {});
+    }
+  }
 
   // Водій пише трек від входу, торговий — поки відкрита зміна (див. controller.ts).
   const shouldTrack = shiftOpen || role === "DRIVER";

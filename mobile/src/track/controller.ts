@@ -198,7 +198,7 @@ const WARN_KEY = "recordingDownWarnedAt";
  * дратувати, і достатньо часто, щоб людина побачила це в межах однієї
  * поїздки.
  */
-async function warnRecordingDown(): Promise<void> {
+export async function warnRecordingDown(): Promise<void> {
   if (!(await isShiftOpen().catch(() => false))) return;
   const last = Number(await getMeta(WARN_KEY).catch(() => null)) || 0;
   if (Date.now() - last < WARN_EVERY_MS) return;

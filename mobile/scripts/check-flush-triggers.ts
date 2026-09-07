@@ -79,5 +79,17 @@ check(
   read("track/db.ts").includes("recordedAt TEXT PRIMARY KEY")
 );
 
+console.log("\nКоли трек мовчить, людина мусить про це дізнатися");
+check(
+  "Сторож питає про ФІКСИ, а не про прапорець запису",
+  /if \(shiftOpen\)[\s\S]{0,400}?getLastFixAt\(\)[\s\S]{0,300}?warnRecordingDown\(\)/.test(watchdog),
+  "07.09 чотири торгові простояли пів дня з tracking:true й нулем точок — " +
+    "прапорець читає збережену позначку, а не живу службу"
+);
+check(
+  "Попередження доступне сторожеві, а не лише запуску",
+  /export async function warnRecordingDown/.test(controller)
+);
+
 console.log(failed === 0 ? "\nУсе зійшлося.\n" : `\nНе зійшлося: ${failed}.\n`);
 process.exit(failed === 0 ? 0 : 1);

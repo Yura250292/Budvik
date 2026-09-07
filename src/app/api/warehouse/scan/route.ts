@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { requireRoles, WAREHOUSE_ROLES } from "@/lib/app/identity";
 import {
   ingestInvoicePhoto,
@@ -80,25 +81,42 @@ export async function POST(req: NextRequest) {
   }
 
   /**
-   * Те саме фото вдруге — віддаємо перший звіт, а не другий.
+   * Те саме фото вдруге — не другий звіт, а той самий.
    *
-   * Так виглядає повтор після обірваного запиту, і людина має побачити той
-   * самий результат, а не дві однакові накладні в офісі.
+   * Але «той самий» не означає «та сама відповідь». Повтор буває двох різних
+   * природ, і плутати їх дорого:
+   *
+   * — накладна вже прочитана: людина просто надіслала фото ще раз, і бачити
+   *   вона має перший результат;
+   * — накладна НЕ прочиталася: повтор — це і є «спробуй ще раз», і повернути
+   *   на нього порожній звіт зі словом «поїхало» означало б збрехати саме там,
+   *   де людина перевіряє, чи документ доїхав.
    */
-  if (ingest.duplicate) {
+  if (ingest.duplicate && ingest.report.status === "DONE") {
     return NextResponse.json(
       { duplicate: true, report: reportDto(ingest.report) },
       { headers: { "Cache-Control": "no-store" } }
     );
   }
 
-  const result = await processReport(ingest.report, ingest.buffer);
+  /**
+   * Лічильник спроб на повторі обнуляємо: три невдачі поспіль зробили звіт
+   * FAILED, і без цього повторне фото падало б одразу, не дійшовши до моделі.
+   */
+  const target = ingest.duplicate
+    ? await prisma.warehouseReport.update({
+        where: { id: ingest.report.id },
+        data: { attempts: 0, status: "PENDING", errorMessage: null },
+      })
+    : ingest.report;
+
+  const result = await processReport(target, buffer);
 
   if (!result.ok) {
     return NextResponse.json(
       {
         error: result.error,
-        canRetry: result.willRetry,
+        canRetry: true,
         reportId: ingest.report.id,
       },
       { status: 422, headers: { "Cache-Control": "no-store" } }

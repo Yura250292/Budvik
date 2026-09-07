@@ -44,12 +44,24 @@ function kyivToday(offsetDays = 0) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(d);
 }
 
-const STATUS: Record<Report["status"], { label: string; tone: "ok" | "warn" | "bad" }> = {
-  DONE: { label: "Прочитано", tone: "ok" },
-  PENDING: { label: "Читається", tone: "warn" },
-  PROCESSING: { label: "Читається", tone: "warn" },
-  FAILED: { label: "Не вийшло", tone: "bad" },
-};
+/**
+ * Накладна, яка сама вже не поїде.
+ *
+ * Те саме правило, що на сервері (src/lib/warehouse/reports.ts): зупинитися
+ * можна не лише у FAILED, а й у PENDING — після невдалої спроби звіт
+ * повертається туди, і ніхто в фоні його не перечитує. Без цього накладна з
+ * помилкою показувалася б як «читається», і кнопки повтору на ній не було б
+ * узагалі.
+ */
+function stuck(r: Report): boolean {
+  return r.status === "FAILED" || (r.status !== "DONE" && !!r.errorMessage);
+}
+
+function statusOf(r: Report): { label: string; tone: "ok" | "warn" | "bad" } {
+  if (r.status === "DONE") return { label: "Прочитано", tone: "ok" };
+  if (stuck(r)) return { label: "Не вийшло", tone: "bad" };
+  return { label: "Читається", tone: "warn" };
+}
 
 export default function WarehouseInvoicesPage() {
   const [day, setDay] = useState(kyivToday());
@@ -119,9 +131,10 @@ export default function WarehouseInvoicesPage() {
         {reports.length > 0 && <Eyebrow>За день</Eyebrow>}
 
         {reports.map((r) => {
-          const st = STATUS[r.status];
+          const st = statusOf(r);
+          const failed = stuck(r);
           return (
-            <Card key={r.id} tone={r.status === "FAILED" ? "bad" : "plain"} className="flex flex-col gap-2">
+            <Card key={r.id} tone={failed ? "bad" : "plain"} className="flex flex-col gap-2">
               <Link href={`/warehouse/invoices/${r.id}`} className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -147,7 +160,7 @@ export default function WarehouseInvoicesPage() {
                 <ChevronRight size={18} className="mt-1 shrink-0 text-cab-t3" />
               </Link>
 
-              {r.status === "FAILED" && (
+              {failed && (
                 <>
                   {!!r.errorMessage && <Note tone="bad">{r.errorMessage}</Note>}
                   <Button

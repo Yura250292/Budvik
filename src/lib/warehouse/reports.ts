@@ -17,7 +17,7 @@ import type { Prisma, WarehouseReport } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadFile } from "@/lib/r2";
 import { scanAndMatch, ScanError } from "@/lib/ai/scan-invoice";
-import { kyivDayStart, kyivDate } from "@/lib/date/kyiv";
+import { kyivDayStart, kyivDayEnd, kyivDate } from "@/lib/date/kyiv";
 
 /**
  * Стеля на знімок. Застосунок стискає до ~1600 px (кілька сотень кілобайт),
@@ -190,22 +190,37 @@ export async function processReport(
   }
 }
 
+/**
+ * Накладна, яка сама вже не поїде.
+ *
+ * FAILED — це три невдалі спроби. Але зупинитися можна й у PENDING: після
+ * невдалої спроби звіт повертається саме туди, і ніхто в фоні його не
+ * перечитує — ні в застосунку, ні в боті. Без цього правила накладна з
+ * помилкою назавжди показувалася б як «читається», і людина спокійно йшла б
+ * додому, вважаючи, що все доїхало.
+ */
+function needsAttention(r: { status: string; errorMessage: string | null }): boolean {
+  return r.status === "FAILED" || (r.status !== "DONE" && !!r.errorMessage);
+}
+
 /** Що складовщик показує офісу за день. Дзеркало /zvit із бота. */
 export async function daySummary(userId: string, day?: string) {
-  const from = kyivDayStart(day || kyivDate(new Date()));
-  const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+  const target = day || kyivDate(new Date());
 
   const reports = await prisma.warehouseReport.findMany({
-    where: { userId, createdAt: { gte: from, lt: to } },
-    select: { status: true, totalAmount: true, itemsCount: true },
+    where: { userId, createdAt: { gte: kyivDayStart(target), lte: kyivDayEnd(target) } },
+    select: { status: true, errorMessage: true, totalAmount: true, itemsCount: true },
   });
 
   const done = reports.filter((r) => r.status === "DONE");
+  const stuck = reports.filter((r) => needsAttention(r));
   return {
     total: reports.length,
     done: done.length,
-    pending: reports.filter((r) => r.status === "PENDING" || r.status === "PROCESSING").length,
-    failed: reports.filter((r) => r.status === "FAILED").length,
+    pending: reports.filter(
+      (r) => (r.status === "PENDING" || r.status === "PROCESSING") && !needsAttention(r)
+    ).length,
+    failed: stuck.length,
     totalAmount: done.reduce((s, r) => s + (r.totalAmount || 0), 0),
     itemsCount: done.reduce((s, r) => s + (r.itemsCount || 0), 0),
   };

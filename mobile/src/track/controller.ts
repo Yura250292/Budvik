@@ -432,6 +432,16 @@ export async function onStaffLogin(role: string | null, userId?: string | null):
     return;
   }
 
+  /**
+   * Складовщик маршруту не веде — і не має стукати в чужі двері.
+   *
+   * `syncTrackingWithServer` іде в `/api/shift/*`, куди роль WAREHOUSE не
+   * пускає `FIELD_ROLES`: вийшов би 403 на кожному вході й запис у журнал про
+   * поламку, якої немає. Він заходить у той самий кабінет заради накладних,
+   * а трек не пише взагалі.
+   */
+  if (role === "WAREHOUSE") return;
+
   // Торговий: якщо зміна вже відкрита (перевстановив застосунок серед дня) —
   // трек має продовжитися сам, а не чекати, поки він це помітить.
   await syncTrackingWithServer(role);

@@ -28,7 +28,7 @@ import { bridgeScript, parseBridgeMessage, type BridgeState } from "@/lib/bridge
 import { nativeRouteFor } from "@/lib/native-routes";
 import { downloadAndInstallApk } from "@/lib/self-update";
 import { bufferedCount } from "@/track/db";
-import { isShiftOpen } from "@/track/state";
+import { getRole, isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { registerForPush } from "@/lib/push";
@@ -63,6 +63,20 @@ export default function CabinetScreen() {
    * кілька хвилин, і весь цей час на екрані не змінювалося НІЧОГО. Людина
    * тиснула ще раз, потім ще — і йшла казати, що оновлення не працює.
    */
+  /**
+   * Роль людини — щоб не лякати того, хто маршрут не пише.
+   *
+   * Смуги про дозвіл локації писалися для торгового й водія: у них без
+   * дозволу зникає день. Складовщик (роль WAREHOUSE, з 07.09) заходить у той
+   * самий кабінет заради накладних і треку не веде взагалі — червоне
+   * «Маршрут не пишеться» в нього означало б поламку, якої немає.
+   *
+   * `null` (роль ще не прочитана або стара збірка без позначки) поводиться
+   * як раніше: краще показати зайву смугу, ніж сховати потрібну.
+   */
+  const [role, setRole] = useState<string | null>(null);
+  /** Маршрут ведуть торговий і водій. Решта заходить у кабінет по інших справах. */
+  const tracksRoute = role === null || role === "SALES" || role === "DRIVER";
   const [updating, setUpdating] = useState<number | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [bridge, setBridge] = useState<BridgeState>({
@@ -77,6 +91,7 @@ export default function CabinetScreen() {
       getToken().then(setToken);
       if (IS_STAFF_BUILD) {
         within(currentPermissions(), PROBE_MS, null).then(setPerms);
+        within(getRole(), PROBE_MS, null).then(setRole);
       }
     }, [])
   );
@@ -295,7 +310,7 @@ export default function CabinetScreen() {
 
         Тому смуга тут, а не на екрані зміни: кабінет відкривають усі й щодня.
       */}
-      {IS_STAFF_BUILD && perms && !perms.foreground && (
+      {IS_STAFF_BUILD && tracksRoute && perms && !perms.foreground && (
         <Pressable
           style={styles.permStrip}
           onPress={() => requestTrackingPermissions().then(setPerms)}
@@ -319,7 +334,7 @@ export default function CabinetScreen() {
 
         Одне натискання: система показує своє вікно й вмикає високу точність.
       */}
-      {IS_STAFF_BUILD && perms?.foreground && perms.servicesEnabled === false && (
+      {IS_STAFF_BUILD && tracksRoute && perms?.foreground && perms.servicesEnabled === false && (
         <Pressable
           style={styles.permStrip}
           onPress={() => askEnableLocationServices().then(() => currentPermissions().then(setPerms))}
@@ -334,7 +349,7 @@ export default function CabinetScreen() {
 
       {/* Місце дали «Приблизно» — координати з точністю до району. Перемикається
           лише руками: повторний запит Android уже не показує. */}
-      {IS_STAFF_BUILD && perms?.foreground && perms.preciseLocation === false && (
+      {IS_STAFF_BUILD && tracksRoute && perms?.foreground && perms.preciseLocation === false && (
         <Pressable
           style={styles.permStrip}
           onPress={() => openAppSettings().then(() => currentPermissions().then(setPerms))}
@@ -349,7 +364,7 @@ export default function CabinetScreen() {
 
       {/* Дозвіл є, але лише «поки відкрито»: запис обірветься, щойно згасне
           екран, — а це станеться на першому ж перегоні між клієнтами. */}
-      {IS_STAFF_BUILD && perms?.foreground && !perms.background && (
+      {IS_STAFF_BUILD && tracksRoute && perms?.foreground && !perms.background && (
         <Pressable
           style={[styles.permStrip, styles.permStripWarn]}
           onPress={() => requestTrackingPermissions().then(setPerms)}

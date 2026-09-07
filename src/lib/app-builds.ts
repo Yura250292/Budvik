@@ -54,8 +54,8 @@ export const STAFF_APK_VERSION_NAME = "1.6.0";
  * Оновлювати: STAFF_APK_COMMIT — коли залито новий APK, STAFF_OTA_COMMIT —
  * після кожного `npm run update:staff`.
  */
-export const STAFF_APK_COMMIT = "f3b6d61";
-export const STAFF_OTA_COMMIT = "379e1b7";
+export const STAFF_APK_COMMIT = "9e8733e";
+export const STAFF_OTA_COMMIT = "9e8733e";
 
 /**
  * Нижче цього номера застосунок не пускає до роботи, а вимагає оновитися.

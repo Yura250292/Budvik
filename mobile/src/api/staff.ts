@@ -316,6 +316,29 @@ export type VisitInput = {
  * самі». Тобто AI-читання одометра не працювало жодного разу, і без помилки в
  * логах цього не було видно ні з застосунку, ні з сервера.
  */
+/**
+ * Відповідь сканера накладних.
+ *
+ * `duplicate` — не помилка, а те саме фото вдруге: сервер повертає перший
+ * звіт, і застосунок мусить показати саме його, а не робити вигляд, що
+ * приїхала друга накладна.
+ */
+export type WarehouseScanResult = {
+  duplicate: boolean;
+  report: {
+    id: string;
+    status: "PENDING" | "PROCESSING" | "DONE" | "FAILED";
+    docType: string | null;
+    docNumber: string | null;
+    docDate: string | null;
+    counterpartyName: string | null;
+    counterpartyCode: string | null;
+    totalAmount: number | null;
+    itemsCount: number;
+    errorMessage: string | null;
+  };
+};
+
 export type OdometerRecognized = {
   readId: string;
   photoUrl: string | null;
@@ -472,6 +495,22 @@ export const staffApi = {
    */
   odometerRecognize: (form: FormData) =>
     staffRequest<OdometerRecognized>("/api/shift/odometer/recognize", {
+      method: "POST",
+      form,
+      timeoutMs: 120_000,
+    }),
+
+  /* ---------- Склад ---------- */
+
+  /**
+   * Накладна складовщика: фото їде multipart і повертається вже розпізнаним.
+   *
+   * Межа така сама щедра, як в одометра, і з тієї ж причини: сервер не лише
+   * приймає файл, а й читає документ моделлю. Накладна на 60 позицій —
+   * найдовший запит у застосунку взагалі, а людина стоїть із аркушем у руках.
+   */
+  warehouseScan: (form: FormData) =>
+    staffRequest<WarehouseScanResult>("/api/warehouse/scan", {
       method: "POST",
       form,
       timeoutMs: 120_000,

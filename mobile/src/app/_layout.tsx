@@ -256,6 +256,11 @@ export default function RootLayout() {
               name="shift/late-close"
               options={{ title: "Забув закрити зміну", headerShown: false }}
             />
+            {/* Сканер накладних складу: своя шапка, і камера на весь екран. */}
+            <Stack.Screen
+              name="warehouse/scan"
+              options={{ title: "Накладна", headerShown: false }}
+            />
           </Stack>
         </LockGate>
       </PersistQueryClientProvider>

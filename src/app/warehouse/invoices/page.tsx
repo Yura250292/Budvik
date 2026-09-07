@@ -15,6 +15,7 @@ import Link from "next/link";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, Eyebrow, Note, Page, Pill } from "@/components/cabinet/ui";
+import { ScanButton } from "@/components/warehouse/ScanButton";
 
 type Report = {
   id: string;
@@ -108,9 +109,10 @@ export default function WarehouseInvoicesPage() {
         {isLoading && <Body>Завантажую…</Body>}
 
         {!isLoading && reports.length === 0 && (
-          <Card className="flex flex-col gap-1.5">
+          <Card className="flex flex-col gap-2">
             <p className="text-[15px] font-semibold text-bk">За цей день накладних немає</p>
-            <Body>Сфотографуйте накладну на головній — вона з&apos;явиться тут за кілька секунд.</Body>
+            <Body>Сфотографована накладна з&apos;являється тут за кілька секунд.</Body>
+            {day === kyivToday() && <ScanButton label="Зняти накладну" />}
           </Card>
         )}
 

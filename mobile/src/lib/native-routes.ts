@@ -15,10 +15,14 @@
 import { API_BASE } from "@/api/client";
 
 /** Шлях на сайті → маршрут у застосунку. */
-const NATIVE_ROUTES: Array<[RegExp, "/day"]> = [
+const NATIVE_ROUTES: Array<[RegExp, "/day" | "/warehouse/scan"]> = [
   // День водія: список точок, відмітки, каса. Головне, що дає натив, —
   // відмітка візиту без зв'язку.
   [/^\/driver\/tablet\/?$/, "/day"],
+  // Сканер накладних складу. Натив дає камеру одразу (у WebView це галерея
+  // й системний вибір — три зайві дотики на кожну накладну) і стиснення
+  // кадру перед відправкою.
+  [/^\/warehouse\/scan\/?$/, "/warehouse/scan"],
 ];
 
 export function nativeRouteFor(url: string): string | null {

@@ -191,6 +191,10 @@ export default function CabinetScreen() {
         router.push("/shift");
         return;
       }
+      if (msg.type === "openScanner") {
+        router.push("/warehouse/scan");
+        return;
+      }
       if (msg.type === "downloadUpdate") {
         startDownload();
         return;

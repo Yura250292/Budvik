@@ -15,10 +15,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import useSWR from "swr";
-import { ScanLine, MapPin, LogIn, LogOut } from "lucide-react";
+import { MapPin, LogIn, LogOut } from "lucide-react";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, CardHead, Note, Page, StatCard, Tile, TileRow } from "@/components/cabinet/ui";
 import { useProfile } from "@/lib/useProfile";
+import { ScanButton } from "@/components/warehouse/ScanButton";
 
 type Shift = {
   id: string;
@@ -139,10 +140,7 @@ export default function WarehouseHomePage() {
 
       <Page>
         {/* Сканер — перше і найбільше: заради нього застосунок і ставили. */}
-        <Button tone="brand" href="/warehouse/scan" className="w-full">
-          <ScanLine size={20} />
-          Сканувати накладну
-        </Button>
+        <ScanButton />
 
         <Card tone={shift ? "brand" : "plain"} className="flex flex-col gap-3">
           <CardHead

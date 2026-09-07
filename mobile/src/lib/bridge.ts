@@ -26,6 +26,7 @@ export type BridgeState = {
 /** Повідомлення від сайту до застосунку. */
 export type BridgeMessage =
   | { type: "openShift" }
+  | { type: "openScanner" }
   | { type: "logout" }
   | { type: "downloadUpdate" };
 
@@ -47,6 +48,15 @@ export function bridgeScript(state: BridgeState): string {
   }
   window.BudvikApp = {
     openShift: function () { send("openShift"); },
+    /**
+     * Сканер накладних складу.
+     *
+     * Через міст, а не посиланням: перехоплення адрес на Android працює лише
+     * для СПРАВЖНЬОЇ навігації (shouldOverrideUrlLoading), а кабінет ходить
+     * м'якими переходами Next — тобто дотик по кнопці відкривав би веб-сторінку
+     * з полем файлу замість камери.
+     */
+    openScanner: function () { send("openScanner"); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
     shiftStateJson: function () {
@@ -63,7 +73,12 @@ export function bridgeScript(state: BridgeState): string {
 export function parseBridgeMessage(raw: string): BridgeMessage | null {
   try {
     const data = JSON.parse(raw) as { type?: string };
-    if (data.type === "openShift" || data.type === "logout" || data.type === "downloadUpdate") {
+    if (
+      data.type === "openShift" ||
+      data.type === "openScanner" ||
+      data.type === "logout" ||
+      data.type === "downloadUpdate"
+    ) {
       return { type: data.type };
     }
   } catch {

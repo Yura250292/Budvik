@@ -25,7 +25,7 @@ import { Composer, ErrorRow, MessageBubble, QuickPrompts, ThinkingRow } from "./
 import AssistantMarkdown from "./AssistantMarkdown";
 import ThreadsSheet from "./ThreadsSheet";
 import { deleteThread as deleteThreadApi, type ThreadSummary } from "./api";
-import { CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS } from "./copy";
+import { CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
 
 type ThreadsResponse = { threads: ThreadSummary[]; reps: Array<{ id: string; name: string }>; isOffice: boolean };
 
@@ -146,7 +146,9 @@ export default function AssistantScreen({
         ? CLIENT_PROMPTS(clientName)
         : section === "driver"
           ? DRIVER_PROMPTS
-          : QUICK_PROMPTS,
+          : section === "warehouse"
+            ? WAREHOUSE_PROMPTS
+            : QUICK_PROMPTS,
     [clientName, section]
   );
 
@@ -156,7 +158,12 @@ export default function AssistantScreen({
     ? COPY.clientChip(clientName)
     : activeRep
       ? `Як ${activeRep.name}`
-      : (profile?.name ?? (section === "driver" ? COPY.subtitleDriver : COPY.subtitleSelf));
+      : (profile?.name ??
+        (section === "driver"
+          ? COPY.subtitleDriver
+          : section === "warehouse"
+            ? COPY.subtitleWarehouse
+            : COPY.subtitleSelf));
 
   /**
    * Адреса ЦІЄЇ розмови — її несуть усі посилання у відповідях.
@@ -218,10 +225,18 @@ export default function AssistantScreen({
             <div className="flex flex-col gap-3">
               <div className="rounded-2xl border border-cab-line bg-white p-4">
                 <p className="text-[15px] font-bold text-bk">
-                  {section === "driver" ? COPY.emptyTitleDriver : COPY.emptyTitle}
+                  {section === "driver"
+                    ? COPY.emptyTitleDriver
+                    : section === "warehouse"
+                      ? COPY.emptyTitleWarehouse
+                      : COPY.emptyTitle}
                 </p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-cab-t2">
-                  {section === "driver" ? COPY.emptyBodyDriver : COPY.emptyBody}
+                  {section === "driver"
+                    ? COPY.emptyBodyDriver
+                    : section === "warehouse"
+                      ? COPY.emptyBodyWarehouse
+                      : COPY.emptyBody}
                 </p>
               </div>
               <QuickPrompts prompts={prompts} onPick={submit} variant="list" />

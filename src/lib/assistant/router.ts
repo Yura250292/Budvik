@@ -251,6 +251,7 @@ export function detectIntent(
   if (COMPOSE.test(text)) return null;
 
   if (opts.kind === "DRIVER") return driverIntent(text);
+  if (opts.kind === "WAREHOUSE") return warehouseIntent(text);
 
   /* Спершу шаблони з назвою клієнта: «скільки винен Химич» — це картка
      клієнта, а не зведення по всій дебіторці. */
@@ -534,6 +535,38 @@ function driverIntent(text: string): Intent | null {
   const card =
     subjectAfter(text, /(скільки\s+винен|який\s+борг\s+(у|в)|борг\s+(у|в))/i) ??
     subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+|як\s+доїхати\s+до\s+)/i);
+  if (card) return { kind: "CLIENT_CARD", subject: card };
+
+  const product = subjectAfter(text, PRODUCT_ASK) ?? subjectBetween(text, PRODUCT_MIDDLE);
+  if (product) return { kind: "PRODUCT", query: product };
+
+  return null;
+}
+
+/**
+ * Питання складовщика — ще вужчий список, і навмисно.
+ *
+ * Кодом ловимо лише те, у чому неможливо помилитися: довідку, картку клієнта
+ * й наявність товару. Головні складські питання — про водіїв, збірку й власні
+ * накладні — свідомо йдуть до моделі: форм у них надто багато («де Пайда»,
+ * «що везе», «чи вже виїхав», «що лишилось пакувати»), і хибне розпізнавання
+ * коштує дорожче за один похід до моделі. Інструменти в неї вже є.
+ *
+ * Решта — зведення торгового — не ловиться взагалі: на складовщика продажів
+ * не оформлюють, і код повернув би нуль, який виглядає як поламка.
+ */
+function warehouseIntent(text: string): Intent | null {
+  if (
+    /(що\s+ти\s+(вмієш|можеш|умієш)|чим\s+(ти\s+)?(можеш\s+)?допоможеш|які\s+в\s+тебе\s+можливості|довідка)/i.test(
+      text
+    )
+  ) {
+    return { kind: "HELP" };
+  }
+
+  const card =
+    subjectAfter(text, /(скільки\s+винен|який\s+борг\s+(у|в)|борг\s+(у|в))/i) ??
+    subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+)/i);
   if (card) return { kind: "CLIENT_CARD", subject: card };
 
   const product = subjectAfter(text, PRODUCT_ASK) ?? subjectBetween(text, PRODUCT_MIDDLE);

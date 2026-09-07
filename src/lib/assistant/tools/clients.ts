@@ -23,7 +23,7 @@ import { shiftDay } from "@/lib/analytics/period";
 import { days as roundDays, uah, ymd } from "@/lib/assistant/format";
 
 export const searchClients: ToolDef = {
-  kinds: ["SALES", "DRIVER"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
   name: "search_clients",
   label: "Шукаю клієнта",
   description:
@@ -72,7 +72,7 @@ export const searchClients: ToolDef = {
 };
 
 export const clientProfile: ToolDef = {
-  kinds: ["SALES", "DRIVER"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
   name: "client_profile",
   label: "Читаю картку клієнта",
   description:

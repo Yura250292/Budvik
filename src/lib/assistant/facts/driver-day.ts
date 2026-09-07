@@ -42,10 +42,27 @@ export type DriverDayFacts = {
 };
 
 export async function driverDayFacts(driverId: string, day: string): Promise<DriverDayFacts> {
-  const [route, cash] = await Promise.all([
+  const dayStart = kyivDayStart(day);
+
+  const [route, cash, visits] = await Promise.all([
     resolveDriverDay(driverId, day),
-    cashForDay(driverId, kyivDayStart(day)),
+    cashForDay(driverId, dayStart),
+    /**
+     * Відмітки доставок.
+     *
+     * Без них `done` міряв лише бонусні поїздки: у звичайної доставки
+     * відмітка живе у Visit, прив'язаному до клієнта, а не в самій точці
+     * (див. `ownVisit` у day-stops.ts). Тобто помічник казав «відмічено 0
+     * з 9» навіть увечері, коли водій усе розвіз, — і це те саме правило,
+     * яке планшет застосовує через `attachVisits`.
+     */
+    prisma.visit.findMany({
+      where: { userId: driverId, day: dayStart },
+      select: { counterpartyId: true, status: true },
+    }),
   ]);
+
+  const visitByClient = new Map(visits.map((v) => [v.counterpartyId, v.status]));
 
   // Телефон водієві потрібен частіше за все інше: «не можу знайти в'їзд».
   const ids = route.stops.map((s) => s.counterpartyId).filter((id): id is string => Boolean(id));
@@ -67,7 +84,9 @@ export async function driverDayFacts(driverId: string, day: string): Promise<Dri
     debt: s.debtAmount,
     kind: s.kind,
     notes: s.notes,
-    done: s.ownVisit?.status === "DONE",
+    done:
+      s.ownVisit?.status === "DONE" ||
+      (s.counterpartyId ? visitByClient.get(s.counterpartyId) === "DONE" : false),
     hasPin: s.lat != null && s.lng != null,
   }));
 

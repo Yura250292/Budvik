@@ -99,9 +99,30 @@ const DRIVER_NOT_MINE = [
   "Які мертві товари можу розпрацювати",
 ];
 
+/**
+ * Складовщик: кодом ловимо лише те, у чому неможливо помилитися.
+ *
+ * Головні його питання — про водіїв, збірку й власні накладні — свідомо йдуть
+ * до моделі (див. warehouseIntent), тож у цьому наборі їх немає й бути не має.
+ */
+const WAREHOUSE_CASES = [
+  "Що ти вмієш",
+  "Скільки винен Кунанець",
+  "Чи є в наявності піна монтажна",
+  "Залишки кругів Ataman",
+];
+
+/** Питання торгового, на які складовщикові відповідати нічим. */
+const WAREHOUSE_NOT_MINE = [
+  "Скільки я продав за тиждень",
+  "Сплануй мій день",
+  "Хто тримає мій оборот",
+  "Як я на фоні команди",
+];
+
 const args = process.argv.slice(2);
 
-const show = (q: string, hasHistory = false, kind: "SALES" | "DRIVER" = "SALES") => {
+const show = (q: string, hasHistory = false, kind: "SALES" | "DRIVER" | "WAREHOUSE" = "SALES") => {
   const intent = detectIntent(q, { hasHistory, kind });
   const label = intent ? `${intent.kind}${JSON.stringify(intent).replace(/^\{"kind":"[A-Z_]+"/, "").replace(/^,/, " ").replace(/\}$/, "")}` : "→ МОДЕЛЬ";
   console.log(`  ${intent ? "код " : "AI  "} ${q.padEnd(46)} ${label}`);
@@ -131,7 +152,26 @@ const driverMissed = DRIVER_CASES.filter((q) => !detectIntent(q, { hasHistory: f
 const driverLeak = DRIVER_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "DRIVER" })).length;
 console.log(`\nводій: без моделі ${DRIVER_CASES.length - driverMissed}/${DRIVER_CASES.length}; чужих звітів проскочило ${driverLeak}`);
 
+console.log("\nСКЛАД — типові питання (мають іти без моделі):");
+for (const q of WAREHOUSE_CASES) show(q, false, "WAREHOUSE");
+
+console.log("\nСКЛАД — питання торгового (мають іти до моделі: даних немає):");
+for (const q of WAREHOUSE_NOT_MINE) show(q, false, "WAREHOUSE");
+
+const whMissed = WAREHOUSE_CASES.filter((q) => !detectIntent(q, { hasHistory: false, kind: "WAREHOUSE" })).length;
+const whLeak = WAREHOUSE_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "WAREHOUSE" })).length;
+console.log(`\nсклад: без моделі ${WAREHOUSE_CASES.length - whMissed}/${WAREHOUSE_CASES.length}; чужих звітів проскочило ${whLeak}`);
+
 const missed = CASES.filter((q) => !detectIntent(q, { hasHistory: false })).length;
 const falsePositive = HARD.filter((q) => detectIntent(q, { hasHistory: false })).length;
 console.log(`\nбез моделі: ${CASES.length - missed}/${CASES.length} типових; хибних спрацювань на складних: ${falsePositive}`);
-process.exit(missed === 0 && falsePositive === 0 && driverMissed === 0 && driverLeak === 0 ? 0 : 1);
+process.exit(
+  missed === 0 &&
+    falsePositive === 0 &&
+    driverMissed === 0 &&
+    driverLeak === 0 &&
+    whMissed === 0 &&
+    whLeak === 0
+    ? 0
+    : 1
+);

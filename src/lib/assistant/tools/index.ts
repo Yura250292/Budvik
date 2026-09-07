@@ -28,11 +28,23 @@ import {
 import { receivables, salesSummary } from "@/lib/assistant/tools/money";
 import { remindMe, myReminders } from "@/lib/assistant/tools/reminders";
 import { productSearch, deadStock, entryOfferTool } from "@/lib/assistant/tools/products";
+import {
+  driversTodayTool,
+  ordersToPackTool,
+  myInvoicesTool,
+} from "@/lib/assistant/tools/warehouse";
 
 export const TOOLS: ToolDef[] = [
   myDayContext,
   dayRouteCandidatesTool,
   routeHabitsTool,
+  /*
+   * Складські — одразу після денних і перед клієнтськими: у складовщика це
+   * і є «де я і що зі мною», тобто перше, чого модель має шукати.
+   */
+  driversTodayTool,
+  ordersToPackTool,
+  myInvoicesTool,
   searchClients,
   clientProfile,
   entryOfferTool,
@@ -58,9 +70,9 @@ export const TOOL_LABELS: Record<string, string> = Object.fromEntries(
 /**
  * Інструменти, видимі цьому виду помічника.
  *
- * Водієві дістається п'ять із чотирнадцяти — і це не лише про доречність.
- * Схема кожного інструмента їде в КОЖНОМУ запиті ходу, тож коротший
- * список у водія означає ще й утричі дешевший хід.
+ * Водієві й складовщикові дістається по кілька з усього списку — і це не
+ * лише про доречність. Схема кожного інструмента їде в КОЖНОМУ запиті ходу,
+ * тож коротший список означає ще й утричі дешевший хід.
  */
 export function toolsFor(kind: AssistantKind): ToolDef[] {
   return TOOLS.filter((t) => (t.kinds ?? ["SALES"]).includes(kind));

@@ -22,7 +22,7 @@ import { kyivDayStart } from "@/lib/date/kyiv";
 const MAX_AHEAD_MS = 365 * 86_400_000;
 
 export const remindMe: ToolDef = {
-  kinds: ["SALES", "DRIVER"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
   name: "remind_me",
   label: "Ставлю нагадування",
   write: true,
@@ -81,7 +81,7 @@ export const remindMe: ToolDef = {
 };
 
 export const myReminders: ToolDef = {
-  kinds: ["SALES", "DRIVER"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
   name: "my_reminders",
   label: "Дивлюся нагадування",
   description: "Незакриті нагадування торгового: коли, про що і про якого клієнта.",

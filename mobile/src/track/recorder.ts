@@ -12,7 +12,7 @@
 
 import type { LocationObject } from "expo-location";
 import { addPoint } from "./db";
-import { getLastWritten, getMode, setLastFix, setLastWritten } from "./state";
+import { countFixBatch, getLastWritten, getMode, setLastFix, setLastWritten } from "./state";
 import { heartbeat, maybeFlush } from "./uploader";
 
 /** Гірше за кілометр — це не координата, а здогад базової станції. */
@@ -79,6 +79,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
 }
 
 export async function onLocations(locations: LocationObject[]): Promise<void> {
+  let written = 0;
   const mode = await getMode();
   // Служба ще жива, а трек уже вимкнено — точки нікуди не пишемо.
   if (!mode) return;
@@ -154,6 +155,7 @@ export async function onLocations(locations: LocationObject[]): Promise<void> {
 
     const speedKmh = kmh != null ? Math.min(Math.round(kmh), MAX_SPEED_KMH) : null;
 
+    written++;
     await addPoint({
       // Час пристрою з самого фікса, а не Date.now(): пачка може лежати в
       // буфері годинами, і час відправки перетворив би стоянку на телепорт.
@@ -170,6 +172,15 @@ export async function onLocations(locations: LocationObject[]): Promise<void> {
     });
     await setLastWritten(loc.timestamp, latitude, longitude);
   }
+
+  /**
+   * Лічильник пачок за життя контексту.
+   *
+   * Разом із часом підйому контексту це відповідь на головне питання розбору:
+   * служба взагалі викликає нас чи ні. Прапорець `tracking` на нього не
+   * відповідає — він однаковий і в живої служби, і в мертвої.
+   */
+  countFixBatch(written);
 
   await maybeFlush();
 

@@ -12,7 +12,7 @@ import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { staffApi, setUnauthorizedHandler } from "@/api/staff";
 import { TRACK_TASK } from "./task-name";
-import { bufferedCount, clearPoints, getMeta, setMeta } from "./db";
+import { bufferedCount, clearPoints, getMeta, logEvent, setMeta } from "./db";
 import { flush, heartbeat } from "./uploader";
 import {
   getMode,
@@ -71,6 +71,7 @@ export async function startTracking(
   const perms = await currentPermissions();
   if (!perms.foreground) {
     await setStartError("Немає дозволу на геолокацію");
+    void logEvent("start_denied", mode);
     return false;
   }
 
@@ -121,6 +122,7 @@ export async function startTracking(
   try {
     await Location.startLocationUpdatesAsync(TRACK_TASK, OPTIONS[mode]);
     await setStartError(null);
+    void logEvent("start_ok", mode);
     return true;
   } catch (e) {
     /**
@@ -131,6 +133,9 @@ export async function startTracking(
     await setMode(null);
     const reason = e instanceof Error ? e.message : String(e);
     await setStartError(reason);
+    // Найдорожча подія журналу: саме тут ламається день, і саме звідси
+    // видно, чим — забороною запуску з фону, дозволом чи оболонкою.
+    void logEvent("start_failed", `${mode}: ${reason.slice(0, 120)}`);
 
     /**
      * Мовчазна смерть треку — найдорожча вада цього застосунку, і ось її
@@ -210,6 +215,7 @@ export async function warnRecordingDown(): Promise<void> {
 }
 
 export async function stopTracking(): Promise<void> {
+  void logEvent("stop", await getMode().catch(() => null));
   await setMode(null);
   if (await isTracking()) {
     await Location.stopLocationUpdatesAsync(TRACK_TASK).catch(() => {});

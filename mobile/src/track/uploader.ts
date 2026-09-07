@@ -13,6 +13,7 @@ import { cancelCloseReminders } from "./reminder";
 import {
   bufferedCount,
   dropPoints,
+  eventsAfter,
   getMeta,
   pointsAfter,
   setMeta,
@@ -29,6 +30,9 @@ import {
   getStartErrorMeta,
   getWatchdogRun,
   getWatchdogStatus,
+  contextStats,
+  getSentEventId,
+  setSentEventId,
   getMode,
   isShiftOpen,
   setLastError,
@@ -408,6 +412,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     device,
     watchdogAt,
     watchdogStatus,
+    sentEventId,
   ] = await Promise.all([
     unsentCount(sentThrough),
     getMode(),
@@ -421,7 +426,18 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     readDeviceState(),
     getWatchdogRun(),
     getWatchdogStatus(),
+    getSentEventId(),
   ]);
+
+  /**
+   * Чорна скринька: що сталося ВІД МИНУЛОГО пульсу.
+   *
+   * Тридцяти подій вистачає з запасом — пульс іде раз на три хвилини, а
+   * подій за цей час одиниці. Стеля тут не про трафік, а про те, щоб один
+   * зациклений збій не роздув запит до сотень кілобайтів.
+   */
+  const events = await eventsAfter(sentEventId, 30).catch(() => []);
+  const stats = contextStats();
 
   /**
    * Коли запис не піднявся — це головніше за будь-яку скаргу буфера: там даних
@@ -514,8 +530,25 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
        */
       watchdogAt: watchdogAt ? new Date(watchdogAt).toISOString() : undefined,
       watchdogStatus: watchdogStatus ?? undefined,
+      /**
+       * Життя цього контексту JS і чи викликала нас служба хоч раз.
+       *
+       * «Контекст піднявся о 07:38, пачок фіксів нуль» — це готовий діагноз,
+       * тоді як прапорець `tracking` однаковий і в живої служби, і в мертвої.
+       */
+      contextStartedAt: new Date(stats.startedAt).toISOString(),
+      fixBatches: stats.batches,
+      contextPoints: stats.points,
+      events: events.map((e) => ({
+        at: new Date(e.at).toISOString(),
+        kind: e.kind,
+        note: e.note ?? undefined,
+      })),
     });
     await setLastHeartbeatAt(Date.now());
+    // Позначку рухаємо ЛИШЕ після відповіді сервера: інакше журнал зникав би
+    // саме тоді, коли зв'язок поганий, тобто коли він найцікавіший.
+    if (events.length > 0) await setSentEventId(events[events.length - 1].id).catch(() => {});
 
     // Правда про зміну — серверна: її міг закрити офіс, поки планшет був поза мережею.
     if (typeof pulse?.shiftOpen === "boolean" && pulse.shiftOpen !== shiftOpen) {

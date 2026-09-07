@@ -202,3 +202,39 @@ export async function resetState(): Promise<void> {
     setStartError(null),
   ]);
 }
+
+
+/**
+ * Скільки подій журналу вже поїхало на сервер.
+ *
+ * У meta, а не в пам'яті: контекст JS перезапускається саме тоді, коли
+ * найцікавіше, і без позначки ті самі події їхали б по колу.
+ */
+export async function getSentEventId(): Promise<number> {
+  return Number(await getMeta("sentEventId")) || 0;
+}
+export async function setSentEventId(id: number): Promise<void> {
+  await setMeta("sentEventId", String(id));
+}
+
+/**
+ * Життя ЦЬОГО контексту JS.
+ *
+ * Головне число, якого бракувало 07.09: «контекст піднявся о 07:38, пачок
+ * фіксів — нуль» відрізняє мертву службу від мовчазного приймача одним
+ * поглядом, тоді як прапорець `tracking` в обох випадках однаковий.
+ *
+ * Модульні змінні навмисно: вони й мусять обнулятися разом із контекстом.
+ */
+export const CONTEXT_STARTED_AT = Date.now();
+let fixBatches = 0;
+let pointsWritten = 0;
+
+export function countFixBatch(written: number): void {
+  fixBatches++;
+  pointsWritten += written;
+}
+
+export function contextStats(): { startedAt: number; batches: number; points: number } {
+  return { startedAt: CONTEXT_STARTED_AT, batches: fixBatches, points: pointsWritten };
+}

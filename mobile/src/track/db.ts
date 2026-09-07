@@ -48,6 +48,12 @@ async function open(): Promise<SQLite.SQLiteDatabase> {
           key TEXT PRIMARY KEY NOT NULL,
           value TEXT
         );
+        CREATE TABLE IF NOT EXISTS events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          at INTEGER NOT NULL,
+          kind TEXT NOT NULL,
+          note TEXT
+        );
       `);
       return db;
     })();
@@ -187,5 +193,59 @@ export async function setMeta(key: string, value: string | null): Promise<void> 
     "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     key,
     value
+  );
+}
+
+
+/**
+ * Чорна скринька треку.
+ *
+ * Пульс каже, ЯК ЗАРАЗ, і цього виявилося мало. 07.09 чотири планшети
+ * показували бездоганний стан (пишемо, підписані, дозвіл «Завжди», проба
+ * приймача ±5 м) і нуль точок за чотири години — а з якої саме миті й після
+ * якої події все стало, відповіді не було ні в чому.
+ *
+ * Тут лежить послідовність: коли піднявся контекст JS, коли пробували
+ * запустити службу й чим це скінчилося, коли прийшов перший фікс, коли
+ * перепідписувалися. Кілька десятків байтів на подію, і вони їдуть із
+ * пульсом — тобто вже наявним каналом, без нового контуру.
+ */
+
+/** Стеля журналу: далі найстаріші події витісняються. */
+const EVENTS_CAP = 400;
+
+export type TrackEvent = { id: number; at: number; kind: string; note: string | null };
+
+export async function logEvent(kind: string, note?: string | null): Promise<void> {
+  try {
+    const db = await open();
+    await db.runAsync("INSERT INTO events (at, kind, note) VALUES (?, ?, ?)", [
+      Date.now(),
+      kind,
+      note ?? null,
+    ]);
+    const row = await db.getFirstAsync<{ n: number }>("SELECT COUNT(*) AS n FROM events");
+    const over = (row?.n ?? 0) - EVENTS_CAP;
+    if (over > 0) {
+      await db.runAsync(
+        "DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id ASC LIMIT ?)",
+        [over]
+      );
+    }
+  } catch {
+    /*
+      Журнал — це довідка, а не робота. Якщо він не пишеться, трек від цього
+      не має зупинитися: саме через таке мовчазне падіння діагностики й
+      шукали причину два дні (див. track-upload-silent-failures).
+    */
+  }
+}
+
+/** Події, новіші за надіслані. `limit` тримає пульс маленьким. */
+export async function eventsAfter(afterId: number, limit: number): Promise<TrackEvent[]> {
+  const db = await open();
+  return db.getAllAsync<TrackEvent>(
+    "SELECT id, at, kind, note FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
+    [afterId, limit]
   );
 }

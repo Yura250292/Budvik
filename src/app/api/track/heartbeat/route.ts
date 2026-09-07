@@ -43,6 +43,10 @@ type Body = {
   osBuild?: string;
   watchdogAt?: string;
   watchdogStatus?: string;
+  contextStartedAt?: string;
+  fixBatches?: number;
+  contextPoints?: number;
+  events?: Array<{ at?: string; kind?: string; note?: string }>;
 };
 
 /** Дата з тіла запиту або null: сміття в полі не має валити весь пульс. */
@@ -123,8 +127,35 @@ export async function POST(req: NextRequest) {
        */
       watchdogAt: date(body.watchdogAt),
       watchdogStatus: text(body.watchdogStatus, 20),
+      contextStartedAt: date(body.contextStartedAt),
+      fixBatches: int(body.fixBatches, 0, 1_000_000),
+      contextPoints: int(body.contextPoints, 0, 1_000_000),
     },
   });
+
+  /**
+   * Журнал подій — окремим записом і НЕ разом із пульсом.
+   *
+   * Пульс важливіший: він відповідає на «чи живий планшет», і падіння
+   * діагностики не має його забирати. `skipDuplicates` тому, що пульс може
+   * повторитися при поганому зв'язку, а події в ньому ті самі.
+   */
+  const events = Array.isArray(body.events) ? body.events.slice(0, 50) : [];
+  if (events.length > 0) {
+    const rows = events
+      .map((e) => ({
+        userId: device.userId,
+        at: date(e?.at),
+        kind: text(e?.kind, 32),
+        note: text(e?.note, 200),
+      }))
+      .filter((r): r is { userId: string; at: Date; kind: string; note: string | null } =>
+        r.at != null && r.kind != null
+      );
+    if (rows.length > 0) {
+      await prisma.trackEvent.createMany({ data: rows, skipDuplicates: true }).catch(() => {});
+    }
+  }
 
   /**
    * У відповідь кажемо пристрою правду сервера про зміну.

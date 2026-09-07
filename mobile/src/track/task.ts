@@ -20,8 +20,19 @@ import { AFTER_SHIFT_TASK, TRACK_TASK, WATCHDOG_TASK } from "./task-name";
 import { onLocations } from "./recorder";
 import { runWatchdog } from "./watchdog";
 import { setLastError } from "./state";
+import { logEvent } from "./db";
+import { APP_BUILD } from "@/lib/app-version";
 
 if (IS_STAFF_BUILD) {
+  /**
+   * Перший рядок чорної скриньки: контекст JS піднявся.
+   *
+   * Саме цієї події бракувало 07.09, щоб не гадати. Процес перезапускається
+   * тихо — Android прибив, оновлення застосувалося, планшет перезавантажили,
+   * — і з сервера всі три випадки виглядають однаково. Тут вони підписані.
+   */
+  void logEvent("boot", APP_BUILD);
+
   TaskManager.defineTask<{ locations: LocationObject[] }>(
     TRACK_TASK,
     async ({ data, error }) => {
@@ -68,7 +79,10 @@ if (IS_STAFF_BUILD) {
   TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType }>(
     AFTER_SHIFT_TASK,
     async ({ data, error }) => {
-      if (error) return;
+      if (error) {
+      void logEvent("task_error", String(error.message ?? error));
+      return;
+    }
       if (data?.eventType !== Location.LocationGeofencingEventType.Exit) return;
       try {
         const { startTracking } = await import("./controller");

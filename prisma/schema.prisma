@@ -328,10 +328,12 @@ model User {
   cashConfirmations CashHandover[] @relation("cashHandoverConfirmedBy")
 
   // Помічник торгового
-  assistantThreads      AssistantThread[] @relation("assistantThreadUser")
-  assistantThreadsAsRep AssistantThread[] @relation("assistantThreadRep")
-  clientMemories        ClientMemory[]    @relation("clientMemoryAuthor")
+  assistantThreads      AssistantThread[]   @relation("assistantThreadUser")
+  assistantThreadsAsRep AssistantThread[]   @relation("assistantThreadRep")
+  clientMemories        ClientMemory[]      @relation("clientMemoryAuthor")
   assistantReminders    AssistantReminder[] @relation("assistantReminderUser")
+
+  trackEvents TrackEvent[]
 
   @@index([referredBySalesRepId])
 }
@@ -1432,6 +1434,15 @@ model WarehouseReport {
   mediaGroupId      String? // Telegram album id
   batchId           String? // наш id пачки (= mediaGroupId або cuid)
 
+  /// Те саме, що telegramFileId, але для застосунку: у нього немає file_id,
+  /// зате є самі байти. Без цього обірваний посеред відповіді запит давав би
+  /// другу копію накладної в офісі на кожен повтор — а повтор у полі
+  /// трапляється щодня, бо мережа на складі рветься.
+  ///
+  /// Унікальність по людині, а не глобальна: та сама накладна може прийти
+  /// від двох складовщиків, і це дві різні події, а не дубль.
+  photoSha256 String?
+
   // Файл
   photoUrl      String
   photoKey      String // R2 key — щоб можна було видалити
@@ -1463,6 +1474,7 @@ model WarehouseReport {
 
   items WarehouseReportItem[]
 
+  @@unique([userId, photoSha256])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([shiftId])
@@ -2856,6 +2868,33 @@ model DeviceToken {
 /// мовчання в цій таблиці саме по собі — діагноз: застосунок не працює.
 /// Рядки не оновлюються, а дописуються: історія «коли саме служба стояла»
 /// цінніша за поточний стан, який і так видно з останнього рядка.
+/// Чорна скринька треку: послідовність подій на пристрої.
+///
+/// Пульс каже, ЯК ЗАРАЗ, і 07.09 цього виявилося мало: чотири планшети
+/// показували бездоганний стан (пишемо, підписані, дозвіл «Завжди», проба
+/// приймача ±5 м) і нуль точок за чотири години. З якої миті й після якої
+/// події все стало — відповіді не було ніде.
+///
+/// Події приїжджають із пульсом, тобто вже наявним каналом. Дедуп по
+/// (користувач, час, вид): пульс може повторитися, а журнал від цього
+/// подвоюватися не має.
+model TrackEvent {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Час ПРИСТРОЮ: журнал про його життя, його ж годинником і міряється
+  at   DateTime
+  /// boot, start_ok, start_failed, start_denied, stop, restart_refused, task_error
+  kind String   @db.VarChar(32)
+  note String?  @db.VarChar(200)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, at, kind])
+  @@index([userId, at])
+}
+
 model DeviceHeartbeat {
   id         String  @id @default(cuid())
   userId     String
@@ -2932,8 +2971,16 @@ model DeviceHeartbeat {
    * застосунку. 04.09 Передрій написав 1845 точок і рівно 2 пульси: трек
    * працював бездоганно, а карта весь день казала «застосунок мовчить».
    */
-  watchdogAt     DateTime?
-  watchdogStatus String?
+  watchdogAt       DateTime?
+  watchdogStatus   String?
+  /// Коли піднявся ЦЕЙ контекст JS. Разом із fixBatches — готовий діагноз:
+  /// «контекст із 07:38, пачок фіксів нуль» означає мертву службу, а не
+  /// мовчазний приймач.
+  contextStartedAt DateTime?
+  /// Скільки разів служба локації викликала застосунок за життя контексту
+  fixBatches       Int?
+  /// Скільки точок із них лягло в буфер
+  contextPoints    Int?
 
   user  User         @relation("heartbeatUser", fields: [userId], references: [id], onDelete: Cascade)
   token DeviceToken? @relation("heartbeatToken", fields: [tokenId], references: [id], onDelete: SetNull)
@@ -3162,6 +3209,7 @@ model Shift {
 
   // --- Звірка наступного дня ---
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -3439,8 +3487,8 @@ model AssistantMessage {
 /// датою, яка згорає. Змішати їх означало б показувати торговому в картці
 /// клієнта список власних справ піврічної давності.
 model AssistantReminder {
-  id     String  @id @default(cuid())
-  userId String
+  id             String  @id @default(cuid())
+  userId         String
   /// Про кого нагадування. null — просто справа («подзвонити в офіс»).
   counterpartyId String?
 

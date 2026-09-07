@@ -33,11 +33,76 @@ function pickMime(): string | undefined {
   return candidates.find((type) => MediaRecorder.isTypeSupported?.(type));
 }
 
+/**
+ * Відкрити мікрофон, з однією повторною спробою на «зайнято».
+ *
+ * Система віддає пристрій не миттєво: після того, як попередній потік
+ * зупинено, наступний запит ще частку секунди може отримати NotReadableError.
+ * Одна пауза перетворює «мікрофон зайнятий» на робочу кнопку; якщо його
+ * справді тримає хтось інший, друга спроба провалиться так само, і людина
+ * побачить чесний текст.
+ */
+async function openMic(): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name !== "NotReadableError" && name !== "AbortError") throw e;
+    await new Promise((r) => setTimeout(r, 400));
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+}
+
+/**
+ * Що сказати людині, коли мікрофон не відкрився.
+ *
+ * Кажемо, ЩО САМЕ сталося, а не «перевірте дозвіл». 07.09 власник оновив
+ * застосунок, побачив «перевірте дозвіл», перевірив (дозвіл був) і лишився
+ * без жодної підказки, що робити далі. Ім'я помилки розрізняє випадки, і
+ * кожне має свою дію:
+ *
+ * - NotAllowedError / SecurityError — справді заборона; у застосунку просимо
+ *   дозвіл самі, бо системний діалог із WebView з'являється не завжди;
+ * - NotReadableError / AbortError — дозвіл є, але пристрій зайнятий: його
+ *   тримає інший застосунок, дзвінок або наш власний недовідпущений потік;
+ * - NotFoundError / OverconstrainedError — мікрофона немає.
+ */
+function micErrorText(e: unknown): string {
+  const name = e instanceof Error ? e.name : "";
+  const inApp = typeof window !== "undefined" && !!window.BudvikApp;
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    if (inApp && window.BudvikApp?.requestMic) {
+      window.BudvikApp.requestMic();
+      return "Дозвольте мікрофон і натисніть ще раз";
+    }
+    return "Мікрофон заборонено — дозвольте його в налаштуваннях";
+  }
+  if (name === "NotReadableError" || name === "AbortError") {
+    return "Мікрофон зайнятий іншим застосунком — закрийте його й натисніть ще раз";
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return "Мікрофон не знайдено";
+  }
+  return `Мікрофон не запустився${name ? `: ${name}` : ""}`;
+}
+
 export function useVoiceInput(onText: (text: string) => void) {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
 
   const recorder = useRef<MediaRecorder | null>(null);
+  /**
+   * Живий потік мікрофона — окремо від записувача.
+   *
+   * Записувач з'являється ПІСЛЯ потоку, і саме між цими двома рядками ховалася
+   * поламка: `new MediaRecorder(stream)` кидає виняток на форматі, якого
+   * WebView не вміє, — а потік лишався відкритим і тримав мікрофон. Далі кожна
+   * наступна спроба отримувала NotReadableError («пристрій зайнятий»), бо
+   * зайнятий він був нами ж. Відпустити було нічим: посилання на потік не
+   * зберігав ніхто.
+   */
+  const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const browserRecognition = useRef<ReturnType<typeof createRecognition>>(null);
   const serverOff = useRef(false);
@@ -46,12 +111,19 @@ export function useVoiceInput(onText: (text: string) => void) {
   const canBrowser = voiceInputSupported();
   const supported = canRecord || canBrowser;
 
-  const stopEverything = useCallback(() => {
+  /** Відпустити мікрофон. Викликається і на успіху, і на будь-якому провалі. */
+  const releaseMic = useCallback(() => {
     recorder.current?.stream.getTracks().forEach((t) => t.stop());
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null;
     recorder.current = null;
+  }, []);
+
+  const stopEverything = useCallback(() => {
+    releaseMic();
     browserRecognition.current?.abort();
     browserRecognition.current = null;
-  }, []);
+  }, [releaseMic]);
 
   useEffect(() => () => stopEverything(), [stopEverything]);
 
@@ -117,20 +189,37 @@ export function useVoiceInput(onText: (text: string) => void) {
   );
 
   const startRecording = useCallback(async () => {
+    /**
+     * Перед новою спробою відпускаємо стару.
+     *
+     * Мікрофон на Android віддається одному власнику: доки наш попередній
+     * потік живий, `getUserMedia` відповідає NotReadableError і кнопка
+     * виглядає зламаною назавжди — до перезавантаження сторінки.
+     */
+    releaseMic();
+
+    let mic: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mic = await openMic();
+    } catch (e) {
+      setState("idle");
+      setError(micErrorText(e));
+      return;
+    }
+    stream.current = mic;
+
+    try {
       const mime = pickMime();
-      const instance = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const instance = new MediaRecorder(mic, mime ? { mimeType: mime } : undefined);
       chunks.current = [];
 
       instance.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.current.push(e.data);
       };
       instance.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
+        releaseMic();
         const type = instance.mimeType || mime || "audio/webm";
         const blob = new Blob(chunks.current, { type });
-        recorder.current = null;
         if (blob.size < 1200) {
           // Коротше за клацання — людина торкнулася кнопки випадково.
           setState("idle");
@@ -154,39 +243,25 @@ export function useVoiceInput(onText: (text: string) => void) {
         if (recorder.current === instance && instance.state === "recording") instance.stop();
       }, 60_000);
     } catch (e) {
-      setState("idle");
-
       /**
-       * Кажемо, ЩО САМЕ сталося, а не «перевірте дозвіл».
+       * Записувач не створився — мікрофон ВІДПУСКАЄМО.
        *
-       * У цьому `try` лежать два різні кроки — запит мікрофона й створення
-       * записувача, — і обидва списувалися на дозвіл. 07.09 власник оновив
-       * застосунок, побачив «перевірте дозвіл», перевірив (дозвіл був) і
-       * лишився без жодної підказки, що робити далі. Ім'я помилки розрізняє
-       * випадки: NotAllowedError — справді заборона, NotFoundError — немає
-       * мікрофона, NotSupportedError — WebView не вміє цей формат.
+       * Саме цього рядка тут і бракувало. Без нього провал на форматі
+       * залишав потік відкритим, і всі наступні натискання отримували
+       * NotReadableError — тобто одна помилка формату перетворювалася на
+       * «мікрофон не працює взагалі», яку не лікувало ні перевидання
+       * дозволу, ні оновлення застосунку.
        */
+      releaseMic();
+      setState("idle");
       const name = e instanceof Error ? e.name : "";
-      const inApp = typeof window !== "undefined" && !!window.BudvikApp;
-
-      if (name === "NotAllowedError" || name === "SecurityError") {
-        /*
-          У застосунку просимо дозвіл самі: системний діалог із WebView
-          з'являється не завжди, а другий дотик уже спрацює.
-        */
-        if (inApp && window.BudvikApp?.requestMic) {
-          window.BudvikApp.requestMic();
-          setError("Дозвольте мікрофон і натисніть ще раз");
-        } else {
-          setError("Мікрофон заборонено — дозвольте його в налаштуваннях");
-        }
-      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
-        setError("Мікрофон не знайдено");
-      } else {
-        setError(`Мікрофон не запустився${name ? `: ${name}` : ""}`);
-      }
+      setError(
+        name === "NotSupportedError"
+          ? "Цей планшет не вміє записувати звук у потрібному форматі"
+          : `Запис не почався${name ? `: ${name}` : ""}`
+      );
     }
-  }, [send]);
+  }, [releaseMic, send]);
 
   const toggle = useCallback(() => {
     setError(null);

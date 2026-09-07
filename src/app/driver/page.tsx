@@ -45,14 +45,23 @@ export default function DriverPage() {
    * тиснув кнопку й отримував веб-версію дня, у якій відмітка візиту без
    * зв'язку просто падає, замість нативної, де вона лягає в чергу.
    *
-   * Посилання лишається посиланням: у браузері й у старих збірках без
-   * `openDay` спрацьовує звичайний перехід, тобто рівно те, що було.
+   * Станів ТРИ, а не два — і третій легко проґавити (підказала паралельна
+   * сесія, яка те саме зробила для сканера складу):
+   *
+   * 1. Браузер — звичайний Link, м'який перехід, усе як було;
+   * 2. Застосунок із мостом і методом — нативний екран;
+   * 3. Застосунок зі старим мостом БЕЗ `openDay` — жорсткий перехід. Саме
+   *    він і потрібен: `window.location.href` — це справжня навігація, на
+   *    якій перехоплення адреси нарешті піднімається, і людина все одно
+   *    потрапляє в нативний день. М'який перехід у цьому випадку відкрив би
+   *    веб-версію, тобто рівно ту ваду, заради якої все це й робиться.
    */
   const openDayNatively = (route?: string) => (e: React.MouseEvent) => {
-    const open = typeof window !== "undefined" ? window.BudvikApp?.openDay : undefined;
-    if (!open) return;
+    if (typeof window === "undefined" || !window.BudvikApp) return;
     e.preventDefault();
-    open(route);
+    const href = route ? `/driver/tablet?route=${encodeURIComponent(route)}` : "/driver/tablet";
+    if (window.BudvikApp.openDay) window.BudvikApp.openDay(route);
+    else window.location.href = href;
   };
 
   const role = (session?.user as any)?.role;

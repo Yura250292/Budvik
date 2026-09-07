@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { searchPatterns, stem } from "@/lib/assistant/facts/search-words";
+import { searchPatterns, stem, wordVariants } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -63,7 +63,6 @@ export async function searchProducts(
   const loose = await searchProductsOnce(query, repId, limit, 0, false);
   if (loose.length > 0) return loose;
 
-  // Остання спроба — коротша основа: «кругами» → «круг» (див. search-words).
   return searchProductsOnce(query, repId, limit, 1, false);
 }
 
@@ -77,6 +76,25 @@ async function searchProductsOnce(
   // Послівно й по основах: питають «скільки ще піни Soma fix», а в базі
   // «SOMA FIX Піна монтажна…». Див. search-words.ts.
   const patterns = searchPatterns(query, 6, cut);
+  /**
+   * Умова по словах, а не один ILIKE ALL.
+   *
+   * Бренди в базі латиницею, а кажуть їх українською: «сома фікс»,
+   * «юніфікс», «сігма піна». На кожне слово перевіряємо і кирилицю, і
+   * латинку — збігтися має хоч один варіант, але слова між собою
+   * лишаються обовʼязковими. Спіймали на голосовому питанні: «SOMA FIX»
+   * не знаходився ЖОДНОЮ буквою (07.09.2026).
+   */
+  const byWord = Prisma.join(
+    wordVariants(query, 6, cut).map(
+      (variants) =>
+        Prisma.sql`(${Prisma.join(
+          variants.map((v) => Prisma.sql`p.name ILIKE ${v}`),
+          " OR "
+        )})`
+    ),
+    " AND "
+  );
   const like = `%${query.replace(/[%_]/g, "")}%`;
 
   /**
@@ -118,7 +136,7 @@ async function searchProductsOnce(
     LEFT JOIN my_buyers mb ON mb."productId" = p.id
     WHERE p."isActive"
       AND (
-        p.name ILIKE ALL(${patterns}::text[])
+        (${byWord})
         OR p.sku ILIKE ${like}
         OR ${query} = ANY(p.barcodes)
       )

@@ -23,12 +23,70 @@
  * половину бази.
  */
 
+/**
+ * Кирилиця → латиниця для назв брендів.
+ *
+ * Люди пишуть і кажуть бренди українською: «сома фікс», «грьосер»,
+ * «поляк». У базі ж вони латиницею — «SOMA FIX», «Grösser», «POLAX», — і
+ * підрядковий пошук між абетками не працює взагалі: жодна буква не
+ * збігається.
+ *
+ * Найважливіше правило — «кс» → «x»: без нього «фікс» стає «fiks» і не
+ * знаходить «FIX». Далі — звичайна українська латинка; «г» → «h» і
+ * «g» одночасно дати не можна, тож беремо «g»: у назвах брендів воно
+ * частіше («Grösser», «GRAD», «GRANITE»).
+ */
+const TRANSLIT: Array<[RegExp, string]> = [
+  // «Юніфікс» — це UNIFIX: на початку слова «ю» звучить як u, а не iu.
+  [/^ю/, "u"],
+  // Розпізнавач інколи віддає російські літери («грёсер») — не сперечаємось.
+  [/ё/g, "o"],
+  [/ы/g, "y"],
+  [/э/g, "e"],
+  [/ъ/g, ""],
+  [/кс/g, "x"],
+  [/щ/g, "shch"],
+  [/ш/g, "sh"],
+  [/ч/g, "ch"],
+  [/ц/g, "ts"],
+  [/х/g, "kh"],
+  [/ж/g, "zh"],
+  [/ю/g, "iu"],
+  [/я/g, "ia"],
+  [/є/g, "ie"],
+  [/ї/g, "i"],
+  [/й/g, "i"],
+  [/[ьʼ']/g, ""],
+  [/а/g, "a"], [/б/g, "b"], [/в/g, "v"], [/г/g, "g"], [/ґ/g, "g"],
+  [/д/g, "d"], [/е/g, "e"], [/з/g, "z"], [/и/g, "y"], [/і/g, "i"],
+  [/к/g, "k"], [/л/g, "l"], [/м/g, "m"], [/н/g, "n"], [/о/g, "o"],
+  [/п/g, "p"], [/р/g, "r"], [/с/g, "s"], [/т/g, "t"], [/у/g, "u"],
+  [/ф/g, "f"],
+];
+
+/** «фікс» → «fix». Слово без кирилиці повертається як є. */
+export function translit(word: string): string {
+  if (!/[а-яіїєґ]/i.test(word)) return word;
+  let out = word.toLowerCase();
+  for (const [re, to] of TRANSLIT) out = out.replace(re, to);
+  return out;
+}
+
 /** Основа слова для пошуку за підрядком. */
 export function stem(word: string, cut = 0): string {
   const extra = Math.max(0, cut);
-  if (word.length >= 6) return word.slice(0, -(2 + extra));
-  if (word.length >= 4) return word.slice(0, -(1 + extra));
-  return word;
+  const cutTo = word.length >= 6 ? -(2 + extra) : word.length >= 4 ? -(1 + extra) : 0;
+  const stemmed = cutTo === 0 ? word : word.slice(0, cutTo);
+
+  /**
+   * Три букви — підлога.
+   *
+   * Друга спроба з коротшою основою на слові «фікс» давала «фі», і пошук
+   * «сома фікс» повертав «фібергласову рукоятку»: два символи є майже в
+   * кожній назві. Коротше за три букви шукати немає сенсу — краще
+   * повернути порожньо й піти наступною спробою.
+   */
+  return stemmed.length >= 3 ? stemmed : word.slice(0, Math.min(3, word.length));
 }
 
 /**
@@ -38,11 +96,51 @@ export function stem(word: string, cut = 0): string {
  * слово в ILIKE ALL відсікає правильні збіги замість того, щоб уточнити.
  */
 export function searchPatterns(query: string, limitWords = 6, cut = 0): string[] {
-  const words = query
+  return words(query, limitWords).map((w) => `%${stem(w, cut)}%`);
+}
+
+/**
+ * Кожне слово запиту — з варіантами написання.
+ *
+ * «Сігма піна» — це половина латиницею («SIGMA»), половина кирилицею
+ * («Піна монтажна»), і жоден суцільний набір шаблонів такого не знайде:
+ * транслітерувавши все, ми втрачаємо «піну», не транслітерувавши — не
+ * знаходимо «SIGMA». Тому на слово повертається кілька шаблонів, і
+ * збігтися має ХОЧ ОДИН із них — а слова між собою лишаються обовʼязковими.
+ *
+ * Порядок усередині слова важливий: спершу транслітеруємо ЦІЛЕ слово,
+ * потім відкидаємо закінчення. Навпаки виходить «фік» → «fik», що не
+ * знаходить «FIX».
+ */
+export function wordVariants(query: string, limitWords = 6, cut = 0): string[][] {
+  return words(query, limitWords).map((w) => {
+    const variants = new Set<string>([`%${stem(w, cut)}%`]);
+    const latin = translit(w);
+    if (latin !== w.toLowerCase()) variants.add(`%${stem(latin)}%`);
+    const alias = ALIASES.find(([re]) => re.test(w));
+    if (alias) variants.add(alias[1]);
+    return [...variants];
+  });
+}
+
+/**
+ * Назви, яких транслітерація не дістає в принципі.
+ *
+ * «Grösser» вимовляють «грьосер», «гресер», «гросер» — і жодне з них не
+ * дає «grös»: умляут латинкою не пишеться, а підрядок вимагає точної
+ * букви. Підкреслення в ILIKE — рівно одна будь-яка буква, і саме воно
+ * покриває всі варіанти написання одразу.
+ *
+ * Список короткий навмисно: кожен рядок тут — визнання, що правило не
+ * спрацювало, і множити такі визнання без потреби не варто.
+ */
+const ALIASES: Array<[RegExp, string]> = [[/^гр[ьеоё]{0,2}с[еє]р/i, "%gr_sser%"]];
+
+function words(query: string, limitWords: number): string[] {
+  const list = query
     .split(/\s+/)
     .map((w) => w.replace(/[%_]/g, "").trim())
     .filter((w) => w.length >= 2)
     .slice(0, limitWords);
-
-  return (words.length ? words : [query]).map((w) => `%${stem(w, cut)}%`);
+  return list.length ? list : [query];
 }

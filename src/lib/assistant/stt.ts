@@ -50,7 +50,10 @@ async function vocabulary(): Promise<string> {
     const rows = await prisma.brand.findMany({
       where: { products: { some: { isActive: true } } },
       select: { name: true },
-      orderBy: { name: "asc" },
+      // За кількістю товарів, а не за абеткою: у підказку влазить сорок
+      // назв, і в алфавітному порядку туди потрапляли бренди на цифру й
+      // на «A», а «SOMA FIX» — найчастіше вимовлюваний — не потрапляв.
+      orderBy: { products: { _count: "desc" } },
       take: 40,
     });
     brands = rows.map((r) => r.name).filter((n) => n.length <= 18);

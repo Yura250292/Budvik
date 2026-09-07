@@ -5,7 +5,7 @@
 import { useSearchParams } from "next/navigation";
 import AssistantScreen from "./AssistantScreen";
 
-export default function AssistantEntry({ section = "sales" }: { section?: "sales" | "driver" }) {
+export default function AssistantEntry({ section = "sales" }: { section?: "sales" | "driver" | "warehouse" }) {
   const params = useSearchParams();
   return (
     <AssistantScreen

@@ -8,14 +8,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { MAX_AUDIO_BYTES, transcribe } from "@/lib/assistant/stt";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const form = await req.formData().catch(() => null);

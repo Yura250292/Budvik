@@ -10,14 +10,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { signedUrl } from "@/lib/r2";
 import { STAFF_APK_KEY } from "@/lib/app-builds";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const auth = await requireRoles(req, FIELD_ROLES);
+  const auth = await requireRoles(req, STAFF_ROLES);
   if (!auth.ok) return auth.response;
 
   let url: string;

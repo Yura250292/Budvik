@@ -8,7 +8,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { createMemory, listMemory, MemoryError } from "@/lib/assistant/memory";
 
@@ -21,7 +21,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ counterpartyId: string }> }
 ) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const { counterpartyId } = await params;
@@ -45,7 +45,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ counterpartyId: string }> }
 ) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const { counterpartyId } = await params;

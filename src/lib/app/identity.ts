@@ -37,10 +37,17 @@ export const CABINET_ROLES = ["ADMIN", "MANAGER", "SALES"] as const;
 /** Кабінет водія. */
 export const DRIVER_ROLES = ["ADMIN", "MANAGER", "DRIVER"] as const;
 /**
- * Хто працює в полі. Збігається з TRACK_ROLES із device-token.ts — і мусить
- * збігатися: саме цим людям видають токен пристрою.
+ * Хто працює в полі — тобто пише маршрут і відкриває зміну.
+ *
+ * Раніше цей список збігався з TRACK_ROLES із device-token.ts, і в коментарі
+ * стояло «і мусить збігатися». Більше не мусить: токен пристрою видається й
+ * складовщикові (він заходить у застосунок заради накладних), але трек він не
+ * пише і зміну торгового не відкриває. Саме тому /api/track/points і
+ * /api/shift/* лишаються на цьому, вужчому списку.
  */
 export const FIELD_ROLES = ["ADMIN", "MANAGER", "SALES", "DRIVER"] as const;
+/** Кабінет складу: офіс плюс сам складовщик. */
+export const WAREHOUSE_ROLES = ["ADMIN", "MANAGER", "WAREHOUSE"] as const;
 /** Будь-хто з персоналу, включно зі складом. */
 export const STAFF_ROLES = ["ADMIN", "MANAGER", "SALES", "WAREHOUSE", "DRIVER"] as const;
 

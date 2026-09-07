@@ -7,7 +7,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { createThread, listThreads } from "@/lib/assistant/threads";
 import { resolveRepForThread } from "@/lib/assistant/scope";
@@ -15,7 +15,7 @@ import { resolveRepForThread } from "@/lib/assistant/scope";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const isOffice = (OFFICE_ROLES as readonly string[]).includes(guard.me.role);
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   let body: { repId?: unknown } = {};

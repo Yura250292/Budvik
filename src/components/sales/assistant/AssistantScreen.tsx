@@ -42,7 +42,7 @@ export default function AssistantScreen({
   repId,
 }: {
   /** У якому кабінеті відкрито: від цього залежить «назад» і власна адреса. */
-  section: "sales" | "driver";
+  section: "sales" | "driver" | "warehouse";
   threadId: string | null;
   clientId: string | null;
   clientName: string | null;
@@ -50,8 +50,14 @@ export default function AssistantScreen({
 }) {
   const router = useRouter();
   const profile = useProfile();
-  const base = section === "driver" ? "/driver/assistant" : "/sales/assistant";
-  const home = section === "driver" ? "/driver" : "/sales";
+  const base = `/${section}/assistant`;
+  const home = `/${section}`;
+  /**
+   * Картки клієнтів відкриваються лише там, де в людини є на них кабінет.
+   * Складовщика гейт /sales розвернув би на «Доступ заборонено» без дороги
+   * назад, тож у нього ті самі згадки лишаються текстом.
+   */
+  const linksAllowed = section !== "warehouse";
   const [draft, setDraft] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -223,7 +229,13 @@ export default function AssistantScreen({
           )}
 
           {messages.map((m) => (
-            <MessageBubble key={m.id} message={m} onAsk={submit} backHref={backHref} />
+            <MessageBubble
+              key={m.id}
+              message={m}
+              onAsk={submit}
+              backHref={backHref}
+              linksAllowed={linksAllowed}
+            />
           ))}
 
           {stream && stream.text.length === 0 && (
@@ -231,7 +243,7 @@ export default function AssistantScreen({
           )}
           {stream && stream.text.length > 0 && (
             <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-              <AssistantMarkdown content={stream.text} backHref={backHref} />
+              <AssistantMarkdown content={stream.text} backHref={backHref} linksAllowed={linksAllowed} />
             </div>
           )}
 

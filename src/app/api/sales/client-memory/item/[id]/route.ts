@@ -10,7 +10,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { archiveMemory, MemoryError, updateMemory } from "@/lib/assistant/memory";
 
@@ -29,7 +29,7 @@ async function canEdit(id: string, userId: string, role: string): Promise<boolea
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const { id } = await params;
@@ -56,7 +56,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const { id } = await params;

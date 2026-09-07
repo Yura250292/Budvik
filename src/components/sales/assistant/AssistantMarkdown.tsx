@@ -63,6 +63,7 @@ export default function AssistantMarkdown({
   content,
   onAsk,
   backHref,
+  linksAllowed = true,
 }: {
   content: string;
   onAsk?: (text: string) => void;
@@ -72,6 +73,15 @@ export default function AssistantMarkdown({
    * (див. CabinetHeader).
    */
   backHref?: string;
+  /**
+   * Чи має читач право відкрити картку клієнта.
+   *
+   * У складі — не має: кабінет торгового закритий гейтом ролі, і посилання
+   * вело б у «Доступ заборонено» без дороги назад (нижнього меню складу на
+   * чужій секції немає). Текст лишається текстом — відповідь від цього не
+   * зменшується, зникає лише глухий кут.
+   */
+  linksAllowed?: boolean;
 }) {
   const withBack = (url: string) => {
     if (!backHref || !url.startsWith("/") || url.includes("back=")) return url;
@@ -85,6 +95,7 @@ export default function AssistantMarkdown({
           a: ({ href, children }) => {
             const url = String(href ?? "");
             if (url.startsWith("/")) {
+              if (!linksAllowed) return <span className="font-semibold text-bk">{children}</span>;
               return (
                 <Link href={withBack(url)} className="font-semibold text-bk underline underline-offset-2">
                   {children}
@@ -104,7 +115,7 @@ export default function AssistantMarkdown({
           },
 
           li: ({ children, node }) => {
-            const href = clientHref(node);
+            const href = linksAllowed ? clientHref(node) : null;
             if (!href) return <li className="ml-4 list-disc py-0.5">{children}</li>;
             return (
               <li className="my-1.5 list-none">

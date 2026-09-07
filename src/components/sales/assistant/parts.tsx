@@ -21,10 +21,13 @@ export function MessageBubble({
   message,
   onAsk,
   backHref,
+  linksAllowed = true,
 }: {
   message: UiMessage;
   onAsk?: (text: string) => void;
   backHref?: string;
+  /** Див. AssistantMarkdown: у складі картки клієнта закриті гейтом ролі. */
+  linksAllowed?: boolean;
 }) {
   if (message.role === "USER") {
     return (
@@ -47,7 +50,12 @@ export function MessageBubble({
 
   return (
     <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-      <AssistantMarkdown content={message.content} onAsk={onAsk} backHref={backHref} />
+      <AssistantMarkdown
+        content={message.content}
+        onAsk={onAsk}
+        backHref={backHref}
+        linksAllowed={linksAllowed}
+      />
       <div className="mt-1 flex items-center gap-2">
         <SpeakButton text={message.content} />
         {message.tools.length > 0 && (

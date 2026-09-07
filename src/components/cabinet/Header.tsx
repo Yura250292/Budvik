@@ -67,7 +67,7 @@ export function CabinetHeader({
    */
   const requested = search.get("back");
   const backHref =
-    requested && /^\/(sales|driver)(\/|\?|$)/.test(requested) ? requested : backTo;
+    requested && /^\/(sales|driver|warehouse)(\/|\?|$)/.test(requested) ? requested : backTo;
 
   /**
    * Помічник лежить у своїй секції, а не в спільній.
@@ -76,7 +76,11 @@ export function CabinetHeader({
    * нижню панель водія, під /sales — торгового. Одна спільна сторінка
    * лишила б людину без навігації назад, а це на телефоні глухий кут.
    */
-  const assistantHref = pathname.startsWith("/driver") ? "/driver/assistant" : "/sales/assistant";
+  const assistantHref = pathname.startsWith("/driver")
+    ? "/driver/assistant"
+    : pathname.startsWith("/warehouse")
+      ? "/warehouse/assistant"
+      : "/sales/assistant";
   const showAssistant = !hideAssistant && !pathname.endsWith("/assistant");
 
   return (

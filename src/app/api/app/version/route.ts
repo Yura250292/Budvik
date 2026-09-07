@@ -11,7 +11,7 @@
 import { stat } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ const CURRENT_VERSION_NAME = "1.5";
 
 export async function GET(req: Request) {
   /** Дві авторизації, як у решти роутів застосунку: Bearer і кукі. */
-  const auth = await requireRoles(req, FIELD_ROLES);
+  const auth = await requireRoles(req, STAFF_ROLES);
   if (!auth.ok) return auth.response;
 
   /**

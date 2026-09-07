@@ -15,7 +15,7 @@
  * зникає.
  */
 
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/shop/rate-limit";
 import { DAILY_TURN_CAP, USER_TEXT_MAX } from "@/lib/assistant/config";
@@ -38,7 +38,7 @@ function json(body: unknown, status: number) {
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireRoles(req, FIELD_ROLES);
+  const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
 
   const { id: threadId } = await params;

@@ -14,7 +14,7 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
    * самого застосунку — щоб він колись міг оновлювати себе тим же
    * посиланням.
    */
-  const auth = await requireRoles(req, FIELD_ROLES);
+  const auth = await requireRoles(req, STAFF_ROLES);
   if (!auth.ok) return auth.response;
 
   let apk: Buffer;

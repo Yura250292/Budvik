@@ -13,12 +13,12 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const auth = await requireRoles(req, FIELD_ROLES);
+  const auth = await requireRoles(req, STAFF_ROLES);
   if (!auth.ok) return auth.response;
 
   const { token, platform, appVersion } = await req.json().catch(() => ({}));

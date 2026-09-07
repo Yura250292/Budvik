@@ -33,9 +33,9 @@ export const SHOP_APK_VERSION_NAME = "1.0.0";
  * сторінок разом із банером у кабінеті, тобто ставити стає нічого. Один раз
  * я вже підняв їх наперед і мало не викотив саме це.
  */
-export const STAFF_APK_KEY = "app/BudvikStaff-1.5.1.apk";
-export const STAFF_APK_VERSION_CODE = 10501;
-export const STAFF_APK_VERSION_NAME = "1.5.1";
+export const STAFF_APK_KEY = "app/BudvikStaff-1.6.0.apk";
+export const STAFF_APK_VERSION_CODE = 10600;
+export const STAFF_APK_VERSION_NAME = "1.6.0";
 
 /**
  * З чого зібрано те, що СПРАВДІ стоїть у полі.

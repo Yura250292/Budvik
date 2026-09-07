@@ -13,13 +13,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Mic, RotateCcw, SendHorizontal, Square, Volume2, VolumeX, Wrench } from "lucide-react";
 import AssistantMarkdown from "./AssistantMarkdown";
 import { COPY } from "./copy";
-import {
-  createRecognition,
-  speak,
-  speechOutputSupported,
-  stopSpeaking,
-  voiceInputSupported,
-} from "./voice";
+import { speak, speechOutputSupported, stopSpeaking } from "./voice";
+import { useVoiceInput } from "./useVoiceInput";
 import type { ToolTrace, UiMessage } from "./api";
 
 export function MessageBubble({
@@ -260,50 +255,15 @@ export function Composer({
   busy: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [listening, setListening] = useState(false);
-  const [micError, setMicError] = useState<string | null>(null);
-  const recognition = useRef<ReturnType<typeof createRecognition>>(null);
-  const supportsVoice = typeof window !== "undefined" && voiceInputSupported();
 
   /**
-   * Продиктоване лягає в поле, а не летить одразу в чат.
+   * Продиктоване лягає В ПОЛЕ, а не летить одразу в чат.
    *
    * Розпізнавання плутає прізвища й артикули, а питання з помилкою
-   * коштує ходу моделі. Людина бачить текст і виправляє одним дотиком —
-   * або просто тисне «надіслати».
+   * коштує цілого ходу моделі. Людина бачить текст і виправляє одним
+   * дотиком — або просто тисне «надіслати».
    */
-  const startVoice = () => {
-    if (listening) {
-      recognition.current?.stop();
-      return;
-    }
-    setMicError(null);
-    const started = new Date().toISOString();
-    const instance = createRecognition({
-      onText: (text) => onChange(text),
-      onEnd: () => {
-        setListening(false);
-        recognition.current = null;
-      },
-      onError: (error) => {
-        setListening(false);
-        setMicError(
-          error === "not-allowed" || error === "service-not-allowed"
-            ? "Мікрофон заборонено — дозвольте його в налаштуваннях браузера"
-            : error === "no-speech"
-              ? "Не почув — спробуйте ще раз"
-              : "Не вдалося розпізнати"
-        );
-      },
-    });
-    if (!instance) return;
-    recognition.current = instance;
-    setListening(true);
-    void started;
-    instance.start();
-  };
-
-  useEffect(() => () => recognition.current?.abort(), []);
+  const voice = useVoiceInput((text) => onChange(text));
 
   // Поле росте до чотирьох рядків і далі прокручується: питання на пів
   // екрана витіснило б саму розмову.
@@ -316,9 +276,12 @@ export function Composer({
 
   return (
     <div className="border-t border-cab-line bg-white px-4 py-2.5">
-      {micError && <p className="mb-1.5 text-[11px] text-bad-fg">{micError}</p>}
-      {listening && (
-        <p className="mb-1.5 text-[11px] font-semibold text-info-fg">🎤 Слухаю — говоріть</p>
+      {voice.error && <p className="mb-1.5 text-[11px] text-bad-fg">{voice.error}</p>}
+      {voice.state === "listening" && (
+        <p className="mb-1.5 text-[11px] font-semibold text-info-fg">🎤 Слухаю — натисніть ще раз, коли скажете</p>
+      )}
+      {voice.state === "sending" && (
+        <p className="mb-1.5 text-[11px] font-semibold text-cab-t2">⏳ Розпізнаю…</p>
       )}
       <div className="flex items-end gap-2">
       <textarea
@@ -351,13 +314,16 @@ export function Composer({
       >
         {busy ? <Square size={16} fill="currentColor" /> : <SendHorizontal size={18} />}
       </button>
-      {supportsVoice && !busy && (
+      {voice.supported && !busy && (
         <button
           type="button"
-          aria-label={listening ? "Зупинити диктування" : "Сказати питання"}
-          onClick={startVoice}
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-            listening ? "bg-bk text-white" : "border border-cab-line text-cab-t2"
+          aria-label={voice.state === "listening" ? "Зупинити диктування" : "Сказати питання"}
+          onClick={voice.toggle}
+          disabled={voice.state === "sending"}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl disabled:opacity-50 ${
+            voice.state === "listening"
+              ? "bg-bad-fg text-white"
+              : "border border-cab-line text-cab-t2"
           }`}
         >
           <Mic size={18} />

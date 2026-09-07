@@ -39,6 +39,8 @@ const versionCode = (() => {
   return major * 10000 + minor * 100 + patch;
 })();
 
+const MIC_REASON =
+  "Мікрофон потрібен, щоб ставити питання помічнику голосом — коли руки зайняті кермом.";
 const CAMERA_REASON =
   "Камера потрібна, щоб знайти інструмент за штрихкодом або QR-кодом із цінника.";
 
@@ -87,6 +89,7 @@ const config: ExpoConfig = {
     supportsTablet: false,
     infoPlist: {
       NSCameraUsageDescription: CAMERA_REASON,
+      ...(isStaff ? { NSMicrophoneUsageDescription: MIC_REASON } : {}),
       ITSAppUsesNonExemptEncryption: false,
     },
   },
@@ -110,6 +113,13 @@ const config: ExpoConfig = {
     permissions: isStaff
       ? [
           "android.permission.CAMERA",
+          /**
+           * Мікрофон — щоб питати помічника голосом за кермом.
+           *
+           * Дозвіл потрібен саме застосунку, а не сторінці: кабінет
+           * відкривається у WebView, і запис бере мікрофон через нього.
+           */
+          "android.permission.RECORD_AUDIO",
           "android.permission.ACCESS_COARSE_LOCATION",
           "android.permission.ACCESS_FINE_LOCATION",
           "android.permission.ACCESS_BACKGROUND_LOCATION",

@@ -159,13 +159,29 @@ check(
 {
   const ten = many.slice(0, 10);
   const url = batchNavigateUrl(ten, "google");
+
+  /**
+   * Форм у посилання дві, і рахувати точки треба в обох.
+   *
+   * `dir/?api=1&destination=…&waypoints=…` — коли відома позиція людини
+   * (вона їде явним origin). Без неї Google викидає разом зі стартом і всі
+   * waypoints, тож тоді використовується форма-шлях `dir/A/B/C` (06.09.2026,
+   * бойова перевірка з маршруту помічника). Перевірка рахувала лише першу
+   * форму й після переходу на другу падала на справному посиланні.
+   */
   const wp = decodeURIComponent((url.match(/[&?]waypoints=([^&]*)/) ?? ["", ""])[1]);
-  const count = (wp ? wp.split("|").length : 0) + 1; // + призначення
+  const path = (url.match(/\/maps\/dir\/([^?]+)/) ?? ["", ""])[1]
+    .split("/")
+    .filter((seg) => /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(seg));
+  const count = wp ? wp.split("|").length + 1 : path.length;
   check("Пачка з десяти точок везе всі десять", count === 10, { у_посиланні: count, url });
+
   const last = ten[9];
+  const dest = `${Number(last.lat.toFixed(6))},${Number(last.lng.toFixed(6))}`;
   check(
     "Остання точка пачки — призначення",
-    url.includes(`destination=${Number(last.lat.toFixed(6))},${Number(last.lng.toFixed(6))}`),
+    // У формі-шляху призначення просто останнє в переліку.
+    url.includes(`destination=${dest}`) || path[path.length - 1] === dest,
     url
   );
 }

@@ -117,12 +117,12 @@ export function directionsUrl(points: MapPoint[]): string {
   const dest = points[points.length - 1];
   const waypoints = points
     .slice(1, -1)
-    .map((p) => `${p.lat},${p.lng}`)
+    .map((p) => `${round(p.lat)},${round(p.lng)}`)
     .join("|");
 
   return (
-    `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}` +
-    `&destination=${dest.lat},${dest.lng}` +
+    `https://www.google.com/maps/dir/?api=1&origin=${round(origin.lat)},${round(origin.lng)}` +
+    `&destination=${round(dest.lat)},${round(dest.lng)}` +
     (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "") +
     `&travelmode=driving`
   );
@@ -189,10 +189,20 @@ export function navigateUrl(point: MapPoint, app: NavApp = "google"): string {
  * Порожня пачка дає порожній рядок, а не помилку: наприкінці дня вести
  * просто нікуди, і викликач має право цього не перевіряти.
  */
-export function batchNavigateUrl(points: MapPoint[], app: NavApp = "google"): string {
+export function batchNavigateUrl(
+  points: MapPoint[],
+  app: NavApp = "google",
+  /**
+   * Де людина ЗАРАЗ. Без цього Google викидає разом зі стартом і всі проміжні
+   * точки — у списку девʼять адрес, у навігаторі одна (перевірено в полі
+   * 06.09.2026). Копія сайтової поведінки; розбіжність ловить
+   * scripts/check-google-links.ts.
+   */
+  from?: MapPoint | null
+): string {
   if (points.length === 0) return "";
   if (app === "waze" || points.length === 1) return navigateUrl(points[0], app);
-  return googleMapsLinksFromHere(points)[0]?.url ?? "";
+  return googleMapsLinksFromHere(points, from)[0]?.url ?? "";
 }
 
 

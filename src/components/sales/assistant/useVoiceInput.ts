@@ -43,13 +43,54 @@ function pickMime(): string | undefined {
  * побачить чесний текст.
  */
 async function openMic(): Promise<MediaStream> {
+  const busy = (e: unknown) => {
+    const name = e instanceof Error ? e.name : "";
+    return name === "NotReadableError" || name === "AbortError";
+  };
+
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    const name = e instanceof Error ? e.name : "";
-    if (name !== "NotReadableError" && name !== "AbortError") throw e;
+  } catch (first) {
+    if (!busy(first)) throw first;
+
+    // Пристрій віддається не миттєво: після зупинки попереднього потоку
+    // наступний запит ще частку секунди отримує «зайнято».
     await new Promise((r) => setTimeout(r, 400));
-    return navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (second) {
+      if (!busy(second)) throw second;
+
+      /**
+       * Остання спроба — без обробки звуку.
+       *
+       * `{audio:true}` у Chromium означає ще й приглушення луни, шумодав і
+       * автопідсилення, а це окремий шлях усередині Android: він уміє
+       * відмовляти сам по собі, і тоді сторінка бачить те саме «зайнято»,
+       * хоча мікрофон вільний. Без обробки якість трохи гірша, але питання
+       * помічникові важливіше за ідеальний звук.
+       */
+      return navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    }
+  }
+}
+
+/**
+ * Що система думає про мікрофон, коли ми всередині застосунку.
+ *
+ * Браузер про це не знає нічого: він бачить лише свій дозвіл сторінці, а
+ * дозвіл САМОМУ застосунку лежить рівнем нижче. Тому питаємо застосунок.
+ * Поза застосунком і в старих збірках — "unknown", і тоді нічого не
+ * стверджуємо.
+ */
+function appMicPermission(): "granted" | "denied" | "unknown" {
+  if (typeof window === "undefined") return "unknown";
+  try {
+    return window.BudvikApp?.micPermission?.() ?? "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
@@ -61,26 +102,56 @@ async function openMic(): Promise<MediaStream> {
  * без жодної підказки, що робити далі. Ім'я помилки розрізняє випадки, і
  * кожне має свою дію:
  *
- * - NotAllowedError / SecurityError — справді заборона; у застосунку просимо
- *   дозвіл самі, бо системний діалог із WebView з'являється не завжди;
- * - NotReadableError / AbortError — дозвіл є, але пристрій зайнятий: його
- *   тримає інший застосунок, дзвінок або наш власний недовідпущений потік;
+ * - NotAllowedError / SecurityError — заборона на рівні сторінки;
+ * - NotReadableError / AbortError — сторінці дозволили, а пристрій не
+ *   відкрився. Тут ховаються ДВА різні стани, і браузер їх не розрізняє:
+ *   дозволу немає в самого застосунку, або мікрофон справді хтось тримає.
+ *   Розрізнити може лише застосунок, тому питаємо його;
  * - NotFoundError / OverconstrainedError — мікрофона немає.
+ *
+ * Головна помилка попередньої спроби була саме тут: NotReadableError
+ * беззастережно списувався на «зайнятий іншим застосунком», і людина читала
+ * звинувачення на адресу програми, якої не існувало.
  */
 function micErrorText(e: unknown): string {
   const name = e instanceof Error ? e.name : "";
-  const inApp = typeof window !== "undefined" && !!window.BudvikApp;
+  const bridge = typeof window !== "undefined" ? window.BudvikApp : undefined;
+  const appPermission = appMicPermission();
+
+  /* Застосунку мікрофон не дали — і саме це, а не «зайнято», треба лікувати. */
+  if (appPermission === "denied") {
+    bridge?.requestMic?.();
+    return "Планшет не дав застосунку мікрофон. Дозвольте у вікні, що з'явиться, і натисніть ще раз";
+  }
 
   if (name === "NotAllowedError" || name === "SecurityError") {
-    if (inApp && window.BudvikApp?.requestMic) {
-      window.BudvikApp.requestMic();
+    if (bridge?.requestMic) {
+      bridge.requestMic();
       return "Дозвольте мікрофон і натисніть ще раз";
     }
     return "Мікрофон заборонено — дозвольте його в налаштуваннях";
   }
+
   if (name === "NotReadableError" || name === "AbortError") {
-    return "Мікрофон зайнятий іншим застосунком — закрийте його й натисніть ще раз";
+    /*
+      Дозвіл є, пристрій не відкрився. Всередині застосунку найчастіша
+      причина — не «інший застосунок», а те, що мікрофон тримає щось у
+      самій системі й дозвіл треба перевидати руками. Тому ведемо в
+      налаштування, а не звинувачуємо неіснуючу програму.
+    */
+    if (bridge) {
+      /*
+        Дозвіл у застосунку значиться виданим, а пристрій не відкрився.
+        Перевидання дозволу — єдине, що тут узагалі можна натиснути, тож
+        просимо його: якщо система насправді його не має, з'явиться діалог;
+        якщо заборонено «назавжди», застосунок сам відкриє налаштування.
+      */
+      bridge.requestMic?.();
+      return "Планшет не віддає мікрофон, хоча дозвіл значиться виданим. Перевидайте його у вікні, що з'явиться, і натисніть ще раз";
+    }
+    return "Мікрофон не відкрився — його тримає інша вкладка або програма";
   }
+
   if (name === "NotFoundError" || name === "OverconstrainedError") {
     return "Мікрофон не знайдено";
   }

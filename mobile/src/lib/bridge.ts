@@ -21,6 +21,18 @@ export type BridgeState = {
   pending: number;
   version: string;
   versionCode: number;
+  /**
+   * Що система насправді думає про мікрофон: "granted" | "denied" | "unknown".
+   *
+   * Без цього поля сторінка не могла відрізнити два стани, які виглядають
+   * однаково: «дозволу немає» і «дозвіл є, але пристрій не відкривається».
+   * Обидва прилітали як NotReadableError, і людині лишалося читати
+   * «мікрофон зайнятий іншим застосунком», коли жодного іншого не було.
+   *
+   * "unknown" — старі збірки в полі, де поля ще немає: сторінка тоді
+   * поводиться як раніше й нічого не стверджує.
+   */
+  micPermission?: "granted" | "denied" | "unknown";
 };
 
 /** Повідомлення від сайту до застосунку. */
@@ -29,6 +41,7 @@ export type BridgeMessage =
   | { type: "openScanner" }
   | { type: "openDay"; route?: string }
   | { type: "requestMic" }
+  | { type: "openAppSettings" }
   | { type: "logout" }
   | { type: "downloadUpdate" };
 
@@ -82,6 +95,12 @@ export function bridgeScript(state: BridgeState): string {
      * нативних модулів, тож доїжджає повітрям.
      */
     requestMic: function () { send("requestMic"); },
+    /**
+     * Останній щабель: дозвіл заборонено «назавжди», і системний діалог уже
+     * не з'явиться ніколи. Тоді єдиний шлях — екран налаштувань застосунку,
+     * і відкрити його має застосунок, бо посилання туди з веба немає.
+     */
+    openAppSettings: function () { send("openAppSettings"); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
     shiftStateJson: function () {
@@ -89,6 +108,11 @@ export function bridgeScript(state: BridgeState): string {
     },
     appVersion: function () { return s.version; },
     appVersionCode: function () { return s.versionCode; },
+    /**
+     * Довідка, а не команда: сторінка питає її в мить помилки, синхронно, і
+     * саме тому відповідь мусить уже лежати в стані.
+     */
+    micPermission: function () { return s.micPermission || "unknown"; },
     __set: function (next) { for (var k in next) { s[k] = next[k]; } }
   };
 })(); true;`;
@@ -103,6 +127,7 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
       data.type === "openScanner" ||
       data.type === "openDay" ||
       data.type === "requestMic" ||
+      data.type === "openAppSettings" ||
       data.type === "logout" ||
       data.type === "downloadUpdate"
     ) {

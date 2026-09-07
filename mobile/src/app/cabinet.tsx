@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking, PermissionsAndroid } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking, PermissionsAndroid, Platform } from "react-native";
 import { WebView } from "react-native-webview";
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -41,6 +41,25 @@ import {
   type PermissionState,
 } from "@/track/permissions";
 import { within, PROBE_MS } from "@/lib/within";
+
+/**
+ * Що система думає про мікрофон ПРЯМО ЗАРАЗ.
+ *
+ * Питаємо саме систему, а не пам'ять застосунку: дозвіл міняють руками в
+ * налаштуваннях, і жодної події про це нам ніхто не шле. Відповідь їде в
+ * сторінку разом із рештою стану мосту — щоб у мить помилки вона могла
+ * сказати правду, а не здогад.
+ */
+async function micPermission(): Promise<"granted" | "denied" | "unknown"> {
+  if (Platform.OS !== "android") return "unknown";
+  try {
+    const ok = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    return ok ? "granted" : "denied";
+  } catch {
+    // Дозволу немає в маніфесті або система відмовила — не стверджуємо нічого.
+    return "unknown";
+  }
+}
 import { UpdateBar } from "@/ui/UpdateBar";
 import { colors, space, radius } from "@/theme";
 
@@ -108,6 +127,7 @@ export default function CabinetScreen() {
     pending: 0,
     version: APP_VERSION,
     versionCode: APP_VERSION_CODE,
+    micPermission: "unknown",
   });
 
   useFocusEffect(
@@ -159,13 +179,18 @@ export default function CabinetScreen() {
        * ін'єкція будить JS сторінки посеред роботи людини.
        */
       let forced = true;
-      let last: { shiftOpen: boolean; pending: number } | null = null;
+      let last: { shiftOpen: boolean; pending: number; mic: string } | null = null;
 
       const refresh = async () => {
-        const [shiftOpen, pending] = await Promise.all([isShiftOpen(), bufferedCount()]);
+        const [shiftOpen, pending, mic] = await Promise.all([
+          isShiftOpen(),
+          bufferedCount(),
+          micPermission(),
+        ]);
         if (!alive) return;
-        const changed = !last || last.shiftOpen !== shiftOpen || last.pending !== pending;
-        last = { shiftOpen, pending };
+        const changed =
+          !last || last.shiftOpen !== shiftOpen || last.pending !== pending || last.mic !== mic;
+        last = { shiftOpen, pending, mic };
         if (!forced && !changed) return;
         forced = false;
 
@@ -174,6 +199,7 @@ export default function CabinetScreen() {
           pending,
           version: APP_VERSION,
           versionCode: APP_VERSION_CODE,
+          micPermission: mic,
         };
         setBridge(next);
         webRef.current?.injectJavaScript(bridgeScript(next));
@@ -221,20 +247,32 @@ export default function CabinetScreen() {
       }
       if (msg.type === "requestMic") {
         /*
-          Дозвіл на мікрофон — напряму в системи.
+          Дозвіл на мікрофон — напряму в системи, і до кінця.
 
           WebView уміє просити його сам, але діалог з'являється не завжди:
           07.09 власник оновився на 1.6.0, натиснув мікрофон і прочитав
           «мікрофон недоступний, перевірте дозвіл» при виданому дозволі.
-          PermissionsAndroid — ядро RN, тож нового нативного модуля не треба
-          й виправлення доїжджає повітрям.
+
+          Головне тут — третій стан. Коли дозвіл заборонено «назавжди»,
+          `request` повертає never_ask_again МОВЧКИ: жодного діалога, і
+          зовні це не відрізнити від того, що людина просто не встигла
+          натиснути. Тоді єдиний шлях — екран налаштувань застосунку, і ми
+          відкриваємо його самі, а не радимо його пошукати.
         */
         void PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
           title: "Мікрофон для помічника",
           message: "Щоб ставити питання голосом, застосунку потрібен мікрофон.",
           buttonPositive: "Дозволити",
           buttonNegative: "Не зараз",
-        }).catch(() => {});
+        })
+          .then((result) => {
+            if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) return openAppSettings();
+          })
+          .catch(() => {});
+        return;
+      }
+      if (msg.type === "openAppSettings") {
+        void openAppSettings().catch(() => {});
         return;
       }
       if (msg.type === "openDay") {

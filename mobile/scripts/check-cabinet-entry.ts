@@ -94,5 +94,39 @@ check(
   "Інакше після виходу шар вкладок і далі вважає людину працівником."
 );
 
-console.log(failed ? `\n✗ Провалено перевірок: ${failed}\n` : "\n✓ Вхід і вихід зведені\n");
+console.log("\nМікрофон помічника");
+
+const bridge = read(join(mobile, "lib", "bridge.ts"));
+const nativeApp = read(join(site, "lib", "useIsNativeApp.ts"));
+const voice = read(join(site, "components", "sales", "assistant", "useVoiceInput.ts"));
+
+check(
+  "застосунок каже сторінці, що система думає про мікрофон",
+  /micPermission/.test(bridge) && /micPermission\?\(\)/.test(nativeApp),
+  "Без цієї довідки «дозволу немає» і «пристрій зайнятий» на сторінці не відрізнити."
+);
+check(
+  "кабінет читає дозвіл у системи, а не з пам'яті",
+  /PermissionsAndroid\.check\(PermissionsAndroid\.PERMISSIONS\.RECORD_AUDIO\)/.test(cabinet),
+  "Дозвіл міняють руками в налаштуваннях, і події про це нам ніхто не шле."
+);
+check(
+  "заборона «назавжди» веде в налаштування, а не в глухий кут",
+  /NEVER_ASK_AGAIN/.test(cabinet) && /openAppSettings/.test(bridge),
+  "PermissionsAndroid.request у цьому стані повертає відмову МОВЧКИ, без діалога."
+);
+check(
+  "потік мікрофона відпускається на будь-якому виході",
+  /releaseMic/.test(voice) && (voice.match(/releaseMic\(\)/g)?.length ?? 0) >= 3,
+  "Провал створення записувача лишав мікрофон захопленим назавжди."
+);
+check(
+  "жоден ТЕКСТ для людини не звинувачує неіснуючий застосунок",
+  // Саме рядки, які повертаються на екран, — пояснення в коментарях ловити
+  // не треба, вони якраз і розказують, чому так робити не можна.
+  !/return\s+"[^"]*зайнятий іншим застосунком/.test(voice),
+  "07.09: людина читала звинувачення на адресу програми, якої не було."
+);
+
+console.log(failed ? `\n✗ Провалено перевірок: ${failed}\n` : "\n✓ Вхід, вихід і мікрофон зведені\n");
 process.exit(failed ? 1 : 0);

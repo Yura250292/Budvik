@@ -89,7 +89,34 @@ export async function getScope(): Promise<"shop" | "track" | null> {
 export async function setScope(scope: "shop" | "track"): Promise<void> {
   scopeCached = scope;
   scopeLoaded = true;
+  announceScope();
   await SecureStore.setItemAsync(SCOPE_KEY, scope).catch(() => {});
+}
+
+/**
+ * Хто слухає зміну області.
+ *
+ * Розвилка «вітрина чи кабінет» стоїть у (tabs)/_layout, і читала вона
+ * область один раз — при монтуванні. Тобто після виходу з акаунта той шар,
+ * якщо він лишався живим, і далі вважав людину працівником і повертав її на
+ * /cabinet. Ззовні це рівно «змінюю роль — зависає, треба вимкнути й
+ * увімкнути»: застосунок ходив по колу між вкладками й кабінетом.
+ *
+ * Підписка, а не перечитування на фокус: фокус у layout-і залежить від того,
+ * як саме навігатор змонтував екран, а тут потрібна відповідь без «залежить».
+ */
+type ScopeListener = (scope: "shop" | "track" | null) => void;
+const scopeListeners = new Set<ScopeListener>();
+
+export function onScopeChange(fn: ScopeListener): () => void {
+  scopeListeners.add(fn);
+  return () => {
+    scopeListeners.delete(fn);
+  };
+}
+
+function announceScope(): void {
+  for (const fn of scopeListeners) fn(scopeCached);
 }
 
 export async function setToken(token: string, biometric = false): Promise<void> {
@@ -127,6 +154,7 @@ export async function clearToken(): Promise<void> {
   // людину в кабінет за областю, якої у сховищі вже немає.
   scopeCached = null;
   scopeLoaded = true;
+  announceScope();
   await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
   await SecureStore.deleteItemAsync(SCOPE_KEY).catch(() => {});
 }

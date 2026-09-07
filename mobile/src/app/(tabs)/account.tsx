@@ -19,8 +19,15 @@ import {
 import { registerForPush, unregisterPush } from "@/lib/push";
 import { colors, space, radius, formatUAH } from "@/theme";
 import { onStaffLogin } from "@/track/controller";
+import { within } from "@/lib/within";
 
 type Profile = Awaited<ReturnType<typeof api.me>>;
+
+/**
+ * Скільки чекаємо на налаштування треку після входу, перш ніж відкрити кабінет.
+ * Довше людину тримати нема за що: усе, що не встигло, доробиться у фоні.
+ */
+const LOGIN_SETUP_MS = 6_000;
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -81,7 +88,19 @@ export default function AccountScreen() {
            * WebView, і якби запуск залежав від нього, водій, який не відкриває
            * жодної сторінки, лишався б без запису маршруту.
            */
-          await onStaffLogin(res.user?.role ?? null, res.user?.id ?? null).catch(() => {});
+          /**
+           * Під межею: усередині є похід у /api/shift/current, щоб підхопити
+           * зміну, відкриту до перевстановлення. На поганому зв'язку цей похід
+           * тримав кнопку «Хвилинку…» до півхвилини — рівно те, що в полі
+           * називають «вхід дуже довго грузить». Робота від межі не гине:
+           * запис і сторож піднімуться далі самі, а кабінет на холодному
+           * старті ще раз звіряється із сервером.
+           */
+          await within(
+            onStaffLogin(res.user?.role ?? null, res.user?.id ?? null).catch(() => {}),
+            LOGIN_SETUP_MS,
+            undefined
+          );
           /**
            * Дозвіл на сповіщення — теж тут, поруч із треком.
            *
@@ -91,7 +110,18 @@ export default function AccountScreen() {
            * саме сповіщатимуть.
            */
           registerForPush().catch(() => {});
-          router.replace({ pathname: "/cabinet", params: { target: res.target ?? "/sales" } });
+          /**
+           * Адресу передаємо, лише коли сервер її назвав. Запасне "/sales"
+           * тут було небезпечним: воно вело в кабінет ТОРГОВОГО кожного, кому
+           * сервер не встиг назвати домівку, — і складовщик замість накладних
+           * читав «Доступ заборонено». Без параметра кабінет питає сервер, і
+           * той відповідає за роллю.
+           */
+          router.replace(
+            res.target
+              ? { pathname: "/cabinet", params: { target: res.target } }
+              : { pathname: "/cabinet" }
+          );
           return;
         }
 
@@ -130,10 +160,21 @@ export default function AccountScreen() {
     // стерти локально — інакше «вихід» нічого не робить.
     // Спершу відписка від пушів: після стирання токена запит уже не пройде,
     // і чужі замовлення приходили б на цей телефон.
-    await unregisterPush();
-    await api.logout().catch(() => {});
-    await clearToken();
-    setProfile(null);
+    setBusy(true);
+    try {
+      /**
+       * Обидва кроки — мережа, і обидва тепер під межею самого клієнта
+       * (api/client.ts). Але `finally` тут головніший за них: доки його не
+       * було, будь-який виняток у відписці лишав токен на місці, і «Вийти»
+       * мовчки не робив нічого.
+       */
+      await unregisterPush().catch(() => {});
+      await api.logout().catch(() => {});
+    } finally {
+      await clearToken();
+      setProfile(null);
+      setBusy(false);
+    }
   }
 
   /**

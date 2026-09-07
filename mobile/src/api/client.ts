@@ -75,9 +75,41 @@ type Options = {
    * приймають — не з примхи, а щоб токен покупця не ходив у роути поля.
    */
   prefix?: string;
+  /** Своя межа очікування, коли типової замало (важкі списки) або забагато. */
+  timeoutMs?: number;
 };
 
-async function request<T>(path: string, opts: Options = {}): Promise<T> {
+/**
+ * Скільки чекаємо на відповідь, перш ніж визнати запит зависним.
+ *
+ * `fetch` у React Native не має власної межі й на Android може висіти
+ * скільки завгодно — саме так виглядав «вхід дуже довго грузить»: кнопка
+ * «Хвилинку…» і жодної відповіді ні через хвилину, ні через п'ять.
+ * AbortController тут не рятує (перевірено: сигнал не доходить до нативного
+ * шару), тож межа — гонка, як і в staff.ts.
+ */
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+/**
+ * Гонка з таймером. Запит не скасовується — його вже нікому чекати; ми лише
+ * перестаємо на нього дивитися й кажемо людині правду.
+ */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new ApiError(`Сервер не відповів за ${Math.round(ms / 1000)} с`, 0)),
+      ms
+    );
+  });
+  return Promise.race([work, guard]).finally(() => clearTimeout(timer));
+}
+
+function request<T>(path: string, opts: Options = {}): Promise<T> {
+  return withTimeout(doRequest<T>(path, opts), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+}
+
+async function doRequest<T>(path: string, opts: Options = {}): Promise<T> {
   const token = opts.anonymous ? null : await getToken();
 
   const res = await fetch(`${API_BASE}${opts.prefix ?? "/api/v1"}${path}`, {

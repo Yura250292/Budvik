@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { Tabs, Redirect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { getScope } from "@/lib/auth-store";
+import { getScope, onScopeChange } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { AppHeader } from "@/components/AppHeader";
@@ -34,6 +34,12 @@ export default function TabsLayout() {
 
   useEffect(() => {
     getScope().then(setScope);
+    /**
+     * І далі слухаємо: вихід із акаунта стирає область, а цей шар може
+     * лишитися змонтованим. Без підписки він і після виходу вважав людину
+     * працівником і повертав її на /cabinet — по колу, до перезапуску.
+     */
+    return onScopeChange(setScope);
   }, []);
 
   if (scope === undefined) return null;

@@ -40,6 +40,16 @@ export default function BottomNav() {
   if (pathname?.startsWith("/admin")) return null;
   // У водія в машині таб-бар вітрини лише відбирає висоту в карти.
   if (pathname?.startsWith("/driver")) return null;
+  /*
+   * Склад — так само, і тут це не про висоту, а про дві панелі одночасно.
+   *
+   * П'ятий слот цього меню для ролі WAREHOUSE веде на /warehouse, тобто на
+   * сторінку, де воно й малювалося: складовщик бачив унизу «Головна / Каталог
+   * / Пошук / Кошик / Склад», а власне меню кабінету — зміна, накладні,
+   * збірка, товар — ховалося під ним. Вітрина йому в робочому застосунку не
+   * потрібна взагалі: він не купує, він приймає накладні.
+   */
+  if (pathname?.startsWith("/warehouse")) return null;
 
   const isActive = (path: string) => {
     if (path === "/") return pathname === "/";

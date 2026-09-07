@@ -195,6 +195,19 @@ export default function CabinetScreen() {
         router.push("/warehouse/scan");
         return;
       }
+      if (msg.type === "openDay") {
+        /*
+          Маршрутний лист несемо з собою: у водія їх на добу буває два, і
+          «Мій день» без ключа показав би не той. Ключ той самий, що в адресі
+          сайту (`?route=dr:…`), тож обидва шляхи ведуть в одне місце.
+        */
+        router.push(
+          (msg.route
+            ? `/day?route=${encodeURIComponent(msg.route)}`
+            : "/day") as Parameters<typeof router.push>[0]
+        );
+        return;
+      }
       if (msg.type === "downloadUpdate") {
         startDownload();
         return;

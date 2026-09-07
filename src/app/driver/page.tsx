@@ -3,6 +3,8 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+// Тип моста застосунку (window.BudvikApp) оголошено там же.
+import "@/lib/useIsNativeApp";
 import { ChevronRight, ListChecks, PackageOpen, Check } from "lucide-react";
 import { formatPrice, formatDayDate } from "@/lib/utils";
 import NotificationsBell from "@/components/admin/NotificationsBell";
@@ -33,6 +35,25 @@ export default function DriverPage() {
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  /**
+   * «Мій день» у застосунку відкриває НАТИВНИЙ екран, а не веб-сторінку.
+   *
+   * Досі це трималося на перехопленні адреси /driver/tablet у WebView, і
+   * саме тут воно й не працювало: перехоплення на Android піднімається лише
+   * на СПРАВЖНІЙ навігації, а Link — це м'який перехід Next. Тобто водій
+   * тиснув кнопку й отримував веб-версію дня, у якій відмітка візиту без
+   * зв'язку просто падає, замість нативної, де вона лягає в чергу.
+   *
+   * Посилання лишається посиланням: у браузері й у старих збірках без
+   * `openDay` спрацьовує звичайний перехід, тобто рівно те, що було.
+   */
+  const openDayNatively = (route?: string) => (e: React.MouseEvent) => {
+    const open = typeof window !== "undefined" ? window.BudvikApp?.openDay : undefined;
+    if (!open) return;
+    e.preventDefault();
+    open(route);
+  };
 
   const role = (session?.user as any)?.role;
 
@@ -123,6 +144,7 @@ export default function DriverPage() {
             він показує точки, приймає відмітки і рахує касу. */}
         <Link
           href="/driver/tablet"
+          onClick={openDayNatively()}
           className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-white active:opacity-90"
           style={{ background: "linear-gradient(135deg, #0A0A0A, #1F2937)" }}
         >
@@ -202,6 +224,7 @@ export default function DriverPage() {
                       </Link>
                       <Link
                         href={`/driver/tablet?route=dr:${route.id}`}
+                        onClick={openDayNatively(`dr:${route.id}`)}
                         className="flex-1 rounded-xl border border-cab-line py-2.5 text-center text-[13px] font-bold text-bk"
                       >
                         Відмітки

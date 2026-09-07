@@ -27,6 +27,7 @@ export type BridgeState = {
 export type BridgeMessage =
   | { type: "openShift" }
   | { type: "openScanner" }
+  | { type: "openDay"; route?: string }
   | { type: "logout" }
   | { type: "downloadUpdate" };
 
@@ -41,9 +42,11 @@ export function bridgeScript(state: BridgeState): string {
   return `(function () {
   if (window.BudvikApp && window.BudvikApp.__set) { window.BudvikApp.__set(${json}); return; }
   var s = ${json};
-  function send(type) {
+  function send(type, extra) {
     if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: type }));
+      var msg = { type: type };
+      if (extra) { for (var k in extra) { if (extra[k]) msg[k] = extra[k]; } }
+      window.ReactNativeWebView.postMessage(JSON.stringify(msg));
     }
   }
   window.BudvikApp = {
@@ -57,6 +60,17 @@ export function bridgeScript(state: BridgeState): string {
      * з полем файлу замість камери.
      */
     openScanner: function () { send("openScanner"); },
+    /**
+     * День водія — теж через міст, і з тієї самої причини, що й сканер.
+     *
+     * Досі він тримався лише на перехопленні адреси /driver/tablet, а воно
+     * на Android спрацьовує тільки на СПРАВЖНІЙ навігації. Кнопка «Мій день»
+     * у кабінеті — звичайний Link Next, тобто м'який перехід: перехоплення
+     * мовчало, і водій відкривав веб-версію дня. Різниця не косметична —
+     * саме в нативному екрані відмітка візиту лягає в чергу й переживає
+     * відсутність зв'язку, а у WebView вона просто падає.
+     */
+    openDay: function (route) { send("openDay", { route: route }); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
     shiftStateJson: function () {
@@ -76,10 +90,18 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
     if (
       data.type === "openShift" ||
       data.type === "openScanner" ||
+      data.type === "openDay" ||
       data.type === "logout" ||
       data.type === "downloadUpdate"
     ) {
-      return { type: data.type };
+      // `route` несемо далі: без нього «Мій день» показав би не той
+      // маршрутний лист, коли їх на добу два.
+      const route = typeof (data as { route?: unknown }).route === "string"
+        ? ((data as { route: string }).route)
+        : undefined;
+      return data.type === "openDay"
+        ? { type: "openDay", route }
+        : ({ type: data.type } as BridgeMessage);
     }
   } catch {
     // Сторінка може слати власні повідомлення — це не помилка.

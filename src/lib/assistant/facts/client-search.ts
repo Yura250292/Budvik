@@ -62,6 +62,9 @@ async function search(
         c.name ILIKE ALL(${patterns}::text[])
         OR c.code ILIKE ${whole}
         OR c."contactPerson" ILIKE ${whole}
+        -- Адреса теж: місто в 1С пишуть де завгодно, і «Сокільники»
+        -- частіше стоїть саме там, а не в назві.
+        OR c.address ILIKE ALL(${patterns}::text[])
       )
       ${onlyMine ? Prisma.sql`AND c.id IN (SELECT id FROM my_clients)` : Prisma.empty}
     ORDER BY

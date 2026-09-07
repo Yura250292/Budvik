@@ -54,6 +54,7 @@ export type Intent =
   | { kind: "ABC_CLIENTS"; period: PeriodSpec }
   | { kind: "FORECAST" }
   | { kind: "NEARBY"; radiusKm: number | null }
+  | { kind: "CITY_CLIENTS"; city: string }
   | { kind: "PAYMENTS"; period: PeriodSpec; subject: string | null }
   | { kind: "ROUTE_TO"; names: string[] }
   | { kind: "REMIND"; text: string }
@@ -410,6 +411,23 @@ export function detectIntent(
   }
   if (/(мої\s+нагадуванн|які\s+(в\s+мене\s+)?нагадуванн|що\s+я\s+маю\s+зробити|що\s+на\s+мені|список\s+нагадувань)/i.test(text)) {
     return { kind: "REMINDERS" };
+  }
+
+  /**
+   * «Кого розпрацювати в Сокільниках» — питання про МІСТО.
+   *
+   * Стоїть перед пошуком клієнта за назвою: інакше «клієнти в Сокільниках»
+   * шукало б контрагента на ім'я «Сокільники» і не знаходило нічого.
+   * Назва міста — це ПЕРШЕ слово хвоста: далі йде вже друга половина
+   * питання («кого можна розпрацювати і до кого завітати»).
+   */
+  const cityTail = subjectAfter(
+    text,
+    /((знайди|покажи|дай)\s+(мені\s+)?)?(клієнт[а-яіїєґ]*|магазин[а-яіїєґ]*|точ[а-яіїєґ]*|кого|хто)\s+(можна\s+)?(розпрацювати|відвідати|завітати|заїхати|є|там)?\s*(у|в|по|на)\s+(місті|селі|смт|м\.|с\.)?\s*/i
+  );
+  if (cityTail) {
+    const city = (cityTail.match(/^[А-ЯІЇЄҐа-яіїєґA-Za-z'ʼ-]{3,}/) ?? [])[0];
+    if (city && !NOT_A_NAME.test(city)) return { kind: "CITY_CLIENTS", city };
   }
 
   /**

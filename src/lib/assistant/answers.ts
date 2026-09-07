@@ -57,6 +57,7 @@ import { teamBenchmark, STRONG_PERCENTILE, WEAK_PERCENTILE } from "@/lib/analyti
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 import { buildAbcReport } from "@/lib/analytics/abc";
 import { monthForecast, type MonthForecast } from "@/lib/assistant/facts/forecast";
+import { clientsInCity } from "@/lib/assistant/facts/city-clients";
 import { nearbyClients, POSITION_FRESH_HOURS } from "@/lib/assistant/facts/nearby";
 import { clientPayments, repPayments } from "@/lib/assistant/facts/payments";
 import { createReminder, listReminders } from "@/lib/assistant/facts/reminders";
@@ -2027,6 +2028,106 @@ function ymdHm(at: Date): string {
   const h = local.getUTCHours();
   const min = String(local.getUTCMinutes()).padStart(2, "0");
   return `${d}.${m} ${h}:${min}`;
+}
+
+/* ── Клієнти в місті ──────────────────────────────────────────────────── */
+
+/**
+ * «Кого можна розпрацювати в Сокільниках».
+ *
+ * Показуємо ВСЮ базу міста, а не портфель (вимога власника 07.09.2026).
+ * Питання про можливості, а не про свій список: половина потенціалу —
+ * саме в магазинах, які веде хтось інший або не веде ніхто, і відповідь
+ * «ось ваші троє» не додає до знань торгового нічого.
+ *
+ * Групи важливіші за сортування: «беруть», «сплять» і «ніколи не брали» —
+ * це три різні розмови біля дверей, і змішувати їх в один список
+ * означає змусити людину сортувати самотужки.
+ */
+export async function answerCityClients(ctx: ToolContext, city: string): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+
+  const facts = await timed(
+    { name: "city_clients", label: "Шукаю клієнтів у місті" },
+    () => clientsInCity(city, ctx.scope.repId),
+    tools
+  );
+
+  if (facts.counts.total === 0) {
+    return {
+      markdown: md([
+        `## 🏘️ ${city}`,
+        "",
+        "Жодного клієнта з такою адресою чи назвою в базі немає. Спробуйте коротшу назву — «Сокільник», «Стрий».",
+      ]),
+      tools,
+    };
+  }
+
+  const line = (c: (typeof facts.clients)[number]) => {
+    const bits: string[] = [];
+    if (c.revenue > 0) bits.push(`${money(c.revenue)} за пів року`);
+    if (c.daysSinceLast != null) bits.push(`не брав ${days(c.daysSinceLast)}`);
+    if (c.overdue > 0) bits.push(`🔴 прострочено ${money(c.overdue)}`);
+    else if (c.debt > 0) bits.push(`🟡 борг ${money(c.debt)}`);
+    if (!c.hasPin) bits.push("📍 немає на карті");
+    return `- ${c.mine ? "⭐" : "🏪"} ${clientLink(c.id, c.name)}${bits.length ? ` — ${bits.join(" · ")}` : ""}`;
+  };
+
+  const group = (kind: "active" | "asleep" | "never") =>
+    facts.clients.filter((c) => c.group === kind);
+
+  const active = group("active");
+  const asleep = group("asleep");
+  const never = group("never");
+
+  return {
+    markdown: md([
+      `## 🏘️ Клієнти в «${city}»`,
+      "",
+      ...table(
+        ["👥 Усього", "🟢 Беруть", "😴 Сплять", "🆕 Не брали", "⭐ Ваші"],
+        [[facts.counts.total, facts.counts.active, facts.counts.asleep, facts.counts.never, facts.counts.mine]]
+      ),
+      ...(active.length ? ["", "### 🟢 Беруть зараз", ...active.slice(0, 10).map(line)] : []),
+      ...(asleep.length
+        ? [
+            "",
+            "### 😴 Сплять — сюди й заходити",
+            "_Брали раніше, зупинилися. Найтепліший привід для розмови._",
+            ...asleep.slice(0, 10).map(line),
+          ]
+        : []),
+      ...(never.length
+        ? [
+            "",
+            "### 🆕 Ще нічого не брали",
+            ...never.slice(0, 8).map(line),
+          ]
+        : []),
+      "",
+      "_Показую ВСІХ клієнтів бази в цьому місті, не лише ваших: ⭐ — ваш, 🏪 — веде хтось інший або ніхто._",
+      "",
+      followUps(
+        asleep.length ? `З чим заходити до ${keyWord(asleep[0].name)}?` : null,
+        "Хто поруч?",
+        `Побудуй маршрут по ${city}`
+      ),
+    ]),
+    tools,
+  };
+}
+
+/**
+ * Слово, за яким клієнта знайдуть удруге.
+ *
+ * У кнопку не можна класти обрізане «ФОП Мірошкіна Евеліна…»: натиснувши
+ * її, людина надішле питання з трьома крапками, і пошук нічого не
+ * знайде. Беремо перше значуще слово — саме воно й прізвище.
+ */
+function keyWord(name: string): string {
+  const words = name.split(/[\s(,]+/).filter((w) => w.length >= 4 && !/^(ФОП|ТОВ|ПП|ТзОВ|магазин)$/i.test(w));
+  return words[0] ?? name.slice(0, 20);
 }
 
 /* ── Хто поруч ────────────────────────────────────────────────────────── */

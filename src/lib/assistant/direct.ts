@@ -19,6 +19,7 @@ import type { ToolContext } from "@/lib/assistant/types";
 import type { DirectAnswer } from "@/lib/assistant/answers";
 import {
   answerChurn,
+  answerCityClients,
   answerClientCard,
   answerClientProduct,
   answerHelp,
@@ -146,6 +147,9 @@ export async function tryDirectAnswer(
 
     case "REMINDERS":
       return answerReminders(ctx);
+
+    case "CITY_CLIENTS":
+      return answerCityClients(ctx, intent.city);
 
     case "NEARBY":
       return answerNearby(ctx, intent.radiusKm);

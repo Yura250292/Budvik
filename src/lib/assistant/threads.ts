@@ -218,7 +218,11 @@ export async function loadSeenEntities(threadId: string): Promise<SeenEntities> 
   const seen = emptyEntities();
   for (const row of rows) {
     for (const id of row.entityIds) {
+      // Вид сутності в плоскому списку не збережений, тож id зараховуємо
+      // в усі три: питання тут одне — «чи показували ми це взагалі».
+      // Товар без артикула посилання все одно не отримає (див. guards).
       seen.clients.add(id);
+      seen.reps.add(id);
       if (!seen.products.has(id)) seen.products.set(id, null);
     }
   }

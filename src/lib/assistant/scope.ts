@@ -14,6 +14,11 @@
  * Керівник обирає торгового один раз, при створенні розмови. Міняти його
  * посеред діалогу не можна: половина реплік уже про іншу людину, і
  * відповідь на «а в нього як?» стала б відповіддю про третього.
+ *
+ * Не обрав нікого — це не «розмова ні про кого», а розмова про ВСЮ фірму
+ * (вид ADMIN, scope.company). Тому наявні розмови офісу «Я сам», у яких
+ * зведення й так виходили порожні, з цієї зміни стають розмовами про
+ * фірму — і в списку вони підписані «Уся фірма».
  */
 
 import { prisma } from "@/lib/prisma";
@@ -27,13 +32,28 @@ const OFFICE = new Set(["ADMIN", "MANAGER"]);
  *
  * За роллю, а не за адресою сторінки: водій із кабінету торгового
  * однаково лишається водієм, і показувати йому звіти по продажах немає
- * сенсу — на нього їх не оформлюють. Те саме зі складовщиком. Офіс
- * дивиться очима торгового, бо саме за нього він і заходить.
+ * сенсу — на нього їх не оформлюють. Те саме зі складовщиком.
  */
 export function kindForRole(role: string): AssistantKind {
   if (role === "DRIVER") return "DRIVER";
   if (role === "WAREHOUSE") return "WAREHOUSE";
   return "SALES";
+}
+
+/**
+ * Вид помічника для КОНКРЕТНОЇ розмови.
+ *
+ * У офісу їх два, і розрізняє їх не роль, а те, кого обрали при створенні
+ * розмови. Обрав торгового — розмова «очима торгового», зі скоупом на
+ * нього: план дня, його борги, його клієнти. Не обрав нікого (repId — він
+ * сам) — розмова про всю фірму: команда, водії, склад, обмін.
+ *
+ * Так само з цього виходить, що вид не міняється посеред діалогу: repId
+ * прибитий до розмови, а половина реплік уже про когось конкретного.
+ */
+export function kindForThread(role: string, threadRepId: string, userId: string): AssistantKind {
+  if (OFFICE.has(role) && threadRepId === userId) return "ADMIN";
+  return kindForRole(role);
 }
 
 /** Кого офіс має право обрати. SALES завжди дивиться на себе. */
@@ -55,10 +75,10 @@ export async function resolveRepForThread(
   return { repId: rep.id };
 }
 
-export async function scopeOf(repId: string): Promise<AssistantScope> {
+export async function scopeOf(repId: string, company = false): Promise<AssistantScope> {
   const rep = await prisma.user.findUnique({
     where: { id: repId },
     select: { name: true },
   });
-  return { repId, repName: rep?.name ?? "торговий" };
+  return { repId, repName: rep?.name ?? (company ? "керівник" : "торговий"), company };
 }

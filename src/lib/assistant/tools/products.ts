@@ -19,7 +19,7 @@ import { pct, uah, ymd } from "@/lib/assistant/format";
 const sectionTitle = (id: string | null) => (id ? (SECTION_BY_ID.get(id)?.title ?? id) : null);
 
 export const productSearch: ToolDef = {
-  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE", "ADMIN"],
   name: "product_search",
   label: "Шукаю товар",
   description:

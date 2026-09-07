@@ -13,6 +13,7 @@ import { prisma } from "../src/lib/prisma";
 import { runTurn } from "../src/lib/assistant/loop";
 import { createThread } from "../src/lib/assistant/threads";
 import { kyivDate } from "../src/lib/date/kyiv";
+import { kindForThread } from "../src/lib/assistant/scope";
 import type { TurnEvent } from "../src/lib/assistant/types";
 
 const DEFAULT_REP = "rep-kavetskyi-viktor@budvik.local";
@@ -39,7 +40,8 @@ if (!rep) {
 }
 
 const threadId = existingThread ?? (await createThread(rep.id, rep.id)).id;
-console.log(`розмова ${threadId} · ${rep.name}\n`);
+const kind = kindForThread(rep.role, rep.id, rep.id);
+console.log(`розмова ${threadId} · ${rep.name} · вид ${kind}\n`);
 
 const started = Date.now();
 let buffer = "";
@@ -60,8 +62,8 @@ try {
     ctx: {
       userId: rep.id,
       role: rep.role,
-      kind: rep.role === "DRIVER" ? ("DRIVER" as const) : ("SALES" as const),
-      scope: { repId: rep.id, repName: rep.name },
+      kind,
+      scope: { repId: rep.id, repName: rep.name ?? "", company: kind === "ADMIN" },
       today: kyivDate(new Date()),
     },
     selfScoped: true,

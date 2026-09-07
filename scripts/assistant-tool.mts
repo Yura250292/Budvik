@@ -15,6 +15,7 @@ import { compact } from "../src/lib/assistant/format";
 import { collectEntities, entityIdList } from "../src/lib/assistant/guards";
 import { TOOL_RESULT_MAX_CHARS } from "../src/lib/assistant/config";
 import { kyivDate } from "../src/lib/date/kyiv";
+import { kindForThread } from "../src/lib/assistant/scope";
 
 const DEFAULT_REP = "rep-kavetskyi-viktor@budvik.local";
 
@@ -41,11 +42,15 @@ if (!rep) {
   process.exit(1);
 }
 
+// Вид беремо тим самим правилом, що й роут: під офісним акаунтом без
+// обраного торгового це керівник, а не «торговий без портфеля».
+const kind = kindForThread(rep.role, rep.id, rep.id);
+
 const ctx = {
   userId: rep.id,
   role: rep.role,
-  kind: rep.role === "DRIVER" ? ("DRIVER" as const) : ("SALES" as const),
-  scope: { repId: rep.id, repName: rep.name },
+  kind,
+  scope: { repId: rep.id, repName: rep.name ?? "", company: kind === "ADMIN" },
   today: kyivDate(new Date()),
 };
 
@@ -57,7 +62,7 @@ try {
   const json = compact(result);
   const entities = collectEntities(result);
 
-  console.log(`${tool.name} · ${rep.name} · ${Date.now() - started} мс`);
+  console.log(`${tool.name} · ${rep.name} · вид ${kind} · ${Date.now() - started} мс`);
   console.log(
     `розмір ${json.length} символів (ліміт ${TOOL_RESULT_MAX_CHARS})${json.length > TOOL_RESULT_MAX_CHARS ? " — ЗАВЕЛИКИЙ" : ""}`
   );

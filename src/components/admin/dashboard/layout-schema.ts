@@ -38,7 +38,8 @@ export type WidgetType =
   | "calculator"
   | "notes"
   | "clock"
-  | "quick-actions";
+  | "quick-actions"
+  | "assistant-ask";
 
 export type WidgetInstance = {
   id: string;

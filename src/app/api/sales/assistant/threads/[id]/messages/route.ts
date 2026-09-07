@@ -15,13 +15,13 @@
  * зникає.
  */
 
-import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
+import { requireRoles, STAFF_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/shop/rate-limit";
 import { DAILY_TURN_CAP, USER_TEXT_MAX } from "@/lib/assistant/config";
 import { runTurn } from "@/lib/assistant/loop";
 import { acquireBusy, getThreadForUser, releaseBusy } from "@/lib/assistant/threads";
-import { kindForRole, scopeOf } from "@/lib/assistant/scope";
+import { kindForThread, scopeOf } from "@/lib/assistant/scope";
 import { encodeEvent, keepAlive } from "@/lib/assistant/sse";
 import { DeepSeekError } from "@/lib/assistant/deepseek";
 import { kyivDate } from "@/lib/date/kyiv";
@@ -30,8 +30,6 @@ import type { TurnEvent } from "@/lib/assistant/types";
 export const dynamic = "force-dynamic";
 /** Хід обмежений 100 секундами (TURN_DEADLINE_MS) — тут запас на збереження. */
 export const maxDuration = 120;
-
-const OFFICE = new Set(["ADMIN", "MANAGER"]);
 
 function json(body: unknown, status: number) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -92,11 +90,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return json({ error: "Попередня відповідь ще формується" }, 409);
   }
 
-  const scope = await scopeOf(thread.repId);
+  /**
+   * Вид помічника залежить не лише від ролі, а й від того, кого обрали в
+   * ЦІЙ розмові: керівник без обраного торгового питає про всю фірму.
+   */
+  const kind = kindForThread(guard.me.role, thread.repId, guard.me.userId);
+  const scope = await scopeOf(thread.repId, kind === "ADMIN");
   const ctx = {
     userId: guard.me.userId,
     role: guard.me.role,
-    kind: kindForRole(guard.me.role),
+    kind,
     scope,
     today: kyivDate(new Date()),
   };
@@ -125,7 +128,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       runTurn({
         threadId,
         ctx,
-        selfScoped: !OFFICE.has(guard.me.role) || thread.repId === guard.me.userId,
+        selfScoped:
+          !(OFFICE_ROLES as readonly string[]).includes(guard.me.role) ||
+          thread.repId === guard.me.userId,
         userText: text,
         clientHint,
         isFirstMessage: existing === 0,

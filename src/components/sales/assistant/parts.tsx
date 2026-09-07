@@ -255,12 +255,15 @@ export function Composer({
   onSend,
   onStop,
   busy,
+  placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSend: () => void;
   onStop: () => void;
   busy: boolean;
+  /** Підказка в полі: у керівника вона про фірму, а не про маршрут. */
+  placeholder?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -306,7 +309,7 @@ export function Composer({
         enterKeyHint="send"
         maxLength={1000}
         disabled={busy}
-        placeholder={COPY.placeholder}
+        placeholder={placeholder ?? COPY.placeholder}
         // 16px обов'язково: менший шрифт змушує мобільний браузер
         // масштабувати сторінку при фокусі.
         className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-xl border border-cab-line bg-white px-3 py-2.5 text-base text-bk outline-none placeholder:text-cab-t3 focus:border-bk disabled:bg-cab-bg"

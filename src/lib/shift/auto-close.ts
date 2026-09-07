@@ -154,7 +154,11 @@ export async function decideForShift(
       return {
         ...withPoint,
         close: null,
-        reason: `трек мовчить ${Math.round(silentMin)} хв — чекаємо до ${FORCE_HOUR}:00`,
+        // Точок не було ЖОДНОЇ — тоді silentMin це Infinity, і «мовчить
+        // Infinity хв» у картці читається як поламка сторожа.
+        reason: lastPoint
+          ? `трек мовчить ${Math.round(silentMin)} хв — чекаємо до ${FORCE_HOUR}:00`
+          : `точок за зміну не було жодної — чекаємо до ${FORCE_HOUR}:00`,
       };
     }
     return {

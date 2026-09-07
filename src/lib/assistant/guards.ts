@@ -24,14 +24,27 @@ export type SeenEntities = {
    * торішні числа в новій відповіді немає сенсу.
    */
   numbers: Set<number>;
+  /** Торгові, згадані інструментами цього ходу — для посилань на картку. */
+  reps: Set<string>;
 };
 
 export function emptyEntities(): SeenEntities {
-  return { clients: new Set(), products: new Map(), numbers: new Set() };
+  return { clients: new Set(), products: new Map(), reps: new Set(), numbers: new Set() };
 }
 
 const CLIENT_KEYS = new Set(["клієнт_id", "counterpartyId"]);
 const PRODUCT_KEYS = new Set(["товар_id", "productId"]);
+/**
+ * Торгові — лише в помічника керівника, і лише вони.
+ *
+ * У водія й складовщика картки торгового немає взагалі (розділ під
+ * ADMIN/MANAGER), тож посилання туди вело б у «Доступ заборонено». Саме
+ * тому ключі тут лише українські: вони трапляються ТІЛЬКИ в інструментах
+ * керівника. Латинський repId навмисно не збираємо — він є і в аргументах
+ * інших інструментів, і тоді торговий міг би отримати посилання в
+ * заборонений йому розділ.
+ */
+const REP_KEYS = new Set(["торговий_id", "водій_id"]);
 
 /** Обходить результат інструмента й збирає id, які модель побачить. */
 export function collectEntities(
@@ -63,6 +76,8 @@ function walk(value: unknown, into: SeenEntities) {
       } else if (PRODUCT_KEYS.has(key)) {
         const sku = typeof obj["артикул"] === "string" ? (obj["артикул"] as string) : null;
         into.products.set(raw, sku ?? into.products.get(raw) ?? null);
+      } else if (REP_KEYS.has(key)) {
+        into.reps.add(raw);
       }
     }
     walk(raw, into);
@@ -71,7 +86,7 @@ function walk(value: unknown, into: SeenEntities) {
 
 /** Плоский список id — його зберігаємо разом із повідомленням інструмента. */
 export function entityIdList(entities: SeenEntities): string[] {
-  return [...entities.clients, ...entities.products.keys()];
+  return [...entities.clients, ...entities.products.keys(), ...entities.reps];
 }
 
 /**
@@ -145,7 +160,7 @@ function isKnown(value: number, known: Set<number>): boolean {
   return false;
 }
 
-const LINK_RE = /\[([^\]]{1,120})\]\((client|product):([A-Za-z0-9_-]{6,40})\)/g;
+const LINK_RE = /\[([^\]]{1,120})\]\((client|product|rep):([A-Za-z0-9_-]{6,40})\)/g;
 
 /**
  * Переписує службові посилання у справжні адреси кабінету.
@@ -167,6 +182,16 @@ export function rewriteLinks(
         return label;
       }
       return `[${label}](/sales/clients/${entityId})`;
+    }
+
+    if (kind === "rep") {
+      // Картка торгового живе в адмінці — туди веде лише помічник
+      // керівника, і лише по тих, кого справді показав інструмент.
+      if (!entities.reps.has(entityId)) {
+        stripped++;
+        return label;
+      }
+      return `[${label}](/admin/sales-reps/${entityId})`;
     }
 
     if (!entities.products.has(entityId)) {

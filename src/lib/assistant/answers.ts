@@ -18,15 +18,32 @@
 
 import { prisma } from "@/lib/prisma";
 import { ymd } from "@/lib/assistant/format";
+import {
+  MEDALS,
+  PLAN_HOOKS,
+  arrow,
+  bar,
+  followUps,
+  light,
+  md,
+  payerIcon,
+  short,
+  table,
+  timed,
+  type DirectAnswer,
+} from "@/lib/assistant/md";
+import {
+  capitalize,
+  periodChips,
+  periodOf,
+} from "@/lib/assistant/period";
 import { ACTION_LABELS, repActionCandidates } from "@/lib/analytics/company/rep-actions";
 import { agingByCounterparty, receivableRowsByRep, sumAging, toDebtorList } from "@/lib/analytics/money-facts";
 import { clientProductRhythm, lastOrders, ordersSince, recommendations } from "@/lib/analytics/clientOrder";
 import { clientProductPurchases } from "@/lib/assistant/facts/client-purchases";
-import { kyivDayEnd, kyivDayStart, kyivOffsetMs } from "@/lib/date/kyiv";
-import { parseMonth, shiftDay } from "@/lib/analytics/period";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivOffsetMs } from "@/lib/date/kyiv";
+import { shiftDay } from "@/lib/analytics/period";
 import type { PeriodSpec } from "@/lib/assistant/router";
-import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { orderStops, planDay } from "@/lib/assistant/facts/day-plan";
 import {
   MAX_POINTS_PER_LINK,
@@ -79,203 +96,6 @@ import {
 } from "@/lib/assistant/text";
 import type { ToolContext } from "@/lib/assistant/types";
 
-/* ── Оформлення відповіді ─────────────────────────────────────────────────
- *
- * Одне оформлення на всі відповіді: заголовок зі знаком, таблиця там, де
- * числа порівнюються, світлофор замість слів «добре / погано» і рядок
- * підказок унизу. Це не прикраса: відповідь читають із телефона однією
- * рукою, і однакова форма означає, що потрібне число завжди в тому самому
- * місці.
- *
- * ЧОГО НЕ РОБИМО ТАБЛИЦЕЮ — списків клієнтів. Пункт, який починається з
- * посилання на картку, кабінет малює як тапабельний рядок із шевроном
- * (див. AssistantMarkdown). Усередині таблиці цей рядок зникає, і замість
- * «натиснув і поїхав» виходить «прочитав і шукай руками».
- */
-
-/**
- * Збірка відповіді з рядків.
- *
- * Порожній рядок у маркдауні — це роздільник абзаців, тож викидати його
- * не можна (інакше таблиця злипнеться із заголовком). А два поспіль уже
- * зайві, і саме вони з'являються там, де секція не заповнилася.
- */
-function md(lines: Array<string | null | undefined>): string {
-  const out: string[] = [];
-  for (const line of lines) {
-    if (line == null) continue;
-    if (line === "" && out[out.length - 1] === "") continue;
-    out.push(line);
-  }
-  while (out[out.length - 1] === "") out.pop();
-  return out.join("\n");
-}
-
-/** Клітинка таблиці: вертикальна риска в назві зламала б розмітку. */
-const cell = (value: string | number) => String(value).replace(/\|/g, "/");
-
-/** Таблиця GFM. Заголовки короткі: ширина екрана — 360 точок. */
-function table(headers: string[], rows: Array<Array<string | number>>): string[] {
-  if (rows.length === 0) return [];
-  return [
-    `| ${headers.map(cell).join(" | ")} |`,
-    `| ${headers.map(() => "---").join(" | ")} |`,
-    ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`),
-  ];
-}
-
-/** Довгу назву в таблиці ріжемо: інакше рядок їде за край екрана. */
-const short = (name: string, max = 38) =>
-  name.length > max ? `${name.slice(0, max - 1).trimEnd()}…` : name;
-
-/** Світлофор: зелений — добре, жовтий — середньо, червоний — погано. */
-const light = (state: "good" | "mid" | "bad") =>
-  state === "good" ? "🟢" : state === "mid" ? "🟡" : "🔴";
-
-/** Знак платника — той самий скрізь, де показуємо вердикт. */
-const payerIcon = (verdict: string | null | undefined) =>
-  !verdict
-    ? "⚪"
-    : /надійн/i.test(verdict)
-      ? "🟢"
-      : /помірн/i.test(verdict)
-        ? "🟡"
-        : /ризиков/i.test(verdict)
-          ? "🟠"
-          : "🔴";
-
-/** Стрілка динаміки. */
-const arrow = (value: number | null): string =>
-  value == null ? "" : value > 0 ? "📈" : value < 0 ? "📉" : "➖";
-
-/** Рядок підказок під відповіддю: у кабінеті це тапабельні кнопки. */
-function followUps(...questions: Array<string | null>): string {
-  const list = questions.filter((q): q is string => Boolean(q));
-  return list.length ? `> 💬 ${list.join(" · ")}` : "";
-}
-
-/**
- * Смужка виконання з десяти квадратів.
- *
- * Кольором тут працює сам символ: у маркдауні кольору немає, а квадрат є
- * скрізь — і в застосунку, і в браузері. Порогів три, щоб «майже план» і
- * «провал» не виглядали однаково.
- */
-function bar(percentValue: number | null): string {
-  if (percentValue == null) return "";
-  const filled = Math.max(0, Math.min(10, Math.round(percentValue / 10)));
-  const block = percentValue >= 100 ? "🟩" : percentValue >= 90 ? "🟨" : "🟥";
-  return block.repeat(filled) + "⬜".repeat(10 - filled);
-}
-
-/** Медаль за місце. Далі третього — просто число, інакше медалі знецінюються. */
-const MEDALS = ["🥇", "🥈", "🥉"];
-
-/** Скільки клієнтів у плані дня. Більше в голові за один виїзд не тримають. */
-const PLAN_LIMIT = 10;
-/** Для скількох перших клієнтів плану добираємо гачок. */
-const PLAN_HOOKS = 6;
-
-export type DirectAnswer = {
-  markdown: string;
-  /** Що саме подивилися — той самий слід, що й у ходу через модель. */
-  tools: Array<{ name: string; label: string; ms: number }>;
-};
-
-type Timed = { label: string; name: string };
-
-async function timed<T>(meta: Timed, job: () => Promise<T>, into: DirectAnswer["tools"]): Promise<T> {
-  const started = Date.now();
-  const value = await job();
-  into.push({ ...meta, ms: Date.now() - started });
-  return value;
-}
-
-/**
- * Період у тому вигляді, який очікує аналітика, — і його підпис.
- *
- * «Місяць» тут означає КАЛЕНДАРНИЙ місяць (рішення власника 06.09.2026):
- * саме так живуть план і мотивація, і саме так це слово розуміє людина.
- * Ковзні 30 днів лишаються, але тільки коли їх попросили явно.
- *
- * Підпис віддається разом із періодом навмисно: та сама відповідь раніше
- * показувала суму за 7 серпня — 6 вересня, а блок плану під нею — з
- * 1 вересня, і жодне з двох чисел не було підписане.
- */
-function periodOf(today: string, spec: PeriodSpec) {
-  const clamp = (day: string) => (day < ANALYTICS_SINCE_DAY ? ANALYTICS_SINCE_DAY : day);
-
-  if (spec.kind === "month") {
-    const monthKey = spec.offset === 0 ? today.slice(0, 7) : shiftMonthKey(today.slice(0, 7), -1);
-    const parsed = parseMonth(monthKey);
-    const toDay = spec.offset === 0 ? today : kyivDate(parsed.to);
-    return buildPeriod(
-      clamp(`${monthKey}-01`),
-      toDay,
-      spec.offset === 0
-        ? `за ${monthLabel(monthKey, today)} (1–${Number(today.slice(8, 10))})`
-        : `за ${monthLabel(monthKey, today)}`
-    );
-  }
-
-  if (spec.kind === "range") {
-    const toDay = spec.to > today ? today : spec.to;
-    const fromDay = clamp(spec.from);
-    return buildPeriod(fromDay, toDay, `з ${dayMonth(fromDay)} по ${dayMonth(toDay)}`);
-  }
-
-  const fromDay = clamp(shiftDay(today, -(spec.days - 1)));
-  return buildPeriod(fromDay, today, `за ${days(spec.days)} (${dayMonth(fromDay)} — ${dayMonth(today)})`);
-}
-
-function buildPeriod(fromDay: string, toDay: string, label: string) {
-  const span = Math.round(
-    (new Date(`${toDay}T12:00:00Z`).getTime() - new Date(`${fromDay}T12:00:00Z`).getTime()) / 86_400_000
-  );
-  return {
-    fromDay,
-    toDay,
-    from: kyivDayStart(fromDay),
-    to: kyivDayEnd(toDay),
-    days: Math.max(1, span + 1),
-    clamped: false,
-    label,
-  };
-}
-
-/** Перша літера велика — підпис періоду вживається і як початок речення. */
-const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-
-/** «7 серпня» — день і місяць так, як їх вимовляють. */
-function dayMonth(day: string): string {
-  const MONTHS_GEN = [
-    "січня", "лютого", "березня", "квітня", "травня", "червня",
-    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
-  ];
-  return `${Number(day.slice(8, 10))} ${MONTHS_GEN[Number(day.slice(5, 7)) - 1]}`;
-}
-
-/** «2026-09» + (−1) → «2026-08». */
-function shiftMonthKey(monthKey: string, delta: number): string {
-  const [y, m] = monthKey.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-/**
- * Кнопки вибору періоду під аналітичною відповіддю.
- *
- * Питання торгового звучить однаково, а період у голові різний: одному
- * треба місяць, іншому «а за два». Замість того щоб учити формулювань,
- * показуємо готові.
- */
-function periodChips(question: string): string {
-  return followUps(
-    `${question} за 30 днів`,
-    `${question} за 60 днів`,
-    `${question} за минулий місяць`
-  );
-}
 
 /* ── План дня ─────────────────────────────────────────────────────────── */
 
@@ -799,8 +619,12 @@ export async function answerDeadStock(ctx: ToolContext, brand: string | null): P
       ),
       "",
       known.length > 0
-        ? `_🟢 — цю позицію вже брали ваші клієнти: з таких і починати._`
-        : "_Цього залишку ваші клієнти ще не брали — починати варто з тих, кому бренд знайомий._",
+        ? ctx.scope.company
+          ? "_🟢 — цю позицію вже брали клієнти: з таких і починати._"
+          : "_🟢 — цю позицію вже брали ваші клієнти: з таких і починати._"
+        : ctx.scope.company
+          ? "_Цього залишку ще ніхто не брав — починати варто з того, кому бренд знайомий._"
+          : "_Цього залишку ваші клієнти ще не брали — починати варто з тих, кому бренд знайомий._",
       "",
       followUps("Кому з клієнтів це можна запропонувати?", "Яку ціну можна дати?"),
     ]),
@@ -969,7 +793,7 @@ async function resolveClient(
   return { ambiguous: hits };
 }
 
-function askWhich(subject: string, hits: ClientHit[]): string {
+function askWhich(subject: string, hits: ClientHit[], company = false): string {
   return md([
     `## 🔎 Кілька збігів на «${subject}»`,
     "Про кого з них ідеться?",
@@ -979,7 +803,8 @@ function askWhich(subject: string, hits: ClientHit[]): string {
         `- ${h.mine ? "⭐" : "🏪"} ${clientLink(h.id, h.name)}${h.address ? ` — ${h.address}` : ""}`
     ),
     "",
-    "_⭐ — ваш клієнт._",
+    // У розмові про фірму «ваш» немає: керівник ні за ким не закріплений.
+    company ? "_⭐ — закріплений за торговим._" : "_⭐ — ваш клієнт._",
   ]);
 }
 
@@ -991,7 +816,7 @@ export async function answerEntryOffer(ctx: ToolContext, subject: string): Promi
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
   if ("none" in found) return { markdown: notFound(subject), tools };
-  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
   const offer = await timed(
@@ -1070,7 +895,7 @@ export async function answerRecommend(ctx: ToolContext, subject: string): Promis
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
   if ("none" in found) return { markdown: notFound(subject), tools };
-  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
   const list = await timed(
@@ -1130,7 +955,7 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
     if (asProduct.length > 0) return answerProduct(ctx, subject);
     return { markdown: notFound(subject), tools };
   }
-  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
   const [profile, aging] = await Promise.all([
@@ -1230,7 +1055,7 @@ export async function answerLastOrder(ctx: ToolContext, subject: string): Promis
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
   if ("none" in found) return { markdown: notFound(subject), tools };
-  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
   const orders = await timed(
@@ -1308,7 +1133,7 @@ export async function answerClientProduct(
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
   if ("none" in found) return { markdown: notFound(subject), tools };
-  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+  if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
   const facts = await timed(
@@ -1364,6 +1189,30 @@ export async function answerClientProduct(
 
 /** «Що ти вмієш» — коротка карта можливостей, без моделі. */
 export async function answerHelp(ctx: ToolContext): Promise<DirectAnswer> {
+  if (ctx.kind === "ADMIN") {
+    return {
+      markdown: md([
+        "## 🤖 Що я вмію",
+        "",
+        "- 🧑‍💼 **Команда** — оборот, місця, динаміка, план і прогноз по кожному торговому",
+        "- 💰 **Дебіторка фірми** — скільки винні, скільки прострочено, найбільші боржники",
+        "- 📍 **Хто де зараз** — відкриті зміни, сигнал планшета, пробіг, замовлення за день",
+        "- 🚗 **Зміни** — кілометри, пальне, підозрілі одометри, автозакриття",
+        "- 🚚 **Водії** — маршрути на день, листи, зарплата, ефективність",
+        "- 🛒 **Замовлення з сайту** — що чекає обробки й скільки вже висить",
+        "- 📦 **Склад** — дефіцит, оборотність, мертвий запас",
+        "- 🔄 **Обмін із 1С** — чи живий агент, свіжість каналів, розбіжності",
+        "- 🏪 **Клієнт і товар** — картка, борг, історія, залишок по всій базі",
+        "- ⏰ **Нагадування** — «нагадай завтра о 10 подивитись дебіторку»",
+        "",
+        "_План дня чи маршрут конкретного торгового — це розмова «як торговий»: створіть нову й оберіть людину._",
+        "",
+        followUps("Хто де зараз", "Продажі по торгових", "Дебіторка фірми"),
+      ]),
+      tools: [],
+    };
+  }
+
   if (ctx.kind === "WAREHOUSE") {
     return {
       markdown: md([
@@ -2106,7 +1955,9 @@ export async function answerCityClients(ctx: ToolContext, city: string): Promise
           ]
         : []),
       "",
-      "_Показую ВСІХ клієнтів бази в цьому місті, не лише ваших: ⭐ — ваш, 🏪 — веде хтось інший або ніхто._",
+      ctx.scope.company
+        ? "_Показую всіх клієнтів бази в цьому місті. ⭐ — закріплений за торговим, 🏪 — не веде ніхто._"
+        : "_Показую ВСІХ клієнтів бази в цьому місті, не лише ваших: ⭐ — ваш, 🏪 — веде хтось інший або ніхто._",
       "",
       followUps(
         asleep.length ? `З чим заходити до ${keyWord(asleep[0].name)}?` : null,
@@ -2228,7 +2079,7 @@ export async function answerPayments(
   if (subject) {
     const found = await resolveClient(ctx, subject, tools);
     if ("none" in found) return { markdown: notFound(subject), tools };
-    if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous), tools };
+    if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
     const client = found.hit;
     // Питання «чи заплатив» майже завжди про «останнім часом», а не про
@@ -2563,7 +2414,8 @@ export async function answerAbcClients(ctx: ToolContext, spec: PeriodSpec): Prom
 
   const report = await timed(
     { name: "abc_clients", label: "Рахую ABC по клієнтах" },
-    () => buildAbcReport(period.from, period.to, "client", ctx.scope.repId, 300, "amount"),
+    // У розмові про фірму рахуємо по всій базі: repId керівника дав би нуль.
+    () => buildAbcReport(period.from, period.to, "client", ctx.scope.company ? null : ctx.scope.repId, 300, "amount"),
     tools
   );
 
@@ -2716,3 +2568,6 @@ export async function answerDriverDay(ctx: ToolContext, day: string): Promise<Di
 function weekdayOf(iso: string): number {
   return (new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7;
 }
+
+/** Тип відповіді живе в md.ts; реекспорт — щоб імпорти решти коду не мінялися. */
+export type { DirectAnswer };

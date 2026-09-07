@@ -68,7 +68,7 @@ async function docNumbersByClient(driverId: string, dayStart: Date, dayEnd: Date
 export const driversTodayTool: ToolDef = {
   name: "drivers_today",
   label: "Дивлюся, де водії",
-  kinds: ["WAREHOUSE"],
+  kinds: ["WAREHOUSE", "ADMIN"],
   description:
     "Хто з водіїв сьогодні в дорозі: маршрут, точки по порядку з клієнтами, сумами й номерами накладних, скільки вже відмічено, скільки грошей забрати, і коли востаннє озвався планшет. Викликай на будь-яке питання про водіїв, доставку, «де зараз», «що везе», «чи повернувся».",
   parameters: {

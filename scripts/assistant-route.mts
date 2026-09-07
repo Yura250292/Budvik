@@ -123,9 +123,63 @@ const WAREHOUSE_NOT_MINE = [
   "Як я на фоні команди",
 ];
 
+/**
+ * Керівник: питання про всю фірму.
+ *
+ * Половину з них ловлять власні шаблони, половину — каскад торгового, з
+ * якого пропускається лише те, що має сенс без портфеля.
+ */
+const ADMIN_CASES = [
+  "Хто зараз на маршруті",
+  "Хто не закрив зміну",
+  "Де зараз Пайда",
+  "Де зараз водії",
+  "Що везуть сьогодні",
+  "Продажі по торгових за місяць",
+  "Скільки продав Кулик за тиждень",
+  "Як фірма",
+  "Дебіторка по торгових",
+  "Дебіторка по Кулику",
+  "Хто винен фірмі",
+  "Найбільші боржники",
+  "Хто скільки зібрав за тиждень",
+  "Зміни торгових за тиждень",
+  "Пробіг по Кулику за місяць",
+  "Зарплата водіїв за минулий місяць",
+  "Замовлення з сайту за тиждень",
+  "Чернетки торгових",
+  "Що закінчується на складі",
+  "Що треба замовити по бренду APRO",
+  "Оборотність складу",
+  "Мертві залишки",
+  "Що з обміном 1С",
+  "Коли останній обмін",
+  "План фірми",
+  "Хто не витягне план",
+  "Повернення по фірмі",
+  "Що ти вмієш",
+  "Що з Кунанцем",
+  "Скільки піни залишилось на складі",
+];
+
+/**
+ * Питання, які в керівника мусять іти до моделі.
+ *
+ * Це не «не вміємо», а «в керівника такого немає»: власного маршруту,
+ * позиції на карті й портфеля клієнтів у нього не існує, і код повернув
+ * би порожнечу з виглядом відповіді.
+ */
+const ADMIN_NOT_MINE = [
+  "Сплануй мій день",
+  "Куди я їжджу в четвер",
+  "Хто поруч",
+  "Хто з моїх клієнтів давно не брав",
+  "Побудуй маршрут: Левкович, Скуратов",
+];
+
 const args = process.argv.slice(2);
 
-const show = (q: string, hasHistory = false, kind: "SALES" | "DRIVER" | "WAREHOUSE" = "SALES") => {
+const show = (q: string, hasHistory = false, kind: "SALES" | "DRIVER" | "WAREHOUSE" | "ADMIN" = "SALES") => {
   const intent = detectIntent(q, { hasHistory, kind });
   const label = intent ? `${intent.kind}${JSON.stringify(intent).replace(/^\{"kind":"[A-Z_]+"/, "").replace(/^,/, " ").replace(/\}$/, "")}` : "→ МОДЕЛЬ";
   console.log(`  ${intent ? "код " : "AI  "} ${q.padEnd(46)} ${label}`);
@@ -164,6 +218,16 @@ for (const q of WAREHOUSE_NOT_MINE) show(q, false, "WAREHOUSE");
 const whMissed = WAREHOUSE_CASES.filter((q) => !detectIntent(q, { hasHistory: false, kind: "WAREHOUSE" })).length;
 const whLeak = WAREHOUSE_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "WAREHOUSE" })).length;
 console.log(`\nсклад: без моделі ${WAREHOUSE_CASES.length - whMissed}/${WAREHOUSE_CASES.length}; чужих звітів проскочило ${whLeak}`);
+
+console.log("\nКЕРІВНИК — типові питання (мають іти без моделі):");
+for (const q of ADMIN_CASES) show(q, false, "ADMIN");
+
+console.log("\nКЕРІВНИК — питання торгового (мають іти до моделі: у керівника цього немає):");
+for (const q of ADMIN_NOT_MINE) show(q, false, "ADMIN");
+
+const adminMissed = ADMIN_CASES.filter((q) => !detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length;
+const adminLeak = ADMIN_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length;
+console.log(`\nкерівник: без моделі ${ADMIN_CASES.length - adminMissed}/${ADMIN_CASES.length}; чужих звітів проскочило ${adminLeak}`);
 
 const missed = CASES.filter((q) => !detectIntent(q, { hasHistory: false })).length;
 const falsePositive = HARD.filter((q) => detectIntent(q, { hasHistory: false })).length;

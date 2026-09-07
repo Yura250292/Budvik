@@ -23,7 +23,7 @@ import { shiftDay } from "@/lib/analytics/period";
 import { days as roundDays, uah, ymd } from "@/lib/assistant/format";
 
 export const searchClients: ToolDef = {
-  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE", "ADMIN"],
   name: "search_clients",
   label: "Шукаю клієнта",
   description:
@@ -45,7 +45,9 @@ export const searchClients: ToolDef = {
     const limit = int(args.limit, "limit", { min: 1, max: 15, fallback: 8 });
     const rows = await findClients(query, ctx.scope.repId, {
       limit,
-      onlyMine: args.onlyMine === true,
+      // У розмові про всю фірму «лише мої» означало б «клієнти керівника»,
+      // тобто порожню видачу: закріплень на ньому немає жодного.
+      onlyMine: args.onlyMine === true && !ctx.scope.company,
     });
 
     if (rows.length === 0) {
@@ -72,7 +74,7 @@ export const searchClients: ToolDef = {
 };
 
 export const clientProfile: ToolDef = {
-  kinds: ["SALES", "DRIVER", "WAREHOUSE"],
+  kinds: ["SALES", "DRIVER", "WAREHOUSE", "ADMIN"],
   name: "client_profile",
   label: "Читаю картку клієнта",
   description:

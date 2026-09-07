@@ -29,6 +29,9 @@ const AM: AdminRole[] = ["ADMIN", "MANAGER"];
 
 export const TOP_ITEMS: NavItem[] = [
   { href: "/admin", title: "Дашборд", iconKey: "dashboard", roles: ALL },
+  // Над групами, поруч із дашбордом: це не ще один звіт, а вхід у всі
+  // розділи питанням — швидший шлях, ніж згадувати, у якій вкладці цифра.
+  { href: "/admin/assistant", title: "Помічник", desc: "Спитати про фірму: продажі, борги, водії, склад", iconKey: "star", roles: AM },
   { href: "/admin/users", title: "Користувачі", desc: "Ролі, доступи, Telegram", iconKey: "clients", roles: AM },
 ];
 
@@ -195,6 +198,7 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/integration",
     "/admin/drivers",
     "/admin/ai-analysis",
+    "/admin/assistant",
   ];
   if (pathname === "/admin/sales") return false;
   return !blocked.some((p) => pathname.startsWith(p));

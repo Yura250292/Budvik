@@ -15,6 +15,22 @@
  */
 
 import { detectIntent } from "@/lib/assistant/router";
+import {
+  answerDriverPayroll,
+  answerDriversDay,
+  answerLowStock,
+  answerShifts,
+  answerSiteOrders,
+  answerStaffNow,
+  answerSyncHealth,
+  answerTeamCollected,
+  answerTeamDebts,
+  answerTeamForecast,
+  answerTeamReturns,
+  answerTeamSales,
+} from "@/lib/assistant/answers-admin";
+import { ownerRepOf } from "@/lib/assistant/facts/staff";
+import { findClients } from "@/lib/assistant/facts/client-search";
 import type { ToolContext } from "@/lib/assistant/types";
 import type { DirectAnswer } from "@/lib/assistant/answers";
 import {
@@ -100,12 +116,14 @@ export async function tryDirectAnswer(
 
     case "ENTRY_OFFER": {
       const subject = subjectOf(intent.subject);
-      return subject ? answerEntryOffer(ctx, subject) : null;
+      if (!subject) return null;
+      return answerEntryOffer(await asOwnerRep(ctx, subject), subject);
     }
 
     case "RECOMMEND": {
       const subject = subjectOf(intent.subject);
-      return subject ? answerRecommend(ctx, subject) : null;
+      if (!subject) return null;
+      return answerRecommend(await asOwnerRep(ctx, subject), subject);
     }
 
     case "HELP":
@@ -164,15 +182,70 @@ export async function tryDirectAnswer(
       return answerAbcClients(ctx, intent.period);
 
     case "DRIVER_DAY": {
-      const day =
-        intent.day === "tomorrow"
-          ? shiftDay(ctx.today, 1)
-          : intent.day === "yesterday"
-            ? shiftDay(ctx.today, -1)
-            : ctx.today;
-      return answerDriverDay(ctx, day);
+      return answerDriverDay(ctx, dayOf(ctx.today, intent.day));
     }
+
+    /* ── Керівник: те саме питання, але про всю фірму ─────────────────── */
+
+    case "STAFF_NOW":
+      return answerStaffNow(ctx, intent.who, intent.role);
+
+    case "TEAM_SALES":
+      return answerTeamSales(ctx, intent.period, intent.who);
+
+    case "TEAM_DEBTS":
+      return answerTeamDebts(ctx, intent.who);
+
+    case "TEAM_COLLECTED":
+      return answerTeamCollected(ctx, intent.period);
+
+    case "TEAM_RETURNS":
+      return answerTeamReturns(ctx, intent.period);
+
+    case "TEAM_FORECAST":
+      return answerTeamForecast(ctx);
+
+    case "SHIFTS":
+      return answerShifts(ctx, intent.period, intent.who);
+
+    case "DRIVERS_DAY":
+      return answerDriversDay(ctx, dayOf(ctx.today, intent.day));
+
+    case "DRIVER_PAYROLL":
+      return answerDriverPayroll(ctx, intent.period, intent.who);
+
+    case "SITE_ORDERS":
+      return answerSiteOrders(ctx, intent.period);
+
+    case "LOW_STOCK":
+      return answerLowStock(ctx, intent.brand, intent.mode);
+
+    case "SYNC_HEALTH":
+      return answerSyncHealth(ctx);
   }
 
   return null;
+}
+
+/** «Сьогодні / завтра / вчора» в київську дату. */
+function dayOf(today: string, when: "today" | "tomorrow" | "yesterday"): string {
+  return when === "tomorrow" ? shiftDay(today, 1) : when === "yesterday" ? shiftDay(today, -1) : today;
+}
+
+/**
+ * Порада «з чим заходити» рахується від ПОРТФЕЛЯ торгового.
+ *
+ * Гачок береться з того, що беруть сусідні клієнти цієї людини, тож від
+ * імені керівника (у якого закріплень немає) вийшла б порожня порада. Тому
+ * в розмові про фірму підставляємо того, за ким клієнт закріплений; немає
+ * такого — лишаємо як є, відповідь просто буде без «беруть поруч».
+ */
+async function asOwnerRep(ctx: ToolContext, subject: string): Promise<ToolContext> {
+  if (!ctx.scope.company) return ctx;
+  const hits = await findClients(subject, ctx.scope.repId, { limit: 1 });
+  const client = hits[0];
+  if (!client) return ctx;
+  const owner = await ownerRepOf(client.id);
+  if (!owner) return ctx;
+  return { ...ctx, scope: { repId: owner.id, repName: owner.name, company: false } };
 }

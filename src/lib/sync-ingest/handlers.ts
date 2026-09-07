@@ -21,6 +21,7 @@ import {
   setSyncState,
 } from "./context";
 import { dispatchBatch, detectMissing } from "./dispatch";
+import { agentHealth } from "./health-facts";
 import { reconcileDebts } from "./reconcile-debts";
 import { reconcilePrices } from "./reconcile-prices";
 import { reconcilePayments } from "./reconcile-payments";
@@ -412,34 +413,10 @@ export async function handleHealth(req: Request): Promise<Response> {
   const auth = await authenticateAgent(req);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
-  const [agentLastSeen, lastJob] = await Promise.all([
-    getSyncState(SYNC_STATE_KEYS.agentLastSeen),
-    prisma.syncJob.findFirst({
-      where: { type: { startsWith: "agent-" } },
-      orderBy: { startedAt: "desc" },
-      select: {
-        fileName: true,
-        type: true,
-        status: true,
-        startedAt: true,
-        completedAt: true,
-      },
-    }),
-  ]);
-
   const payload: HealthResponse = {
     ok: true,
     serverTime: new Date().toISOString(),
-    agentLastSeen,
-    lastRun: lastJob
-      ? {
-          runId: lastJob.fileName,
-          type: lastJob.type,
-          status: lastJob.status,
-          startedAt: lastJob.startedAt.toISOString(),
-          completedAt: lastJob.completedAt?.toISOString() ?? null,
-        }
-      : null,
+    ...(await agentHealth()),
   };
   return json(payload);
 }

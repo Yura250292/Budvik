@@ -32,7 +32,9 @@ export async function GET(req: Request) {
     : [];
 
   return NextResponse.json(
-    { threads: await listThreads(guard.me.userId), reps, isOffice },
+    // userId потрібен екрану, щоб відрізнити розмову «уся фірма» (repId —
+    // сам керівник) від розмови за конкретного торгового.
+    { threads: await listThreads(guard.me.userId), reps, isOffice, userId: guard.me.userId },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

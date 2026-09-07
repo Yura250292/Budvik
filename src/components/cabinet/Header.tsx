@@ -67,7 +67,7 @@ export function CabinetHeader({
    */
   const requested = search.get("back");
   const backHref =
-    requested && /^\/(sales|driver|warehouse)(\/|\?|$)/.test(requested) ? requested : backTo;
+    requested && /^\/(sales|driver|warehouse|admin)(\/|\?|$)/.test(requested) ? requested : backTo;
 
   /**
    * Помічник лежить у своїй секції, а не в спільній.

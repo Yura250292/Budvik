@@ -27,6 +27,7 @@ export default function ThreadsSheet({
   open,
   threads,
   currentId,
+  scopeLabel,
   onPick,
   onNew,
   onDelete,
@@ -35,6 +36,14 @@ export default function ThreadsSheet({
   open: boolean;
   threads: ThreadSummary[];
   currentId: string | null;
+  /**
+   * Чиї дані читає розмова — лише для офісу.
+   *
+   * У керівника в списку лежать два різні види розмов: про всю фірму й за
+   * конкретного торгового. Без підпису вони не відрізняються ніяк, і
+   * «чому тут інші числа» стає загадкою.
+   */
+  scopeLabel?: (t: ThreadSummary) => string;
   onPick: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
@@ -95,7 +104,9 @@ export default function ThreadsSheet({
                     >
                       {t.title ?? COPY.untitled}
                     </span>
-                    <span className="block text-[11px] text-cab-t3">{when(t.lastMessageAt)}</span>
+                    <span className="block text-[11px] text-cab-t3">
+                      {scopeLabel ? `${scopeLabel(t)} · ${when(t.lastMessageAt)}` : when(t.lastMessageAt)}
+                    </span>
                   </button>
 
                   {confirming === t.id ? (

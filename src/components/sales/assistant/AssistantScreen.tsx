@@ -25,9 +25,15 @@ import { Composer, ErrorRow, MessageBubble, QuickPrompts, ThinkingRow } from "./
 import AssistantMarkdown from "./AssistantMarkdown";
 import ThreadsSheet from "./ThreadsSheet";
 import { deleteThread as deleteThreadApi, type ThreadSummary } from "./api";
-import { CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
+import { ADMIN_PROMPTS, CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
 
-type ThreadsResponse = { threads: ThreadSummary[]; reps: Array<{ id: string; name: string }>; isOffice: boolean };
+type ThreadsResponse = {
+  threads: ThreadSummary[];
+  reps: Array<{ id: string; name: string }>;
+  isOffice: boolean;
+  /** Хто питає — щоб відрізнити розмову «уся фірма» від розмови за торгового. */
+  userId?: string;
+};
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -40,18 +46,31 @@ export default function AssistantScreen({
   clientId,
   clientName,
   repId,
+  question,
 }: {
   /** У якому кабінеті відкрито: від цього залежить «назад» і власна адреса. */
-  section: "sales" | "driver" | "warehouse";
+  section: "sales" | "driver" | "warehouse" | "admin";
   threadId: string | null;
   clientId: string | null;
   clientName: string | null;
   repId: string | null;
+  /** Питання з адреси (?q=) — його ставить плитка дашборда. */
+  question?: string | null;
 }) {
   const router = useRouter();
   const profile = useProfile();
   const base = `/${section}/assistant`;
   const home = `/${section}`;
+  /**
+   * В адмінці екран живе ВСЕРЕДИНІ шелла, а не поверх нього.
+   *
+   * Фіксований шар кабінету перекрив би сайдбар, шапку з крихтами й нижню
+   * панель — тобто всю навігацію розділу. Тому тут висота береться від
+   * контейнера (<main> у AdminShell має визначену висоту), шапка стає
+   * тонким рядком, а колонка ширшає: таблиці по команді читають з ноутбука.
+   */
+  const embedded = section === "admin";
+  const column = embedded ? "max-w-3xl" : "max-w-lg";
   /**
    * Картки клієнтів відкриваються лише там, де в людини є на них кабінет.
    * Складовщика гейт /sales розвернув би на «Доступ заборонено» без дороги
@@ -93,6 +112,10 @@ export default function AssistantScreen({
    * розбіжність розмітки при гідратації. Правило про setState в ефекті тут
    * і описує саме цей дозволений випадок — підписку на зовнішнє сховище, —
    * але відрізнити його від каскадного перерендеру лінтер не вміє.
+   *
+   * Питання з адреси (?q= від плитки дашборда) має перевагу над збереженою
+   * чернеткою — і лягає В ПОЛЕ, а не летить одразу: людина бачить, що саме
+   * піде, і може дописати слово.
    */
   useEffect(() => {
     let value = "";
@@ -102,8 +125,8 @@ export default function AssistantScreen({
       value = "";
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft(value);
-  }, [threadId]);
+    setDraft(question || value);
+  }, [threadId, question]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -117,10 +140,20 @@ export default function AssistantScreen({
     return () => clearTimeout(timer);
   }, [draft, threadId]);
 
-  /** Стрічка тримається низу, поки людина сама не відгорнула її вгору. */
+  /**
+   * Стрічка тримається низу, поки людина сама не відгорнула її вгору.
+   *
+   * Але порожню розмову вниз не мотаємо: там угорі стоїть привітання й
+   * вибір, чиї дані читати, а списком підказок стрічка вже переростає
+   * екран — і людина відкриває помічника одразу з обрізаним початком.
+   */
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
+    if (messages.length === 0 && !stream) {
+      el.scrollTop = 0;
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
     if (nearBottom || stream) el.scrollTop = el.scrollHeight;
   }, [messages, stream]);
@@ -148,22 +181,32 @@ export default function AssistantScreen({
           ? DRIVER_PROMPTS
           : section === "warehouse"
             ? WAREHOUSE_PROMPTS
-            : QUICK_PROMPTS,
+            : section === "admin"
+              ? ADMIN_PROMPTS
+              : QUICK_PROMPTS,
     [clientName, section]
   );
 
   const isOffice = meta?.isOffice ?? false;
   const activeRep = meta?.reps.find((r) => r.id === repId);
+  /**
+   * Підпис керівника каже про СКОУП, а не про людину.
+   *
+   * Ім'я самого керівника тут нічого не пояснює: він і так знає, хто він.
+   * Пояснення потребує інше — чиї дані зараз читає розмова.
+   */
   const subtitle = clientName
     ? COPY.clientChip(clientName)
     : activeRep
       ? `Як ${activeRep.name}`
-      : (profile?.name ??
-        (section === "driver"
-          ? COPY.subtitleDriver
-          : section === "warehouse"
-            ? COPY.subtitleWarehouse
-            : COPY.subtitleSelf));
+      : section === "admin"
+        ? COPY.subtitleAdmin
+        : (profile?.name ??
+          (section === "driver"
+            ? COPY.subtitleDriver
+            : section === "warehouse"
+              ? COPY.subtitleWarehouse
+              : COPY.subtitleSelf));
 
   /**
    * Адреса ЦІЄЇ розмови — її несуть усі посилання у відповідях.
@@ -177,38 +220,56 @@ export default function AssistantScreen({
   const goto = (params: URLSearchParams) =>
     router.replace(`${base}${params.toString() ? `?${params}` : ""}`, { scroll: false });
 
+  const toolbarButtons = (
+    <>
+      <button
+        type="button"
+        aria-label={COPY.historyAria}
+        onClick={() => setSheetOpen(true)}
+        className="flex h-11 w-9 items-center justify-center text-cab-t2"
+      >
+        <History size={19} />
+      </button>
+      <button
+        type="button"
+        aria-label={COPY.newAria}
+        onClick={() => goto(new URLSearchParams())}
+        className="flex h-11 w-9 items-center justify-center text-cab-t2"
+      >
+        <SquarePen size={19} />
+      </button>
+    </>
+  );
+
   return (
-    <div className="fixed inset-x-0 top-0 flex flex-col bg-cab-bg" style={{ bottom: TAB_BAR_SPACE }}>
-      <SalesHeader
-        title={COPY.title}
-        subtitle={subtitle}
-        backTo={home}
-        sticky={false}
-        hideAssistant
-        right={
-          <>
-            <button
-              type="button"
-              aria-label={COPY.historyAria}
-              onClick={() => setSheetOpen(true)}
-              className="flex h-11 w-9 items-center justify-center text-cab-t2"
-            >
-              <History size={19} />
-            </button>
-            <button
-              type="button"
-              aria-label={COPY.newAria}
-              onClick={() => goto(new URLSearchParams())}
-              className="flex h-11 w-9 items-center justify-center text-cab-t2"
-            >
-              <SquarePen size={19} />
-            </button>
-          </>
-        }
-      />
+    <div
+      className={
+        embedded
+          ? "flex h-full min-h-0 flex-col overflow-hidden bg-cab-bg"
+          : "fixed inset-x-0 top-0 flex flex-col bg-cab-bg"
+      }
+      style={embedded ? undefined : { bottom: TAB_BAR_SPACE }}
+    >
+      {embedded ? (
+        // Назву розділу вже показує шапка адмінки — тут лишається те, чого
+        // вона не знає: чиї дані читає розмова й дві дії над нею.
+        <div className="flex items-center gap-2 border-b border-cab-line bg-white px-4 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] text-cab-t2">{subtitle}</span>
+          {toolbarButtons}
+        </div>
+      ) : (
+        <SalesHeader
+          title={COPY.title}
+          subtitle={subtitle}
+          backTo={home}
+          sticky={false}
+          hideAssistant
+          right={toolbarButtons}
+        />
+      )}
 
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-4 py-3">
+        <div className={`mx-auto flex w-full ${column} flex-col gap-3 px-4 py-3`}>
           {isOffice && meta && meta.reps.length > 0 && !threadId && (
             <RepPicker
               reps={meta.reps}
@@ -229,14 +290,18 @@ export default function AssistantScreen({
                     ? COPY.emptyTitleDriver
                     : section === "warehouse"
                       ? COPY.emptyTitleWarehouse
-                      : COPY.emptyTitle}
+                      : section === "admin"
+                        ? COPY.emptyTitleAdmin
+                        : COPY.emptyTitle}
                 </p>
                 <p className="mt-1.5 text-[13px] leading-relaxed text-cab-t2">
                   {section === "driver"
                     ? COPY.emptyBodyDriver
                     : section === "warehouse"
                       ? COPY.emptyBodyWarehouse
-                      : COPY.emptyBody}
+                      : section === "admin"
+                        ? COPY.emptyBodyAdmin
+                        : COPY.emptyBody}
                 </p>
               </div>
               <QuickPrompts prompts={prompts} onPick={submit} variant="list" />
@@ -275,7 +340,7 @@ export default function AssistantScreen({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-lg">
+      <div className={`mx-auto w-full ${column}`}>
         {clientId && clientName && (
           <div className="flex justify-start px-4 pb-1">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-info-bg px-3 py-1.5 text-[12px] font-medium text-info-fg">
@@ -303,18 +368,28 @@ export default function AssistantScreen({
         )}
       </div>
 
-      <Composer
-        value={draft}
-        onChange={setDraft}
-        onSend={() => submit(draft)}
-        onStop={stop}
-        busy={Boolean(stream)}
-      />
+      {/* Поле вводу тримається тієї самої колонки, що й стрічка: на ноутбуці
+          розтягнуте на всю ширину, воно висить окремо від розмови. */}
+      <div className={`mx-auto w-full ${column}`}>
+        <Composer
+          value={draft}
+          onChange={setDraft}
+          onSend={() => submit(draft)}
+          onStop={stop}
+          busy={Boolean(stream)}
+          placeholder={section === "admin" ? COPY.placeholderAdmin : undefined}
+        />
+      </div>
 
       <ThreadsSheet
         open={sheetOpen}
         threads={meta?.threads ?? []}
         currentId={threadId}
+        scopeLabel={
+          isOffice
+            ? (t) => (t.repId === meta?.userId ? "Уся фірма" : `Як ${t.repName}`)
+            : undefined
+        }
         onPick={(id) => {
           setSheetOpen(false);
           const params = new URLSearchParams();
@@ -341,6 +416,10 @@ export default function AssistantScreen({
  *
  * Показується лише поки розмова не почалась: міняти, чиї дані читає
  * діалог, посеред нього не можна — половина реплік уже про іншу людину.
+ *
+ * Порожній пункт підписаний «Уся фірма», а не «Я сам»: саме це він тепер і
+ * означає — розмову про всю компанію, а не про керівника з порожнім
+ * портфелем.
  */
 function RepPicker({
   reps,
@@ -354,14 +433,14 @@ function RepPicker({
   return (
     <label className="flex flex-col gap-1.5 rounded-2xl border border-cab-line bg-white p-3.5">
       <span className="text-[11px] font-bold uppercase tracking-wide text-cab-t2">
-        Дивлюся як торговий
+        Чиї дані читаємо
       </span>
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         className="h-11 rounded-xl border border-cab-line bg-white px-3 text-base text-bk outline-none"
       >
-        <option value="">Я сам</option>
+        <option value="">Уся фірма</option>
         {reps.map((r) => (
           <option key={r.id} value={r.id}>
             {r.name}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { listSyncJobs } from "@/lib/sync-ingest/health-facts";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -9,11 +9,5 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const jobs = await prisma.syncJob.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { _count: { select: { discrepancies: true } } },
-  });
-
-  return NextResponse.json(jobs);
+  return NextResponse.json(await listSyncJobs());
 }

@@ -25,6 +25,7 @@ import { CalculatorWidget, CurrencyRates } from "./widgets/CurrencyWidget";
 import { NotesWidget } from "./widgets/NotesWidget";
 import { ClockWidget } from "./widgets/ClockWidget";
 import { QuickActions } from "./widgets/QuickActions";
+import { AssistantAsk } from "./widgets/AssistantAsk";
 
 export type WidgetGroup = "Аналітика продажів" | "Склад" | "Магазин" | "Інструменти";
 
@@ -307,6 +308,18 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDef> = {
     defaultSize: "2x2",
     allowedSizes: ["2x1", "2x2", "3x1"],
     Render: ({ role }) => <QuickActions role={role} />,
+  },
+  "assistant-ask": {
+    type: "assistant-ask",
+    title: "Спитати помічника",
+    iconKey: "star",
+    group: "Інструменти",
+    // Помічник керівника читає всю фірму — торговому плитка не потрібна:
+    // у нього свій помічник у кабінеті, зі своїм скоупом.
+    roles: AM,
+    defaultSize: "2x1",
+    allowedSizes: ["2x1", "2x2", "3x1"],
+    Render: () => <AssistantAsk />,
   },
 };
 

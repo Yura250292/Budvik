@@ -5,7 +5,7 @@
 import { useSearchParams } from "next/navigation";
 import AssistantScreen from "./AssistantScreen";
 
-export default function AssistantEntry({ section = "sales" }: { section?: "sales" | "driver" | "warehouse" }) {
+export default function AssistantEntry({ section = "sales" }: { section?: "sales" | "driver" | "warehouse" | "admin" }) {
   const params = useSearchParams();
   return (
     <AssistantScreen
@@ -14,6 +14,7 @@ export default function AssistantEntry({ section = "sales" }: { section?: "sales
       clientId={params.get("client")}
       clientName={params.get("name")}
       repId={params.get("rep")}
+      question={params.get("q")}
     />
   );
 }

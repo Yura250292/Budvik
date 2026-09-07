@@ -61,7 +61,20 @@ export type Intent =
   | { kind: "REMINDERS" }
   | { kind: "BASKET"; query: string }
   | { kind: "SUBSTITUTE"; query: string }
-  | { kind: "DRIVER_DAY"; day: "today" | "tomorrow" | "yesterday" };
+  | { kind: "DRIVER_DAY"; day: "today" | "tomorrow" | "yesterday" }
+  /* ── Наміри керівника: те саме питання, але про всю фірму ───────────── */
+  | { kind: "STAFF_NOW"; who: string | null; role: "SALES" | "DRIVER" | null }
+  | { kind: "TEAM_SALES"; period: PeriodSpec; who: string | null }
+  | { kind: "TEAM_DEBTS"; who: string | null }
+  | { kind: "TEAM_COLLECTED"; period: PeriodSpec }
+  | { kind: "TEAM_RETURNS"; period: PeriodSpec }
+  | { kind: "TEAM_FORECAST" }
+  | { kind: "SHIFTS"; period: PeriodSpec; who: string | null }
+  | { kind: "DRIVERS_DAY"; day: "today" | "tomorrow" | "yesterday" }
+  | { kind: "DRIVER_PAYROLL"; period: PeriodSpec; who: string | null }
+  | { kind: "SITE_ORDERS"; period: PeriodSpec }
+  | { kind: "LOW_STOCK"; brand: string | null; mode: "low" | "turnover" | "dead" }
+  | { kind: "SYNC_HEALTH" };
 
 /**
  * Слова, що вказують на попередню репліку.
@@ -253,7 +266,24 @@ export function detectIntent(
 
   if (opts.kind === "DRIVER") return driverIntent(text);
   if (opts.kind === "WAREHOUSE") return warehouseIntent(text);
+  if (opts.kind === "ADMIN") return adminIntent(text, opts);
 
+  return salesIntent(text, opts);
+}
+
+/**
+ * Питання торгового — найдовший каскад, і він же основа для керівника.
+ *
+ * Керівник ставить половину тих самих питань («що з Химичем», «чим
+ * замінити», «кого розпрацювати в Сокільниках»), тож adminIntent після
+ * власних шаблонів звертається сюди — і пропускає лише те, що має сенс
+ * без портфеля. Дублювати цей каскад було б гірше: він росте, і друга
+ * копія почала б відставати з першого ж тижня.
+ */
+function salesIntent(
+  text: string,
+  opts: { hasHistory: boolean; hasClientHint?: boolean }
+): Intent | null {
   /* Спершу шаблони з назвою клієнта: «скільки винен Химич» — це картка
      клієнта, а не зведення по всій дебіторці. */
 
@@ -591,4 +621,273 @@ function warehouseIntent(text: string): Intent | null {
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
+}
+
+/**
+ * Питання керівника.
+ *
+ * Спершу власні шаблони — вони про фірму, і саме тому мусять іти ПЕРЕД
+ * торговими: «дебіторка» без імені для керівника означає всю базу, а не
+ * його порожній портфель. Далі — каскад торгового, з якого пропускаємо
+ * лише те, що має сенс без портфеля.
+ *
+ * Головна пастка тут — імена. «Борг у Кавецького» і «борг у Кунанця»
+ * виглядають однаково, а означають різне: перший торговий, другий клієнт.
+ * Розпізнавач цього не знає (він не ходить у базу) і не намагається
+ * вгадати: він віддає ім'я у відповідь, а та вже питає довідник і, не
+ * знайшовши співробітника, показує картку клієнта.
+ */
+function adminIntent(
+  text: string,
+  opts: { hasHistory: boolean; hasClientHint?: boolean }
+): Intent | null {
+  if (
+    /(що\s+ти\s+(вмієш|можеш|умієш)|чим\s+(ти\s+)?(можеш\s+)?допоможеш|які\s+в\s+тебе\s+можливості|довідка)/i.test(
+      text
+    )
+  ) {
+    return { kind: "HELP" };
+  }
+
+  /* ── Хто де зараз ─────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(хто\s+(зараз\s+)?(на\s+маршруті|в\s+дорозі|у\s+дорозі|на\s+зміні|онлайн|мовчить|працює)|хто\s+(не\s+)?(відкрив|закрив)\s+зміну|де\s+(зараз\s+)?(всі|усі|команда|люди|торгові))/i.test(
+      text
+    )
+  ) {
+    return {
+      kind: "STAFF_NOW",
+      who: null,
+      role: /(^|\s)торгов/i.test(text) ? "SALES" : null,
+    };
+  }
+
+  /* ── Водії на день ────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(де\s+(зараз\s+)?водії|водії\s+(сьогодні|зараз|завтра|вчора)|що\s+(з\s+)?водіями|що\s+везуть|доставк[а-яіїєґ]*\s+(на\s+)?(сьогодні|завтра|вчора)|скільки\s+точок\s+(у\s+)?водіїв|хто\s+що\s+везе)/i.test(
+      text
+    )
+  ) {
+    return { kind: "DRIVERS_DAY", day: dayWord(text) };
+  }
+
+  /*
+   * «Де Пайда» — ім'я з великої літери, і це не слово «водії».
+   *
+   * Прапорця /i тут бути не може: велика літера — це і є ознака імені.
+   * Тому саме слово «де» виписане в обох регістрах — питання однаково
+   * часто починають і з великої, і з малої.
+   */
+  const wherePerson = /(^|\s)[Дд]е\s+(зараз\s+)?([А-ЯІЇЄҐ][а-яіїєґ'ʼ-]{2,})(\s|$)/.exec(text);
+  if (wherePerson) return { kind: "STAFF_NOW", who: wherePerson[3], role: null };
+
+  /* ── Зарплата водіїв ──────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(зарплат[а-яіїєґ]*|нарахуванн[а-яіїєґ]*|скільки\s+заробив|ефективність\s+водіїв|вартість\s+точки|грн\s+на\s+точку|км\s+на\s+точку|маршрутн[а-яіїєґ]*\s+лист)/i.test(
+      text
+    )
+  ) {
+    const who = subjectAfter(text, /(зарплат[а-яіїєґ]*|скільки\s+заробив)\s+(у\s+|в\s+|по\s+)?/i);
+    if (/(^|\s)воді/i.test(text) || who) {
+      return { kind: "DRIVER_PAYROLL", period: periodIn(text), who: driverName(stripPeriodTail(who)) };
+    }
+  }
+
+  /* ── Зміни, пробіг, пальне ────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(змін[аиуи]?\s|змін\s|пробіг|кілометраж|пальне|паливо|одометр|автозакрит[а-яіїєґ]*|не\s+закрив\s+зміну)/i.test(
+      text
+    )
+  ) {
+    const who = subjectAfter(text, /(зміни|пробіг|кілометраж|пальне|паливо)\s+(у\s+|в\s+|по\s+)/i);
+    return { kind: "SHIFTS", period: periodIn(text, { kind: "days", days: 7 }), who: stripPeriodTail(who) };
+  }
+
+  /* ── Замовлення з сайту ───────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(замовленн[а-яіїєґ]*\s+(з|із|на)\s+сайт|сайт[а-яіїєґ]*\s+замовлен|інтернет[-\s]замовлен|нові\s+замовленн[а-яіїєґ]*|необроблен[а-яіїєґ]*|скільки\s+замовлень|чернетк[а-яіїєґ]*)/i.test(
+      text
+    )
+  ) {
+    return { kind: "SITE_ORDERS", period: periodIn(text, { kind: "days", days: 7 }) };
+  }
+
+  /* ── Склад ────────────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(закінчу[а-яіїєґ]*|дефіцит|що\s+(треба\s+)?(замовити|докупити|закупити)|нуль\s+на\s+складі|низьк[а-яіїєґ]*\s+залишк|оборотн[а-яіїєґ]*|мертв[а-яіїєґ]*\s+(залишк|запас|товар)|що\s+лежить\s+на\s+складі|запас\s+складу)/i.test(
+      text
+    )
+  ) {
+    const brand = subjectAfter(text, /(по\s+бренду|бренд[уа]?)\s*/i);
+    const mode = /(^|\s)оборотн/i.test(text)
+      ? ("turnover" as const)
+      : /(^|\s)мертв/i.test(text)
+        ? ("dead" as const)
+        : ("low" as const);
+    return { kind: "LOW_STOCK", brand, mode };
+  }
+
+  /* ── Гроші, зібрані за період ─────────────────────────────────────── */
+
+  if (
+    /(^|\s)(скільки\s+зібрал[аи]|зібрано\s+грошей|надходженн[а-яіїєґ]*|хто\s+скільки\s+зібрав|оплати\s+(по|за)\s+(торгов|команд|фірм))/i.test(
+      text
+    )
+  ) {
+    return { kind: "TEAM_COLLECTED", period: periodIn(text, { kind: "days", days: 7 }) };
+  }
+
+  /* ── Дебіторка ────────────────────────────────────────────────────── */
+
+  const teamWord = /(торгов[а-яіїєґ]*|команд[а-яіїєґ]*|фірм[а-яіїєґ]*|компані[а-яіїєґ]*|базі|всіх|усіх|кожн[а-яіїєґ]*)/i;
+
+  if (
+    /(^|\s)(хто\s+(найбільше\s+)?винен\s+(фірмі|нам)|найбільші\s+боржники|кому\s+не\s+(можна\s+)?відвантаж)/i.test(
+      text
+    )
+  ) {
+    return { kind: "TEAM_DEBTS", who: null };
+  }
+  if (/(^|\s)(дебіторк|борг|прострочк|прострочен|заборгован)/i.test(text)) {
+    const after = subjectAfter(text, /(дебіторк[а-яіїєґ]*|борг[а-яіїєґ]*|прострочк[а-яіїєґ]*)\s+(по\s+|у\s+|в\s+)/i);
+    if (after && teamWord.test(after)) return { kind: "TEAM_DEBTS", who: null };
+    if (after) return { kind: "TEAM_DEBTS", who: stripPeriodTail(after) };
+    if (teamWord.test(text)) return { kind: "TEAM_DEBTS", who: null };
+  }
+
+  /* ── Повернення ───────────────────────────────────────────────────── */
+
+  if (/(^|\s)(поверненн|повертають|поверта[єю]ть)/i.test(text)) {
+    return { kind: "TEAM_RETURNS", period: periodIn(text, { kind: "days", days: 90 }) };
+  }
+
+  /* ── План і прогноз ───────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(план\s+(фірми|команди|по\s+торгов)|хто\s+(не\s+)?(витягне|виконає|дотягне)\s+план|виконання\s+плану|прогноз\s+(по\s+)?(фірм|команд|торгов))/i.test(
+      text
+    )
+  ) {
+    return { kind: "TEAM_FORECAST" };
+  }
+
+  /* ── Продажі ──────────────────────────────────────────────────────── */
+
+  const soldBy = subjectAfter(
+    text,
+    /(скільки\s+(продав|продала|наторгував|наторгувала)|оборот\s+(у|в|по)|продажі\s+(у|в|по))\s*/i
+  );
+  if (soldBy && !teamWord.test(soldBy)) {
+    return { kind: "TEAM_SALES", period: periodIn(text), who: stripPeriodTail(soldBy) };
+  }
+  if (
+    /(^|\s)(продаж[а-яіїєґ]*|оборот[а-яіїєґ]*|виручк[а-яіїєґ]*|реалізаці[а-яіїєґ]*)/i.test(text) &&
+    (teamWord.test(text) || soldBy != null)
+  ) {
+    return { kind: "TEAM_SALES", period: periodIn(text), who: null };
+  }
+  if (/(^|\s)(хто\s+(скільки\s+)?(продав|наторгував)|як\s+(іде|йде|справи\s+у)\s+(фірм|команд|торгов)|як\s+(фірма|команда)(\s|$))/i.test(text)) {
+    return { kind: "TEAM_SALES", period: periodIn(text), who: null };
+  }
+
+  /* ── Обмін із 1С ──────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(обмін|синхронізаці[а-яіїєґ]*|1с|1c|агент\s|розбіжност[а-яіїєґ]*|чи\s+оновил[аи]сь|коли\s+(останн[а-яіїєґ]*\s+)?(обмін|синхрон|оновленн))/i.test(
+      text
+    )
+  ) {
+    return { kind: "SYNC_HEALTH" };
+  }
+
+  /* ── Решта — каскад торгового, але не все з нього ─────────────────── */
+
+  const base = salesIntent(text, opts);
+  if (!base) return null;
+
+  switch (base.kind) {
+    /* Питання про базу, а не про портфель: працюють без змін. */
+    case "CLIENT_CARD":
+    case "LAST_ORDER":
+    case "CLIENT_PRODUCT":
+    case "PRODUCT":
+    case "BASKET":
+    case "SUBSTITUTE":
+    case "CITY_CLIENTS":
+    case "DEAD_STOCK":
+    case "ABC_CLIENTS":
+    case "HELP":
+    case "REMIND":
+    case "REMINDERS":
+    case "ENTRY_OFFER":
+    case "RECOMMEND":
+      return base;
+
+    /* Оплати без імені клієнта — це «скільки зібрала фірма». */
+    case "PAYMENTS":
+      return base.subject ? base : { kind: "TEAM_COLLECTED", period: base.period };
+
+    /* Зведення портфеля перетворюються на зведення фірми. */
+    case "SALES":
+      return { kind: "TEAM_SALES", period: base.period, who: null };
+    /*
+     * «Як я на фоні команди» в керівника не має «я»: табло торгового
+     * наскрізь побудоване навколо власного рядка й особистого прогнозу.
+     * Те саме питання про фірму — це просто продажі по команді.
+     */
+    case "BENCHMARK":
+      return { kind: "TEAM_SALES", period: base.period, who: null };
+    case "DEBTS":
+      return { kind: "TEAM_DEBTS", who: null };
+    case "RETURNS":
+      return { kind: "TEAM_RETURNS", period: base.period };
+    case "FORECAST":
+      return { kind: "TEAM_FORECAST" };
+
+    /*
+     * Особисте — до моделі. У керівника немає ні маршруту, ні позиції на
+     * карті, ні клієнтів, які «давно не брали»: усе це існує лише в межах
+     * конкретного торгового. Модель пояснить це чесніше за нулі.
+     */
+    default:
+      return null;
+  }
+}
+
+
+/**
+ * Хвіст періоду, що прилип до імені.
+ *
+ * «Скільки продав Кулик за тиждень» — subjectAfter віддає весь хвіст, і в
+ * довідник людей летить «Кулик за тиждень». Період із цієї ж фрази вже
+ * розібрано окремо, тож тут його лишається просто відрізати.
+ */
+function stripPeriodTail(name: string | null): string | null {
+  if (!name) return null;
+  const cut = name
+    .replace(
+      /\s+за\s+(сьогодні|вчора|тиждень|тижн[а-яіїєґ]*|місяц[ья]?|місяць|квартал|рік|\d{1,3}\s*дн[а-яіїєґ]*)$/i,
+      ""
+    )
+    .replace(/\s+(за\s+)?(минул|попередн)[а-яіїєґ]*\s+(тиждень|місяц[ья]?|місяць)$/i, "")
+    .replace(/\s+з\s+\d{1,2}[.\/]\d{1,2}.*$/i, "")
+    .trim();
+  return cut.length >= 3 ? cut : null;
+}
+
+/** «Сьогодні / завтра / вчора» — спільно для водійських питань. */
+function dayWord(text: string): "today" | "tomorrow" | "yesterday" {
+  return /завтра/i.test(text) ? "tomorrow" : /вчора/i.test(text) ? "yesterday" : "today";
+}
+
+/** «Зарплата водіїв» — це не ім'я; «зарплата Пайди» — ім'я. */
+function driverName(raw: string | null): string | null {
+  if (!raw) return null;
+  return /^(воді|всіх|усіх|команди|фірми)/i.test(raw) ? null : raw;
 }

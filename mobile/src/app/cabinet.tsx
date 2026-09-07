@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, BackHandler, Linking, PermissionsAndroid } from "react-native";
 import { WebView } from "react-native-webview";
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCallback } from "react";
 import { API_BASE } from "@/api/client";
 import { APP_VERSION, APP_VERSION_CODE } from "@/api/staff";
@@ -45,6 +46,19 @@ import { colors, space, radius } from "@/theme";
 
 export default function CabinetScreen() {
   const router = useRouter();
+  /**
+   * Відступ під рядок стану — саме тут, а не на сайті.
+   *
+   * Android 15 малює застосунок від краю до краю, а `env(safe-area-inset-top)`
+   * усередині WebView дорівнює нулю: сторінка не знає, що над нею годинник і
+   * значки мережі. Через це шапка кабінету заповзала під них — на складі це
+   * помітили першими, бо в його шапці два рядки, і надзаголовок ховався
+   * повністю.
+   *
+   * Лікувати це на сайті не можна: у браузері відступ узявся б нізвідки. Тому
+   * місце під рядок стану лишає застосунок, а сторінка починається під ним.
+   */
+  const insets = useSafeAreaInsets();
   const { target } = useLocalSearchParams<{ target?: string }>();
   const webRef = useRef<WebView>(null);
   const canGoBack = useRef(false);
@@ -79,6 +93,16 @@ export default function CabinetScreen() {
   const tracksRoute = role === null || role === "SALES" || role === "DRIVER";
   const [updating, setUpdating] = useState<number | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  /**
+   * Вихід із акаунта показуємо, а не мовчимо.
+   *
+   * Він дописує буфер треку й гасить токен на сервері — тобто ходить у
+   * мережу. Поки цього екрана не було, кабінет просто застигав: сторінка на
+   * місці, кнопка натиснута, і нічого не відбувається півхвилини. Людина
+   * вирішувала, що застосунок завис, і вимикала планшет — саме посеред
+   * відправки маршруту.
+   */
+  const [leaving, setLeaving] = useState(false);
   const [bridge, setBridge] = useState<BridgeState>({
     shiftOpen: false,
     pending: 0,
@@ -235,6 +259,7 @@ export default function CabinetScreen() {
        * кабінету є ще токен пристрою, і поки він живий, планшет далі пише трек.
        * Саме тому міст перехоплює logout, а не лишає його сторінці.
        */
+      setLeaving(true);
       logoutAndStop()
         .catch(() => {})
         .finally(() => router.replace("/(tabs)/account"));
@@ -283,6 +308,19 @@ export default function CabinetScreen() {
     );
   }
 
+  if (leaving) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title: "Вихід" }} />
+        <ActivityIndicator color={colors.ink} />
+        <Text style={styles.title}>Виходжу з акаунта</Text>
+        <Text style={styles.text}>
+          Дописую маршрут і гашу токен планшета. Це кілька секунд — не вимикайте застосунок.
+        </Text>
+      </View>
+    );
+  }
+
   if (!token) return <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />;
 
   if (failed) {
@@ -300,11 +338,26 @@ export default function CabinetScreen() {
     );
   }
 
-  const redirect = typeof target === "string" && target.startsWith("/") ? target : "/sales";
+  /**
+   * Куди відкривати кабінет — вирішує сервер за роллю, а не ця сторінка.
+   *
+   * Тут стояло жорстке "/sales" на випадок, коли адреси не передали, — а не
+   * передають її саме на холодному старті ((tabs)/_layout шле сюди без
+   * параметра, свідомо: «одне правило на всі входи»). Виходило навпаки:
+   * складовщик і водій щоранку відкривали кабінет ТОРГОВОГО, гейт секції їх
+   * не пускав, і після довгого завантаження людина читала «Доступ заборонено.
+   * На головну» — при живому акаунті й правильній ролі.
+   *
+   * Порожньо означає «вирішуй сам»: /api/device/session бере
+   * defaultTargetFor(role) — /sales, /driver, /warehouse або /admin.
+   */
+  const redirect = typeof target === "string" && target.startsWith("/") ? target : null;
   const script = bridgeScript(bridge);
 
   return (
-    <>
+    /* Чорний фон під відступом: шапка кабінету теж чорна, тож рядок стану
+       читається як її продовження, а не як смуга іншого кольору. */
+    <View style={[styles.shell, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ title: "Кабінет", headerShown: false }} />
 
       {/* Кабінет — єдиний екран, який торговий відкриває щодня, тож саме тут
@@ -414,7 +467,9 @@ export default function CabinetScreen() {
       <WebView
         ref={webRef}
         source={{
-          uri: `${API_BASE}/api/device/session?redirect=${encodeURIComponent(redirect)}`,
+          uri: redirect
+            ? `${API_BASE}/api/device/session?redirect=${encodeURIComponent(redirect)}`
+            : `${API_BASE}/api/device/session`,
           headers: { Authorization: `Bearer ${token}` },
         }}
         /**
@@ -522,11 +577,12 @@ export default function CabinetScreen() {
         renderLoading={() => <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />}
         style={{ flex: 1 }}
       />
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  shell: { flex: 1, backgroundColor: colors.ink },
   dlStrip: { backgroundColor: "#0A0A0A", paddingVertical: 10, paddingHorizontal: space.lg, gap: 6 },
   dlText: { color: "#FFD600", fontSize: 14, fontWeight: "700" },
   dlTrack: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden", backgroundColor: "#1F2937" },

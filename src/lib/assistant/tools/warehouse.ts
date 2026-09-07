@@ -250,14 +250,35 @@ export const ordersToPackTool: ToolDef = {
       take: 60,
     });
 
-    const byState = (s: string) => docs.filter((d) => d.status === s).length;
+    /**
+     * Підсумки рахуємо ЗАПИТОМ, а не по вибраній сторінці.
+     *
+     * Перша версія рахувала їх по тих 60 рядках, що приїхали, — і на питання
+     * «скільки замовлень до збірки» помічник упевнено відповідав «59», коли
+     * насправді їх 3410. Число, яке залежить від стелі вибірки, гірше за
+     * відсутнє: воно виглядає точним.
+     */
+    const totals = await prisma.salesDocument.groupBy({
+      by: ["status"],
+      where: {
+        docType: "ORDER",
+        status: { in: statuses as never },
+        ...(client ? { counterparty: { name: { contains: client, mode: "insensitive" } } } : {}),
+      },
+      _count: true,
+      _sum: { totalAmount: true },
+    });
+
+    const byState = (s: string) => totals.find((t) => t.status === s)?._count ?? 0;
 
     return {
       разом: {
         до_збірки: byState("CONFIRMED"),
         пакується: byState("PACKING"),
         відправлено: byState("IN_TRANSIT"),
-        на_суму: uah(docs.reduce((s, d) => s + d.totalAmount, 0)),
+        на_суму: uah(totals.reduce((sum, t) => sum + (t._sum.totalAmount ?? 0), 0)),
+        /** Скільки з них показано нижче — щоб модель не видавала сторінку за все. */
+        показано: docs.length,
       },
       замовлення: docs.map((d) => ({
         номер: d.number,

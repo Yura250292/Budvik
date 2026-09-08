@@ -16,7 +16,7 @@ import { TabBar, type TabDef } from "@/components/cabinet/TabBar";
 const tabs: TabDef[] = [
   { href: "/warehouse", label: "Зміна", icon: <ScanLine size={22} />, exact: true },
   { href: "/warehouse/invoices", label: "Накладні", icon: <FileText size={22} /> },
-  { href: "/warehouse/orders", label: "Збірка", icon: <PackageOpen size={22} /> },
+  { href: "/warehouse/picking", label: "Збірка", icon: <PackageOpen size={22} /> },
   { href: "/warehouse/stock", label: "Товар", icon: <Search size={22} /> },
   { href: "/warehouse/profile", label: "Акаунт", icon: <User size={22} /> },
 ];

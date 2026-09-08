@@ -277,6 +277,9 @@ async function ordersByWeekday(repId: string, since: Date): Promise<OrderRow[]> 
     LEFT JOIN LATERAL (
       SELECT "salesRepId" FROM "SalesDocument"
       WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL AND "docType" <> 'RETURN'
+        -- Чернетку накладної, яку склад ще збирає, за «останній документ»
+        -- не рахуємо: вона нічого не доводить про закріплення клієнта.
+        AND status = 'CONFIRMED'
       ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC
       LIMIT 1
     ) last ON TRUE

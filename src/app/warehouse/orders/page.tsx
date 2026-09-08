@@ -72,9 +72,9 @@ export default function WarehouseOrdersPage() {
   return (
     <>
       <CabinetHeader
-        title="Збірка"
-        subtitle={`${orders.length} замовлень`}
-        backTo="/warehouse"
+        title="Замовлення"
+        subtitle={`${orders.length} у списку 1С`}
+        backTo="/warehouse/picking"
       />
 
       <div className="max-w-2xl mx-auto px-4" style={{ paddingTop: "12px", paddingBottom: "12px" }}>

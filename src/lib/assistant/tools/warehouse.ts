@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
 import { uah } from "@/lib/assistant/format";
 import { driverDayFacts } from "@/lib/assistant/facts/driver-day";
+import { PICKING_STATUSES } from "@/lib/warehouse/picking";
 
 /** Скільки хвилин тому востаннє озвався планшет. */
 function minutesAgo(at: Date | null): number | null {
@@ -184,113 +185,93 @@ export const driversTodayTool: ToolDef = {
   },
 };
 
-const PACK_STATE: Record<string, string> = {
-  CONFIRMED: "до збірки",
-  PACKING: "пакується",
-  IN_TRANSIT: "відправлено",
-};
-
-const DELIVERY_LABEL: Record<string, string> = {
-  DRIVER: "везе водій",
-  SALES_REP_PICKUP: "забере торговий",
-  SELF_PICKUP: "самовивіз",
-};
-
 export const ordersToPackTool: ToolDef = {
   name: "orders_to_pack",
-  label: "Дивлюся замовлення на збірку",
+  label: "Дивлюся, що збирати",
   kinds: ["WAREHOUSE"],
   description:
-    "Замовлення, які зараз на складі: до збірки, в упакуванні та вже відправлені. Номер, клієнт, торговий, кількість позицій, сума, спосіб доставки. Викликай на питання «що пакувати», «скільки замовлень», «чи є замовлення на …».",
+    "Накладні, які склад збирає зараз: ті, що менеджер ще набирає в 1С («набирається»), і вже проведені, але не відвантажені. Номер, клієнт, торговий, позиції, сума, скільки рядків уже зібрано. Викликай на питання «що пакувати», «що збирати», «чи є накладна на …».",
   parameters: {
     type: "object",
     properties: {
       state: {
         type: "string",
-        enum: ["to_pack", "packing", "sent", "all"],
+        enum: ["in_progress", "posted", "all"],
         description:
-          "Що показати: to_pack — підтверджені й не взяті в роботу, packing — в упакуванні, sent — відправлені, all — усі три. За замовчуванням all.",
+          "in_progress — ті, що менеджер ще набирає; posted — проведені; all — усі в роботі. За замовчуванням all.",
       },
       client: { type: "string", description: "Частина назви клієнта, якщо питають про конкретного." },
     },
   },
-  async run(_ctx, args) {
+  async run(ctx, args) {
     const state = typeof args.state === "string" ? args.state : "all";
     const statuses =
-      state === "to_pack"
-        ? ["CONFIRMED"]
-        : state === "packing"
-          ? ["PACKING"]
-          : state === "sent"
-            ? ["IN_TRANSIT"]
-            : ["CONFIRMED", "PACKING", "IN_TRANSIT"];
-
+      state === "in_progress" ? ["DRAFT"] : state === "posted" ? ["CONFIRMED", "PACKING"] : [...PICKING_STATUSES];
     const client = typeof args.client === "string" ? args.client.trim() : "";
 
-    const docs = await prisma.salesDocument.findMany({
-      where: {
-        docType: "ORDER",
-        status: { in: statuses as never },
-        ...(client ? { counterparty: { name: { contains: client, mode: "insensitive" } } } : {}),
-      },
-      select: {
-        number: true,
-        status: true,
-        totalAmount: true,
-        deliveryMethod: true,
-        createdAt: true,
-        notes: true,
-        counterparty: { select: { id: true, name: true } },
-        salesRep: { select: { name: true } },
-        _count: { select: { items: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      // Стеля: далі першого екрана в такому списку не читає ніхто, а
-      // сотня документів у відповіді з'їла б контекст ходу.
-      take: 60,
-    });
-
     /**
-     * Підсумки рахуємо ЗАПИТОМ, а не по вибраній сторінці.
+     * Вікно навмисно вузьке — три дні.
      *
-     * Перша версія рахувала їх по тих 60 рядках, що приїхали, — і на питання
-     * «скільки замовлень до збірки» помічник упевнено відповідав «59», коли
-     * насправді їх 3410. Число, яке залежить від стелі вибірки, гірше за
-     * відсутнє: воно виглядає точним.
+     * Проведених реалізацій у базі тисячі, і «скільки в мене на збірці» з
+     * усією історією перетворилося б на безглузде число. Склад збирає те, що
+     * зʼявилося щойно.
      */
-    const totals = await prisma.salesDocument.groupBy({
-      by: ["status"],
-      where: {
-        docType: "ORDER",
-        status: { in: statuses as never },
-        ...(client ? { counterparty: { name: { contains: client, mode: "insensitive" } } } : {}),
-      },
-      _count: true,
-      _sum: { totalAmount: true },
-    });
+    const from = kyivDayStart(ctx.today);
+    from.setDate(from.getDate() - 2);
 
-    const byState = (s: string) => totals.find((t) => t.status === s)?._count ?? 0;
+    const where = {
+      docType: "REALIZATION" as const,
+      status: { in: statuses as never },
+      createdAt: { gte: from },
+      ...(client ? { counterparty: { name: { contains: client, mode: "insensitive" as const } } } : {}),
+    };
+
+    const [docs, totals] = await Promise.all([
+      prisma.salesDocument.findMany({
+        where,
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          totalAmount: true,
+          createdAt: true,
+          counterparty: { select: { id: true, name: true } },
+          salesRep: { select: { name: true } },
+          _count: { select: { items: true } },
+          pickMarks: { select: { quantity: true, user: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+      }),
+      prisma.salesDocument.groupBy({ by: ["status"], where, _count: true, _sum: { totalAmount: true } }),
+    ]);
+
+    const count = (st: string) => totals.find((t) => t.status === st)?._count ?? 0;
 
     return {
       разом: {
-        до_збірки: byState("CONFIRMED"),
-        пакується: byState("PACKING"),
-        відправлено: byState("IN_TRANSIT"),
+        набирається: count("DRAFT"),
+        проведених: count("CONFIRMED") + count("PACKING"),
         на_суму: uah(totals.reduce((sum, t) => sum + (t._sum.totalAmount ?? 0), 0)),
-        /** Скільки з них показано нижче — щоб модель не видавала сторінку за все. */
         показано: docs.length,
       },
-      замовлення: docs.map((d) => ({
-        номер: d.number,
-        стан: PACK_STATE[d.status] ?? d.status,
-        клієнт_id: d.counterparty?.id ?? null,
-        клієнт: d.counterparty?.name ?? "—",
-        торговий: d.salesRep?.name ?? null,
-        позицій: d._count.items,
-        сума: uah(d.totalAmount),
-        доставка: d.deliveryMethod ? (DELIVERY_LABEL[d.deliveryMethod] ?? null) : null,
-        коментар: d.notes,
-      })),
+      накладні: docs.map((d) => {
+        const touched = d.pickMarks.filter((m) => m.quantity > 0);
+        return {
+          номер: d.number,
+          стан: d.status === "DRAFT" ? "набирається" : d.status === "PACKING" ? "пакується" : "проведено",
+          час: hhmm(d.createdAt),
+          клієнт_id: d.counterparty?.id ?? null,
+          клієнт: d.counterparty?.name ?? "—",
+          торговий: d.salesRep?.name ?? null,
+          позицій: d._count.items,
+          зібрано_рядків: touched.length,
+          збирає: touched[0]?.user.name ?? null,
+          сума: uah(d.totalAmount),
+        };
+      }),
+      примітка:
+        "«Набирається» означає, що менеджер ще дописує накладну в 1С: позиції можуть додатися, і це нормально.",
     };
   },
 };

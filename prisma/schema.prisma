@@ -273,6 +273,7 @@ model User {
   // Warehouse (Telegram bot) relations
   warehouseShifts        WarehouseShift[]       @relation("warehouseShiftWorker")
   warehouseReports       WarehouseReport[]      @relation("warehouseReportWorker")
+  pickMarks              PickMark[]             @relation("pickMarkUser")
   warehouseLinksApproved WarehouseLinkRequest[] @relation("warehouseLinkApprover")
 
   // Sales rep trips (той самий Telegram бот, роль SALES)
@@ -477,6 +478,7 @@ model Product {
 
   // Warehouse reports (лише довідковий матчинг, склад не змінюється)
   warehouseReportItems WarehouseReportItem[] @relation("warehouseItemProduct")
+  pickMarks            PickMark[]            @relation("pickMarkProduct")
 
   @@index([brandId])
   // Розділ і група — головні фільтри вітрини; складений індекс покриває
@@ -913,6 +915,7 @@ model SalesDocument {
   salesRep        User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
   createdBy       User                @relation("salesDocCreator", fields: [createdById], references: [id])
   items           SalesDocumentItem[]
+  pickMarks       PickMark[]          @relation("pickMarkDocument")
   invoice         Invoice?
   commissions     CommissionRecord[]
   reservations    StockReservation[]
@@ -3528,4 +3531,38 @@ model ClientMemory {
   author       User?        @relation("clientMemoryAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([counterpartyId, archivedAt, createdAt(sort: Desc)])
+}
+
+/// Позначка «зібрано» на рядку накладної, яку склад збирає ПОКИ ЇЇ НАБИРАЮТЬ.
+///
+/// Ключ навмисно (документ + товар), а не рядок документа: обмін на КОЖНОМУ
+/// циклі видаляє всі рядки документа й створює заново
+/// (apply-documents.ts, salesDocumentItem.deleteMany), тобто ідентифікатор
+/// рядка живе п'ять хвилин. Позначка, прив'язана до нього, зникала б щоразу,
+/// коли менеджер додає в накладну ще одну позицію.
+///
+/// Зберігаємо КІЛЬКІСТЬ, а не прапорець: накладна росте, і в уже зібраному
+/// рядку кількість може збільшитися. Тоді складовщик має побачити «донести 2»,
+/// а не «зібрати 12 наново».
+model PickMark {
+  id              String @id @default(cuid())
+  salesDocumentId String
+  productId       String
+
+  /// Скільки одиниць уже зібрано.
+  quantity Float @default(0)
+
+  /// Хто відмітив останнім — для розмови «а хто це зібрав».
+  userId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesDocument SalesDocument @relation("pickMarkDocument", fields: [salesDocumentId], references: [id], onDelete: Cascade)
+  product       Product       @relation("pickMarkProduct", fields: [productId], references: [id], onDelete: Cascade)
+  user          User          @relation("pickMarkUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([salesDocumentId, productId])
+  @@index([salesDocumentId])
+  @@index([userId, updatedAt])
 }

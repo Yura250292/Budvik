@@ -122,6 +122,9 @@ async function ordersOfDay(day: string): Promise<Row[]> {
       SELECT "salesRepId" FROM "SalesDocument"
       WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL
         AND "docType" <> 'RETURN'
+        -- Чернетки не вирішують, чий це клієнт: накладну в наборі бачить
+        -- склад, і поки її не провели, вона нічого не доводить.
+        AND status = 'CONFIRMED'
       ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC
       LIMIT 1
     ) last ON TRUE
@@ -185,6 +188,8 @@ export async function orderCountsByDay(
     LEFT JOIN LATERAL (
       SELECT "salesRepId" FROM "SalesDocument"
       WHERE "counterpartyId" = c.id AND "salesRepId" IS NOT NULL AND "docType" <> 'RETURN'
+        -- Те саме, що вище: чернетка накладної не вирішує, чий це клієнт.
+        AND status = 'CONFIRMED'
       ORDER BY ("docType" = 'REALIZATION') DESC, "createdAt" DESC
       LIMIT 1
     ) last ON TRUE

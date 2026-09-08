@@ -156,7 +156,15 @@ export async function ownerRepOf(
   }
 
   const last = await prisma.salesDocument.findFirst({
-    where: { counterpartyId, docType: "REALIZATION", salesRepId: { not: null } },
+    // Лише проведені: відколи склад бачить накладну ще в наборі, чернетка
+    // з confirmedAt = null ставала б «останнім документом» (у Postgres DESC
+    // кладе NULL першими) і перекидала б клієнта на чужого торгового.
+    where: {
+      counterpartyId,
+      docType: "REALIZATION",
+      status: "CONFIRMED",
+      salesRepId: { not: null },
+    },
     orderBy: { confirmedAt: "desc" },
     select: { salesRep: { select: { id: true, name: true } } },
   });

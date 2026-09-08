@@ -489,6 +489,8 @@ export const SYNC_STATE_KEYS = {
   lastCacheBust: "sync:lastCacheBust",
   /** ISO-час останнього сповіщення «агент мовчить» — щоб не слати його щогодини. */
   lastSilentAlert: "agent:lastSilentAlert",
+  /** Київська доба, в яку востаннє підчищали журнали обміну (див. retention.ts). */
+  lastPrune: "sync:lastPrune",
   /**
    * runId прогону, в якому батч цього каналу впав із винятком.
    *

@@ -97,6 +97,20 @@ import {
 import type { ToolContext } from "@/lib/assistant/types";
 
 
+/**
+ * Артикул у таблиці — окремою колонкою.
+ *
+ * Досі він жив лише в адресі посилання, і торговий, якому треба
+ * продиктувати номер в офіс або знайти позицію в 1С, бачив саму назву
+ * («Не показує артикул під час пошуку товару»). Колонка коштує ширини,
+ * тому натомість прапорець «беруть мої клієнти» переїхав у клітинку з
+ * назвою знаком 🟢 — так само, як у мертвих залишках.
+ */
+const sku = (value: string | null) => (value ? `\`${value}\`` : "—");
+
+const nameCell = (name: string, skuValue: string | null, mine = false, max = 30) =>
+  `${productLink(short(name, max), skuValue)}${mine ? " 🟢" : ""}`;
+
 /* ── План дня ─────────────────────────────────────────────────────────── */
 
 /**
@@ -605,15 +619,15 @@ export async function answerDeadStock(ctx: ToolContext, brand: string | null): P
       `**${items(list.length)} без продажу 90+ днів** на ${money(sum)} за собівартістю.`,
       "",
       ...table(
-        ["Товар", "📦 Шт", "💵 Ціна", "📊 Маржа", "👥 Мої"],
+        ["Товар", "Артикул", "📦 Шт", "💵 Ціна", "📊 Маржа"],
         list.map((i) => {
           const margin = priceMarginPct(i.price, i.lastCost);
           return [
-            productLink(short(i.name, 34), i.sku),
+            nameCell(i.name, i.sku, i.myBuyers > 0, 28),
+            sku(i.sku),
             i.free,
             money(i.price),
             margin == null ? "—" : percent(margin),
-            i.myBuyers > 0 ? `${i.myBuyers} 🟢` : "—",
           ];
         })
       ),
@@ -1314,7 +1328,10 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
   const statById = new Map(stats.map((s) => [s.productId, s]));
 
   // Підсумок по групі — перше, що треба почути на «скільки ще піни».
-  const notes = ["_📦 залишок вільний, з несервісних складів: це те, що реально можна відвантажити._"];
+  const notes = [
+    "_📦 залишок вільний, з несервісних складів: це те, що реально можна відвантажити._",
+    "_🟢 — цю позицію вже брали ваші клієнти._",
+  ];
   if (totals.noPrice > 0) {
     notes.push(`_🚫 ${items(totals.noPrice)} без ціни в 1С — продати їх не вийде, поки ціну не заведуть._`);
   }
@@ -1333,19 +1350,19 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
       ),
       "",
       ...table(
-        ["Товар", "📦 Шт", "💵 Ціна", "📊 Маржа", "👥 Мої"],
+        ["Товар", "Артикул", "📦 Шт", "💵 Ціна", "📊 Маржа"],
         hits.map((h) => {
           const stat = statById.get(h.productId);
           const margin = priceMarginPct(h.price, h.lastCost);
           const fact = stat && marginPct(stat) != null ? marginPct(stat)! : null;
           return [
-            productLink(short(h.name, 32), h.sku),
+            nameCell(h.name, h.sku, h.myBuyers > 0, 28),
+            sku(h.sku),
             h.free > 0 ? `**${h.free}**` : "🔴 0",
             h.price > 0 ? money(h.price) : "🚫 —",
             margin == null
               ? "—"
               : `${percent(margin)}${fact != null ? ` (факт ${percent(fact)})` : ""}`,
-            h.myBuyers > 0 ? `${h.myBuyers} 🟢` : "—",
           ];
         })
       ),
@@ -1424,9 +1441,10 @@ export async function answerBasket(ctx: ToolContext, query: string): Promise<Dir
       `## 🧺 Що беруть разом із ${productLink(target.name, target.sku)}`,
       "",
       ...table(
-        ["Товар", "🤝 Разом", "💵 Ціна"],
+        ["Товар", "Артикул", "🤝 Разом", "💵 Ціна"],
         rows.map((r) => [
-          productLink(short(r.product!.name, 30), r.product!.sku),
+          productLink(short(r.product!.name, 26), r.product!.sku),
+          sku(r.product!.sku),
           `${Math.round(r.share)} % (${r.pair.together})`,
           money(r.product!.price ?? 0),
         ])
@@ -1483,12 +1501,12 @@ export async function answerSubstitute(ctx: ToolContext, query: string): Promise
         : "_Вільного залишку немає — ось що можна відвантажити натомість._",
       "",
       ...table(
-        ["Заміна", "📦 Шт", "💵 Ціна", "👥 Мої"],
+        ["Заміна", "Артикул", "📦 Шт", "💵 Ціна"],
         options.map((o) => [
-          productLink(short(o.name, 30), o.sku),
+          nameCell(o.name, o.sku, o.myBuyers > 0, 26),
+          sku(o.sku),
           o.free,
           money(o.price),
-          o.myBuyers > 0 ? `${o.myBuyers} 🟢` : "—",
         ])
       ),
       "",

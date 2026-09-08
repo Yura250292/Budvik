@@ -80,6 +80,30 @@ export async function GET(
    */
   const onRoads = req.nextUrl.searchParams.get("roads") === "1";
 
+  /**
+   * Дешева проба: чи додалися точки — і більше нічого.
+   *
+   * Картка відкритої зміни перемальовується раз на хвилину, а повна відповідь
+   * цього маршруту — це ВЕСЬ трек зміни, дві-вісім тисяч рядків. Поки людина
+   * стоїть, тягнути їх немає за чим: пробі досить COUNT і часу останньої
+   * точки, а це два індексні запити на кілька байтів відповіді.
+   */
+  if (req.nextUrl.searchParams.get("probe") === "1") {
+    const [pointsCount, last] = await Promise.all([
+      prisma.trackPoint.count({ where: { shiftId: id } }),
+      prisma.trackPoint.findFirst({
+        where: { shiftId: id },
+        orderBy: { recordedAt: "desc" },
+        select: { recordedAt: true },
+      }),
+    ]);
+    return NextResponse.json({
+      shiftId: id,
+      pointsCount,
+      lastAt: last?.recordedAt.toISOString() ?? null,
+    });
+  }
+
   const shift = await prisma.shift.findUnique({
     where: { id },
     include: {

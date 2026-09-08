@@ -20,7 +20,25 @@ const OSRM_URL = process.env.OSRM_URL ?? "https://router.project-osrm.org";
  */
 const OSRM_TIMEOUT_MS = 8_000;
 
-async function osrmFetch(url: string, timeoutMs = OSRM_TIMEOUT_MS): Promise<Response> {
+/**
+ * Скільки чекаємо на ПОВТОР і скільки перед ним спимо.
+ *
+ * Власний OSRM на Railway приспаний (Serverless): після 5-10 хвилин без
+ * запитів контейнер згортається, і перший запит після сну або довго чекає
+ * підйому, або віддає 502 від маршрутизатора Railway. Це не помилка служби,
+ * а нормальний холодний старт, і єдина правильна відповідь на нього —
+ * почекати й спитати ще раз.
+ *
+ * Повтор один. Друга невдача — це вже справжня відмова, і всі виклики тут
+ * уміють жити без дороги: повертають null, а карта малює сиру ламану.
+ * Найгірший випадок 8 + 2 + 12 = 22 с; межа пачки в застосунку — 90 с
+ * (staffRequest), тож прийом треку в неї вкладається.
+ */
+const OSRM_RETRY_DELAY_MS = 2_000;
+const OSRM_RETRY_TIMEOUT_MS = 12_000;
+
+/** Одна спроба з власною межею часу. */
+async function osrmTry(url: string, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -28,6 +46,23 @@ async function osrmFetch(url: string, timeoutMs = OSRM_TIMEOUT_MS): Promise<Resp
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Чи схоже це на сплячий контейнер, а не на зламаний запит. */
+function looksAsleep(res: Response): boolean {
+  return res.status === 502 || res.status === 503 || res.status === 504;
+}
+
+async function osrmFetch(url: string, timeoutMs = OSRM_TIMEOUT_MS): Promise<Response> {
+  try {
+    const res = await osrmTry(url, timeoutMs);
+    if (!looksAsleep(res)) return res;
+  } catch {
+    // Обрив або тайм-аут першої спроби — те саме, що 502: пробуємо ще раз.
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, OSRM_RETRY_DELAY_MS));
+  return osrmTry(url, OSRM_RETRY_TIMEOUT_MS);
 }
 
 /** Точка сліду для прив'язки до дороги: координата й похибка фікса. */

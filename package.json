@@ -11,6 +11,7 @@
     "check:staff": "tsx scripts/check-staff-build.mts",
     "worker": "tsx worker/index.ts",
     "worker:prepare": "prisma generate",
+    "worker:build": "esbuild worker/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/worker.cjs --external:@prisma/client --external:fast-xml-parser",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
@@ -44,6 +45,7 @@
     "recharts": "^3.10.1",
     "remark-gfm": "^4.0.1",
     "swr": "^2.5.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.12",
     "xlsx": "^0.18.5"
   },

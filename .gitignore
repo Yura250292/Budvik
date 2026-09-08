@@ -87,3 +87,7 @@ output/vendor-*/
 # Кеш Gradle нативного модуля треку: сміття від локальних прогонів expo export,
 # яке інакше щоразу висить у git status і одного дня заїде в коміт.
 mobile/modules/*/android/.gradle/
+
+# Зібраний воркер обміну. Збирається на Railway командою worker:build; у git
+# тримати нічого — це похідне від worker/index.ts і src/lib/**.
+/dist/

@@ -203,6 +203,31 @@ export type DayDetail = {
 /** Як часто перепитуємо, хто де. Частіше немає сенсу: планшет шле пачку раз на 25 с. */
 const POLL_MS = 30_000;
 
+/**
+ * Через скільки перечитуємо день обраної людини, навіть якщо нових точок немає.
+ *
+ * Деталі дня — найдорожча відповідь адмінки: це ВСІ точки дня, дві-вісім тисяч
+ * рядків, і кожна така відповідь тягне їх з Postgres через публічний інтернет
+ * (база на Railway, сайт на Vercel — трафік платний). Вкладка перепитувала їх
+ * щопівхвилини незалежно від того, чи щось змінилося: 120 разів на годину на
+ * одну відкриту вкладку, близько гігабайта за день.
+ *
+ * Тепер деталі перечитуються тоді, коли в списку «хто де» справді додалися
+ * точки, — а ця підлога лишається для того, що в списку не видно: відмітки
+ * візитів і зміни в маршрутному листі. Стоїть машина — п'ять хвилин затримки,
+ * їде — оновлення такі ж часті, як і були.
+ */
+const DETAIL_MAX_AGE_MS = 5 * 60_000;
+
+/**
+ * Відбиток стану людини: усе, від чого залежать деталі її дня і що видно
+ * у відповіді списку. Змінився відбиток — є сенс перечитувати день.
+ */
+function personFingerprint(p: Person | undefined): string {
+  if (!p) return "";
+  return [p.pointsCount, p.lastPointAt ?? "", p.ordersToday, p.shift?.status ?? ""].join("|");
+}
+
 function kyivToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
 }
@@ -263,9 +288,25 @@ export function LiveTrackTab() {
    */
   const detailReq = useRef(0);
 
+  /**
+   * Свіжий список у рефі — щоб таймер деталей міг зазирнути в нього, не
+   * перезапускаючись на кожне оновлення списку.
+   */
+  const peopleRef = useRef<Person[]>([]);
+  useEffect(() => {
+    peopleRef.current = people;
+  }, [people]);
+
+  /** Відбиток і час того, що вже лежить у `detail`. */
+  const loadedRef = useRef<{ fingerprint: string; at: number } | null>(null);
+
   const loadDetail = useCallback(async () => {
     if (!selected) return;
     const token = ++detailReq.current;
+    // Відбиток беремо ДО запиту: точки, що приїдуть під час нього, змінять
+    // його ще раз, і наступний тик просто добере їх.
+    const fingerprint = personFingerprint(peopleRef.current.find((p) => p.userId === selected));
+    loadedRef.current = { fingerprint, at: Date.now() };
     try {
       // parts і roads просимо лише для обраної людини: поділ треку тягне
       // за собою OSRM, а список опитується раз на пів хвилини.
@@ -278,6 +319,9 @@ export function LiveTrackTab() {
     } catch (e) {
       if (token === detailReq.current) {
         setError(e instanceof Error ? e.message : "Не вдалося завантажити день");
+        // Не вийшло — забуваємо відбиток, інакше таймер вважав би день
+        // завантаженим і мовчав до наступної точки.
+        loadedRef.current = null;
       }
     }
   }, [selected, day, onRoads]);
@@ -297,7 +341,12 @@ export function LiveTrackTab() {
    */
   useEffect(() => {
     if (!selected || day !== kyivToday()) return;
-    const id = window.setInterval(() => void loadDetail(), POLL_MS);
+    const id = window.setInterval(() => {
+      const loaded = loadedRef.current;
+      const fresh = personFingerprint(peopleRef.current.find((p) => p.userId === selected));
+      const stale = !loaded || Date.now() - loaded.at > DETAIL_MAX_AGE_MS;
+      if (!loaded || loaded.fingerprint !== fresh || stale) void loadDetail();
+    }, POLL_MS);
     return () => window.clearInterval(id);
   }, [selected, day, loadDetail]);
 

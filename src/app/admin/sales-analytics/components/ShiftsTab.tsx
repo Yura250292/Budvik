@@ -413,15 +413,28 @@ export function ShiftsTab({
    *
    * Питання до неї — «де він ЗАРАЗ», а відповідь на нього застаріває за
    * хвилини. Досі картку доводилося закривати й відкривати, і це виглядало
-   * так, ніби людина стоїть на місці півдня. Хвилина — компроміс: точка
-   * пишеться раз на 20 секунд, а кожне оновлення тягне весь трек дня.
+   * так, ніби людина стоїть на місці півдня.
+   *
+   * Але перемальовувати щохвилини наосліп — це щохвилини тягнути ВЕСЬ трек
+   * зміни з бази через інтернет (Postgres на Railway, сайт на Vercel), і
+   * робити це навіть тоді, коли машина стоїть. Тому спершу дешева проба
+   * (?probe=1: COUNT і час останньої точки), і лише коли точки справді
+   * додалися — повна відповідь. Для людини нічого не змінюється: поки вона
+   * їде, картка оновлюється так само щохвилини.
    *
    * Закриту зміну не чіпаємо взагалі: там уже нічого не зміниться.
    */
   useEffect(() => {
     if (!selected || detail?.shift.status !== "OPEN") return;
+    let known = detail.track.shift.pointsCount;
     const timer = setInterval(() => {
       void (async () => {
+        const probe = await fetch(`/api/admin/shifts/${selected}?probe=1`);
+        if (!probe.ok) return;
+        const meta = await probe.json().catch(() => null);
+        if (meta?.shiftId !== selected || meta.pointsCount === known) return;
+        known = meta.pointsCount;
+
         const res = await fetch(`/api/admin/shifts/${selected}${onRoads ? "?roads=1" : ""}`);
         if (!res.ok) return;
         const json = await res.json().catch(() => null);
@@ -431,7 +444,7 @@ export function ShiftsTab({
       })();
     }, LIVE_REFRESH_MS);
     return () => clearInterval(timer);
-  }, [selected, onRoads, detail?.shift.status]);
+  }, [selected, onRoads, detail?.shift.status, detail?.track.shift.pointsCount]);
 
   /**
    * Зміни, згруповані за київською добою. Порядок від нових до старих

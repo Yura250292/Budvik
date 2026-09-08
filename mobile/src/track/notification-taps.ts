@@ -94,9 +94,36 @@ export function useNotificationTaps(): void {
       if (target) router.push(target);
     });
 
+    /**
+     * Те саме пробудження, але для ВІДКРИТОГО застосунку.
+     *
+     * Фонове завдання (WAKE_TASK) запускається лише тоді, коли застосунок у
+     * фоні або вивантажений — так влаштований expo-notifications. Поки він
+     * на екрані, замість завдання спрацьовує ось цей слухач, і без нього
+     * сигнал «підніми трек» просто губився б.
+     *
+     * Спіймано на першій же перевірці 08.09: сповіщення дійшло (Expo віддав
+     * квитанцію «ok»), а події в журналі не з'явилося — бо планшет лежав з
+     * відкритим застосунком, тобто в єдиному стані, який ми не покрили.
+     *
+     * Обидві гілки ведуть в один і той самий `onWakePush`: два різні стани
+     * застосунку не мають означати дві різні поведінки.
+     */
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request?.content?.data as Record<string, unknown> | undefined;
+      const reason = typeof data?.reason === "string" ? data.reason : null;
+      // Реагуємо лише на СВОЇ сигнали: сповіщення про табло чи нагадування
+      // піднімати трек не мусять.
+      if (!reason) return;
+      void import("./wake").then(({ onWakePush }) =>
+        onWakePush(`${reason} (застосунок відкритий)`)
+      );
+    });
+
     return () => {
       alive = false;
       sub.remove();
+      received.remove();
     };
   }, [router, navReady]);
 }

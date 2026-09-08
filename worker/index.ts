@@ -31,6 +31,7 @@ import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
+import { notifyOutdatedApps } from "@/lib/app/update-nudge";
 import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
 import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
@@ -352,6 +353,35 @@ async function pushStandings(): Promise<void> {
 const standingsTimer = setInterval(() => void pushStandings(), SILENCE_CHECK_INTERVAL_MS);
 
 /**
+ * «Вийшла нова збірка» — тим, хто ще на старій.
+ *
+ * Тримається на тому самому інтервалі, що й решта, але сам вирішує, чи пора:
+ * межі робочих годин і тротл «один раз на версію» живуть у notifyOutdatedApps.
+ * Тому перезапуск воркера не викликає повторної розсилки, а публікація
+ * чотирьох оновлень за день не перетворюється на чотири сповіщення.
+ *
+ * Навіщо взагалі: 08.09 у полі одночасно стояли чотири різні збірки, і двоє
+ * торгових їздили на травневій за віком — без мікрофона й без жодного зі
+ * сторожів треку. Кнопка «Оновити» весь цей час була в застосунку.
+ */
+async function pushUpdateNudge(): Promise<void> {
+  try {
+    const results = await notifyOutdatedApps();
+    const sent = results.filter((r) => r.sent);
+    if (sent.length > 0) {
+      console.log(
+        `worker: нагадування про оновлення — ${sent.length}: ` +
+          sent.map((r) => `${r.name} (${r.installed})`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: нагадування про оновлення впало", e);
+  }
+}
+
+const updateNudgeTimer = setInterval(() => void pushUpdateNudge(), SILENCE_CHECK_INTERVAL_MS);
+
+/**
  * Ранкове зведення керівникові.
  *
  * Вранці, а не ввечері: вчорашній день уже повністю відомий, накладні з
@@ -444,6 +474,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(staleShiftTimer);
     clearInterval(recountTimer);
     clearInterval(standingsTimer);
+    clearInterval(updateNudgeTimer);
     clearInterval(digestTimer);
     clearInterval(remindersTimer);
     clearInterval(pruneTimer);

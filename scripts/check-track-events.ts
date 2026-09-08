@@ -33,6 +33,7 @@ const KIND: Record<string, string> = {
   stop: "службу зупинено",
   restart_refused: "перезапуск відмовлено (фон)",
   task_error: "система віддала помилку завданню",
+  push: "реєстрація сповіщень",
 };
 
 async function main() {

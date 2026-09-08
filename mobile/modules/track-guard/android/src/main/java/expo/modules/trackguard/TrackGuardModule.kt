@@ -71,6 +71,43 @@ class TrackGuardModule : Module() {
         .onFailure { Log.e(TAG, "не вдалося скасувати: ${it.message}") }
         .isSuccess
     }
+
+    /**
+     * Другий сторож — на будильнику, а не на WorkManager.
+     *
+     * Не заміна першому, а страховка від нього. WorkManager — це ПРОХАННЯ, і
+     * оболонки Lenovo його відкладають на години: 08.09 планшет доповів рівно
+     * одне пробудження сторожа за чотири години відкритої зміни. Будильник —
+     * зобов'язання системи, і воно ще й дає коротке вікно, у якому Android
+     * дозволяє підняти службу переднього плану з фону.
+     */
+    Function("scheduleExactGuard") { intervalMinutes: Int ->
+      val context = appContext.reactContext ?: return@Function false
+      AlarmScheduler.arm(context, intervalMinutes.toLong(), remember = true)
+    }
+
+    Function("cancelExactGuard") {
+      val context = appContext.reactContext ?: return@Function false
+      AlarmScheduler.cancel(context)
+    }
+
+    /**
+     * Чим закінчилася попередня спроба — щоб розбір не був здогадом.
+     *
+     * Саме цієї відповіді бракувало місяць: «сторож не прокидався» і «сторож
+     * прокинувся й нічого не зміг» виглядали з сервера однаково. Тепер видно
+     * окремо, чи будильник узагалі спрацював і чи він точний.
+     */
+    Function("exactGuardStatus") {
+      val context = appContext.reactContext
+        ?: return@Function mapOf("available" to false)
+      mapOf(
+        "available" to true,
+        "exact" to AlarmScheduler.canBeExact(context),
+        "lastFiredAt" to AlarmScheduler.lastFiredAt(context),
+        "armedFor" to AlarmScheduler.armedFor(context)
+      )
+    }
   }
 
   private fun schedule(context: Context, minutes: Long): Boolean = runCatching {

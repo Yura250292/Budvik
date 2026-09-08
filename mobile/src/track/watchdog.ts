@@ -12,7 +12,13 @@
  */
 
 import * as BackgroundTask from "expo-background-task";
-import { hasOfflineGuard, scheduleOfflineGuard, cancelOfflineGuard } from "@modules/track-guard";
+import {
+  hasOfflineGuard,
+  scheduleOfflineGuard,
+  cancelOfflineGuard,
+  scheduleExactGuard,
+  cancelExactGuard,
+} from "@modules/track-guard";
 import { WATCHDOG_TASK } from "./task-name";
 import {
   getLastFixAt,
@@ -173,11 +179,35 @@ export async function registerWatchdog(): Promise<void> {
    * Два запуски замість одного нешкідливі: тіло завдання ідемпотентне.
    */
   scheduleOfflineGuard(15);
+
+  /**
+   * ТРЕТІЙ сторож — на будильнику, і саме він тепер головний.
+   *
+   * Два попередні — це WorkManager, тобто прохання до системи. Оболонки
+   * Lenovo, на яких стоїть усе поле, це прохання відкладають на години: 08.09
+   * планшет доповів рівно ОДНЕ пробудження сторожа за чотири години відкритої
+   * зміни, і трек увесь цей час стояв. Будильник — зобов'язання системи: він
+   * пробиває Doze і не залежить від економії енергії.
+   *
+   * Друга причина, важливіша за першу. Android 12+ забороняє піднімати службу
+   * переднього плану з фону — саме через це вбитий запис не оживає сам, і
+   * єдиною порадою лишалося «відкрийте застосунок». Спрацювання ТОЧНОГО
+   * будильника входить у перелік винятків: це та коротка мить, коли запис
+   * можна підняти без людини.
+   *
+   * Ставиться поруч, а не замість: три незалежні приводи прокинутись кращі за
+   * один, тіло завдання ідемпотентне, і зайве пробудження нічого не коштує.
+   *
+   * У збірках до 1.6.1 нативної частини немає — виклик тихо поверне false, і
+   * в полі лишиться рівно те, що було.
+   */
+  scheduleExactGuard(15);
 }
 
 export async function unregisterWatchdog(): Promise<void> {
   await BackgroundTask.unregisterTaskAsync(WATCHDOG_TASK).catch(() => {});
   cancelOfflineGuard();
+  cancelExactGuard();
 }
 
 /** Чи є в цій збірці сторож, що працює без мережі. */

@@ -1,2 +1,35 @@
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      Будильник сторожа.
+
+      exported="false" навмисно: намір явний і йде від AlarmManager від імені
+      нашого ж застосунку, тож відкривати приймач назовні немає підстав.
+    -->
+    <receiver
+      android:name=".TrackAlarmReceiver"
+      android:enabled="true"
+      android:exported="false" />
+
+    <!--
+      Увімкнення планшета й оновлення застосунку.
+
+      exported="true" тут обов'язковий: BOOT_COMPLETED шле система, тобто
+      чужий процес, і закритий приймач його просто не отримає. Підробити
+      сигнал не можна — це захищений намір, доступний лише системі.
+
+      Дозвіл RECEIVE_BOOT_COMPLETED живе в app.config.ts і лише в робочій
+      збірці, тож у застосунку покупця цей приймач не спрацює ніколи.
+    -->
+    <receiver
+      android:name=".BootReceiver"
+      android:enabled="true"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+      </intent-filter>
+    </receiver>
+  </application>
 </manifest>

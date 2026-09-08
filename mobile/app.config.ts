@@ -33,7 +33,7 @@ const isStaff = FLAVOR === "staff";
  * збільшене число назад у динамічний app.config.ts, тож лічильник мовчки
  * стояв би на місці.
  */
-const VERSION = "1.6.0";
+const VERSION = "1.6.1";
 const versionCode = (() => {
   const [major, minor, patch] = VERSION.split(".").map(Number);
   return major * 10000 + minor * 100 + patch;
@@ -128,6 +128,27 @@ const config: ExpoConfig = {
           "android.permission.POST_NOTIFICATIONS",
           "android.permission.WAKE_LOCK",
           "android.permission.RECEIVE_BOOT_COMPLETED",
+          /**
+           * Точний будильник — сторож, якого оболонка не може відкласти.
+           *
+           * USE_EXACT_ALARM, а не SCHEDULE_EXACT_ALARM: перший видається при
+           * встановленні й не питає людину, другий від Android 14 вимагає
+           * окремого перемикача в налаштуваннях — тобто на п'яти планшетах
+           * його довелося б вмикати руками, а на шостому забули б.
+           *
+           * У Play такий дозвіл вимагає обґрунтування, але робоча збірка в
+           * Play не публікується — вона роздається файлом із сайту. Той самий
+           * виняток, що вже зроблено для REQUEST_INSTALL_PACKAGES.
+           *
+           * Заради чого. WorkManager — це прохання, і оболонки Lenovo
+           * відкладають його на години: 08.09 планшет доповів одне пробудження
+           * сторожа за чотири години відкритої зміни. А ще спрацювання ТОЧНОГО
+           * будильника — один із небагатьох дозволених приводів підняти службу
+           * переднього плану з фону, тобто єдина мить, коли вбитий запис можна
+           * оживити без людини.
+           */
+          "android.permission.USE_EXACT_ALARM",
+          "android.permission.SCHEDULE_EXACT_ALARM",
           /** Робоча збірка ставить собі оновлення сама — файлом із сайту. */
           "android.permission.REQUEST_INSTALL_PACKAGES",
           /**

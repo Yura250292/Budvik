@@ -6,6 +6,7 @@
  */
 
 import { staffApi, StaffApiError, APP_BUILD } from "@/api/staff";
+import { exactGuardStatus } from "@modules/track-guard";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
 import { notifyNow } from "./notify";
@@ -383,6 +384,32 @@ async function warnLocationOff(): Promise<void> {
 }
 
 /**
+ * Один рядок про ОБИДВА сторожі — і про той, що на будильнику.
+ *
+ * Стан фонових завдань (AVAILABLE / RESTRICTED) відповідає лише за
+ * WorkManager, а саме він на цих планшетах і не прокидається. Тому поруч
+ * дописуємо, чи спрацював будильник і чи він точний: «AVAILABLE» при
+ * будильнику, який не бив жодного разу, — це зовсім інша новина, ніж просто
+ * «AVAILABLE».
+ *
+ * Час коротким — година й хвилини за пристроєм: цей рядок читає людина в
+ * пульті, а не машина.
+ */
+function describeGuards(status: string | null): string | null {
+  const alarm = exactGuardStatus();
+  if (!alarm.available) return status;
+
+  const fired = alarm.lastFiredAt
+    ? new Date(alarm.lastFiredAt).toLocaleTimeString("uk-UA", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "жодного разу";
+  const kind = alarm.exact ? "точний" : "приблизний";
+  return `${status ?? "UNKNOWN"} · будильник ${fired} (${kind})`;
+}
+
+/**
  * Пульс: сервер має бачити живий пристрій навіть тоді, коли точок немає.
  *
  * Без нього мовчання планшета неможливо відрізнити від «людина не виїхала».
@@ -529,7 +556,18 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
        * нічого.
        */
       watchdogAt: watchdogAt ? new Date(watchdogAt).toISOString() : undefined,
-      watchdogStatus: watchdogStatus ?? undefined,
+      /**
+       * До стану фонових завдань дописуємо стан БУДИЛЬНИКА.
+       *
+       * Окремої колонки під нього не заводимо навмисно: поле і так текстове й
+       * читається людиною, а нова колонка означала б міграцію на проді заради
+       * рядка діагностики. Формат: `AVAILABLE · будильник 12:40 (точний)`.
+       *
+       * Це головне число наступного розбору. «Сторож не прокидався» і
+       * «прокинувся й нічого не зміг» місяць виглядали з сервера однаково;
+       * тепер видно окремо, чи система взагалі виконала своє зобов'язання.
+       */
+      watchdogStatus: describeGuards(watchdogStatus) ?? undefined,
       /**
        * Життя цього контексту JS і чи викликала нас служба хоч раз.
        *

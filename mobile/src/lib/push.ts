@@ -36,15 +36,55 @@ let registered: string | null = null;
  * немає — це нормальний вибір людини, а не помилка.
  */
 export async function registerForPush(): Promise<void> {
+  try {
+    await register();
+  } catch (e) {
+    await note(`помилка: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/**
+ * Чому реєстрація не вийшла — у журнал пристрою.
+ *
+ * Мовчазна вада найдорожча, і ця виявилася саме такою: 08.09 у базі не було
+ * ЖОДНОГО push-токена — ні в торгових, ні у водіїв, ні в покупців, за весь
+ * час. Тобто пуші не працювали ніколи, і дізнатися про це не міг ніхто:
+ * `registerForPush` виходив тихо на кожному з чотирьох приводів, а всі три
+ * виклики ще й загорнуті в `.catch(() => {})`.
+ *
+ * Та сама природа, що й у мікрофона того ж дня: одна тиша на кілька різних
+ * станів. Тепер кожен привід називає себе, і рядок їде в журнал, який уже
+ * доставляється разом із пульсом.
+ *
+ * Лише робоча збірка: у покупця журналу треку немає, та й діагностувати там
+ * нічого — відмова від сповіщень для нього нормальний вибір.
+ */
+async function note(reason: string): Promise<void> {
+  if (!IS_STAFF_BUILD) return;
+  try {
+    const { logEvent } = await import("@/track/db");
+    await logEvent("push", reason.slice(0, 180));
+  } catch {
+    // Журнал — не робота: його відсутність не має ламати реєстрацію.
+  }
+}
+
+async function register(): Promise<void> {
   // Симулятор пуші не отримує взагалі — просити там дозвіл безглуздо.
-  if (!Device.isDevice) return;
+  if (!Device.isDevice) {
+    await note("не пристрій (симулятор)");
+    return;
+  }
 
   const existing = await Notifications.getPermissionsAsync();
   let status = existing.status;
   if (status !== "granted") {
     status = (await Notifications.requestPermissionsAsync()).status;
   }
-  if (status !== "granted") return;
+  if (status !== "granted") {
+    await note(`дозвіл на сповіщення: ${status}`);
+    return;
+  }
 
   if (Platform.OS === "android") {
     // Без каналу Android показує сповіщення без звуку й без важливості.
@@ -60,13 +100,34 @@ export async function registerForPush(): Promise<void> {
    */
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (!projectId) return;
+  if (!projectId) {
+    await note("немає projectId — токен видати нічим");
+    return;
+  }
 
-  const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-  if (!token || token === registered) return;
+  /**
+   * Найімовірніше місце мовчазного провалу.
+   *
+   * `getExpoPushTokenAsync` кидає, коли в проєкті EAS не заведені креденшели
+   * FCM: сам виклик виглядає звичайним, а виняток гине у зовнішньому catch
+   * виклику. Тому причину ловимо тут і називаємо окремо від решти.
+   */
+  let token: string;
+  try {
+    token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  } catch (e) {
+    await note(`Expo не видав токен: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  if (!token) {
+    await note("Expo повернув порожній токен");
+    return;
+  }
+  if (token === registered) return;
 
   await api.pushRegister(token, Platform.OS === "ios" ? "ios" : "android", Constants.expoConfig?.version);
   registered = token;
+  await note("токен зареєстровано");
 }
 
 /** Відписка при виході — щоб чужі замовлення не приходили на цей телефон. */

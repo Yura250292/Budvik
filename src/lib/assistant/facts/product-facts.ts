@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { searchPatterns, stem, wordVariants } from "@/lib/assistant/facts/search-words";
+import { stem, wordVariants } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -75,7 +75,6 @@ async function searchProductsOnce(
 ): Promise<ProductHit[]> {
   // Послівно й по основах: питають «скільки ще піни Soma fix», а в базі
   // «SOMA FIX Піна монтажна…». Див. search-words.ts.
-  const patterns = searchPatterns(query, 6, cut);
   /**
    * Умова по словах, а не один ILIKE ALL.
    *
@@ -352,7 +351,36 @@ export async function searchProductsTotals(
   query: string,
   { onlyInStock = true }: { onlyInStock?: boolean } = {}
 ): Promise<{ positions: number; free: number; noPrice: number }> {
-  const patterns = searchPatterns(query);
+  /**
+   * Рахуємо ТИМ САМИМ правилом, що й сама вибірка.
+   *
+   * Доти підсумок ішов по `searchPatterns` з однією основою, а список —
+   * по `wordVariants` із трьома спробами. На «що є з масок total» основа
+   * «масо» не збігалася з назвою «TOTAL Маска для зварювання», і шапка
+   * казала «🔴 немає, 0 позицій» над таблицею з пʼятнадцятьма штуками.
+   * Два різні правила на одне питання — це завжди питання часу, коли
+   * вони розійдуться.
+   */
+  const once = await totalsOnce(query, onlyInStock, 0);
+  if (once.positions > 0) return once;
+  return totalsOnce(query, onlyInStock, 1);
+}
+
+async function totalsOnce(
+  query: string,
+  onlyInStock: boolean,
+  cut: number
+): Promise<{ positions: number; free: number; noPrice: number }> {
+  const byWord = Prisma.join(
+    wordVariants(query, 6, cut).map(
+      (variants) =>
+        Prisma.sql`(${Prisma.join(
+          variants.map((v) => Prisma.sql`p.name ILIKE ${v}`),
+          " OR "
+        )})`
+    ),
+    " AND "
+  );
 
   const [row] = await prisma.$queryRaw<Array<{ positions: number; free: number; noPrice: number }>>`
     WITH ${FREE_STOCK_ALL}
@@ -363,7 +391,7 @@ export async function searchProductsTotals(
     FROM "Product" p
     ${onlyInStock ? Prisma.sql`JOIN` : Prisma.sql`LEFT JOIN`} free_stock fs ON fs."productId" = p.id
     WHERE p."isActive"
-      AND p.name ILIKE ALL(${patterns}::text[])
+      AND (${byWord})
       ${onlyInStock ? Prisma.sql`AND fs.free > 0` : Prisma.empty}
   `;
 

@@ -1345,7 +1345,10 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
         [[
           totals.free > 0 ? `**${totals.free} шт**` : "🔴 немає",
           totals.positions,
-          Math.min(hits.length, totals.positions || hits.length),
+          // Скільки рядків реально в таблиці нижче. Раніше тут стояв
+          // мінімум із позиціями В НАЯВНОСТІ, і при пʼятьох рядках
+          // (де двоє з нулем) підпис казав «показано 3».
+          hits.length,
         ]]
       ),
       "",

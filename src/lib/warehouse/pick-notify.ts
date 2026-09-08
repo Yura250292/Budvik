@@ -138,6 +138,15 @@ export async function notifyNewPickLines(externalIds: string[]): Promise<void> {
             title,
             body: `${doc.counterparty?.name ?? "Накладна"} — ${body}`,
             data: { screen: "/cabinet", target: `/warehouse/picking/${doc.id}` },
+            /**
+             * Пробивати режим сну тут доречно, і не заради терміновості.
+             *
+             * Складовщик кладе планшет на стелаж і йде носити коробки —
+             * екран гасне, Android притишує все, що прийшло без високого
+             * пріоритету. Саме в цю мить менеджер і дописує рядок. Тихе
+             * сповіщення людина побачить, коли машина вже поїде.
+             */
+            urgent: true,
           }),
           telegramId
             ? sendTelegramMessage(

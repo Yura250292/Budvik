@@ -34,6 +34,7 @@ const KIND: Record<string, string> = {
   restart_refused: "перезапуск відмовлено (фон)",
   task_error: "система віддала помилку завданню",
   push: "реєстрація сповіщень",
+  mic: "мікрофон помічника",
 };
 
 async function main() {

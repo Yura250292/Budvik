@@ -42,6 +42,7 @@ export type BridgeMessage =
   | { type: "openDay"; route?: string }
   | { type: "requestMic" }
   | { type: "openAppSettings" }
+  | { type: "reportMic"; detail?: string }
   | { type: "logout" }
   | { type: "downloadUpdate" };
 
@@ -101,6 +102,14 @@ export function bridgeScript(state: BridgeState): string {
      * і відкрити його має застосунок, бо посилання туди з веба немає.
      */
     openAppSettings: function () { send("openAppSettings"); },
+    /**
+     * Сторінка розповідає, чим скінчилася спроба взяти мікрофон.
+     *
+     * Команда, а не довідка: відповідь тут не потрібна, потрібен слід. Рядок
+     * лягає в журнал пристрою й доїжджає з пульсом, тож розбір бачить усі
+     * планшети одразу, а не той один, чий екран нам показали.
+     */
+    reportMic: function (detail) { send("reportMic", { detail: String(detail || "") }); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
     shiftStateJson: function () {
@@ -128,6 +137,7 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
       data.type === "openDay" ||
       data.type === "requestMic" ||
       data.type === "openAppSettings" ||
+      data.type === "reportMic" ||
       data.type === "logout" ||
       data.type === "downloadUpdate"
     ) {
@@ -136,9 +146,12 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
       const route = typeof (data as { route?: unknown }).route === "string"
         ? ((data as { route: string }).route)
         : undefined;
-      return data.type === "openDay"
-        ? { type: "openDay", route }
-        : ({ type: data.type } as BridgeMessage);
+      if (data.type === "openDay") return { type: "openDay", route };
+      if (data.type === "reportMic") {
+        const detail = (data as { detail?: unknown }).detail;
+        return { type: "reportMic", detail: typeof detail === "string" ? detail : undefined };
+      }
+      return { type: data.type } as BridgeMessage;
     }
   } catch {
     // Сторінка може слати власні повідомлення — це не помилка.

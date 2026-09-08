@@ -28,7 +28,7 @@ import { getToken } from "@/lib/auth-store";
 import { bridgeScript, parseBridgeMessage, type BridgeState } from "@/lib/bridge";
 import { nativeRouteFor } from "@/lib/native-routes";
 import { downloadAndInstallApk } from "@/lib/self-update";
-import { bufferedCount } from "@/track/db";
+import { bufferedCount, logEvent } from "@/track/db";
 import { getRole, isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
@@ -273,6 +273,20 @@ export default function CabinetScreen() {
       }
       if (msg.type === "openAppSettings") {
         void openAppSettings().catch(() => {});
+        return;
+      }
+      if (msg.type === "reportMic") {
+        /*
+          Скарга сторінки — у журнал пристрою, поруч із подіями треку.
+
+          Окремої колонки в пульсі під це не заводимо: журнал уже доставляється
+          разом із ним і читається в пульті. А головне — тут до слів сторінки
+          додається те, чого вона знати не може: що про дозвіл каже САМА
+          система. Розбіжність між цими двома і є відповіддю.
+        */
+        void micPermission()
+          .then((perm) => logEvent("mic", `${msg.detail ?? "—"} · система=${perm}`))
+          .catch(() => {});
         return;
       }
       if (msg.type === "openDay") {

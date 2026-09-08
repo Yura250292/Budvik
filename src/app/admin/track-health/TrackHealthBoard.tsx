@@ -88,6 +88,7 @@ const KIND: Record<string, string> = {
   restart_refused: "перезапуск відхилено",
   task_error: "помилка завдання",
   push: "реєстрація сповіщень",
+  mic: "мікрофон помічника",
 };
 
 const TONE: Record<Tablet["state"], { dot: string; card: string; label: string }> = {

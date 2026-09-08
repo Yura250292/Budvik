@@ -92,6 +92,7 @@ const KIND: Record<string, string> = {
   task_error: "помилка завдання",
   push: "реєстрація сповіщень",
   mic: "мікрофон помічника",
+  wake: "розбуджено сповіщенням",
 };
 
 const TONE: Record<Tablet["state"], { dot: string; card: string; label: string }> = {

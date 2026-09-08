@@ -16,7 +16,7 @@ import * as BackgroundTask from "expo-background-task";
 import * as Location from "expo-location";
 import type { LocationObject } from "expo-location";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
-import { AFTER_SHIFT_TASK, TRACK_TASK, WATCHDOG_TASK } from "./task-name";
+import { AFTER_SHIFT_TASK, TRACK_TASK, WATCHDOG_TASK, WAKE_TASK } from "./task-name";
 import { onLocations } from "./recorder";
 import { runWatchdog } from "./watchdog";
 import { setLastError } from "./state";
@@ -99,6 +99,35 @@ if (IS_STAFF_BUILD) {
       }
     }
   );
+
+  /**
+   * Пробудження сповіщенням — оголошуємо ТУТ, поруч із рештою завдань.
+   *
+   * Причина та сама, що описана вгорі файла: Android піднімає процес заради
+   * самого завдання, без інтерфейсу, і якщо на ту мить `defineTask` ще не
+   * викликано, система вважає завдання неіснуючим. Для цього завдання ціна
+   * помилки найвища: воно — остання страховка треку, і мовчазна відсутність
+   * означала б, що остання страховка не спрацювала жодного разу.
+   *
+   * Тіло свідомо винесене у wake.ts: тут лишається оголошення, щоб цей файл
+   * не тягнув за собою пів застосунку в момент, коли той ще не піднявся.
+   */
+  TaskManager.defineTask(WAKE_TASK, async ({ data, error }) => {
+    if (error) {
+      void logEvent("wake", `система віддала помилку: ${error.message ?? error}`);
+      return;
+    }
+    try {
+      const payload = data as { notification?: { data?: Record<string, unknown> } } | undefined;
+      const reason = String(payload?.notification?.data?.reason ?? "без причини");
+      const { onWakePush } = await import("./wake");
+      await onWakePush(reason);
+    } catch (e) {
+      // Не кидаємо далі: завдання, яке кинуло помилку, Android може перестати
+      // будити — а це саме те завдання, яке будити треба обов'язково.
+      void logEvent("wake", `впало: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
 
   TaskManager.defineTask(WATCHDOG_TASK, async () => {
     try {

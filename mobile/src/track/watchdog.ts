@@ -12,6 +12,7 @@
  */
 
 import * as BackgroundTask from "expo-background-task";
+import * as Notifications from "expo-notifications";
 import {
   hasOfflineGuard,
   scheduleOfflineGuard,
@@ -19,7 +20,7 @@ import {
   scheduleExactGuard,
   cancelExactGuard,
 } from "@modules/track-guard";
-import { WATCHDOG_TASK } from "./task-name";
+import { WAKE_TASK, WATCHDOG_TASK } from "./task-name";
 import {
   getLastFixAt,
   getMode,
@@ -202,10 +203,31 @@ export async function registerWatchdog(): Promise<void> {
    * в полі лишиться рівно те, що було.
    */
   scheduleExactGuard(15);
+
+  /**
+   * ЧЕТВЕРТИЙ сторож — і єдиний, що не залежить від нашого процесу взагалі.
+   *
+   * Три попередні живуть усередині планшета: якщо система прибила процес і не
+   * дає його підняти, вони мовчать разом із ним. Цей приходить ЗЗОВНІ. Сервер
+   * бачить, що зміна відкрита, а точок немає, і шле сповіщення — тим самим
+   * каналом Google, яким приходять повідомлення месенджерів. Він один на весь
+   * пристрій і живе незалежно від нас, тому Telegram і дзвонить у застосунок,
+   * який не відкривали тиждень.
+   *
+   * Реєстрація обов'язкова: без неї сповіщення просто покаже текст, а фонове
+   * завдання не запуститься — тобто найцінніше (тихе підняття запису) не
+   * станеться, і лишиться та сама просьба до людини.
+   */
+  await Notifications.registerTaskAsync(WAKE_TASK).catch(async (e) => {
+    await setLastError(
+      `Пробудження сповіщенням не зареєстровано: ${e instanceof Error ? e.message : String(e)}`
+    ).catch(() => {});
+  });
 }
 
 export async function unregisterWatchdog(): Promise<void> {
   await BackgroundTask.unregisterTaskAsync(WATCHDOG_TASK).catch(() => {});
+  await Notifications.unregisterTaskAsync(WAKE_TASK).catch(() => {});
   cancelOfflineGuard();
   cancelExactGuard();
 }

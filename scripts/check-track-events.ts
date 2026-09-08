@@ -35,6 +35,7 @@ const KIND: Record<string, string> = {
   task_error: "система віддала помилку завданню",
   push: "реєстрація сповіщень",
   mic: "мікрофон помічника",
+  wake: "розбуджено сповіщенням",
 };
 
 async function main() {

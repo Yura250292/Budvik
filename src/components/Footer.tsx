@@ -15,6 +15,8 @@ export default function Footer() {
   if (pathname?.startsWith("/admin")) return null;
   // Кабінет водія — повноекранний робочий інструмент без прокрутки.
   if (pathname?.startsWith("/driver")) return null;
+  // Кабінет складу — робочий екран, а не сторінка магазину.
+  if (pathname?.startsWith("/warehouse")) return null;
 
   return (
     <>

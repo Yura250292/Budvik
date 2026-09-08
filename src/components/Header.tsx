@@ -72,6 +72,9 @@ export default function Header() {
   // Кабінет водія — робочий інструмент у машині, а не вітрина магазину:
   // кошик і «Болти» там зайві, а висота шапки з'їдає карту.
   if (pathname?.startsWith("/driver")) return null;
+  // Кабінет складу — те саме: у складовщика власна шапка й власне меню, а
+  // шапка вітрини лягала поверх них і з'їдала верх екрана.
+  if (pathname?.startsWith("/warehouse")) return null;
 
   const navLinkClass = "text-white/80 hover:text-[#FFD600] active:text-[#FFD600] active:scale-95 transition-[color,transform] duration-100 text-sm font-medium text-center py-1 -my-1";
 

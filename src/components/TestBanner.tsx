@@ -9,6 +9,7 @@ export default function TestBanner() {
   // Банер про тестовий режим адресований покупцям магазину; водієві на
   // маршруті він нічого не каже, а біжуча стрічка ще й відволікає за кермом.
   if (pathname?.startsWith("/driver")) return null;
+  if (pathname?.startsWith("/warehouse")) return null;
 
   return (
     <div className="w-full bg-[#0A0A0A] border-y border-[#FFD600]/30 overflow-hidden z-40 relative">

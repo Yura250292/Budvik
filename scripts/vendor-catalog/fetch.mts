@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
-import { vendorBySlug, describe, normArticle, strip, type Vendor, type Specs } from "./vendors";
+import { vendorBySlug, describe, normArticle, similarity, strip, type Vendor, type Specs } from "./vendors";
 
 const prisma = new PrismaClient();
 const args = process.argv.slice(2);
@@ -60,6 +60,20 @@ fs.mkdirSync(path.join(outdir, "photos"), { recursive: true });
  */
 const jar = new Map<string, Map<string, string>>();
 
+/**
+ * Куку, яка розрослася, не носимо.
+ *
+ * dnipro-m.ua дописує в `viewed_products` кожен переглянутий товар — плюс
+ * ~60 байтів на сторінку. Через триста сторінок заголовок Cookie переростає
+ * межу сервера, і сайт починає відповідати HTTP 400 геть на все: обхід
+ * «падає» рівно на четвертій сотні, хоча з браузера сайт живий. Такі куки —
+ * це історія переглядів, для доступу вони не потрібні.
+ *
+ * Це та сама історія, що колись дала HTTP 431 на gradient.ua, тільки тепер
+ * росте не наша банка, а одне значення в ній.
+ */
+const COOKIE_MAX = 1024;
+
 function remember(host: string, res: Response) {
   const sc = res.headers.getSetCookie?.() ?? [];
   if (!sc.length) return;
@@ -68,7 +82,13 @@ function remember(host: string, res: Response) {
     const [pair] = raw.split(";");
     const eq = pair.indexOf("=");
     if (eq <= 0) continue;
-    bag.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+    const name = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    if (value.length > COOKIE_MAX) {
+      bag.delete(name);
+      continue;
+    }
+    bag.set(name, value);
   }
   jar.set(host, bag);
 }
@@ -152,12 +172,17 @@ if (brands.length !== vendor.brands.length) {
 }
 const need = await prisma.product.findMany({
   where: {
-    // Картки без бренду беремо лише там, де джерело це прямо дозволяє
-    // (див. Vendor.unbranded) — інакше чужий артикул міг би зачепити товар,
-    // про який ми нічого не знаємо.
-    OR: [{ brandId: { in: brands.map((b) => b.id) } }, ...(vendor.unbranded ? [{ brandId: null }] : [])],
+    // Обидві умови через AND, а не двома ключами OR в одному об'єкті: у JS
+    // другий такий ключ мовчки затирає перший, і фільтр за брендом просто
+    // зникав — «шукаємо» набивалося всіма товарами без фото, з усіх брендів.
+    AND: [
+      // Картки без бренду беремо лише там, де джерело це прямо дозволяє
+      // (див. Vendor.unbranded) — інакше чужий артикул міг би зачепити товар,
+      // про який ми нічого не знаємо.
+      { OR: [{ brandId: { in: brands.map((b) => b.id) } }, ...(vendor.unbranded ? [{ brandId: null }] : [])] },
+      ...(ALL ? [] : [{ OR: [{ image: null }, { image: "" }] }]),
+    ],
     isActive: true,
-    ...(ALL ? {} : { OR: [{ image: null }, { image: "" }] }),
     ...(INSTOCK ? { stock: { gt: 0 } } : {}),
   },
   select: { sku: true, name: true, stock: true, image: true },
@@ -166,19 +191,26 @@ const need = await prisma.product.findMany({
 /**
  * Артикули з 1С; «1C-…» — сурогат для позицій без артикулу, шукати нічим.
  *
- * Ключ — нормалізований артикул (див. normArticle), значення тримає СВІЙ,
- * непочіплений sku: саме за ним потім оновлюється картка в базі.
+ * Ключ — нормалізований артикул (див. normArticle або Vendor.key), значення
+ * тримає СВІЙ, непочіплений sku: саме за ним потім оновлюється картка в базі.
  */
+/** Зведення артикулу до порівнюваного вигляду: типове або своє в джерела. */
+const keyOf = vendor.key ?? normArticle;
 const wanted = new Map<string, { sku: string; name: string; stock: number; needsPhoto: boolean }>();
 for (const p of need) {
   if (!p.sku || /^1C-/i.test(p.sku)) continue;
   if (vendor.ourProduct && !vendor.ourProduct(p.name)) continue;
-  const key = normArticle(p.sku);
+  const key = keyOf(p.sku);
   const entry = { sku: p.sku.trim(), name: p.name, stock: p.stock, needsPhoto: !p.image };
-  if (!wanted.has(key)) wanted.set(key, entry);
+  // Під один артикул у нас буває кілька карток: сам інструмент і набори з ним
+  // («Бензопила DSG-45H» та вісім «Бензопила DSG-45H + …»). Фото з сайту — це
+  // фото самого інструмента, тож віддаємо його найкоротшій, тобто найпростішій
+  // назві, а не тій, що трапилась першою.
+  const prev = wanted.get(key);
+  if (!prev || entry.name.length < prev.name.length) wanted.set(key, entry);
   // У 1С трапляється артикул із хвостом-уточненням: «S220 (S222)», «808
   // (61893006)». Виробник знає лише перший токен, тому реєструємо і його.
-  const head = normArticle(p.sku.split(/[\s(]/)[0]);
+  const head = keyOf(p.sku.split(/[\s(]/)[0]);
   if (head.length >= 3 && !wanted.has(head)) wanted.set(head, entry);
 }
 console.log(`Джерело: ${vendor.title} (${vendor.site})`);
@@ -281,8 +313,16 @@ const cacheOut = fs.createWriteStream(cacheFile, { flags: "a" });
 
 // Через spільний strip, а не власним regexp: інакше в назву їде «&quot;»
 // замість лапок і потім потрапляє в опис картки.
-const title = (html: string) =>
-  strip(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/\s+/g, " ");
+const title = (html: string, url: string) =>
+  strip(
+    // Назву, яку джерело вміє дати точно, беремо в нього: у dnipro-m.ua <h1>
+    // домальовує скрипт, а в <title> сидить «ᐅ … • Купити в Україні» — і цей
+    // хвіст їхав би і в опис картки, і в звірку назв.
+    vendor.productTitle?.(html, url) ??
+      html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ??
+      html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ??
+      ""
+  ).replace(/\s+/g, " ");
 
 type Row = {
   /** Наш артикул із 1С — саме за ним sync знаходить картку. */
@@ -301,6 +341,16 @@ type Row = {
   description: string;
 };
 const rows: Row[] = [];
+/**
+ * Найкраща сторінка під кожен артикул.
+ *
+ * Одному нашому артикулу на сайті може відповідати кілька сторінок: у Дніпро-М
+ * «41613000» і «41613000-8» — це один гайковерт, сам і в наборі з батареєю та
+ * зарядним. Наша ж картка часто саме «без АКБ і ЗП». Без вибору переможця
+ * вирішував би порядок обходу, і на голий інструмент могло б приїхати фото
+ * повного набору.
+ */
+const chosen = new Map<string, number>();
 const failed: string[] = [];
 let parsed = 0, hits = 0, downloaded = 0, cached = 0, noArticle = 0;
 
@@ -311,7 +361,7 @@ async function handle(url: string) {
     p = {
       url,
       article: vendor.article(html, url)?.trim() || null,
-      title: title(html),
+      title: title(html, url),
       photo: vendor.photo(html, url),
       specs: vendor.specs?.(html) ?? {},
       text: vendor.text?.(html) ?? null,
@@ -320,10 +370,16 @@ async function handle(url: string) {
   } else cached++;
   parsed++;
   if (!p.article) { noArticle++; return; }
-  const key = normArticle(p.article);
+  const key = keyOf(p.article);
   const mine = wanted.get(key);
   if (!mine) return;
   hits++;
+  // Ближча за назвою сторінка витісняє попередню (див. chosen).
+  const sim = similarity(mine.name, p.title);
+  const better = chosen.get(key);
+  if (better !== undefined && better >= sim) return;
+  const replaces = better !== undefined;
+  chosen.set(key, sim);
   // Фото качаємо лише тим, у кого його немає. Режим --all потрібен заради
   // описів, і без цієї умови він тягнув би з сайту весь каталог заново — по
   // POLAX це вийшло 900 МБ, з яких 95% були копіями того, що вже лежить у R2.
@@ -335,7 +391,9 @@ async function handle(url: string) {
     // перетворилась би на «_» і файл став би нечитабельним.
     rel = `photos/${key.replace(/[^\w.-]/g, "_")}.${ext}`;
     const dest = path.join(outdir, rel);
-    if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
+    // replaces — фото попередньої, гіршої сторінки лежить під тим самим ім'ям,
+    // тож без цього воно так і лишилося б на місці.
+    if (replaces || !fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
       const buf = Buffer.from(await (await get(p.photo, url)).arrayBuffer());
       if (buf.length < 1000) { failed.push(`${p.article}: фото ${buf.length} б`); return; }
       fs.writeFileSync(dest, buf);
@@ -375,6 +433,118 @@ console.log(`\nОбхід ${pages.length} сторінок, по ${CONCURRENCY} 
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 cacheOut.end();
 
+/* ─────────────── другий захід: за моделлю в назві ─────────────── */
+
+/**
+ * Коли артикул не допомагає взагалі.
+ *
+ * У 902 картках DNIPRO-M артикул із 1С сурогатний («1C-…») — шукати ним нічого.
+ * Але виробник друкує в назві позначення моделі («GL-160SE», «CD-218Q»), і воно
+ * те саме в нас і в нього.
+ *
+ * Правило таке ж строге, як з артикулом: сторінка мусить назвати модель САМА, і
+ * це має бути ПЕРША модель у назві з обох боків. Друга умова не формальна — див.
+ * Vendor.model. Якщо під модель на сайті кілька сторінок («AC-50 V» і «AC-50
+ * VG»), не беремо жодної: вибирати навмання між двома схожими — це рівно той
+ * спосіб поставити чуже фото, від якого захищене все інше.
+ *
+ * Захід окремий і після обходу, а не всередині нього, бо однозначність можна
+ * побачити лише коли відомі ВСІ заголовки сайту.
+ */
+let byModel = 0, modelAmbiguous = 0, modelWeak = 0;
+if (vendor.model) {
+  const model = vendor.model;
+  const seen: Parsed[] = [];
+  for (const line of fs.readFileSync(cacheFile, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      seen.push(JSON.parse(line) as Parsed);
+    } catch { /* обірваний рядок після падіння */ }
+  }
+  const siteByModel = new Map<string, Parsed[]>();
+  for (const pg of seen) {
+    if (!pg.photo) continue;
+    const m = model(pg.title);
+    if (m) siteByModel.set(m, [...(siteByModel.get(m) ?? []), pg]);
+  }
+
+  const covered = new Set(rows.map((r) => r.article));
+  const ourByModel = new Map<string, { sku: string; name: string; stock: number; needsPhoto: boolean }>();
+  for (const c of need) {
+    if (!c.sku || covered.has(c.sku.trim())) continue;
+    if (vendor.ourProduct && !vendor.ourProduct(c.name)) continue;
+    const m = model(c.name);
+    if (!m) continue;
+    const entry = { sku: c.sku.trim(), name: c.name, stock: c.stock, needsPhoto: !c.image };
+    const prev = ourByModel.get(m);
+    // Одна модель на кілька наших карток (сам інструмент і набори з ним) —
+    // фото дістається найкоротшій, тобто найпростішій назві.
+    if (!prev || entry.name.length < prev.name.length) ourByModel.set(m, entry);
+  }
+
+  for (const [m, mine] of ourByModel) {
+    const cand = siteByModel.get(m);
+    if (!cand?.length) continue;
+    const ranked = cand
+      .map((c) => ({ page: c, sim: similarity(mine.name, c.title) }))
+      .sort((a, b) => b.sim - a.sim);
+    const [best, second] = ranked;
+    /**
+     * Кілька сторінок під одну модель — здебільшого це сам інструмент і
+     * запчастини до нього: «Щітки комплект 6х13,5х15 DSE-24DS», «Корпус
+     * CD-218», «Цанги для фрезера ER-120S». Інструмент відривається за
+     * назвою далеко (0.80 проти 0.22), тож беремо його — але лише коли
+     * відрив справді є.
+     *
+     * Коли його немає, це другий випадок: під моделлю стоять різні
+     * комплектації одного товару («FC-230», «FC-230 Dual», «FC-230 CL»).
+     * Там вибір навмання — це саме той спосіб поставити чуже фото, від
+     * якого захищене все інше, тож не беремо жодної.
+     */
+    if (second && (best.sim < 0.35 || best.sim - second.sim < 0.15)) { modelAmbiguous++; continue; }
+    const pg = best.page;
+    // Збіг моделі — сильний доказ, але не єдиний: назви мусять бути хоч
+    // трохи про одне. Поріг той самий, що для карток без бренду.
+    const sim = best.sim;
+    if (sim < 0.25) { modelWeak++; continue; }
+    let rel: string | null = null;
+    if (mine.needsPhoto) {
+      if (!pg.photo) continue;
+      const ext = (pg.photo.match(/\.(jpe?g|png|webp)(?:\?|$)/i)?.[1] ?? "jpg").toLowerCase().replace("jpeg", "jpg");
+      // Окремий префікс, щоб імена не зіштовхнулися з фото, взятими за артикулом.
+      rel = `photos/model-${m.replace(/[^\w.-]/g, "_")}.${ext}`;
+      const dest = path.join(outdir, rel);
+      if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
+        try {
+          const buf = Buffer.from(await (await get(pg.photo, pg.url)).arrayBuffer());
+          if (buf.length < 1000) { failed.push(`${m}: фото ${buf.length} б`); continue; }
+          fs.writeFileSync(dest, buf);
+          downloaded++;
+        } catch (e) {
+          failed.push(`${m}: ${(e as Error).message}`);
+          continue;
+        }
+      }
+    }
+    rows.push({
+      article: mine.sku,
+      vendorArticle: pg.article ?? m,
+      size: null,
+      title: pg.title,
+      page: 0,
+      photo: rel,
+      source: pg.url,
+      specs: pg.specs,
+      text: pg.text,
+      description: describe(pg.title, pg.specs, pg.text),
+    });
+    byModel++;
+  }
+  console.log(`\nЗа моделлю в назві (там, де артикул не допоміг): ${byModel}`);
+  console.log(`  на сайті кілька сторінок під ту саму модель, не беремо: ${modelAmbiguous}`);
+  console.log(`  назви розійшлися, не беремо: ${modelWeak}`);
+}
+
 /* ───────────────────────────── підсумок ───────────────────────────── */
 
 /**
@@ -413,8 +583,8 @@ if (failed.length) {
   console.log(`Не вдалося: ${failed.length}`);
   for (const f of failed.slice(0, 15)) console.log("  " + f);
 }
-const found = new Set(final.map((r) => normArticle(r.article)));
-const missed = [...wanted.values()].filter((w) => !found.has(normArticle(w.sku))).map((w) => w.sku);
+const found = new Set(final.map((r) => keyOf(r.article)));
+const missed = [...wanted.values()].filter((w) => !found.has(keyOf(w.sku))).map((w) => w.sku);
 console.log(`Не знайшлося на сайті: ${missed.length}${missed.length ? " — " + missed.slice(0, 20).join(", ") : ""}`);
 console.log(`\nІндекс: ${outdir}/index.json`);
 await prisma.$disconnect();

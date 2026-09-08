@@ -151,12 +151,27 @@ const clean = (raw: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/**
+ * Питальні слова, що прилипають до назви з обох боків.
+ *
+ * «Драбина Dnipro M яка є на складі» — шаблон бере все до «на складі», і
+ * в пошук летить «Драбина Dnipro M яка є». Каталог такого не знає, і
+ * відповідь виходить «нічого не знайшли» на товар, який лежить на складі.
+ * Саме «яка є» посередині фрази й ламало запит.
+ */
+function stripAsk(value: string): string {
+  return value
+    .replace(/^(яка|які|який|яке|що|шо|чи)\s+(є\s+|в\s+наявності\s+)?/i, "")
+    .replace(/(\s+(яка|які|який|яке|що|шо|є|наявні|наявність|залишок|залишки))+\s*$/i, "")
+    .trim();
+}
+
 /** Хвіст питання після ключового слова — ім'я клієнта або назва товару. */
 function subjectAfter(text: string, re: RegExp): string | null {
   const match = re.exec(text);
   if (!match) return null;
 
-  const tail = clean(text.slice(match.index + match[0].length))
+  const rawTail = clean(text.slice(match.index + match[0].length))
     .replace(/^(до|в|у|про|для|клієнта|клієнту|магазину|магазин)\s+/i, "")
     // «скільки в нас піни на складі» — питальні хвости не є назвою.
     .replace(/^(нас|мене|тебе|вас)\s+/i, "")
@@ -171,6 +186,8 @@ function subjectAfter(text: string, re: RegExp): string | null {
       ""
     )
     .replace(/\s+(і|та)\s+(чи|що|як|скільки)(\s|$).*$/i, "");
+
+  const tail = stripAsk(rawTail);
 
   /**
    * «Скільки я продав за тиждень» — це не назва товару.
@@ -193,7 +210,7 @@ function subjectBetween(text: string, re: RegExp): string | null {
   const match = re.exec(text);
   if (!match?.[1]) return null;
 
-  const name = clean(match[1]).replace(/^(ще|там|у\s+нас|в\s+нас|нам|мені)\s+/i, "");
+  const name = stripAsk(clean(match[1]).replace(/^(ще|там|у\s+нас|в\s+нас|нам|мені)\s+/i, ""));
   if (name.length < 3 || NOT_A_NAME.test(name) || TAIL_NOT_NAME.test(name)) return null;
   if (!/[а-яіїєґa-z]/i.test(name)) return null;
   return name;

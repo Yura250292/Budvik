@@ -114,8 +114,17 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
    *
    * Фільтруємо саме по ціні, а не showableProductWhere(): вимога фото і
    * залишку сховала б і справжній товар, який просто закінчився.
+   *
+   * ВИНЯТОК — пошук за точним артикулом. Ціна в 1С заводиться не одразу, і
+   * товар без неї цілком реальний: DNIPRO-M Драбина CL-65 (15479002) лежить
+   * на складі в кількості пʼяти штук, продається, але ціни не має. Помічник
+   * її знаходив і давав посилання, а каталог за тим посиланням відповідав
+   * «нічого не знайдено» — на власний же артикул. Людина, яка вбила артикул,
+   * знає, чого шукає; ховати від неї відповідь через порожню ціну означає
+   * збрехати, що товару немає.
    */
-  and.push({ price: { gt: 0 } });
+  const exactSku = f.search ? skuSearchConditions(f.search) : null;
+  and.push(exactSku ? { OR: [{ price: { gt: 0 } }, ...exactSku] } : { price: { gt: 0 } });
 
   if (f.brands.length) {
     const slugs = f.brands.filter((b) => b !== "none");
@@ -150,7 +159,7 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
      * розбила б «GR-30030» на «gr» + «30030», і замість одного потрібного
      * товару людина отримала б усе, де трапилось «gr».
      */
-    const skuMatch = skuSearchConditions(f.search);
+    const skuMatch = exactSku;
 
     // Стемимо саме запит, а не базу: скорочений терм лишається підрядком
     // усіх форм слова, тож «валики» тепер знаходять «Валик малярний».

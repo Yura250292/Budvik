@@ -1315,6 +1315,46 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
     const asClient = await findClients(query, ctx.scope.repId, { limit: 2 });
     if (asClient.length > 0) return answerClientCard(ctx, query);
 
+    /**
+     * Не знайшли за всім запитом — пробуємо коротше, а не здаємось.
+     *
+     * У живій мові до назви завжди щось прилипає: «драбина Dnipro M яка є»,
+     * «піна SOMA FIX 750 біла». Розпізнавач чистить питальні слова, але
+     * решту передає як є, і одне зайве слово перетворює справжній товар на
+     * «нічого не знайшли». Тому відкидаємо слова з кінця й кажемо, за чим
+     * саме шукали, — це чесніше за глухе «спробуйте інакше».
+     */
+    const words = query.split(/\s+/).filter((w) => w.length > 2);
+    for (let take = words.length - 1; take >= 1; take--) {
+      const shorter = words.slice(0, take).join(" ");
+      const retry = await searchProducts(shorter, ctx.scope.repId, 8);
+      if (retry.length === 0) continue;
+
+      const totals = await searchProductsTotals(shorter);
+      return {
+        markdown: md([
+          `## 📦 ${shorter}`,
+          "",
+          `За повним запитом «${query}» нічого не знайшли, тож шукав за «${shorter}».`,
+          "",
+          ...table(
+            ["Товар", "Артикул", "📦 Шт", "💵 Ціна"],
+            retry.map((h) => [
+              nameCell(h.name, h.sku, h.myBuyers > 0, 28),
+              sku(h.sku),
+              h.free > 0 ? `**${h.free}**` : "🔴 0",
+              h.price > 0 ? money(h.price) : "🚫 —",
+            ])
+          ),
+          "",
+          totals.free > 0 ? `_Разом на складі ${totals.free} шт у ${items(totals.positions)}._` : null,
+          "",
+          followUps("Кому з клієнтів це зайде?", "Яку ціну можна дати?"),
+        ]),
+        tools,
+      };
+    }
+
     return {
       markdown: md([
         `## 📦 ${query}`,

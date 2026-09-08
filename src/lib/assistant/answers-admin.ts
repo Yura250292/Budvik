@@ -54,7 +54,7 @@ import { collectedByMethod, collectedByRepBrand, collectedMethodMap, collectedTo
 import { returnedProducts, returnsByClient, revenueByRep } from "@/lib/analytics/facts";
 import { monthForecast } from "@/lib/assistant/facts/forecast";
 import { shiftDay } from "@/lib/analytics/period";
-import { buildDigest } from "@/lib/assistant/digest";
+import { buildDigest, renderMarkdown } from "@/lib/assistant/digest";
 
 /* ── Дрібні помічники ─────────────────────────────────────────────────── */
 
@@ -1513,7 +1513,7 @@ export async function answerSiteTraffic(ctx: ToolContext, spec: PeriodSpec): Pro
  */
 export async function answerDigest(ctx: ToolContext): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
-  const digest = await timed(
+  const facts = await timed(
     { name: "daily_digest", label: "Збираю, що змінилося" },
     () => buildDigest(ctx.today),
     tools
@@ -1521,10 +1521,9 @@ export async function answerDigest(ctx: ToolContext): Promise<DirectAnswer> {
 
   return {
     markdown: md([
-      `## ☀️ Що змінилося · за ${digest.day}`,
-      "",
-      ...digest.lines.map((l) => `- ${l.icon} ${l.text.replace(/<\/?b>/g, "**")}`),
-      digest.lines.length === 0 ? "Нічого, про що варто сказати." : null,
+      // Малює той самий renderMarkdown, що й ранковий лист: два різні
+      // складачі неминуче розійшлися б у числах.
+      renderMarkdown(facts),
       "",
       "_Це те саме зведення, що йде вранці в Telegram._",
       "",

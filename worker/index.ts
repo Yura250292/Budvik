@@ -32,8 +32,9 @@ import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
 import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
+import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
-import { kyivHour } from "@/lib/date/kyiv";
+import { kyivDate, kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -297,8 +298,9 @@ const staleShiftTimer = setInterval(() => void closeStaleShifts(), SILENCE_CHECK
  * Досі це виправляли руками скриптом, тобто не виправляли майже ніколи —
  * і в картках лишався пробіг, порахований на половині точок.
  *
- * Раз на годину, а не раз на чверть: перерахунок ходить у OSRM і читає
- * тисячі точок, а спізнитися тут на годину нічим не загрожує.
+ * Раз на годину, а не раз на чверть: перерахунок читає тисячі точок на кожну
+ * зміну, а спізнитися тут на годину нічим не загрожує. (В OSRM він, попри
+ * старий коментар, не ходить — рахунок суто арифметичний.)
  */
 async function recountShiftTracks(): Promise<void> {
   try {
@@ -363,7 +365,7 @@ const standingsTimer = setInterval(() => void pushStandings(), SILENCE_CHECK_INT
 async function pushDigest(): Promise<void> {
   try {
     const digest = await sendDailyDigest();
-    if (digest) console.log(`worker: ранкове зведення надіслано — рядків ${digest.lines.length}`);
+    if (digest) console.log(`worker: ранкове зведення надіслано за ${digest.day}`);
   } catch (e) {
     console.error("worker: ранкове зведення впало", e);
   }
@@ -391,6 +393,43 @@ async function pushReminders(): Promise<void> {
 
 const remindersTimer = setInterval(() => void pushReminders(), SILENCE_CHECK_INTERVAL_MS);
 
+/**
+ * Сьома перевірка — прибирання за обміном.
+ *
+ * Раз на добу і вночі: журнали обміну ростуть по шість тисяч рядків на день
+ * і не мали терміну життя взагалі (див. `retention.ts`). Видалення пише в WAL
+ * і ворушить autovacuum, тож робимо це тоді, коли ні агент, ні люди в базу не
+ * дивляться.
+ *
+ * Мітка — київська доба в `SyncState`, як у зведення: перезапуск воркера
+ * серед ночі не запустить прибирання вдруге, а пропущена ніч добереться
+ * наступної.
+ */
+const PRUNE_HOUR = 3;
+
+async function pruneJournals(): Promise<void> {
+  try {
+    if (kyivHour(new Date()) !== PRUNE_HOUR) return;
+    const today = kyivDate(new Date());
+    if ((await getSyncState(SYNC_STATE_KEYS.lastPrune)) === today) return;
+
+    const removed = await pruneSyncJournals();
+    await setSyncState(SYNC_STATE_KEYS.lastPrune, today);
+
+    const total = removed.batches + removed.discrepancies + removed.jobs;
+    if (total > 0) {
+      console.log(
+        `worker: журнали обміну підчищено — батчів ${removed.batches}, ` +
+          `розбіжностей ${removed.discrepancies}, прогонів ${removed.jobs}`
+      );
+    }
+  } catch (e) {
+    console.error("worker: прибирання журналів обміну впало", e);
+  }
+}
+
+const pruneTimer = setInterval(() => void pruneJournals(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -407,6 +446,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(standingsTimer);
     clearInterval(digestTimer);
     clearInterval(remindersTimer);
+    clearInterval(pruneTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

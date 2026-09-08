@@ -36,6 +36,7 @@ import {
   myInvoicesTool,
 } from "@/lib/assistant/tools/warehouse";
 import { ADMIN_TOOLS } from "@/lib/assistant/tools/admin";
+import { ADMIN_MONEY_TOOLS } from "@/lib/assistant/tools/admin-money";
 
 export const TOOLS: ToolDef[] = [
   myDayContext,
@@ -48,6 +49,7 @@ export const TOOLS: ToolDef[] = [
    * не міняється.
    */
   ...ADMIN_TOOLS,
+  ...ADMIN_MONEY_TOOLS,
   /*
    * Складські — одразу після денних і перед клієнтськими: у складовщика це
    * і є «де я і що зі мною», тобто перше, чого модель має шукати.

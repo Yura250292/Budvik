@@ -32,6 +32,7 @@ import { alertUnclosedShifts } from "@/lib/shift/late-alert";
 import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
 import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
+import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
@@ -349,6 +350,28 @@ async function pushStandings(): Promise<void> {
 const standingsTimer = setInterval(() => void pushStandings(), SILENCE_CHECK_INTERVAL_MS);
 
 /**
+ * Ранкове зведення керівникові.
+ *
+ * Вранці, а не ввечері: вчорашній день уже повністю відомий, накладні з
+ * 1С доїхали за ніч, і те, що треба зробити сьогодні, ще можна зробити.
+ * Вечірнє зведення читалося б як звіт про минуле.
+ *
+ * Уся логіка «чи пора» — усередині sendDailyDigest: перезапуск воркера
+ * посеред дня не надішле другого листа, а день без подій не надішле
+ * жодного. Тут лишається тільки розклад і журнал.
+ */
+async function pushDigest(): Promise<void> {
+  try {
+    const digest = await sendDailyDigest();
+    if (digest) console.log(`worker: ранкове зведення надіслано — рядків ${digest.lines.length}`);
+  } catch (e) {
+    console.error("worker: ранкове зведення впало", e);
+  }
+}
+
+const digestTimer = setInterval(() => void pushDigest(), SILENCE_CHECK_INTERVAL_MS);
+
+/**
  * Шоста перевірка — нагадування, які торговий поставив собі сам.
  *
  * Чверть години — це і крок перевірки, і найгірша похибка: нагадування на
@@ -382,6 +405,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(staleShiftTimer);
     clearInterval(recountTimer);
     clearInterval(standingsTimer);
+    clearInterval(digestTimer);
     clearInterval(remindersTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));

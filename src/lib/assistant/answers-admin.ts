@@ -45,10 +45,16 @@ import {
   teamReceivablesTool,
 } from "@/lib/assistant/tools/admin";
 import { driversTodayTool } from "@/lib/assistant/tools/warehouse";
+import {
+  moneyFlowsTool,
+  salesAnalysisTool,
+  siteTrafficTool,
+} from "@/lib/assistant/tools/admin-money";
 import { collectedByMethod, collectedByRepBrand, collectedMethodMap, collectedTotals } from "@/lib/analytics/money-facts";
 import { returnedProducts, returnsByClient, revenueByRep } from "@/lib/analytics/facts";
 import { monthForecast } from "@/lib/assistant/facts/forecast";
 import { shiftDay } from "@/lib/analytics/period";
+import { buildDigest } from "@/lib/assistant/digest";
 
 /* ── Дрібні помічники ─────────────────────────────────────────────────── */
 
@@ -1138,3 +1144,392 @@ export async function answerTeamReturns(ctx: ToolContext, spec: PeriodSpec): Pro
 
 /** Наступний день у київських добах — для «завтра» у водіях. */
 export const nextDay = (today: string, delta: number) => shiftDay(today, delta);
+
+/* ── 💳 Гроші фірми ──────────────────────────────────────────────────── */
+
+export async function answerMoneyFlows(
+  ctx: ToolContext,
+  spec: PeriodSpec,
+  mode: "flows" | "purchases"
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+  const facts = await callTool(
+    moneyFlowsTool,
+    ctx,
+    { mode, period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+
+  if (mode === "purchases") {
+    const total = facts.разом as { документів: number; сума: number; постачальників: number };
+    const bySupplier = (facts.по_постачальниках ?? []) as Array<{ назва: string; документів: number; сума: number }>;
+    const recent = (facts.останні ?? []) as Array<{
+      номер: string;
+      коли: string;
+      постачальник: string | null;
+      позицій: number;
+      сума: number;
+      джерело: string;
+    }>;
+
+    if (total.документів === 0) {
+      return { markdown: `${capitalize(period.label)} надходжень товару не було.`, tools };
+    }
+
+    return {
+      markdown: md([
+        `## 🚛 Закупівлі · ${period.label}`,
+        "",
+        `Завезли на **${money(total.сума)}** за ${total.документів} документів від ${total.постачальників} постачальників.`,
+        "",
+        ...table(
+          ["Постачальник", "Документів", "Сума"],
+          bySupplier.map((x) => [short(x.назва, 26), x.документів, money(x.сума)])
+        ),
+        "",
+        recent.length > 0 ? "### Останні надходження" : null,
+        ...recent
+          .slice(0, 8)
+          .map(
+            (r) =>
+              `- **№${r.номер}** · ${r.коли} · ${r.постачальник ?? "без постачальника"} · ${r.позицій} позицій · ${money(r.сума)} · ${r.джерело}`
+          ),
+        "",
+        periodChips("Закупівлі"),
+      ]),
+      tools,
+    };
+  }
+
+  const shipped = facts.відвантажено as { сума: number; документів: number; клієнтів: number };
+  const collected = facts.зібрано as { сума: number; платежів: number };
+  const purchased = facts.завезено as { сума: number; документів: number };
+  const returned = facts.повернено as { сума: number; документів: number };
+  const gap = Number(facts.розрив_відвантажено_мінус_зібрано ?? 0);
+  const debt = facts.дебіторка_зараз as { борг: number; прострочено: number; прострочено_відсотків: number };
+  const advances = facts.аванси_покупців as {
+    сума: number;
+    клієнтів: number;
+    найбільші: Array<{ клієнт_id: string; клієнт: string; сума: number }>;
+  };
+  const months = (facts.помісячно ?? []) as Array<{ місяць: string; відвантажено: number; зібрано: number }>;
+
+  return {
+    markdown: md([
+      `## 💳 Гроші фірми · ${period.label}`,
+      "",
+      ...table(
+        ["Відвантажено", "Зібрано", "Завезено", "Повернень"],
+        [[
+          `${money(shipped.сума)} (${shipped.документів} док.)`,
+          `${money(collected.сума)} (${collected.платежів} пл.)`,
+          `${money(purchased.сума)} (${purchased.документів} док.)`,
+          money(returned.сума),
+        ]]
+      ),
+      "",
+      /*
+       * Розрив — головне число цієї відповіді: воно й є приріст боргу за
+       * період. Плюс означає, що фірма кредитує клієнтів більше, ніж вони
+       * повертають грішми.
+       */
+      gap > 0
+        ? `${light("bad")} Відвантажили на **${money(gap)}** більше, ніж зібрали: на стільки за період виріс борг клієнтів.`
+        : `${light("good")} Зібрали на **${money(Math.abs(gap))}** більше, ніж відвантажили: борг за період зменшився.`,
+      "",
+      `💼 Дебіторка зараз: ${money(debt.борг)}, з них прострочено ${money(debt.прострочено)} (${percent(debt.прострочено_відсотків)}).`,
+      advances.сума > 0
+        ? `💵 Аванси покупців: **${money(advances.сума)}** у ${advances.клієнтів} клієнтів. Це гроші, за які товар ще не поїхав.`
+        : null,
+      "",
+      advances.найбільші.length > 0 ? "### Найбільші аванси" : null,
+      ...advances.найбільші
+        .slice(0, 6)
+        .map((c) => `- ${clientLink(c.клієнт_id, c.клієнт)} — ${money(c.сума)}`),
+      "",
+      months.length > 1 ? "### Помісячно" : null,
+      ...table(
+        ["Місяць", "Відвантажено", "Зібрано"],
+        months.map((m) => [m.місяць, money(m.відвантажено), money(m.зібрано)])
+      ),
+      "",
+      followUps("Закупівлі за місяць", "Дебіторка фірми", "Хто скільки зібрав за тиждень"),
+    ]),
+    tools,
+  };
+}
+
+/* ── 🔬 Глибші розрізи продажів ──────────────────────────────────────── */
+
+export async function answerSalesAnalysis(
+  ctx: ToolContext,
+  spec: PeriodSpec,
+  mode: "discounts" | "geo" | "cohorts"
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+  const facts = await callTool(
+    salesAnalysisTool,
+    ctx,
+    { mode, period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+
+  if (mode === "discounts") {
+    const total = facts.разом as {
+      оборот: number;
+      явна_знижка: number;
+      прихована_знижка: number;
+      разом_віддали_відсотків: number;
+    };
+    const byRep = (facts.по_торгових ?? []) as Array<{
+      торговий_id: string;
+      торговий: string;
+      оборот: number;
+      знижок_разом: number;
+      від_свого_обороту_відсотків: number;
+      рентабельність_відсотків: number;
+    }>;
+    const clients = (facts.найбільші_знижки_клієнтам ?? []) as Array<{
+      клієнт_id: string;
+      клієнт: string;
+      торговий: string | null;
+      знижок: number;
+      відсотків: number;
+    }>;
+
+    if (total.оборот === 0) {
+      return { markdown: `${capitalize(period.label)} продажів немає, знижки рахувати нема на чому.`, tools };
+    }
+
+    /**
+     * Медіана саме ВІДСОТКІВ, а не середній рядок таблиці.
+     *
+     * Список відсортований за сумою знижки, тож його середина — це просто
+     * четвертий торговий, а не типове значення. Світлофор від такої
+     * «медіани» червонів би через порядок рядків.
+     */
+    const shares = byRep.map((r) => r.від_свого_обороту_відсотків).sort((a, b) => a - b);
+    const median = shares.length === 0 ? 0 : shares[Math.floor(shares.length / 2)];
+
+    return {
+      markdown: md([
+        `## 🏷 Знижки · ${period.label}`,
+        "",
+        `Віддали **${money(total.явна_знижка + total.прихована_знижка)}** — ${percent(total.разом_віддали_відсотків)} від обороту ${money(total.оборот)}.`,
+        `З них явних ${money(total.явна_знижка)}, прихованих ${money(total.прихована_знижка)}.`,
+        "",
+        ...table(
+          ["Торговий", "Оборот", "Знижок", "% свого", "Рентаб."],
+          byRep.map((r) => [
+            short(r.торговий, 20),
+            money(r.оборот),
+            money(r.знижок_разом),
+            `${light(r.від_свого_обороту_відсотків <= median ? "good" : r.від_свого_обороту_відсотків <= median * 1.5 ? "mid" : "bad")} ${percent(r.від_свого_обороту_відсотків)}`,
+            percent(r.рентабельність_відсотків),
+          ])
+        ),
+        "",
+        clients.length > 0 ? "### Кому віддаємо найбільше" : null,
+        ...clients
+          .slice(0, 8)
+          .map(
+            (c) =>
+              `- ${clientLink(c.клієнт_id, c.клієнт)} — ${money(c.знижок)} (${percent(c.відсотків)})${c.торговий ? ` · ${c.торговий}` : ""}`
+          ),
+        "",
+        `_${String(facts.примітка ?? "")}_`,
+        "",
+        periodChips("Знижки"),
+      ]),
+      tools,
+    };
+  }
+
+  if (mode === "geo") {
+    const cities = (facts.міста ?? []) as Array<{
+      місто: string;
+      оборот: number;
+      купували: number;
+      клієнтів_усього: number;
+      на_покупця: number;
+      борг: number;
+    }>;
+    const unknown = facts.місто_невідоме as { клієнтів: number; купували: number; оборот: number };
+    const total = Number(facts.оборот_усього ?? 0);
+
+    if (cities.length === 0) {
+      return { markdown: `${capitalize(period.label)} продажів немає.`, tools };
+    }
+
+    return {
+      markdown: md([
+        `## 🗺 Де ми продаємо · ${period.label}`,
+        "",
+        `Оборот **${money(total)}** по ${cities.length} містах у топі.`,
+        "",
+        ...table(
+          ["Місто", "Оборот", "Купували", "Клієнтів", "На покупця"],
+          cities.slice(0, 15).map((c) => [
+            short(c.місто, 22),
+            money(c.оборот),
+            c.купували,
+            c.клієнтів_усього,
+            money(c.на_покупця),
+          ])
+        ),
+        "",
+        unknown.оборот > 0
+          ? `_Місто не визначилось у ${unknown.клієнтів} клієнтів на ${money(unknown.оборот)} обороту._`
+          : null,
+        "",
+        followUps("Кого розпрацювати у Львові", "Продажі по торгових"),
+      ]),
+      tools,
+    };
+  }
+
+  const lost = facts.втрачені as { клієнтів: number; щомісячного_обороту_пішло: number; разових_серед_них: number };
+  const dormant = facts.сплять as { клієнтів: number; щомісячного_обороту_під_загрозою: number };
+  const back = (facts.кого_повертати ?? []) as Array<{
+    клієнт_id: string;
+    клієнт: string;
+    торговий: string | null;
+    стан: string;
+    днів_тому: number;
+    був_оборот_на_місяць: number;
+  }>;
+
+  return {
+    markdown: md([
+      "## 🧲 Хто відвалився",
+      "",
+      ...table(
+        ["", "Клієнтів", "Обороту на місяць"],
+        [
+          [`${light("bad")} Втрачені`, lost.клієнтів, money(lost.щомісячного_обороту_пішло)],
+          [`${light("mid")} Сплять`, dormant.клієнтів, money(dormant.щомісячного_обороту_під_загрозою)],
+        ]
+      ),
+      "",
+      lost.разових_серед_них > 0
+        ? `_Із втрачених ${lost.разових_серед_них} були разовими покупцями: їх не «втратили», вони приходили один раз._`
+        : null,
+      "",
+      back.length > 0 ? "### Кого повертати першими" : null,
+      ...back
+        .slice(0, 10)
+        .map(
+          (c) =>
+            `- ${c.стан === "втрачений" ? "🔴" : "🟡"} ${clientLink(c.клієнт_id, c.клієнт)} — брав на ${money(c.був_оборот_на_місяць)} на місяць, тиша ${daysWord(c.днів_тому)}${c.торговий ? ` · ${c.торговий}` : ""}`
+        ),
+      "",
+      `_${String(facts.примітка ?? "")}_`,
+      "",
+      followUps("Продажі по торгових", "Дебіторка фірми"),
+    ]),
+    tools,
+  };
+}
+
+/* ── 🌐 Сайт ─────────────────────────────────────────────────────────── */
+
+export async function answerSiteTraffic(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+  const facts = await callTool(
+    siteTrafficTool,
+    ctx,
+    { period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+
+  const t = facts.разом as {
+    відвідувачів: number;
+    сесій: number;
+    переглядів_сторінок: number;
+    переглядів_товарів: number;
+    пошуків: number;
+    додали_в_кошик: number;
+    замовлень: number;
+    кліків_по_телефону: number;
+    конверсія_відсотків: number;
+  };
+
+  if (t.відвідувачів === 0) {
+    return { markdown: `${capitalize(period.label)} на сайті нікого не було.`, tools };
+  }
+
+  const pages = (facts.топ_сторінок ?? []) as Array<{ сторінка: string; переглядів: number }>;
+  const searched = (facts.що_шукали ?? []) as Array<{ запит: string; разів: number; знайшло_товарів: number }>;
+  const empty = (facts.шукали_й_не_знайшли ?? []) as Array<{ запит: string; разів: number }>;
+  const from = (facts.звідки_приходять ?? []) as Array<{ джерело: string; сесій: number }>;
+
+  return {
+    markdown: md([
+      `## 🌐 Сайт · ${period.label}`,
+      "",
+      ...table(
+        ["Відвідувачів", "Сесій", "Товарів дивились", "Кошик", "Замовлень"],
+        [[t.відвідувачів, t.сесій, t.переглядів_товарів, t.додали_в_кошик, t.замовлень]]
+      ),
+      "",
+      t.замовлень === 0
+        ? `${light("bad")} Жодного замовлення з сайту за період: люди дивляться, але не купують.`
+        : `Конверсія ${percent(t.конверсія_відсотків)} від сесії до замовлення.`,
+      "",
+      pages.length > 0 ? "### Що дивляться" : null,
+      ...table(
+        ["Сторінка", "Переглядів"],
+        pages.slice(0, 6).map((p) => [short(p.сторінка, 40), p.переглядів])
+      ),
+      "",
+      searched.length > 0 ? "### Що шукають" : null,
+      ...searched
+        .slice(0, 8)
+        .map((s) => `- «${s.запит}» — ${s.разів} р., знайшло ${s.знайшло_товарів}`),
+      empty.length > 0
+        ? `\n${light("bad")} **Шукали й не знайшли:** ${empty.map((e) => `«${e.запит}»`).join(", ")}. Це товар, по який людина прийшла, а ми його не показали.`
+        : null,
+      "",
+      from.length > 0 ? `_Звідки приходять: ${from.slice(0, 4).map((f) => `${f.джерело} (${f.сесій})`).join(", ")}._` : null,
+      `_${String(facts.примітка ?? "")}_`,
+      "",
+      periodChips("Що на сайті"),
+    ]),
+    tools,
+  };
+}
+
+/* ── ☀️ Що нового ────────────────────────────────────────────────────── */
+
+/**
+ * Те саме, що йде вранці в Telegram, але на запит.
+ *
+ * Один збирач на два виходи: якби зведення й відповідь рахувалися окремо,
+ * керівник читав би вранці одне, а вдень на те саме питання отримував
+ * інше — і перестав би вірити обом.
+ */
+export async function answerDigest(ctx: ToolContext): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const digest = await timed(
+    { name: "daily_digest", label: "Збираю, що змінилося" },
+    () => buildDigest(ctx.today),
+    tools
+  );
+
+  return {
+    markdown: md([
+      `## ☀️ Що змінилося · за ${digest.day}`,
+      "",
+      ...digest.lines.map((l) => `- ${l.icon} ${l.text.replace(/<\/?b>/g, "**")}`),
+      digest.lines.length === 0 ? "Нічого, про що варто сказати." : null,
+      "",
+      "_Це те саме зведення, що йде вранці в Telegram._",
+      "",
+      followUps("Хто де зараз", "Дебіторка фірми", "Що закінчується на складі"),
+    ]),
+    tools,
+  };
+}

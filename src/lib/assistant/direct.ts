@@ -16,11 +16,15 @@
 
 import { detectIntent } from "@/lib/assistant/router";
 import {
+  answerDigest,
   answerDriverPayroll,
   answerDriversDay,
   answerLowStock,
+  answerMoneyFlows,
+  answerSalesAnalysis,
   answerShifts,
   answerSiteOrders,
+  answerSiteTraffic,
   answerStaffNow,
   answerSyncHealth,
   answerTeamCollected,
@@ -222,6 +226,18 @@ export async function tryDirectAnswer(
 
     case "SYNC_HEALTH":
       return answerSyncHealth(ctx);
+
+    case "MONEY_FLOWS":
+      return answerMoneyFlows(ctx, intent.period, intent.mode);
+
+    case "SALES_ANALYSIS":
+      return answerSalesAnalysis(ctx, intent.period, intent.mode);
+
+    case "SITE_TRAFFIC":
+      return answerSiteTraffic(ctx, intent.period);
+
+    case "DIGEST":
+      return answerDigest(ctx);
   }
 
   return null;

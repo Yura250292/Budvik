@@ -74,7 +74,11 @@ export type Intent =
   | { kind: "DRIVER_PAYROLL"; period: PeriodSpec; who: string | null }
   | { kind: "SITE_ORDERS"; period: PeriodSpec }
   | { kind: "LOW_STOCK"; brand: string | null; mode: "low" | "turnover" | "dead" }
-  | { kind: "SYNC_HEALTH" };
+  | { kind: "MONEY_FLOWS"; period: PeriodSpec; mode: "flows" | "purchases" }
+  | { kind: "SALES_ANALYSIS"; period: PeriodSpec; mode: "discounts" | "geo" | "cohorts" }
+  | { kind: "SITE_TRAFFIC"; period: PeriodSpec }
+  | { kind: "SYNC_HEALTH" }
+  | { kind: "DIGEST" };
 
 /**
  * Слова, що вказують на попередню репліку.
@@ -649,6 +653,16 @@ function adminIntent(
     return { kind: "HELP" };
   }
 
+  /* ── Що нового ────────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(що\s+(нового|змінилось|змінилося|сталось|сталося)|як\s+(минув|пройшов)\s+(день|вчорашній)|підсумки\s+дня|зведенн[а-яіїєґ]*|дайджест|на\s+що\s+звернути\s+увагу)/i.test(
+      text
+    )
+  ) {
+    return { kind: "DIGEST" };
+  }
+
   /* ── Хто де зараз ─────────────────────────────────────────────────── */
 
   if (
@@ -717,6 +731,16 @@ function adminIntent(
     return { kind: "SITE_ORDERS", period: periodIn(text, { kind: "days", days: 7 }) };
   }
 
+  /* ── Відвідуваність сайту ─────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(відвідувач[а-яіїєґ]*|скільки\s+люд[а-яіїєґ]*\s+(на|заходил)|трафік|конверсі[а-яіїєґ]*|що\s+шукають|пошук\s+на\s+сайті|звідки\s+приходять|що\s+на\s+сайті|сайт\s+за)/i.test(
+      text
+    )
+  ) {
+    return { kind: "SITE_TRAFFIC", period: periodIn(text, { kind: "days", days: 30 }) };
+  }
+
   /* ── Склад ────────────────────────────────────────────────────────── */
 
   if (
@@ -731,6 +755,48 @@ function adminIntent(
         ? ("dead" as const)
         : ("low" as const);
     return { kind: "LOW_STOCK", brand, mode };
+  }
+
+  /* ── Закупівлі й прихід ───────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(закупівл[а-яіїєґ]*|постача[а-яіїєґ]*|прихід|приходу|завезл[аи]|скільки\s+завезли|що\s+завезли)/i.test(
+      text
+    )
+  ) {
+    return { kind: "MONEY_FLOWS", period: periodIn(text), mode: "purchases" };
+  }
+
+  /* ── Рух коштів ───────────────────────────────────────────────────── */
+
+  if (
+    /(^|\s)(рух\s+кошт[а-яіїєґ]*|аванс[а-яіїєґ]*|переплат[а-яіїєґ]*|скільки\s+відвантажил[аи]|відвантажено\s+за|каса\s+фірми|грошов[а-яіїєґ]*\s+поток|бухгалтер[а-яіїєґ]*\s+звіт)/i.test(
+      text
+    )
+  ) {
+    return { kind: "MONEY_FLOWS", period: periodIn(text), mode: "flows" };
+  }
+
+  /* ── Глибші розрізи продажів ──────────────────────────────────────── */
+
+  if (/(^|\s)(знижк[а-яіїєґ]*|нижче\s+(медіан|ціни)|хто\s+(дає|давав)\s+знижк)/i.test(text)) {
+    return { kind: "SALES_ANALYSIS", period: periodIn(text), mode: "discounts" };
+  }
+
+  if (
+    /(^|\s)(по\s+містах|у\s+яких\s+містах|де\s+ми\s+продаємо|географі[а-яіїєґ]*|оборот\s+по\s+містах|міста\s+продаж)/i.test(
+      text
+    )
+  ) {
+    return { kind: "SALES_ANALYSIS", period: periodIn(text), mode: "geo" };
+  }
+
+  if (
+    /(^|\s)(когорт[а-яіїєґ]*|утриманн[а-яіїєґ]*|хто\s+відвалив|кого\s+(треба\s+)?повертати|скільки\s+клієнтів\s+втратил|відтік|нові\s+клієнти\s+по\s+місяц)/i.test(
+      text
+    )
+  ) {
+    return { kind: "SALES_ANALYSIS", period: periodIn(text), mode: "cohorts" };
   }
 
   /* ── Гроші, зібрані за період ─────────────────────────────────────── */

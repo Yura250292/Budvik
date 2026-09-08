@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "86419468651",
+    "project_id": "budvik-edaba",
+    "storage_bucket": "budvik-edaba.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:86419468651:android:bffc089d9cc7f661201c2e",
+        "android_client_info": {
+          "package_name": "ua.budvik.staff"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1MREA9gPke6E8VYW_7fS-ZijN3OHlmho"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

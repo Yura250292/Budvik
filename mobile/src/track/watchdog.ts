@@ -13,6 +13,7 @@
 
 import * as BackgroundTask from "expo-background-task";
 import * as Notifications from "expo-notifications";
+import * as TaskManager from "expo-task-manager";
 import {
   hasOfflineGuard,
   scheduleOfflineGuard,
@@ -21,6 +22,7 @@ import {
   cancelExactGuard,
 } from "@modules/track-guard";
 import { WAKE_TASK, WATCHDOG_TASK } from "./task-name";
+import { logEvent } from "./db";
 import {
   getLastFixAt,
   getMode,
@@ -218,11 +220,32 @@ export async function registerWatchdog(): Promise<void> {
    * завдання не запуститься — тобто найцінніше (тихе підняття запису) не
    * станеться, і лишиться та сама просьба до людини.
    */
-  await Notifications.registerTaskAsync(WAKE_TASK).catch(async (e) => {
-    await setLastError(
-      `Пробудження сповіщенням не зареєстровано: ${e instanceof Error ? e.message : String(e)}`
-    ).catch(() => {});
-  });
+  const registered = await Notifications.registerTaskAsync(WAKE_TASK)
+    .then(() => true)
+    .catch(async (e) => {
+      await setLastError(
+        `Пробудження сповіщенням не зареєстровано: ${e instanceof Error ? e.message : String(e)}`
+      ).catch(() => {});
+      return false;
+    });
+
+  /**
+   * Чи справді завдання є в списку системи — питаємо, а не віримо.
+   *
+   * 08.09 перевірка на живому планшеті тричі дала той самий результат: Expo
+   * звітує «доставлено», застосунок має найсвіжіший код і зареєстровану
+   * адресу, а події немає. Між «ми викликали реєстрацію» і «система про неї
+   * знає» лежить проміжок, у який ми досі не заглядали — і рівно там уже
+   * ховалися дві поламки за сьогодні.
+   *
+   * `getRegisteredTasksAsync` віддає те, що система вважає зареєстрованим
+   * НАСПРАВДІ. Рядок їде в журнал, тобто відповідь буде видно по всіх
+   * планшетах, а не лише на тому, який тримають у руках.
+   */
+  const names = await TaskManager.getRegisteredTasksAsync()
+    .then((list) => list.map((t) => t.taskName).join(", "))
+    .catch((e) => `не вдалося спитати: ${e instanceof Error ? e.message : String(e)}`);
+  void logEvent("wake", `реєстрація=${registered} · у системі: ${names}`.slice(0, 180));
 }
 
 export async function unregisterWatchdog(): Promise<void> {

@@ -53,6 +53,11 @@ export const NAV_GROUPS: NavGroup[] = [
       // Поруч із торговими: обидва розділи читають з тієї самої панелі,
       // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
       { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },
+      // Поруч із двома розділами вище навмисно: обидва показують РЕЗУЛЬТАТ
+      // роботи планшетів, а цей — чи планшети взагалі працюють. Місяць його
+      // роль виконував термінал, і поламку бачили ввечері, коли день уже
+      // проїхано.
+      { href: "/admin/track-health", title: "Чому не пишеться", desc: "Стан планшетів у полі просто зараз", iconKey: "chart", roles: AM },
       // Стоїть після трьох розділів, які він зводить: аналіз читають, коли
       // вже бачили цифри й хочуть почути, з чого починати.
       { href: "/admin/ai-analysis", title: "AI аналіз фірми", desc: "Торгові, товари, логістика, стратегія", iconKey: "star", roles: AM },
@@ -197,6 +202,7 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/warehouse-reports",
     "/admin/integration",
     "/admin/drivers",
+    "/admin/track-health",
     "/admin/ai-analysis",
     "/admin/assistant",
   ];

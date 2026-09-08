@@ -79,7 +79,14 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
       />
 
       {/* Ширше на планшеті: його тримають горизонтально й показують клієнту */}
-      <div className="mx-auto max-w-lg px-4 pt-4 md:max-w-4xl lg:max-w-5xl">
+      {/*
+        Ширина росте до самого великого екрана.
+        Стеля lg:max-w-5xl (1024 точки) робилася під планшет, і на моніторі
+        кабінет виглядав як розтягнутий телефон: третина екрана з товаром і
+        дві третини порожнечі. Каталог — єдиний екран кабінету, який реально
+        відкривають за столом, тож саме йому потрібні всі точки, які є.
+      */}
+      <div className="mx-auto max-w-lg px-4 pt-4 md:max-w-4xl lg:max-w-6xl xl:max-w-[110rem]">
         {/*
           Поле пошуку над усім, зокрема над бічною колонкою на планшеті: клієнт
           називає наступний артикул, поки торговий ще дивиться попередній.
@@ -101,7 +108,7 @@ export default async function SalesCatalogListPage({ searchParams }: { searchPar
           стають бічною колонкою, і товар видно одночасно з фільтрами.
         */}
         <div className="flex flex-col gap-4 md:flex-row">
-          <aside className="w-full flex-shrink-0 md:w-64">
+          <aside className="w-full flex-shrink-0 md:w-64 xl:w-72">
             <CatalogFilters
               brands={tree.main}
               tailBrands={tree.tail}

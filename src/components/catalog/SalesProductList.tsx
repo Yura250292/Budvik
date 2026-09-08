@@ -94,12 +94,21 @@ export default function SalesProductList({ products }: { products: Product[] }) 
       </p>
 
       {view === "list" ? (
-        <div className="overflow-hidden rounded-xl border border-g100 bg-white">
+        /*
+          Від великого екрана список стає двома колонками.
+          Один стовпчик карток шириною в пів екрана — це вигляд телефона,
+          розтягнутий на монітор: рядок на 1400 точок, у якому зайнято 400.
+          Тому на xl картки роз'їжджаються в сітку й кожна отримує власну
+          рамку замість спільної смужки-роздільника.
+        */
+        <div className="overflow-hidden rounded-xl border border-g100 bg-white xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none xl:border-0 xl:bg-transparent">
           {products.map((p, i) => {
             const qty = qtyOf(p.id);
             return (
               <SwipeToCart key={p.id} onAdd={() => add(p)} disabled={!p.price}>
-                <div className={`flex items-center gap-3 px-3 py-3 ${i > 0 ? "border-t border-g100" : ""}`}>
+                <div
+                  className={`flex items-center gap-3 px-3 py-3 ${i > 0 ? "border-t border-g100" : ""} xl:rounded-xl xl:border xl:border-g100 xl:bg-white`}
+                >
                   <Thumb src={p.image} alt={p.name} size={48} />
                   <div className="min-w-0 flex-1">
                     <Link href={`/catalog/${p.slug}`} className="line-clamp-2 text-sm leading-snug text-[#0A0A0A]">
@@ -125,7 +134,7 @@ export default function SalesProductList({ products }: { products: Product[] }) 
           })}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {products.map((p) => {
             const qty = qtyOf(p.id);
             return (

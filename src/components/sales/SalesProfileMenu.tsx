@@ -78,8 +78,19 @@ export default function SalesProfileMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Профіль і налаштування"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+        /**
+         * Коли є оновлення, кажемо це вголос і в назві кнопки — інакше той,
+         * хто користується читанням з екрана, побачить лише «Профіль», а
+         * жовте кільце для нього не існує.
+         */
+        aria-label={
+          update.available
+            ? "Профіль і налаштування — доступне оновлення застосунку"
+            : "Профіль і налаштування"
+        }
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl${
+          update.available ? " update-ring" : ""
+        }`}
         style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}
       >
         {profile ? (

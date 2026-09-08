@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { stem, wordVariants } from "@/lib/assistant/facts/search-words";
+import { queryWords, stem, wordVariants } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -66,6 +66,35 @@ export async function searchProducts(
   return searchProductsOnce(query, repId, limit, 1, false);
 }
 
+/**
+ * Той самий пошук, але з відкиданням слів з кінця.
+ *
+ * У живій мові до назви завжди щось прилипає: «дріт для зварювання
+ * 0.8 під напівавтомат», «піна SOMA FIX 750 біла». Одне зайве слово в
+ * умові AND перетворює справжній товар на «нічого не знайшли», і саме
+ * так помічник відповідав на дріт, якого на складі 650 штук.
+ *
+ * Повертає ще й те, ЗА ЧИМ зрештою шукали: і відповідь кабінету, і
+ * модель мусять сказати це вголос, інакше людина побачить список, який
+ * не збігається з її запитом, і не зрозуміє чому.
+ *
+ * Повний запит тут не повторюється: викликають цю функцію лише після
+ * того, як `searchProducts` уже повернув порожньо.
+ */
+export async function searchProductsShorter(
+  query: string,
+  repId: string,
+  limit = 8
+): Promise<{ used: string; hits: ProductHit[] } | null> {
+  const parts = query.split(/\s+/).filter((w) => w.length > 2);
+  for (let take = parts.length - 1; take >= 1; take--) {
+    const used = parts.slice(0, take).join(" ");
+    const hits = await searchProducts(used, repId, limit);
+    if (hits.length > 0) return { used, hits };
+  }
+  return null;
+}
+
 async function searchProductsOnce(
   query: string,
   repId: string,
@@ -95,6 +124,25 @@ async function searchProductsOnce(
     " AND "
   );
   const like = `%${query.replace(/[%_]/g, "")}%`;
+
+  /**
+   * Скільки слів запиту збіглися з ЦІЛИМ словом назви, а не з його початком.
+   *
+   * Основа — це поступка відмінкам, і платимо за неї точністю: від
+   * «електроди» лишається «електро», яке з однаковим успіхом сидить в
+   * «електропилі» й «електроінструменті», і шина для пили ставала першою
+   * відповіддю про електроди.
+   *
+   * Рахувати збіг слова ДОСЛІВНО не можна — тоді питання в непрямому
+   * відмінку карає правильний товар: на «скільки ще піни» дослівне «піни»
+   * є в «очищувачі монтажної піни», а в «Піна-клей» його немає, і
+   * найходовіша позиція провалюється під аксесуар до неї.
+   *
+   * Тому міряємо ФОРМУ: основа має стояти від межі слова, і після неї
+   * лишається не більше трьох букв — рівно стільки з'їдає закінчення.
+   * «Електро» + «ди» — те саме слово, «електро» + «пили» — інше.
+   */
+  const relevance = relevanceScore(query);
 
   /**
    * Збіг НА ПОЧАТКУ СЛОВА важить більше за збіг усередині.
@@ -146,8 +194,9 @@ async function searchProductsOnce(
       }
     ORDER BY
       (p.sku = ${query}) DESC,
-      -- Доречність уже забезпечена умовою вище, тож тут — те, що можна
-      -- продати сьогодні: спитали «скільки є», а не «що це таке».
+      (${relevance}) DESC,
+      -- Далі — те, що можна продати сьогодні: спитали «скільки є», а не
+      -- «що це таке».
       (p.price > 0 AND COALESCE(fs.free, 0) > 0) DESC,
       /**
        * Далі — просто залишок.
@@ -163,6 +212,27 @@ async function searchProductsOnce(
       p.priority DESC
     LIMIT ${limit}
   `;
+}
+
+const LETTER = "А-Яа-яІіЇїЄєҐґA-Za-z";
+const RX_META = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * Скільки слів запиту збіглися з ЦІЛИМ словом назви.
+ *
+ * Вид товару з класифікатора сюди пробували додати доданком — вийшло
+ * гірше, і рівно так само, як колись у сортуванні: у типі «піна» лежить
+ * і очищувач монтажної піни, а «Піна-клей» має тип «клей», тож на
+ * «скільки ще піни» першим ставав очищувач. Класифікатор для цього
+ * завузький, і в релевантності його немає навмисно.
+ */
+function relevanceScore(query: string): Prisma.Sql {
+  const parts = queryWords(query).map((w) => {
+    const root = stem(w).replace(RX_META, "\\$&");
+    const re = `(^|[^${LETTER}0-9])${root}[${LETTER}]{0,3}([^${LETTER}0-9]|$)`;
+    return Prisma.sql`(CASE WHEN p.name ~* ${re} THEN 1 ELSE 0 END)`;
+  });
+  return parts.length ? Prisma.join(parts, " + ") : Prisma.sql`0`;
 }
 
 /**

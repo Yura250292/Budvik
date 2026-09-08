@@ -10,7 +10,7 @@
 import type { ToolDef } from "@/lib/assistant/types";
 import { bool, id as validId, int, str } from "@/lib/assistant/validate";
 import { DEAD_STOCK_DAYS } from "@/lib/assistant/config";
-import { deadStockItems, searchProducts } from "@/lib/assistant/facts/product-facts";
+import { deadStockItems, searchProducts, searchProductsShorter } from "@/lib/assistant/facts/product-facts";
 import { entryOffer } from "@/lib/assistant/facts/entry-offer";
 import { priceMarginPct, productStats } from "@/lib/assistant/facts/product-stats";
 import { SECTION_BY_ID } from "@/lib/catalog/classify";
@@ -36,16 +36,35 @@ export const productSearch: ToolDef = {
     const query = str(args.query, "query", { min: 2, max: 80 });
     const limit = int(args.limit, "limit", { min: 1, max: 10, fallback: 8 });
 
-    const [hits, stats] = await Promise.all([
+    const [found, stats] = await Promise.all([
       searchProducts(query, ctx.scope.repId, limit),
       productStats(),
     ]);
     const statById = new Map(stats.map((s) => [s.productId, s]));
 
-    if (hits.length === 0) return { знайдено: 0, підказка: "нічого не знайшли — спробуйте артикул" };
+    /**
+     * Порожньо — не привід здаватися.
+     *
+     * Кабінет на прямому питанні давно відкидає слова з кінця, а
+     * інструмент віддавав моделі голий нуль — і та чесно переказувала
+     * його людині. Так «дріт для зварювання» отримав «нічого не
+     * знайшов» при 650 шт на складі: пошук іде по І, а прийменника
+     * «для» в назві немає. Тепер модель бачить те саме, що й кабінет.
+     */
+    const shorter = found.length === 0 ? await searchProductsShorter(query, ctx.scope.repId, limit) : null;
+    const hits = shorter?.hits ?? found;
+
+    if (hits.length === 0) {
+      return {
+        знайдено: 0,
+        підказка:
+          "за цим запитом нічого немає. Спробуй ЩЕ РАЗ одним словом із назви або назвою бренду, і лише потім кажи, що товару немає.",
+      };
+    }
 
     return {
       знайдено: hits.length,
+      ...(shorter ? { шукали_за: shorter.used, увага: `за повним запитом «${query}» нічого не знайшлося — скажи це вголос` } : {}),
       товари: hits.map((h) => {
         const s = statById.get(h.productId);
         return {

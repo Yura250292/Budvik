@@ -55,6 +55,7 @@ import { findClients, type ClientHit } from "@/lib/assistant/facts/client-search
 import {
   deadStockItems,
   searchProducts,
+  searchProductsShorter,
   searchProductsTotals,
   substitutesFor,
 } from "@/lib/assistant/facts/product-facts";
@@ -1324,22 +1325,18 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
      * «нічого не знайшли». Тому відкидаємо слова з кінця й кажемо, за чим
      * саме шукали, — це чесніше за глухе «спробуйте інакше».
      */
-    const words = query.split(/\s+/).filter((w) => w.length > 2);
-    for (let take = words.length - 1; take >= 1; take--) {
-      const shorter = words.slice(0, take).join(" ");
-      const retry = await searchProducts(shorter, ctx.scope.repId, 8);
-      if (retry.length === 0) continue;
-
-      const totals = await searchProductsTotals(shorter);
+    const shorter = await searchProductsShorter(query, ctx.scope.repId, 8);
+    if (shorter) {
+      const totals = await searchProductsTotals(shorter.used);
       return {
         markdown: md([
-          `## 📦 ${shorter}`,
+          `## 📦 ${shorter.used}`,
           "",
-          `За повним запитом «${query}» нічого не знайшли, тож шукав за «${shorter}».`,
+          `За повним запитом «${query}» нічого не знайшли, тож шукав за «${shorter.used}».`,
           "",
           ...table(
             ["Товар", "Артикул", "📦 Шт", "💵 Ціна"],
-            retry.map((h) => [
+            shorter.hits.map((h) => [
               nameCell(h.name, h.sku, h.myBuyers > 0, 28),
               sku(h.sku),
               h.free > 0 ? `**${h.free}**` : "🔴 0",

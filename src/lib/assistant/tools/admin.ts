@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { bool, day as validDay, enumOf, int, str } from "@/lib/assistant/validate";
 import { uah, pct, ymd } from "@/lib/assistant/format";
 import { periodFacts, periodFromArgs } from "@/lib/assistant/period";
+import { kyivTime } from "@/lib/date/kyiv";
 import { listStaff, resolveStaff, staffProblem } from "@/lib/assistant/facts/staff";
 import { teamBenchmark } from "@/lib/analytics/benchmark";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
@@ -330,10 +331,16 @@ export const staffNowTool: ToolDef = {
       .filter((p) => (role ? p.role === role : p.role === "SALES" || p.role === "DRIVER"))
       .slice(0, 30);
 
-    const now = new Date();
     return {
       день: dayIso,
-      зараз: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+      /**
+       * Година — КИЇВСЬКА, а не серверна.
+       *
+       * `getHours()` бере час машини, а прод живе в UTC: о 13:24 у Львові
+       * помічник писав «10:23», і решта відповіді про «зараз» читалася як
+       * розповідь про ранок.
+       */
+      зараз: kyivTime(new Date()),
       людей: filtered.length,
       на_зміні: filtered.filter((p) => p.shift?.status === "OPEN").length,
       мовчать: filtered.filter((p) => p.shift?.status === "OPEN" && (p.minutesAgo == null || p.minutesAgo > 60)).length,

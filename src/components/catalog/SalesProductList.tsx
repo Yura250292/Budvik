@@ -100,8 +100,13 @@ export default function SalesProductList({ products }: { products: Product[] }) 
           розтягнутий на монітор: рядок на 1400 точок, у якому зайнято 400.
           Тому на xl картки роз'їжджаються в сітку й кожна отримує власну
           рамку замість спільної смужки-роздільника.
+
+          items-start обовʼязковий. За замовчуванням клітинки сітки
+          розтягуються на висоту найвищої в рядку, а зелений шар «додати в
+          кошик» у SwipeToCart лежить по inset-0 — і в нижчої картки він
+          вилазив смугою під низом.
         */
-        <div className="overflow-hidden rounded-xl border border-g100 bg-white xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none xl:border-0 xl:bg-transparent">
+        <div className="overflow-hidden rounded-xl border border-g100 bg-white xl:grid xl:grid-cols-2 xl:items-start xl:gap-3 xl:overflow-visible xl:rounded-none xl:border-0 xl:bg-transparent">
           {products.map((p, i) => {
             const qty = qtyOf(p.id);
             return (

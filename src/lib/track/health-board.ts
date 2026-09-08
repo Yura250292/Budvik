@@ -173,7 +173,22 @@ export async function trackHealthBoard(day?: string): Promise<{
           watchdogAt: iso(beatRow.watchdogAt),
           watchdogStatus: beatRow.watchdogStatus,
           contextStartedAt: iso(beatRow.contextStartedAt),
-          contextMinutes: minutesSince(beatRow.contextStartedAt, now),
+          /**
+           * Вік контексту рахуємо ДО МИТІ ПУЛЬСУ, а не до «зараз».
+           *
+           * `fixBatches` описує стан на момент відправки пульсу, і міряти його
+           * теперішнім часом означає обмовляти справний планшет: застосунок,
+           * який щойно піднявся і чесно доповів «викликів 0», через півгодини
+           * читався б як «пів години живе і жодного виклику». Саме так пульт
+           * і вчинив з Передрієм за двадцять хвилин після його підйому.
+           */
+          contextMinutes:
+            beatRow.contextStartedAt
+              ? Math.max(
+                  0,
+                  Math.round((beatRow.at.getTime() - beatRow.contextStartedAt.getTime()) / 60_000)
+                )
+              : null,
           fixBatches: beatRow.fixBatches,
           contextPoints: beatRow.contextPoints,
         }
@@ -285,7 +300,13 @@ export function judge(input: {
     };
   }
 
-  /* Найважливіше правило пульта — і те, якого не було цілий місяць. */
+  /**
+   * Найважливіше правило пульта — і те, якого не було цілий місяць.
+   *
+   * Обидві умови міряються МОМЕНТОМ ПУЛЬСУ: застосунок прожив достатньо, щоб
+   * служба встигла покликати його, і не покликала жодного разу. Судити про це
+   * теперішнім часом не можна — числа описують мить відправки, а не зараз.
+   */
   const contextAlive = beat.contextMinutes != null && beat.contextMinutes >= NO_CALL_MIN;
   const noCalls = beat.fixBatches === 0;
   if (contextAlive && noCalls && beat.tracking) {

@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles, WAREHOUSE_ROLES } from "@/lib/app/identity";
 import { pickLines, pickProgress } from "@/lib/warehouse/picking";
+import { baselineSeenLines } from "@/lib/warehouse/pick-notify";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (quantity === 0) {
     await prisma.pickMark.deleteMany({ where: { salesDocumentId: id, productId } });
   } else {
+    /**
+     * Перша позначка означає «я взявся» — і саме тут ставиться знімок того,
+     * що людина вже бачила. Усе, що менеджер допише після, стане новиною й
+     * прилетить пушем (див. lib/warehouse/pick-notify.ts). Знімок ставимо
+     * ДО позначки: інакше обмін, який приїде між цими двома записами, побачив
+     * би «взявся, а знімка немає» і зайво промовчав би про справжню новину.
+     */
+    await baselineSeenLines(id);
+
     await prisma.pickMark.upsert({
       where: { salesDocumentId_productId: { salesDocumentId: id, productId } },
       create: { salesDocumentId: id, productId, quantity, userId: auth.me.userId },

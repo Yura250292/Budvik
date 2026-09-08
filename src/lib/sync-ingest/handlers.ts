@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { notifyNewPickLines } from "@/lib/warehouse/pick-notify";
 import { authenticateAgent } from "./auth";
 import {
   ApplyContext,
@@ -196,6 +197,23 @@ export async function handleBatch(req: Request): Promise<Response> {
 
   try {
     await dispatchBatch(body, ctx);
+
+    /**
+     * Складовщик дізнається про дописану позицію одразу, а не від водія.
+     *
+     * Саме тут, а не окремим розкладом: у цю мить уже точно відомо, ЯКІ
+     * документи змінилися, і сповіщення йде за секунди після того, як
+     * менеджер записав рядок. Свій cron довелося б ганяти впорожні кожні
+     * пʼять хвилин заради тих кількох накладних, які хтось збирає.
+     *
+     * Не чекаємо й не ламаємо батч: обмін важливіший за сповіщення.
+     */
+    if (body.entityType === "realization_doc") {
+      const ids = body.records
+        .map((r) => (r as { externalId?: unknown }).externalId)
+        .filter((id): id is string => typeof id === "string");
+      void notifyNewPickLines(ids);
+    }
 
     // Повний зріз приходить в останньому батчі свого типу.
     if (kind === "full" && body.fullSnapshotIds?.length) {

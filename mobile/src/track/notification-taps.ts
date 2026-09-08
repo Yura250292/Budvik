@@ -33,7 +33,12 @@ type Tap =
   | { pathname: "/cabinet"; params: { target: string } };
 
 /** Сторінки кабінету, куди дозволено вести пушу. */
-const CABINET_TARGET = /^\/(sales|driver)(\/[\w\-/]*)?$/;
+/**
+ * `warehouse` — відколи склад отримує пуш «у накладній нова позиція»: без
+ * цього дотик по сповіщенню мовчки нічого не робив би, а виглядало б це як
+ * зламане сповіщення.
+ */
+const CABINET_TARGET = /^\/(sales|driver|warehouse)(\/[\w\-/]*)?$/;
 
 function targetFor(response: Notifications.NotificationResponse | null): Tap | null {
   const data = response?.notification.request.content.data ?? {};

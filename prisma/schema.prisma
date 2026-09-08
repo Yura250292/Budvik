@@ -916,6 +916,7 @@ model SalesDocument {
   createdBy       User                @relation("salesDocCreator", fields: [createdById], references: [id])
   items           SalesDocumentItem[]
   pickMarks       PickMark[]          @relation("pickMarkDocument")
+  pickSeenLines   PickSeenLine[]      @relation("pickSeenDocument")
   invoice         Invoice?
   commissions     CommissionRecord[]
   reservations    StockReservation[]
@@ -3565,4 +3566,27 @@ model PickMark {
   @@unique([salesDocumentId, productId])
   @@index([salesDocumentId])
   @@index([userId, updatedAt])
+}
+
+/// Рядок накладної, який складовщик уже бачив.
+///
+/// Потрібен рівно заради одного питання: що в накладній зʼявилося ПІСЛЯ того,
+/// як людина взялася її збирати. Порівнювати «було/стало» в момент обміну не
+/// вийшло б: обмін переписує рядки документа цілком і не знає, кому це
+/// цікаво, а слати сповіщення про кожну накладну — це спам, який вимкнуть
+/// першого ж дня.
+///
+/// Знімок ставиться в мить, коли складовщик відмічає ПЕРШУ позицію (тобто
+/// взявся). Усе, що менеджер допише далі, стає новиною — і саме про неї йде
+/// пуш.
+model PickSeenLine {
+  id              String   @id @default(cuid())
+  salesDocumentId String
+  productId       String
+  seenAt          DateTime @default(now())
+
+  salesDocument SalesDocument @relation("pickSeenDocument", fields: [salesDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([salesDocumentId, productId])
+  @@index([salesDocumentId])
 }

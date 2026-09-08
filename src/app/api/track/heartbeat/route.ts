@@ -126,7 +126,16 @@ export async function POST(req: NextRequest) {
        * сторож при живому треку й мертвий застосунок виглядають однаково.
        */
       watchdogAt: date(body.watchdogAt),
-      watchdogStatus: text(body.watchdogStatus, 20),
+      /**
+       * 64, а не 20: сторожів тепер два, і поруч зі станом фонових завдань
+       * сюди їде стан будильника («AVAILABLE · будильник 13:33 (точний)»).
+       * На двадцяти символах доказ обривався на слові «будильни» — тобто
+       * рівно те, заради чого його додали, і не доїжджало.
+       *
+       * Міграції не треба: колонка оголошена як String? без @db.VarChar,
+       * тобто в Postgres це text без обмеження довжини. Ріже саме цей рядок.
+       */
+      watchdogStatus: text(body.watchdogStatus, 64),
       contextStartedAt: date(body.contextStartedAt),
       fixBatches: int(body.fixBatches, 0, 1_000_000),
       contextPoints: int(body.contextPoints, 0, 1_000_000),

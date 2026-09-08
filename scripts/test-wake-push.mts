@@ -39,9 +39,13 @@ async function main() {
 
   const before = await prisma.trackEvent.count({ where: { userId: user.id, kind: "wake" } });
 
+  /**
+   * Тихе — точно таке, як шле воркер. Видиме сповіщення тут було б не лише
+   * зайвим для людини, а й неправильною перевіркою: Android віддає його в
+   * шторку, застосунок не будить, і ми знову міряли б не те.
+   */
   await sendPushToUser(user.id, {
-    title: "Перевірка звʼязку",
-    body: "Це перевірка від офісу. Нічого робити не треба.",
+    silent: true,
     urgent: true,
     data: { screen: "/shift", reason: "test" },
   });

@@ -19,8 +19,12 @@ const EXPO_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const CHUNK = 100;
 
 export type PushMessage = {
-  title: string;
-  body: string;
+  /**
+   * Текст для людини. Необовʼязковий: без нього сповіщення стає ТИХИМ —
+   * і саме тихе вміє будити застосунок (див. `silent`).
+   */
+  title?: string;
+  body?: string;
   /** Куди відкрити застосунок покупця: розбирається як deep link budvik27://... */
   url?: string;
   /**
@@ -45,6 +49,24 @@ export type PushMessage = {
    * вбитий запис без людини — див. mobile/src/track/wake.ts.
    */
   urgent?: boolean;
+  /**
+   * Тихе сповіщення: без тексту, без звуку, людина його не бачить.
+   *
+   * Не косметика, а ЄДИНИЙ спосіб розбудити застосунок. Правило Google
+   * (docs/cloud-messaging/android/receive): повідомлення З ТЕКСТОМ Android
+   * віддає одразу в шторку, а застосунок при цьому не запускає взагалі —
+   * тож фонове завдання не спрацьовує. Будить лише повідомлення БЕЗ тексту,
+   * самими даними.
+   *
+   * Спіймано 08.09 на живому планшеті: Expo двічі віддав квитанцію
+   * «доставлено», сповіщення на екрані було, а в журналі пристрою — тиша.
+   * Ми надсилали не той тип і перевіряли не те.
+   *
+   * Тому текст для людини тепер малює САМ застосунок — і лише тоді, коли
+   * тихе підняття не вдалося. Якщо вдалося, людину взагалі не турбуємо: вона
+   * й не мала знати, що трек падав.
+   */
+  silent?: boolean;
 };
 
 /**
@@ -64,9 +86,16 @@ export async function sendPushToUser(userId: string, message: PushMessage): Prom
     for (let i = 0; i < tokens.length; i += CHUNK) {
       const batch = tokens.slice(i, i + CHUNK).map((t) => ({
         to: t.token,
-        title: message.title,
-        body: message.body,
-        sound: "default",
+        ...(message.silent
+          ? {
+              /**
+               * Ні тексту, ні звуку — інакше Android перехопить повідомлення
+               * у шторку й не розбудить застосунок. `_contentAvailable`
+               * потрібен iOS, щоб він теж підняв фонову обробку.
+               */
+              _contentAvailable: true,
+            }
+          : { title: message.title, body: message.body, sound: "default" }),
         ...(message.urgent
           ? {
               priority: "high" as const,

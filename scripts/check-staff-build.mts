@@ -14,7 +14,11 @@
  *   • нативне (android/, ios/, modules/, app.config.ts, package.json) —
  *     тільки новим APK: `npm run build:staff` у mobile/ і заливання у сховище;
  *   • решта (JS/TSX) — «повітрям» через `npm run update:staff`, без
- *     перевстановлення, оновлення застосується при наступному запуску.
+ *     перевстановлення, оновлення застосується при наступному запуску. Він
+ *     публікує під КОЖНУ оболонку, яка є в полі (scripts/publish-staff-ota.mts):
+ *     публікація лише під поточну версію лишає старі планшети без виправлень
+ *     назавжди — саме так 09.09 шість планшетів із восьми возили JS двотижневої
+ *     давнини.
  *
  * Виходить із кодом 1, коли поле відстає: щоб команду можна було поставити
  * у CI і щоб вона мовчала лише тоді, коли справді все доїхало.
@@ -83,7 +87,7 @@ if (nativeLag.length > 0) {
 if (otaLag.length > 0) {
   console.log(`⚠️  Не в полі: ${otaLag.length} комітів після останнього оновлення.`);
   for (const c of otaLag) console.log(`     ${c}`);
-  console.log('   mobile/: npm run update:staff "що саме" → оновити STAFF_OTA_COMMIT\n');
+  console.log('   npm run update:staff "що саме" --apply → на ВСІ живі оболонки, тоді STAFF_OTA_COMMIT\n');
 }
 
 process.exit(1);

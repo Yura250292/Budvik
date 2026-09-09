@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:migrate:prod": "vercel env pull .env --environment=production --yes && prisma migrate deploy",
     "check:staff": "tsx scripts/check-staff-build.mts",
+    "update:staff": "tsx scripts/publish-staff-ota.mts",
     "worker": "tsx worker/index.ts",
     "worker:prepare": "prisma generate",
     "worker:build": "esbuild worker/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/worker.cjs --external:@prisma/client --external:fast-xml-parser",

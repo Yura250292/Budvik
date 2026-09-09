@@ -579,6 +579,22 @@ export async function sendDailyDigest(
     if ((await getSyncState(SENT_KEY)) === today) return null;
   }
 
+  /**
+   * Куди слати — питаємо ДО збору, а не після.
+   *
+   * Збір зведення — це десяток паралельних запитів плюс повне сканування
+   * асортименту (звіт про дефіцит). Коли перевірка стояла нижче, відсутність
+   * `DIGEST_CHAT_ID` означала не «мовчимо», а «збираємо все це щочверть
+   * години з восьмої ранку до півночі» — шість десятків прогонів на день у
+   * порожнечу, бо мітка дня в цій гілці не ставилась.
+   */
+  const chatId = digestChatId();
+  if (!chatId && !opts.dry) {
+    console.warn("digest: DIGEST_CHAT_ID не налаштовано — зведення нікуди слати");
+    if (!opts.force) await setSyncState(SENT_KEY, today);
+    return null;
+  }
+
   const facts = await buildDigest(today);
   if (!digestHasNews(facts) && !opts.force) {
     // Нічого не сталося — лист не йде, але день позначаємо: інакше
@@ -587,13 +603,8 @@ export async function sendDailyDigest(
     return null;
   }
 
-  if (opts.dry) return facts;
-
-  const chatId = digestChatId();
-  if (!chatId) {
-    console.warn("digest: DIGEST_CHAT_ID не налаштовано — зведення нікуди слати");
-    return null;
-  }
+  // Друга умова недосяжна — вище вже вийшли; вона лише знімає з типу null.
+  if (opts.dry || !chatId) return facts;
 
   await sendTelegramMessage(chatId, renderTelegram(facts));
   await setSyncState(SENT_KEY, today);

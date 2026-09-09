@@ -15,7 +15,7 @@
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { Prisma } from "@prisma/client";
-import { searchPatterns, stem } from "@/lib/assistant/facts/search-words";
+import { LETTER, searchPatterns, stem } from "@/lib/assistant/facts/search-words";
 import { uah, ymd } from "@/lib/assistant/format";
 
 type LineRow = {
@@ -74,8 +74,8 @@ async function purchasesOnce(
 ) {
   const patterns = searchPatterns(query);
   const like = `%${query.replace(/[%_]/g, "")}%`;
-  const first = (query.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{3,}/) ?? [])[0] ?? "";
-  const wordStart = first ? `(^|[^А-Яа-яІіЇїЄєҐґA-Za-z])${stem(first)}` : null;
+  const first = (query.match(new RegExp(`[${LETTER}]{3,}`)) ?? [])[0] ?? "";
+  const wordStart = first ? `(^|[^${LETTER}])${stem(first)}` : null;
   const strictCond =
     strictWord && wordStart ? Prisma.sql`AND p.name ~* ${wordStart}` : Prisma.empty;
   const match = { patterns, like };

@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { queryWords, stem, wordVariants } from "@/lib/assistant/facts/search-words";
+import { LETTER, queryWords, stem, wordVariants } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -86,8 +86,22 @@ export async function searchProductsShorter(
   repId: string,
   limit = 8
 ): Promise<{ used: string; hits: ProductHit[] } | null> {
-  const parts = query.split(/\s+/).filter((w) => w.length > 2);
-  for (let take = parts.length - 1; take >= 1; take--) {
+  /**
+   * Ріжемо по ЗНАЧУЩИХ словах, а не по всьому, що написано.
+   *
+   * Інакше «дроту для зварювання під напівавтомат» дає спершу «…під», а
+   * потім «…зварювання» — два різні рядки, які пошук зводить до тих
+   * самих двох слів, тобто зайвий важкий запит на чотирьох CTE. І
+   * повідомлення «шукав за» показувало людині рядок, який від її запиту
+   * не відрізнити на око.
+   *
+   * Кожен крок — це до трьох запитів по чотири CTE, тож глибина
+   * обмежена: після трьох відкидань від запиту лишається шум, а модель
+   * тим часом чекає на відповідь інструмента.
+   */
+  const parts = queryWords(query);
+  const floor = Math.max(1, parts.length - 3);
+  for (let take = parts.length - 1; take >= floor; take--) {
     const used = parts.slice(0, take).join(" ");
     const hits = await searchProducts(used, repId, limit);
     if (hits.length > 0) return { used, hits };
@@ -152,8 +166,8 @@ async function searchProductsOnce(
    * тому спершу показуємо ті назви, де воно окреме, а решту лишаємо
    * нижче: викидати їх не можна, бо саме там ховається «Піна-клей».
    */
-  const firstWord = (query.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{3,}/) ?? [])[0] ?? "";
-  const wordStart = firstWord ? `(^|[^А-Яа-яІіЇїЄєҐґA-Za-z])${stem(firstWord)}` : null;
+  const firstWord = (query.match(new RegExp(`[${LETTER}]{3,}`)) ?? [])[0] ?? "";
+  const wordStart = firstWord ? `(^|[^${LETTER}])${stem(firstWord)}` : null;
 
   return prisma.$queryRaw<ProductHit[]>`
     WITH ${LAST_COST}, ${LAST_SALE}, ${FREE_STOCK_ALL}, ${myClientsCte(repId)},
@@ -214,11 +228,22 @@ async function searchProductsOnce(
   `;
 }
 
-const LETTER = "А-Яа-яІіЇїЄєҐґA-Za-z";
 const RX_META = /[.*+?^${}()|[\]\\]/g;
 
 /**
- * Скільки слів запиту збіглися з ЦІЛИМ словом назви.
+ * Наскільки назва відповідає запиту, по кожному слову окремо.
+ *
+ * Два рівні, і обидва потрібні.
+ *
+ * Збіг із ПОЧАТКОМ слова (+1) — це «те саме поняття в будь-якій формі»:
+ * основа «зварюв» стоїть на початку і «зварювання», і «зварювальний».
+ * Самого його замало: «електро» так само починає «електропилу».
+ *
+ * Збіг із ЦІЛИМ словом (+2) — коли після основи лишилося не більше
+ * трьох букв, тобто рівно закінчення. Це й відрізняє «Електроди» від
+ * «електропили». Але на довгих суфіксах він не спрацьовує в принципі
+ * («зварюв» + «альний» — шість букв), і без першого рівня зварювальний
+ * дріт не мав би переваги над будь-яким іншим дротом.
  *
  * Вид товару з класифікатора сюди пробували додати доданком — вийшло
  * гірше, і рівно так само, як колись у сортуванні: у типі «піна» лежить
@@ -229,8 +254,10 @@ const RX_META = /[.*+?^${}()|[\]\\]/g;
 function relevanceScore(query: string): Prisma.Sql {
   const parts = queryWords(query).map((w) => {
     const root = stem(w).replace(RX_META, "\\$&");
-    const re = `(^|[^${LETTER}0-9])${root}[${LETTER}]{0,3}([^${LETTER}0-9]|$)`;
-    return Prisma.sql`(CASE WHEN p.name ~* ${re} THEN 1 ELSE 0 END)`;
+    const starts = `(^|[^${LETTER}0-9])${root}`;
+    const whole = `${starts}[${LETTER}]{0,3}([^${LETTER}0-9]|$)`;
+    return Prisma.sql`(CASE WHEN p.name ~* ${starts} THEN 1 ELSE 0 END)
+      + (CASE WHEN p.name ~* ${whole} THEN 2 ELSE 0 END)`;
   });
   return parts.length ? Prisma.join(parts, " + ") : Prisma.sql`0`;
 }
@@ -277,7 +304,7 @@ export async function substitutesFor(
   const bare = target.brand?.name
     ? target.name.replace(new RegExp(`^${target.brand.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i"), "")
     : target.name;
-  const firstWord = (bare.match(/[А-Яа-яІіЇїЄєҐґA-Za-z]{4,}/) ?? [])[0] ?? null;
+  const firstWord = (bare.match(new RegExp(`[${LETTER}]{4,}`)) ?? [])[0] ?? null;
   const kindLike = firstWord ? `%${stem(firstWord)}%` : null;
 
   const sectionCond = target.sectionId

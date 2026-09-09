@@ -1325,9 +1325,19 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
      * «нічого не знайшли». Тому відкидаємо слова з кінця й кажемо, за чим
      * саме шукали, — це чесніше за глухе «спробуйте інакше».
      */
-    const shorter = await searchProductsShorter(query, ctx.scope.repId, 8);
+    /*
+     * Скорочення теж під секундоміром: воно робить у кілька разів більше
+     * запитів, ніж перша спроба, і саме на ньому відповідь стає повільною.
+     * Доти панель часу показувала лише швидку першу пробу — тобто вказувала
+     * не на той крок кожному, хто розбирався б із гальмами.
+     */
+    const shorter = await timed(
+      { name: "product_search", label: "Шукаю за коротшим запитом" },
+      () => searchProductsShorter(query, ctx.scope.repId, 8),
+      tools
+    );
     if (shorter) {
-      const totals = await searchProductsTotals(shorter.used);
+      const shortTotals = await searchProductsTotals(shorter.used);
       return {
         markdown: md([
           `## 📦 ${shorter.used}`,
@@ -1344,7 +1354,9 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
             ])
           ),
           "",
-          totals.free > 0 ? `_Разом на складі ${totals.free} шт у ${items(totals.positions)}._` : null,
+          shortTotals.free > 0
+            ? `_Разом на складі ${shortTotals.free} шт у ${items(shortTotals.positions)}._`
+            : null,
           "",
           followUps("Кому з клієнтів це зайде?", "Яку ціну можна дати?"),
         ]),

@@ -64,6 +64,17 @@ const TRANSLIT: Array<[RegExp, string]> = [
   [/ф/g, "f"],
 ];
 
+/**
+ * Українська абетка з латиницею — те, що вважається буквою в назві.
+ *
+ * Одне визначення на всіх навмисно: цей клас стоїть і в межі слова для
+ * строгого пошуку, і в оцінці релевантності, і в пошуку по закупівлях
+ * клієнта. Копії розходяться мовчки — дописана в одну апострофа чи
+ * «ö» з «Grösser» змусить два правила по-різному думати, де кінчається
+ * слово.
+ */
+export const LETTER = "А-Яа-яІіЇїЄєҐґA-Za-z";
+
 /** «фікс» → «fix». Слово без кирилиці повертається як є. */
 export function translit(word: string): string {
   if (!/[а-яіїєґ]/i.test(word)) return word;
@@ -81,15 +92,20 @@ export function translit(word: string): string {
  * запит про зварювальний дріт повертав нуль на товар, якого на складі
  * 650 штук.
  *
- * Порядок — від довших до коротших: перше збіжне закінчення й відрізаємо.
+ * Відрізаємо ПЕРШЕ збіжне закінчення, тому порядок — частина правила, а
+ * не оформлення: коротше «ний», яке стоїть попереду довшого «альний»,
+ * мовчки недоріже «зварювальний» до «зварюваль» і поверне той самий
+ * нуль. Покладатися на те, що наступний рядок допишуть у правильне
+ * місце, не варто, тож сортуємо на місці.
+ *
  * Підлога в пʼять букв стримує від надто короткої основи: «зварю» знайде
  * ще й «зварювати» разом із половиною сусіднього змісту.
  */
 const ENDINGS = [
-  "ування", "ювання", "альний", "альна", "альні", "ований", "ована",
-  "ання", "ення", "іння", "еної", "ений", "ості", "істю", "овий", "ова",
-  "ого", "ому", "ими", "ами", "ями", "ний", "них", "ної",
-];
+  "ування", "ювання", "альний", "ований", "альна", "альні", "ована",
+  "ання", "ення", "іння", "еної", "ений", "ості", "істю", "овий",
+  "ова", "ого", "ому", "ими", "ами", "ями", "ний", "них", "ної",
+].sort((a, b) => b.length - a.length);
 
 /**
  * Основа слова для пошуку за підрядком.
@@ -105,7 +121,15 @@ export function stem(word: string, cut = 0): string {
   const cutTo = word.length >= 6 ? -(2 + extra) : word.length >= 4 ? -(1 + extra) : 0;
   const byLength = cutTo === 0 ? word : word.slice(0, cutTo);
 
-  const ending = ENDINGS.find((e) => word.length - e.length >= 5 && word.endsWith(e));
+  /*
+   * Порівнюємо в нижньому регістрі, бо люди пишуть КАПСОМ, а розпізнавач
+   * голосу віддає слово з великої. «ЗВАРЮВАННЯ» не закінчувалося на
+   * «ання» й лишалося «ЗВАРЮВАН» — тобто саме той нуль, проти якого
+   * закінчення й додавали. Різати треба вихідне слово: ILIKE регістр
+   * однаково не розрізняє, а от підкреслення в чергуванні — розрізняє.
+   */
+  const lower = word.toLowerCase();
+  const ending = ENDINGS.find((e) => lower.length - e.length >= 5 && lower.endsWith(e));
   const byEnding = ending ? word.slice(0, -ending.length - extra) : byLength;
 
   const stemmed = byEnding.length < byLength.length ? byEnding : byLength;
@@ -128,7 +152,8 @@ export function stem(word: string, cut = 0): string {
  * слово в ILIKE ALL відсікає правильні збіги замість того, щоб уточнити.
  */
 export function searchPatterns(query: string, limitWords = 6, cut = 0): string[] {
-  return words(query, limitWords).map((w) => `%${stem(w, cut)}%`);
+  // Правову форму відпускаємо лише на другій спробі — див. LEGAL.
+  return words(query, limitWords, cut > 0).map((w) => `%${stem(w, cut)}%`);
 }
 
 /**
@@ -145,7 +170,7 @@ export function searchPatterns(query: string, limitWords = 6, cut = 0): string[]
  * знаходить «FIX».
  */
 export function wordVariants(query: string, limitWords = 6, cut = 0): string[][] {
-  return words(query, limitWords).map((w) => {
+  return words(query, limitWords, true).map((w) => {
     const base = stem(w, cut);
     const variants = new Set<string>([`%${base}%`]);
     const swap = vowelSwap(base);
@@ -174,12 +199,15 @@ export function wordVariants(query: string, limitWords = 6, cut = 0): string[][]
  * другому слові.
  */
 function vowelSwap(stemmed: string): string | null {
-  if (stemmed.length < 4) return null;
-  const at = Math.max(
-    stemmed.lastIndexOf("і"),
-    stemmed.lastIndexOf("о"),
-    stemmed.lastIndexOf("е")
-  );
+  /*
+   * Чергування живе в КОРОТКИХ коренях — дріт, стіл, ніж, віз, піч. На
+   * довгій основі підкреслення лише розмиває пошук: «м_нтаж» знаходить
+   * рівно те саме, що «монтаж», зате «ст_л» чіпляє «кристал» і
+   * «хрустальний». Тому вікно вузьке з обох боків.
+   */
+  if (stemmed.length < 4 || stemmed.length > 6) return null;
+  const lower = stemmed.toLowerCase();
+  const at = Math.max(lower.lastIndexOf("і"), lower.lastIndexOf("о"), lower.lastIndexOf("е"));
   // Голосна на самому краю основи нічого не уточнює: «електр_» замість
   // «електро» знайде рівно те саме, лише повільніше.
   if (at < 1 || at >= stemmed.length - 1) return null;
@@ -217,14 +245,21 @@ const STOP = new Set([
   "для", "із", "зі", "на", "до", "по", "під", "над", "при", "про", "перед",
   "від", "за", "об", "без", "між", "через", "та", "чи", "або", "що", "як",
   "не", "ще", "теж", "цей", "ця", "це", "той", "які", "який", "яка", "яке",
-  /*
-   * Правова форма — те саме службове слово, лише в довіднику клієнтів.
-   * У 1С половина контрагентів заведена без неї: «ФОП Левкович» не
-   * знаходило «Левкович Олександр», бо «ФОП» було обовʼязковим словом.
-   * У назвах товарів цих скорочень немає, тож список спільний.
-   */
-  "фоп", "тов", "тзов", "пп", "спд", "прат", "пат", "кп", "чп", "ооо",
 ]);
+
+/**
+ * Правова форма — службове слово лише наполовину.
+ *
+ * У 1С половина контрагентів заведена без неї, і «ФОП Левкович» не
+ * знаходило «Левкович Олександр». Але друга половина форму МАЄ, і там
+ * вона єдине, що відрізняє «ТОВ Схід» від однойменного ФОПа: викинути
+ * її одразу означає проміняти точність на повноту в кожному запиті.
+ *
+ * Тому тут вона не в STOP: товарний пошук відкидає її завжди (у назвах
+ * товарів таких скорочень немає), а клієнтський — лише другою спробою,
+ * коли перша, точна, не знайшла нікого.
+ */
+const LEGAL = new Set(["фоп", "тов", "тзов", "пп", "спд", "прат", "пат", "кп", "чп", "ооо"]);
 
 /**
  * Значущі слова запиту, як їх бачить пошук: без службових і без обрізання.
@@ -235,10 +270,10 @@ const STOP = new Set([
  * над самими електродами.
  */
 export function queryWords(query: string, limitWords = 6): string[] {
-  return words(query, limitWords);
+  return words(query, limitWords, true);
 }
 
-function words(query: string, limitWords: number): string[] {
+function words(query: string, limitWords: number, dropLegal: boolean): string[] {
   const all = query
     .split(/\s+/)
     .map((w) => w.replace(/[%_]/g, "").trim())
@@ -246,7 +281,10 @@ function words(query: string, limitWords: number): string[] {
 
   // Питання з самих службових слів («що є на складі») сенсу не має, але
   // краще пошукати буквально, ніж повернути порожній набір шаблонів.
-  const meaningful = all.filter((w) => !STOP.has(w.toLowerCase()));
+  const meaningful = all.filter((w) => {
+    const lower = w.toLowerCase();
+    return !STOP.has(lower) && !(dropLegal && LEGAL.has(lower));
+  });
   const list = (meaningful.length ? meaningful : all).slice(0, limitWords);
   return list.length ? list : [query];
 }

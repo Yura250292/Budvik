@@ -367,25 +367,28 @@ function FiltersInner({
         </FilterBlock>
       )}
 
-      {/* Групи товарів усередині розділу (або бренда) */}
+      {/*
+        Групи товарів усередині розділу (або бренда).
+
+        Рядками, а не плитками: назви тут довгі й різної довжини («Кліщі,
+        пасатижі, бокорізи», «Пістолети для піни й герметика»), і плитки
+        складались у рвану драбину — частина по два слова в ряд, частина
+        переносом усередині себе, числа розкидані де прийдеться. Список
+        однакових рядків із числом праворуч читається згори вниз, як розділи
+        над ним, і не розганяє панель на пів екрана.
+      */}
       {types.length > 0 && (
         <FilterBlock title="Групи товару" defaultOpen={Boolean(activeSection) || draft.brands.length > 0}>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="-mr-1 max-h-72 overflow-y-auto pr-1">
             {types.map((t) => {
               const on = draft.types.includes(t.key);
               return (
-                <button
-                  key={t.key}
-                  onClick={() => pickType(t.key)}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
-                    on
-                      ? "border-[#FFD600] bg-[#FFD600] font-semibold text-[#0A0A0A]"
-                      : "border-[#EFEFEF] bg-[#FAFAFA] text-[#1A1A1A] hover:border-[#FFD600]"
-                  }`}
-                >
-                  {t.label}
-                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#6B6B6B]"}`}>{t.count}</span>
-                </button>
+                <CheckRow key={t.key} checked={on} onChange={() => pickType(t.key)}>
+                  <span className={`flex-1 truncate text-sm ${on ? "font-semibold text-[#0A0A0A]" : "text-[#1A1A1A]"}`}>
+                    {t.label}
+                  </span>
+                  <span className="text-xs tabular-nums text-[#6B6B6B]">{t.count}</span>
+                </CheckRow>
               );
             })}
           </div>
@@ -584,36 +587,59 @@ function FiltersInner({
               </button>
               <button
                 onClick={() => apply(draft)}
-                className="min-h-12 flex-[2] rounded-[10px] bg-[#FFD600] text-sm font-bold text-[#0A0A0A]"
+                className={`min-h-12 flex-[2] rounded-[10px] text-sm font-bold transition ${
+                  dirty
+                    ? "bg-[#FFD600] text-[#0A0A0A] shadow-[0_0_0_3px_rgba(255,214,0,0.25)]"
+                    : "bg-[#FFD600]/70 text-[#0A0A0A]"
+                }`}
               >
-                Показати
+                {dirty ? "Показати результат" : "Показати"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Десктоп / планшет */}
-      <div className="hidden md:block">
-        <div className="rounded-xl border border-[#EFEFEF] bg-white p-4">
-          {body}
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={reset}
-              disabled={activeCount === 0}
-              className="min-h-11 flex-1 rounded-[10px] border border-[#DADADA] text-sm font-semibold text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:opacity-40"
-            >
-              Скинути
-            </button>
-            <button
-              onClick={() => apply(draft)}
-              disabled={!dirty}
-              className="min-h-11 flex-[2] rounded-[10px] bg-[#FFD600] text-sm font-bold text-[#0A0A0A] transition hover:bg-[#FFC400] disabled:opacity-40"
-            >
-              Показати
-            </button>
-          </div>
+      {/*
+        Десктоп / планшет.
+
+        Панель закріплена і прокручується сама, а «Показати» стоїть згори —
+        бо галочку ставлять у першому ж блоці, а кнопка була в кінці колонки:
+        після розділів, груп, ціни й півтори сотні брендів. Людина тицяла
+        «Ключі гайкові», нічого не відбувалось, і фільтр читався як зламаний —
+        те, що його ще треба застосувати кнопкою десь під згорткою брендів,
+        видно не було. Тепер кнопка не їде за межі екрана ніколи.
+
+        top-[72px] — висота шапки (h-16 + жовта смужка), вона sticky z-50.
+
+        sticky висить на тому самому вузлі, що й md:flex: липкий елемент
+        їздить у межах СВОГО батька, тож окрема обгортка «заввишки в панель»
+        не лишала йому куди їхати — колонка просто зникала вгору.
+      */}
+      <div className="sticky top-[72px] hidden max-h-[calc(100vh-88px)] flex-col overflow-hidden rounded-xl border border-[#EFEFEF] bg-white md:flex">
+        <div className="flex flex-shrink-0 gap-2 border-b border-[#EFEFEF] p-3">
+          <button
+            onClick={reset}
+            disabled={activeCount === 0}
+            className="min-h-11 flex-1 cursor-pointer rounded-[10px] border border-[#DADADA] text-sm font-semibold text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:cursor-default disabled:opacity-40"
+          >
+            Скинути
+          </button>
+          <button
+            onClick={() => apply(draft)}
+            disabled={!dirty}
+            /* Поки є незастосовані зміни — кнопка світиться жовтим і не дає
+               себе не помітити; коли застосовувати нічого, вона гасне. */
+            className={`min-h-11 flex-[2] rounded-[10px] text-sm font-bold transition ${
+              dirty
+                ? "cursor-pointer bg-[#FFD600] text-[#0A0A0A] shadow-[0_0_0_3px_rgba(255,214,0,0.25)] hover:bg-[#FFC400]"
+                : "cursor-default bg-[#F2F2F2] text-[#9E9E9E]"
+            }`}
+          >
+            {dirty ? "Показати результат" : "Показати"}
+          </button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">{body}</div>
       </div>
     </>
   );

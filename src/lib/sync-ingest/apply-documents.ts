@@ -19,6 +19,7 @@
 
 import { Prisma, type SalesDocType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { documentUnchanged } from "@/lib/sync-ingest/document-unchanged";
 import type { DocumentRecord, DocumentItemRecord } from "./types";
 import { ApplyContext } from "./context";
 
@@ -267,9 +268,57 @@ export async function applySalesDocuments(
 
   const existing = await prisma.salesDocument.findMany({
     where: { externalId: { in: records.map((r) => r.externalId) } },
-    select: { id: true, externalId: true, number: true, totalAmount: true, status: true },
+    select: {
+      id: true,
+      externalId: true,
+      number: true,
+      totalAmount: true,
+      status: true,
+      // Далі — поля, потрібні лише для звірки «а чи змінилося щось узагалі»
+      // (див. document-unchanged.ts). Читати їх дешевше, ніж переписувати
+      // документ, який не змінився.
+      docType: true,
+      counterpartyId: true,
+      salesRepId: true,
+      profitAmount: true,
+    },
   });
   const byExternalId = new Map(existing.map((d) => [d.externalId!, d]));
+
+  /**
+   * Позиції всіх знайдених документів — однією вибіркою на пачку, а не по
+   * документу. Пачка це ~250 документів і близько тисячі рядків: один запит
+   * замість двохсот п'ятдесяти транзакцій на видалення й вставку.
+   */
+  const storedItemsByDoc = new Map<
+    string,
+    Array<{ productId: string; quantity: number; sellingPrice: number; purchasePrice: number; lineNo: number | null }>
+  >();
+  if (existing.length > 0 && !ctx.isPreview) {
+    const rows = await prisma.salesDocumentItem.findMany({
+      where: { salesDocumentId: { in: existing.map((d) => d.id) } },
+      select: {
+        salesDocumentId: true,
+        productId: true,
+        quantity: true,
+        sellingPrice: true,
+        purchasePrice: true,
+        lineNo: true,
+      },
+    });
+    for (const r of rows) {
+      const bucket = storedItemsByDoc.get(r.salesDocumentId);
+      const item = {
+        productId: r.productId,
+        quantity: r.quantity,
+        sellingPrice: r.sellingPrice,
+        purchasePrice: r.purchasePrice,
+        lineNo: r.lineNo,
+      };
+      if (bucket) bucket.push(item);
+      else storedItemsByDoc.set(r.salesDocumentId, [item]);
+    }
+  }
 
   const counterpartyExternalIds = [
     ...new Set(records.map((r) => r.counterpartyExternalId).filter((c): c is string => !!c)),
@@ -529,6 +578,49 @@ export async function applySalesDocuments(
             })),
           },
         };
+        /**
+         * Документ не змінився — не чіпаємо його взагалі.
+         *
+         * Без цієї перевірки кожен документ із триденного вікна перечитування
+         * переписувався цілком щоп'ять хвилин: видалення всіх позицій і вставка
+         * тих самих назад. Заміряно 09.09.2026 — 142 тисячі рядків на добу
+         * заради 48 тисяч живих, і все це в журнал транзакцій та в добовий
+         * бекап.
+         *
+         * Звірка покриває кожне поле, яке пише оновлення нижче; будь-яка
+         * розбіжність або сумнів означають перезапис (див. document-unchanged.ts).
+         */
+        const writesConfirmedAt = posted && found.status === "DRAFT";
+        const unchanged = documentUnchanged(
+          {
+            number: found.number,
+            status: found.status,
+            docType: found.docType,
+            counterpartyId: found.counterpartyId,
+            salesRepId: found.salesRepId,
+            totalAmount: found.totalAmount,
+            profitAmount: found.profitAmount,
+          },
+          storedItemsByDoc.get(found.id) ?? [],
+          {
+            numberCandidates,
+            docType,
+            counterpartyId,
+            salesRepId: salesRepId ?? null,
+            status: liveOnSite && posted ? null : nextStatus,
+            writesConfirmedAt,
+            totalAmount,
+            profitAmount: profitOf(items),
+          },
+          items
+        );
+        if (unchanged) {
+          // Комісію тут перевіряти не треба: `invalidateCommissions` виходить
+          // одразу, коли сума не змінилась, а вона не змінилась за визначенням.
+          ctx.skipped++;
+          continue;
+        }
+
         // Той самий перебір номерів, що й на create: документ, збережений із
         // суфіксом року, при оновленні знову спробує сирий номер, впіймає
         // конфлікт із «власником» цього номера з іншого року і повернеться до

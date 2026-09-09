@@ -27,6 +27,8 @@ import CategoryRail from "@/components/home/CategoryRail";
 import SectionCards from "@/components/home/SectionCards";
 import SectionTiles from "@/components/home/SectionTiles";
 import HomeBanners, { type HomeBanner } from "@/components/home/HomeBanners";
+import HomeProductRow from "@/components/home/HomeProductRow";
+import { CARD_SELECT } from "@/lib/catalog/query";
 import { getCurrentSeason, getSeasonLabel, getSeasonIcon, getSeasonColor, getSeasonWorksLabel, DEFAULT_SEASONAL_KEYWORDS, DEFAULT_SEASONAL_EXCLUDE } from "@/lib/seasonal";
 
 export default async function HomePage() {
@@ -82,9 +84,16 @@ export default async function HomePage() {
   const seasonalExclude = seasonalPromos.length > 0 ? [] : DEFAULT_SEASONAL_EXCLUDE[season];
 
   /*
-   * Сезонна добірка лишилась однією позицією: з неї банер бере знімок і
-   * дізнається, чи є взагалі що показувати. Сітку сезонних товарів на головній
-   * замінила вітрина брендів, тож решта вибірки нікуди не йшла.
+   * Сезонна добірка: з неї банер бере знімок, а ряд під банерами — картки.
+   *
+   * Було `take: 1` і `select: { image: true }` — вибирався лише знімок для
+   * банера, бо сітки сезонних товарів на головній не існувало. Через це на
+   * головній не було жодного товару взагалі: банер обіцяв добірку, а купити
+   * з першого екрана було нічого.
+   *
+   * Тепер беремо вісім із повними полями картки. Ряд показує рівно те, що
+   * обіцяє банер над ним, — інших підстав («хіти», «популярне») ми свідомо
+   * не вигадуємо, бо замовлень у базі шість.
    */
   const seasonalProducts = seasonalConditions.length > 0
     ? await prisma.product.findMany({
@@ -96,9 +105,9 @@ export default async function HomePage() {
           OR: seasonalConditions,
           NOT: seasonalExclude.map((kw) => ({ name: { contains: kw, mode: "insensitive" as const } })),
         },
-        select: { image: true },
+        select: CARD_SELECT,
         orderBy: [{ priority: "desc" }, { stock: "desc" }],
-        take: 1,
+        take: 8,
       })
     : [];
 
@@ -223,6 +232,21 @@ export default async function HomePage() {
           <SectionTiles tiles={sectionTiles.filter((t) => !t.featured)} className="mt-4 sm:mt-6" />
         </div>
       </section>
+
+      {/*
+        Ряд товарів — щоб із головної можна було щось купити.
+
+        Це та сама сезонна добірка, що в банері над ним, тільки картками.
+        Перевірка вітрини 08.09.2026: на головній не було ЖОДНОГО товару —
+        ні на комп'ютері, ні на телефоні. Банер обіцяв добірку, вітрина
+        брендів вела в каталог, а покласти щось у кошик із першого екрана
+        було неможливо.
+      */}
+      <HomeProductRow
+        title={seasonalTitle.replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, "")}
+        href={`/catalog?search=${encodeURIComponent(seasonalKeywords[0] ?? "")}`}
+        products={seasonalProducts}
+      />
 
       {/*
         Бренди — банерами з фотографіями фірмових каталогів.

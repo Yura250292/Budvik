@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SITE_CONTACTS } from "@/lib/seo/site";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 
@@ -20,8 +21,21 @@ export default function Footer() {
 
   return (
     <>
-    <footer className="bg-gradient-to-b from-[#0A0A0A] to-[#050505] text-[#9E9E9E] mt-auto hidden md:block">
-      <div className="max-w-7xl mx-auto px-4 py-12">
+    {/*
+      Футер видно і на телефоні.
+
+      Тут стояло `hidden md:block`, і на екрані вужчому за 768 px футера не
+      було зовсім. Разом із ним у покупця з телефона зникали ВСІ контакти:
+      перевірка тексту сторінки не знаходила ні номера, ні адреси, ні слова
+      «повернення». У нижній панелі — Головна, Каталог, Пошук, Кошик, Увійти,
+      і жодного способу зателефонувати. Це і незручно, і суперечить вимогам
+      до інтернет-магазину.
+
+      pb-24 на телефоні — щоб фіксована нижня навігація (65 px + safe-area)
+      не накривала останній рядок.
+    */}
+    <footer className="bg-gradient-to-b from-[#0A0A0A] to-[#050505] text-[#9E9E9E] mt-auto">
+      <div className="max-w-7xl mx-auto px-4 pt-10 pb-24 md:py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
 
           {/* Про компанію */}
@@ -37,12 +51,12 @@ export default function Footer() {
               Завжди готові допомогти у виборі необхідного обладнання для будь-яких робіт.
             </p>
             <div className="flex items-center gap-3">
-              <a href="https://www.instagram.com/budvik.ua/" target="_blank" rel="noopener noreferrer" className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-[#FFD600] hover:text-[#0A0A0A] transition group">
+              <a href="https://www.instagram.com/budvik.ua/" target="_blank" rel="noopener noreferrer" aria-label="БУДВІК27 в Instagram" className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-[#FFD600] hover:text-[#0A0A0A] transition group">
                 <svg className="w-4 h-4 text-[#9E9E9E] group-hover:text-[#0A0A0A]" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
                 </svg>
               </a>
-              <a href="https://www.facebook.com/budvik.ua/" target="_blank" rel="noopener noreferrer" className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-[#FFD600] hover:text-[#0A0A0A] transition group">
+              <a href="https://www.facebook.com/budvik.ua/" target="_blank" rel="noopener noreferrer" aria-label="БУДВІК27 у Facebook" className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-[#FFD600] hover:text-[#0A0A0A] transition group">
                 <svg className="w-4 h-4 text-[#9E9E9E] group-hover:text-[#0A0A0A]" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                 </svg>
@@ -67,11 +81,14 @@ export default function Footer() {
             <h4 className="font-semibold text-white mb-4 text-sm uppercase tracking-wide">Інформація</h4>
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/about" className="hover:text-[#FFD600] transition">Про нас</Link></li>
-              <li><span className="text-[#9E9E9E]">Оплата і доставка</span></li>
+              <li><Link href="/dostavka-i-oplata" className="hover:text-[#FFD600] transition">Оплата і доставка</Link></li>
               <li><Link href="/povernennya" className="hover:text-[#FFD600] transition">Обмін та повернення</Link></li>
               <li><Link href="/pryvatnist" className="hover:text-[#FFD600] transition">Політика конфіденційності</Link></li>
-              <li><span className="text-[#9E9E9E]">Гарантія</span></li>
-              <li><span className="text-[#9E9E9E]">Договір оферти</span></li>
+              {/* Гарантійний випадок описаний у розділі повернення — ведемо туди,
+                  а не тримаємо ще один сірий напис без посилання.
+                  «Договір оферти» прибрано: юридичний текст має написати
+                  людина, а мертвий пункт меню гірший за його відсутність. */}
+              <li><Link href="/povernennya" className="hover:text-[#FFD600] transition">Гарантія на товар</Link></li>
               <li><Link href="/register" className="hover:text-[#FFD600] transition">Реєстрація</Link></li>
               <li><Link href="/dashboard/wholesale" className="hover:text-[#FFD600] transition">Оптовим покупцям</Link></li>
             </ul>
@@ -82,27 +99,27 @@ export default function Footer() {
             <h4 className="font-semibold text-white mb-4 text-sm uppercase tracking-wide">Контакти</h4>
             <ul className="space-y-3 text-sm">
               <li>
-                <a href="tel:+380772700027" className="flex items-center gap-2 hover:text-[#FFD600] transition group">
+                <a href={`tel:${SITE_CONTACTS.phone}`} className="flex items-center gap-2 hover:text-[#FFD600] transition group">
                   <svg className="w-4 h-4 text-[#FFD600] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
-                  077 270 00 27
+                  {SITE_CONTACTS.phoneDisplay}
                 </a>
               </li>
               <li>
-                <a href="tel:+380932700027" className="flex items-center gap-2 hover:text-[#FFD600] transition">
+                <a href={`tel:${SITE_CONTACTS.phoneAlt}`} className="flex items-center gap-2 hover:text-[#FFD600] transition">
                   <svg className="w-4 h-4 text-[#FFD600] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
-                  093 270 00 27
+                  {SITE_CONTACTS.phoneAltDisplay}
                 </a>
               </li>
               <li>
-                <a href="mailto:budvik27@gmail.com" className="flex items-center gap-2 hover:text-[#FFD600] transition">
+                <a href={`mailto:${SITE_CONTACTS.email}`} className="flex items-center gap-2 hover:text-[#FFD600] transition">
                   <svg className="w-4 h-4 text-[#FFD600] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
-                  budvik27@gmail.com
+                  {SITE_CONTACTS.email}
                 </a>
               </li>
               <li className="flex items-start gap-2">

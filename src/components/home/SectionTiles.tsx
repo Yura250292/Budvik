@@ -80,7 +80,7 @@ export default function SectionTiles({
               <span className="line-clamp-2 min-h-[26px] text-[11px] font-semibold leading-tight text-[#1A1A1A] sm:min-h-[28px]">
                 {t.title}
               </span>
-              <span className="text-[10px] tabular-nums text-[#8A8A8A]">
+              <span className="text-[10px] tabular-nums text-[#6B6B6B]">
                 {formatCount(t.count, POSITIONS)}
               </span>
             </div>

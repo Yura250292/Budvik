@@ -161,7 +161,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           {/* Info */}
           <div className="flex-1 min-w-0 p-2 sm:p-3 flex flex-col justify-between">
             <div>
-              <h3 className={`text-xs sm:text-sm font-semibold line-clamp-1 transition ${stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"}`}>
+              <h3 className={`text-xs sm:text-sm font-semibold line-clamp-1 transition ${stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#6B6B6B]"}`}>
                 {name}
               </h3>
               <p className="text-[10px] sm:text-xs text-[#777] line-clamp-1 mt-0.5">{plainDesc}</p>
@@ -174,7 +174,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
                       {formatPrice(displayPrice)}
                     </span>
                     {hasDiscount && (
-                      <span className="text-[9px] sm:text-xs text-[#9E9E9E] line-through">{formatPrice(price)}</span>
+                      <span className="text-[9px] sm:text-xs text-[#6B6B6B] line-through">{formatPrice(price)}</span>
                     )}
                   </>
                 ) : (
@@ -245,9 +245,9 @@ export default function ProductCard({ id, name, slug, description, price, wholes
           {/* Info */}
           <div className="p-3 sm:p-5">
             {label && (
-              <span className="inline-block text-[10px] sm:text-xs text-[#9E9E9E] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{label}</span>
+              <span className="inline-block text-[10px] sm:text-xs text-[#5A5A5A] bg-[#F0F0F0] px-2 py-0.5 rounded-md mb-2 font-medium">{label}</span>
             )}
-            <h3 className={`text-sm sm:text-lg font-semibold mb-1 transition ${stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"}`}>
+            <h3 className={`text-sm sm:text-lg font-semibold mb-1 transition ${stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#6B6B6B]"}`}>
               {name}
             </h3>
             <p className="text-xs sm:text-sm text-[#555] mb-3 line-clamp-2">{plainDesc}</p>
@@ -382,13 +382,13 @@ export default function ProductCard({ id, name, slug, description, price, wholes
         */}
         <div className="flex flex-1 flex-col p-2.5 sm:p-3.5">
           {label && (
-            <span className="mb-1 inline-block max-w-full truncate rounded bg-[#F0F0F0] px-1 py-0.5 text-[8px] font-medium text-[#9E9E9E] sm:px-2 sm:text-[11px]">
+            <span className="mb-1 inline-block max-w-full truncate rounded bg-[#F0F0F0] px-1 py-0.5 text-[8px] font-medium text-[#5A5A5A] sm:px-2 sm:text-[11px]">
               {label}
             </span>
           )}
 
           <h3 className={`mb-2 line-clamp-2 min-h-[32px] text-xs font-semibold leading-tight transition-colors duration-200 sm:min-h-[38px] sm:text-[15px] sm:leading-snug ${
-            stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#9E9E9E]"
+            stock > 0 ? "text-[#0A0A0A] group-hover:text-[#FFB800]" : "text-[#6B6B6B]"
           }`}>
             {name}
           </h3>
@@ -398,7 +398,7 @@ export default function ProductCard({ id, name, slug, description, price, wholes
               це дізнавались останнім, уже прицілившись купити. */}
           <div className="mb-1.5 flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stock > 0 ? "bg-[#16A34A]" : "bg-[#C9C9C9]"}`} />
-            <span className={`text-[10px] font-medium sm:text-[11px] ${stock > 0 ? "text-[#16A34A]" : "text-[#9E9E9E]"}`}>
+            <span className={`text-[10px] font-medium sm:text-[11px] ${stock > 0 ? "text-[#15803D]" : "text-[#6B6B6B]"}`}>
               {stock > 0 ? (stock <= 5 ? `Залишилось ${stock} шт.` : "В наявності") : "Немає в наявності"}
             </span>
           </div>

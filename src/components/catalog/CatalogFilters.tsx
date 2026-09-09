@@ -38,6 +38,14 @@ interface Props {
    * без бренда). Порожньо — показуємо глобальні числа з дерева брендів.
    */
   brandCounts?: Record<string, number>;
+  /**
+   * Чи розрахований brandCounts під поточну видачу.
+   *
+   * Потрібен окремо від самого об'єкта: «розрахували й вийшов нуль» і
+   * «не розраховували взагалі» — різні речі, а порожній об'єкт виглядає
+   * однаково в обох випадках.
+   */
+  facetsComputed?: boolean;
   priceBounds: { min: number; max: number };
   /**
    * Характеристики, доречні для поточного місця каталогу: живлення, діаметр
@@ -64,6 +72,7 @@ export default function CatalogFilters({
   types,
   sections = [],
   brandCounts = {},
+  facetsComputed,
   priceBounds,
   attrFacets = [],
   basePath = "/catalog",
@@ -83,6 +92,7 @@ export default function CatalogFilters({
       types={types}
       sections={sections}
       brandCounts={brandCounts}
+      facetsComputed={facetsComputed ?? false}
       priceBounds={priceBounds}
       attrFacets={attrFacets}
       basePath={basePath}
@@ -98,6 +108,7 @@ function FiltersInner({
   types,
   sections,
   brandCounts,
+  facetsComputed,
   priceBounds,
   attrFacets,
   basePath,
@@ -224,8 +235,20 @@ function FiltersInner({
     apply(cleared);
   };
 
-  /** Чи прийшли числа в розрізі поточної видачі. */
-  const faceted = Object.keys(brandCounts).length > 0;
+  /*
+    Чи прийшли числа в розрізі поточної видачі.
+
+    Раніше це визначалось наявністю ключів у brandCounts, і на порожній
+    видачі виходила брехня: коли пошук не знайшов жодного товару, фасети
+    чесно давали нуль по всіх брендах, об'єкт лишався порожнім — і панель
+    вирішувала, що фасетів «не передали», підставляючи глобальні числа з
+    дерева. На запиті «перфоратор bosch» покупець бачив «SIGMA 3203», а за
+    кліком отримував порожню видачу.
+
+    Тепер сторінка каталогу каже прямо: числа розраховані (facetsComputed),
+    просто їх нуль.
+  */
+  const faceted = facetsComputed || Object.keys(brandCounts).length > 0;
 
   /** Скільки товарів цього бренда людина справді побачить. */
   const brandCount = (slug: string, fallback: number) =>
@@ -336,7 +359,7 @@ function FiltersInner({
                   }`}
                 >
                   <span className="flex-1 truncate text-sm">{sec.title}</span>
-                  <span className="text-xs tabular-nums text-[#9E9E9E]">{sec.count}</span>
+                  <span className="text-xs tabular-nums text-[#6B6B6B]">{sec.count}</span>
                 </button>
               );
             })}
@@ -361,7 +384,7 @@ function FiltersInner({
                   }`}
                 >
                   {t.label}
-                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#9E9E9E]"}`}>{t.count}</span>
+                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#6B6B6B]"}`}>{t.count}</span>
                 </button>
               );
             })}
@@ -395,7 +418,7 @@ function FiltersInner({
                   }`}
                 >
                   {o.label}
-                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#9E9E9E]"}`}>
+                  <span className={`ml-1.5 text-xs ${on ? "text-[#0A0A0A]/60" : "text-[#6B6B6B]"}`}>
                     {o.count}
                   </span>
                 </button>
@@ -460,13 +483,13 @@ function FiltersInner({
           {visibleBrands.map((b) => (
             <CheckRow key={b.id} checked={draft.brands.includes(b.slug)} onChange={() => toggle("brands", b.slug)}>
               <span className="flex-1 truncate text-sm text-[#1A1A1A]">{b.name}</span>
-              <span className="text-xs tabular-nums text-[#9E9E9E]">{brandCount(b.slug, b.count)}</span>
+              <span className="text-xs tabular-nums text-[#6B6B6B]">{brandCount(b.slug, b.count)}</span>
             </CheckRow>
           ))}
           {(!faceted || (brandCounts.none ?? 0) > 0) && (
           <CheckRow checked={draft.brands.includes("none")} onChange={() => toggle("brands", "none")}>
             <span className="flex-1 truncate text-sm text-[#555]">Без бренда</span>
-            <span className="text-xs tabular-nums text-[#9E9E9E]">{brandCount("none", unbranded)}</span>
+            <span className="text-xs tabular-nums text-[#6B6B6B]">{brandCount("none", unbranded)}</span>
           </CheckRow>
           )}
         </div>
@@ -625,7 +648,7 @@ function FilterBlock({
         aria-controls={id}
         className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 text-left"
       >
-        <span className="text-xs font-bold uppercase tracking-wide text-[#9E9E9E]">{title}</span>
+        <span className="text-xs font-bold uppercase tracking-wide text-[#6B6B6B]">{title}</span>
         <svg
           aria-hidden
           className={`h-4 w-4 flex-shrink-0 text-[#C9C9C9] transition-transform duration-200 ${open ? "rotate-180" : ""}`}

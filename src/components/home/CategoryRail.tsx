@@ -54,7 +54,7 @@ export default function CategoryRail({
                   <SectionIcon id={s.id} className="h-[17px] w-[17px]" />
                 </span>
                 <span className="flex-1 font-medium group-hover:text-[#0A0A0A]">{s.title}</span>
-                <span className="shrink-0 text-[11px] tabular-nums text-[#9E9E9E]">{s.total}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-[#6B6B6B]">{s.total}</span>
                 <svg
                   aria-hidden
                   className="h-3.5 w-3.5 shrink-0 text-[#D4D4D4] transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-[#0A0A0A]"

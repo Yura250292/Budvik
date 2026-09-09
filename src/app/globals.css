@@ -95,7 +95,11 @@ a, button, [role="button"], input, select, textarea, label {
   --color-g100: #F7F7F7;
   --color-g200: #EFEFEF;
   --color-g300: #DADADA;
-  --color-g400: #9E9E9E;
+  /* Було #9E9E9E — 2,7:1 на білому, тобто нижче норми 4,5:1: axe знаходив
+     цим кольором півсотні написів на сторінку (ярлик бренда на картці,
+     «Знайдено N товарів», підписи фільтрів). #6B6B6B дає 5,3:1 і на око
+     лишається тим самим спокійним сірим. */
+  --color-g400: #6B6B6B;
   --color-g500: #6B7280;
   --color-g600: #555555;
 
@@ -441,7 +445,10 @@ input:focus, select:focus, textarea:focus {
 /* Product description HTML styling */
 .product-description p {
   margin-bottom: 0.75rem;
-  text-align: justify;
+  /* Вирівнювання по ширині прибрано: переносів слів у нас немає, і на вузькому
+     екрані рядок «Круги відрізні по металу Ataman 41 14A» розтягувався
+     пробілами в палець завширшки. Ліве вирівнювання читається рівніше. */
+  text-align: left;
 }
 .product-description b,
 .product-description strong {

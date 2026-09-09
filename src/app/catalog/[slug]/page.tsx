@@ -4,24 +4,22 @@
 // змушувало функції ре-рендерити 26 тис. карток під кожним обходом бота.
 export const revalidate = 3600;
 
-import { cache } from "react";
+import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import { formatPrice } from "@/lib/utils";
 import { isRealSku } from "@/lib/catalog/sku-search";
-import { showableProductWhere } from "@/lib/catalog/showable";
 import { isServiceCategory, productLabel } from "@/lib/catalog/category-display";
-import { findSameType } from "@/lib/catalog/related";
+import { productRecommendations } from "@/lib/catalog/recommendations";
 import Link from "next/link";
-import Image from "next/image";
 import NoPhoto from "@/components/ui/NoPhoto";
-import AiRecommendations from "@/components/ai/AiRecommendations";
+import RecoGrid from "@/components/product/RecoGrid";
 import AiAccessories from "@/components/ai/AiAccessories";
 import ProductImageZoom from "@/components/ProductImageZoom";
 import ProductDescription from "@/components/ProductDescription";
 import ProductAside, { ProductTerms } from "@/components/product/ProductAside";
 import { splitDescription } from "@/lib/catalog/description-sections";
+import { sanitizeDescription } from "@/lib/catalog/sanitize-description";
 import ProductPriceBlock from "./ProductPriceBlock";
 import ProductViewTracker from "@/components/webstats/ProductViewTracker";
 import JsonLd from "@/components/JsonLd";
@@ -47,10 +45,34 @@ const getProduct = cache((slug: string) =>
   })
 );
 
+/**
+ * Блоки рекомендацій окремим компонентом — щоб вони не тримали перший екран.
+ *
+ * Раніше сторінка чекала на них перед видачею будь-чого; тепер фото, ціна й
+ * кнопка йдуть одразу, а рекомендації доїжджають потоком. Це замінює
+ * `loading.tsx`, який довелось прибрати: будь-який скелет сегмента вмикав
+ * стрімінг ще до рендеру, і `notFound()` уже не міг поставити код 404 —
+ * неіснуючий товар віддавав «200 OK» з текстом помилки, тож Google
+ * індексував мертві адреси старого сайту.
+ */
+async function ProductRecommendations({
+  product,
+}: {
+  product: Parameters<typeof productRecommendations>[0];
+}) {
+  const { boughtTogether, sameType } = await productRecommendations(product);
+  return (
+    <>
+      <RecoGrid title="Часто купують разом" items={boughtTogether} icon="together" />
+      <RecoGrid title="Інші розміри та виробники" items={sameType} icon="sizes" />
+    </>
+  );
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProduct(slug);
-  if (!product) return {};
+  if (!product) notFound();
 
   const price = product.isPromo && product.promoPrice ? product.promoPrice : product.price;
   const plainDescription = stripHtml(product.description);
@@ -86,31 +108,13 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
   if (!product) notFound();
 
-  // Схожі товари — той самий тип, але інші розміри й виробники (для круга
-  // відрізного це круги інших фірм і діаметрів). Категорія тут не помічник:
-  // у звалищі «Імпорт з 1С» лежить 40+ тис. випадкових позицій, тож тип
-  // визначаємо за назвою, а на бренд спираємось лише як на запасний варіант.
   // Факти («Характеристики», «Комплектація») виносимо з опису в картки під
   // фото — див. lib/catalog/description-sections. Проза лишається текстом.
-  const { specs, kit, rest: descriptionRest } = splitDescription(product.description);
-
-  const sameType = await findSameType(product, 4);
-  const relatedProducts =
-    sameType.length > 0
-      ? sameType
-      : await prisma.product.findMany({
-          where: {
-            ...(isServiceCategory(product.category.name) && product.brandId
-              ? { brandId: product.brandId }
-              : { categoryId: product.categoryId }),
-            id: { not: product.id },
-            ...showableProductWhere(),
-          },
-          // brandId — щоб обидві гілки давали однаковий тип, інакше union
-          // двох різних масивів ламає вивід типу в .map() нижче
-          select: { id: true, name: true, slug: true, price: true, image: true, brandId: true },
-          take: 4,
-        });
+  // Перед цим чистимо розмітку: в описах лежать <img> на сайти постачальників,
+  // жодна з тих картинок не завантажується (див. sanitize-description).
+  const { specs, kit, rest: descriptionRest } = splitDescription(
+    sanitizeDescription(product.description)
+  );
 
   // Крихти для JSON-LD — той самий ланцюжок, що видно в <nav> нижче.
   const crumbs = [
@@ -129,7 +133,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       <JsonLd data={productJsonLd(product)} />
       <JsonLd data={breadcrumbJsonLd(crumbs)} />
       <ProductViewTracker productId={product.id} slug={product.slug} />
-      <nav className="breadcrumb-scroll text-sm text-[#9E9E9E] mb-4 sm:mb-6">
+      <nav className="breadcrumb-scroll text-sm text-[#6B6B6B] mb-4 sm:mb-6">
         <Link href="/catalog" className="hover:text-[#FFB800]">Каталог</Link>
         <span className="text-[#DADADA]">{" / "}</span>
         {/* Службова категорія 1С покупцю нічого не каже — там ведемо по бренду,
@@ -170,8 +174,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         {/* Right column — info. flow-root робить свій контекст форматування,
             щоб блок ціни став поруч із фото, а не заповз під нього фоном. */}
         <div className="md:flow-root">
+          {/* Темна вохра, а не жовтий #FFB800: жовтий на білому дає контраст
+              1,6:1 — напис фізично не читається, хоч і виглядає «фірмово». */}
           {productLabel(product.category, product.brand) && (
-            <span className="text-sm text-primary-dark font-medium">
+            <span className="text-sm font-medium text-[#8A6A00]">
               {productLabel(product.category, product.brand)}
             </span>
           )}
@@ -224,58 +230,21 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <ProductDescription description={descriptionRest} />
       </div>
 
-      {/* AI Accessories */}
+      {/*
+        Три блоки, кожен відповідає на своє питання, і жоден не повторює інший:
+        чим доповнити (Gemini), що беруть разом (історія замовлень або граф
+        супутніх типів), які є інші розміри й виробники.
+
+        Блоку «Схожі товари (AI)» тут більше немає. Він не з'явився ні на одній
+        із 36 перевірених карток, бо таблиця ProductEmbedding порожня, а
+        заповнити її — не вихід: findSimilarProducts вантажить УСІ вектори з
+        бази і розбирає їх з JSON на кожен показ картки (21 тис. рядків по
+        3072 числа). Та сама відповідь дешевше дається блоком «Інші розміри».
+      */}
       <AiAccessories productId={product.id} />
-
-      {/* AI Recommendations - Bought Together */}
-      <AiRecommendations
-        productId={product.id}
-        type="bought_together"
-        title="Часто купують разом"
-      />
-
-      {/* AI Recommendations - Similar */}
-      <AiRecommendations
-        productId={product.id}
-        type="similar"
-        title="Схожі товари (AI)"
-      />
-
-      {relatedProducts.length > 0 && (
-        <div className="mt-10">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-bk-muted to-bk flex items-center justify-center shadow-sm">
-              <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-bk">Інші розміри та виробники</h2>
-          </div>
-          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-            {relatedProducts.map((p) => (
-              <Link
-                key={p.id}
-                href={`/catalog/${p.slug}`}
-                className="bg-white border border-g200 rounded-xl overflow-hidden hover:shadow-lg hover:border-primary/50 hover:-translate-y-0.5 active:scale-[0.98] transition-[box-shadow,border-color,transform] duration-150 group"
-              >
-                <div className="relative h-32 bg-g50 flex items-center justify-center">
-                  {p.image ? (
-                    <Image src={p.image} alt={p.name} fill className="object-contain p-2" sizes="(max-width: 640px) 33vw, 25vw" />
-                  ) : (
-                    <NoPhoto label={null} size="sm" />
-                  )}
-                </div>
-                <div className="p-2.5">
-                  <h3 className="font-medium text-xs text-bk group-hover:text-primary-dark transition line-clamp-2 mb-1.5">
-                    {p.name}
-                  </h3>
-                  <span className="text-sm font-bold text-bk">{formatPrice(p.price)}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <Suspense fallback={null}>
+        <ProductRecommendations product={product} />
+      </Suspense>
     </div>
   );
 }

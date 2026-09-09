@@ -42,6 +42,7 @@ export default function CheckoutPage() {
   const [error, setError] = useState("");
   const [errors, setErrors] = useState<Partial<Record<keyof Draft, string>>>({});
   const [loading, setLoading] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
 
   /** Знімає підказку з поля, щойно людина почала його виправляти. */
   const set = (patch: Partial<Draft>) => {
@@ -68,7 +69,29 @@ export default function CheckoutPage() {
     } catch {
       /* зіпсована чернетка не має ламати оформлення */
     }
+    setDraftRestored(true);
   }, []);
+
+  /*
+    Зберігаємо чернетку на кожну зміну, а не при відправці.
+
+    Читання чернетки тут було з самого початку, а запис стояв усередині
+    handleSubmit — тобто зберігалось лише те, що вже успішно відправили, а
+    читати було нічого. Заповнена форма гинула від будь-якого перезавантаження
+    чи випадкового «назад»: перевірка показала порожні поля й відсутній ключ
+    budvik_checkout у сховищі.
+
+    draftRestored — щоб перший прогін не поклав порожню форму поверх
+    збереженої: обидва ефекти виконуються на монтуванні.
+  */
+  useEffect(() => {
+    if (!draftRestored) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    } catch {
+      /* приватний режим або повне сховище — оформлення це ламати не має */
+    }
+  }, [form, draftRestored]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
@@ -121,7 +144,6 @@ export default function CheckoutPage() {
     }
 
     setLoading(true);
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
 
     const res = await fetch("/api/orders", {
       method: "POST",

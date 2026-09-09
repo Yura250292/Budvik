@@ -1,26 +1,29 @@
 import { NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { chatWithGemini } from "@/lib/ai/gemini";
 import { getProductCatalogContext } from "@/lib/ai/context";
 import { showableProductWhere } from "@/lib/catalog/showable";
+import { RECO_SELECT } from "@/lib/catalog/related";
 
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const productId = searchParams.get("productId");
-
-    if (!productId) {
-      return NextResponse.json({ error: "productId is required" }, { status: 400 });
-    }
-
+/**
+ * Сумісні аксесуари та витратні матеріали до товару.
+ *
+ * Підбирає Gemini з контексту каталогу, далі пропозиції звіряються з базою —
+ * показуємо лише те, що справді є в продажу.
+ *
+ * **Кеш обовʼязковий.** До 09.09.2026 виклик ішов на КОЖЕН показ картки: живий
+ * запит до платного API плюс контекст каталогу на кожного відвідувача кожного
+ * з 6 486 товарів. Тепер відповідь живе добу на товар, тож ціна питання —
+ * один виклик на товар, а не на перегляд.
+ */
+const suggestAccessories = unstable_cache(
+  async (productId: string) => {
     const product = await prisma.product.findUnique({
       where: { id: productId },
       include: { category: true },
     });
-
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    }
+    if (!product) return null;
 
     const catalog = await getProductCatalogContext();
 
@@ -48,11 +51,11 @@ export async function GET(req: Request) {
       `Ти — система підбору аксесуарів для інструментів. Відповідай ТІЛЬКИ валідним JSON.\n\n${catalog}`
     );
 
-    // Parse AI response and find matching products
     let suggestions: { name: string; reason: string }[] = [];
     try {
       const cleaned = response.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-      suggestions = JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed)) suggestions = parsed;
     } catch {
       suggestions = [];
     }
@@ -77,7 +80,7 @@ export async function GET(req: Request) {
             id: { not: productId },
             OR: prefixes.map((p) => ({ name: { contains: p, mode: "insensitive" as const } })),
           },
-          include: { category: true },
+          select: RECO_SELECT,
           take: 100,
         })
       : [];
@@ -86,44 +89,56 @@ export async function GET(req: Request) {
     // назвах давав хибні влучення: у каталозі є товар з назвою «С», і він
     // підходив під будь-яку пропозицію, витісняючи правильний товар. Тому
     // зворотну перевірку робимо лише для назв, довших за 4 символи.
+    const seen = new Set<string>();
     const matched = suggestions
       .map((s) => {
-        const needle = s.name.toLowerCase();
+        const needle = (s.name ?? "").toLowerCase();
+        if (!needle) return null;
         const found = candidates.find((p) => {
           const name = p.name.toLowerCase();
           if (name.includes(needle.slice(0, 20))) return true;
           return name.length > 4 && needle.includes(name.slice(0, 20));
         });
-        return found ? { ...found, reason: s.reason } : null;
+        if (!found || seen.has(found.id)) return null;
+        seen.add(found.id);
+        return { ...found, reason: s.reason };
       })
-      .filter(Boolean);
+      .filter((x): x is NonNullable<typeof x> => x !== null);
 
-    // Якщо АІ не влучив у каталог — показуємо товари з ІНШИХ категорій
-    // (саме так поводився старий код: фільтр був `!==`, не `===`).
-    if (matched.length === 0) {
-      const fallback = await prisma.product.findMany({
-        where: {
-          ...showableProductWhere(),
-          id: { not: productId },
-          categoryId: { not: product.categoryId },
-        },
-        include: { category: true },
-        take: 4,
-      });
-      return NextResponse.json({
-        product: { id: product.id, name: product.name },
-        accessories: fallback,
-        type: "category_fallback",
-      });
+    // Не влучили в каталог — віддаємо порожньо, і блок ховається.
+    //
+    // Тут стояв запасний шлях «чотири товари з ІНШИХ категорій»: під
+    // заголовком «Сумісні аксесуари» покупцеві показували випадкові позиції.
+    // Це та сама хвороба, через яку «Часто купують разом» радив автомобільні
+    // компресори до туристичної ложки. Краще нічого, ніж навмання.
+    return { product: { id: product.id, name: product.name }, accessories: matched };
+  },
+  ["ai-accessories"],
+  { revalidate: 86_400, tags: ["ai-accessories"] }
+);
+
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const productId = searchParams.get("productId");
+
+    if (!productId) {
+      return NextResponse.json({ error: "productId is required" }, { status: 400 });
     }
 
-    return NextResponse.json({
-      product: { id: product.id, name: product.name },
-      accessories: matched,
-      type: "ai_matched",
-    });
+    const result = await suggestAccessories(productId);
+    if (!result) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ...result, type: "ai_matched" });
   } catch (error: unknown) {
-    console.error("AI Accessories error:", error);
-    return NextResponse.json({ error: "Помилка підбору аксесуарів" }, { status: 500 });
+    // Пишемо саму помилку в лог: коли Google зняв модель, у консолі браузера
+    // було лише «500», і вісім місць системи лежали мовчки три тижні.
+    console.error("AI Accessories error:", error instanceof Error ? error.message : error);
+    // Порожній список, а не 500: блок просто не показується, а картка товару
+    // лишається цілою. Червона помилка в консолі на кожній картці нічого
+    // покупцеві не давала.
+    return NextResponse.json({ accessories: [], type: "unavailable" });
   }
 }

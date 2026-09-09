@@ -193,11 +193,27 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
    * самий ключ, яким фільтруються товари без бренда.
    */
   const brandCounts: Record<string, number> = {};
-  for (const b of allBrands) {
-    const n = facets[b.id];
-    if (n) brandCounts[b.slug] = n;
+  if (isFuzzy) {
+    /*
+      Приблизна видача приходить не з buildWhere, а з пошуку за схожістю, тож
+      фасети про неї нічого не знають: на «перфоратор bosch» вони давали нуль
+      по всіх брендах, панель вважала, що чисел немає, і показувала глобальні
+      («SIGMA 3203») — за кліком по них відкривалась порожнеча.
+
+      Тут рахуємо просто по тому, що на екрані: панель обіцяє рівно те, що
+      покупець бачить.
+    */
+    for (const p of rawProducts) {
+      const key = p.brand?.slug ?? "none";
+      brandCounts[key] = (brandCounts[key] ?? 0) + 1;
+    }
+  } else {
+    for (const b of allBrands) {
+      const n = facets[b.id];
+      if (n) brandCounts[b.slug] = n;
+    }
+    if (facets.none) brandCounts.none = facets.none;
   }
-  if (facets.none) brandCounts.none = facets.none;
   const activeBrands = allBrands.filter((b) => filters.brands.includes(b.slug));
 
   // Заголовок читається зверху вниз по дереву: «Пензлі Polax» замість просто
@@ -235,7 +251,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
       <div className="mb-4">
         <h1 className="mb-1 text-2xl font-bold text-[#0A0A0A] sm:text-3xl">{title}</h1>
-        <p className="text-sm text-[#9E9E9E] sm:text-base">
+        <p className="text-sm text-[#6B6B6B] sm:text-base">
           {isFuzzy
             ? `За запитом «${filters.search}» точних збігів немає. Можливо, ви шукали:`
             : total > 0
@@ -293,7 +309,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
       <div className="mb-4">
         <div className="scrollbar-hide -mx-3 flex items-center gap-2 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0">
-          <span className="mr-1 hidden flex-shrink-0 text-xs font-medium text-[#9E9E9E] sm:inline">
+          <span className="mr-1 hidden flex-shrink-0 text-xs font-medium text-[#6B6B6B] sm:inline">
             Сортування:
           </span>
           {SORTS.map((opt) => (
@@ -333,6 +349,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             types={types}
             sections={sectionOptions}
             brandCounts={brandCounts}
+            // Числа завжди розраховані під видачу — навіть коли їх нуль.
+            facetsComputed
             priceBounds={priceBounds}
             attrFacets={attrFacets}
           />

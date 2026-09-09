@@ -39,7 +39,7 @@ export default function BrandShowcase({
         <div className="reveal mb-4 flex items-end justify-between gap-4 sm:mb-6">
           <div>
             <h2 className="text-xl font-bold text-[#0A0A0A] sm:text-3xl">Бренди</h2>
-            <p className="mt-0.5 text-sm text-[#9E9E9E]">
+            <p className="mt-0.5 text-sm text-[#6B6B6B]">
               Фірмові каталоги — з цінами й наявністю на складі
             </p>
           </div>

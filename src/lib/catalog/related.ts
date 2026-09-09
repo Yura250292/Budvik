@@ -222,9 +222,33 @@ function keywordsFilter(types: ProductType[]): Prisma.ProductWhereInput {
   };
 }
 
-type Candidate = { id: string; name: string; slug: string; price: number; image: string | null; brandId: string | null };
+export type Candidate = {
+  id: string;
+  name: string;
+  slug: string;
+  price: number;
+  image: string | null;
+  brandId: string | null;
+  stock: number;
+};
 
-const SELECT = { id: true, name: true, slug: true, price: true, image: true, brandId: true } as const;
+/**
+ * Поля рекомендованого товару. `stock` тут обовʼязковий, і це не дрібниця:
+ * без нього API віддавав 6 полів замість 36, компонент рахував
+ * `undefined > 0` і підписував УСІ поради «Немає» при живому залишку —
+ * зачисний круг із 985 шт. на складі виглядав недоступним.
+ */
+export const RECO_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  price: true,
+  image: true,
+  brandId: true,
+  stock: true,
+} as const;
+
+const SELECT = RECO_SELECT;
 
 /**
  * Перемішує так, щоб поспіль не йшли товари одного бренда: інакше «інші

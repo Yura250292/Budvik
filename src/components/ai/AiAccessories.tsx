@@ -29,18 +29,14 @@ export default function AiAccessories({ productId }: { productId: string }) {
       .finally(() => setLoading(false));
   }, [productId]);
 
-  if (loading) {
-    return (
-      <div className="mt-10">
-        <h3 className="text-xl font-bold text-bk mb-4">Сумісні аксесуари</h3>
-        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-g100 rounded-xl h-56 animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  /*
+    Поки Gemini думає — не показуємо нічого.
+    Тут стояв скелетон із чотирьох плиток, і на непрогрітому товарі він висів
+    до десяти секунд, після чого міг просто зникнути (аксесуарів не знайшлось).
+    Блок стоїть під описом, тож поява без попередження нікому не мішає, а
+    порожнє мигання плиток виглядало як несправність.
+  */
+  if (loading) return null;
 
   if (accessories.length === 0) return null;
 
@@ -54,7 +50,7 @@ export default function AiAccessories({ productId }: { productId: string }) {
         </div>
         <h3 className="text-xl font-bold text-bk">Сумісні аксесуари та витратні матеріали</h3>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {accessories.map((acc) => (
           <Link
             key={acc.id}
@@ -63,7 +59,7 @@ export default function AiAccessories({ productId }: { productId: string }) {
           >
             <div className="relative h-32 bg-g50 flex items-center justify-center">
               {acc.image ? (
-                <Image src={acc.image} alt={acc.name} fill className="object-contain p-2" sizes="(max-width: 640px) 33vw, 25vw" />
+                <Image src={acc.image} alt={acc.name} fill className="object-contain p-2" sizes="(max-width: 640px) 50vw, 25vw" />
               ) : (
                 <NoPhoto size="sm" />
               )}

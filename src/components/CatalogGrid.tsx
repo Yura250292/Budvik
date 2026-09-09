@@ -47,7 +47,7 @@ export default function CatalogGrid({ products }: { products: Product[] }) {
     <>
       {/* View mode switcher */}
       <div className="flex items-center justify-end gap-1 mb-3">
-        <span className="text-xs text-[#9E9E9E] mr-1 hidden sm:inline">Вигляд:</span>
+        <span className="text-xs text-[#6B6B6B] mr-1 hidden sm:inline">Вигляд:</span>
         {/* Grid / Tile */}
         <button
           onClick={() => changeView("grid")}

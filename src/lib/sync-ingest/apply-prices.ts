@@ -109,7 +109,42 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
 
     const updates: { price?: number; wholesalePrice?: number; priceDerived?: boolean } = {};
 
-    if (rec.retail !== undefined && Number.isFinite(rec.retail)) {
+    const hasWholesale = rec.wholesale !== undefined && Number.isFinite(rec.wholesale);
+
+    /**
+     * Роздріб, який не вищий за опт, роздрібом не вважаємо.
+     *
+     * Перевірка вітрини 08.09.2026 знайшла 973 показних товари (15% каталогу),
+     * де ціна на сайті менша або рівна закупівельній: APRO Гвинт-шуруп M10×100
+     * — 7,09 ₴ проти 7,36 ₴ опту, APRO Рулетка 5 м — 188,28 проти 195,50.
+     * Такий товар можна покласти в кошик і замовити, тобто магазин продає
+     * собі в збиток, і це не помилка показу, а справжня ціна.
+     *
+     * Причина не в обміні, а в тому, що ми брали «6.МАГАЗИНИ» як є: там, де
+     * роздріб не оновлювали роками, а опт зріс, він опинився нижче. Тепер
+     * такий випадок іде тим самим шляхом, що й «роздрібної ціни в 1С немає
+     * взагалі»: рахуємо з опту × коефіцієнт бренду (нижче в цьому ж циклі).
+     *
+     * Виправляємо на боці сайту навмисно — у 1С не пишемо нічого (CLAUDE.md).
+     */
+    const retailBelowCost =
+      rec.retail !== undefined &&
+      Number.isFinite(rec.retail) &&
+      hasWholesale &&
+      rec.retail! <= rec.wholesale!;
+
+    if (retailBelowCost) {
+      ctx.discrepancy({
+        entityType: "product",
+        entityRef: product.sku || rec.externalId,
+        entityName: product.name,
+        field: "retail_below_cost",
+        value1C: `роздріб ${rec.retail} ≤ опт ${rec.wholesale}`,
+        valueBudvik: String(product.price),
+      });
+    }
+
+    if (!retailBelowCost && rec.retail !== undefined && Number.isFinite(rec.retail)) {
       // Розрахункова ціна — не облікова: справжній роздріб із 1С приймаємо без
       // запобіжника, бо порівнювати його з нашою ж оцінкою нема сенсу.
       const oldPrice = product.priceDerived ? 0 : product.price || 0;
@@ -160,8 +195,8 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
       }
     }
 
-    const hasRetail = rec.retail !== undefined && Number.isFinite(rec.retail);
-    const hasWholesale = rec.wholesale !== undefined && Number.isFinite(rec.wholesale);
+    const hasRetail =
+      rec.retail !== undefined && Number.isFinite(rec.retail) && !retailBelowCost;
 
     if (hasRetail && product.priceDerived) {
       // В 1С нарешті зʼявився справжній роздріб — він витісняє розрахунковий.

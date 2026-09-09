@@ -1,6 +1,29 @@
 "use client";
 
-// Known characteristic keys to detect in plain text descriptions
+/**
+ * Опис товару.
+ *
+ * Опис приходить або готовим HTML (розбір каталогів постачальників), або
+ * простим текстом із переносами рядків — таких у каталозі 1 498 із 6 486.
+ * Саме простий текст і виглядав погано: кожен рядок ставав окремим абзацом
+ * однакової ваги, тож на картці круга ATAMAN виходило
+ *
+ *     Склад
+ *     95% - оксид алюмінію
+ *     5% - цирконій
+ *     Застосовується для різання
+ *     вуглецевих, конструкційних і легованих типів сталі
+ *     Переваги
+ *     • мінімальна вартість одного різу в Україні
+ *
+ * — тобто заголовки не відрізнялись від тексту, речення було розірване
+ * навпіл між двома абзацами, а перелік не був переліком.
+ *
+ * Тут це складається назад: рядки-продовження зшиваються в речення, короткі
+ * рядки без крапки стають заголовками, пункти з «•» — списком.
+ */
+
+/** Відомі ключі характеристик — щоб виділити «Ключ: значення» в рядку. */
 const CHAR_KEYS = [
   "Розмір", "Зріст", "Окружність", "Ширина", "Довжина", "Висота",
   "Колір", "Матеріал", "Грамаж", "Вага", "Маса", "Потужність",
@@ -17,85 +40,108 @@ function isHtml(text: string): boolean {
   return /<[a-z][\s\S]*>/i.test(text);
 }
 
-function formatPlainText(text: string): string {
-  // Build regex to match characteristic key-value pairs
-  const keysPattern = CHAR_KEYS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const charRegex = new RegExp(`(${keysPattern})\\s*[:：]?\\s*`, "gi");
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-  // Split text into segments by characteristic keys
-  const lines = text.split(/\n/).filter((l) => l.trim());
+const BULLET = /^\s*[•·‣▪]\s*/;
 
-  if (lines.length <= 1) {
-    // Single block of text — try to detect characteristic pairs
-    // Pattern: "Key value Key value..." without newlines
-    const parts: string[] = [];
-    let remaining = text;
-    let lastIndex = 0;
+function isBullet(line: string): boolean {
+  return BULLET.test(line);
+}
 
-    const matches = [...text.matchAll(new RegExp(`(?:^|\\s)(${keysPattern})\\s`, "gi"))];
+/**
+ * Рядок схожий на заголовок секції: «Склад», «Переваги», «Комплектація».
+ *
+ * Самої лише короткості замало. За першою версією заголовками ставали й
+ * «95% - оксид алюмінію» та «5% - цирконій» — короткі, без крапки в кінці,
+ * але це вміст, а не назва розділу. Тому три обмеження: не починається з
+ * цифри, не має тире-роздільника й не довший за чотири слова.
+ */
+function isHeading(line: string, next: string | undefined): boolean {
+  if (!next) return false;
+  const t = line.trim();
+  if (t.length === 0 || t.length > 44) return false;
+  if (isBullet(t)) return false;
+  if (/[.,;!?]$/.test(t)) return false;
+  // «Ключ: значення» — характеристика, а не заголовок
+  if (/^[^:]{1,40}:\s*\S/.test(t)) return false;
+  // «95% - оксид алюмінію», «12 В», «2,5 мм» — значення
+  if (/^\d/.test(t)) return false;
+  // Тире між частинами рядка — теж пара «щось — щось», не назва розділу
+  if (/\s[-–—]\s/.test(t)) return false;
+  if (t.split(/\s+/).length > 4) return false;
+  return true;
+}
 
-    if (matches.length >= 3) {
-      // Multiple characteristics found — format as table
-      let specs: { key: string; value: string }[] = [];
-      let descriptionPart = "";
-
-      for (let i = 0; i < matches.length; i++) {
-        const match = matches[i];
-        const start = match.index! + (match[0].startsWith(" ") ? 1 : 0);
-
-        // Text before first match is intro
-        if (i === 0 && start > 0) {
-          descriptionPart = text.slice(0, start).trim();
-        }
-
-        const key = match[1];
-        const nextStart = i < matches.length - 1 ? matches[i + 1].index! : text.length;
-        let value = text.slice(start + key.length, nextStart).trim();
-
-        // Check if value contains a sentence (description part after specs)
-        const sentenceBreak = value.search(/[.!?]\s+[А-ЯІЇЄҐA-Z]/);
-        if (sentenceBreak > 0 && i === matches.length - 1) {
-          descriptionPart += " " + value.slice(sentenceBreak + 1).trim();
-          value = value.slice(0, sentenceBreak + 1).trim();
-        }
-
-        specs.push({ key, value: value.replace(/^\s*[:：]\s*/, "") });
-      }
-
-      let html = "";
-      if (specs.length > 0) {
-        html += '<div class="product-specs">';
-        html += '<table class="specs-table">';
-        for (const { key, value } of specs) {
-          html += `<tr><td class="spec-key">${key}</td><td class="spec-value">${value}</td></tr>`;
-        }
-        html += "</table></div>";
-      }
-      if (descriptionPart) {
-        html += `<div class="product-text">${descriptionPart}</div>`;
-      }
-      return html;
-    }
+/**
+ * Зшиває рядки, розірвані переносом посеред речення.
+ *
+ * Ознака розриву: попередній рядок не закінчується розділовим знаком, а
+ * наступний починається з малої літери. Саме так у базі лежить
+ * «Застосовується для різання» + «вуглецевих, конструкційних і легованих
+ * типів сталі» — одне речення у двох абзацах.
+ */
+function joinWrapped(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const prev = out[out.length - 1];
+    const continues =
+      prev !== undefined &&
+      !isBullet(prev) &&
+      !isBullet(line) &&
+      !/[.:!?»)]$/.test(prev) &&
+      /^[а-яґєії\p{Ll}]/u.test(line);
+    if (continues) out[out.length - 1] = `${prev} ${line}`;
+    else out.push(line);
   }
+  return out;
+}
 
-  // Multi-line text or no clear specs — format paragraphs
-  let html = "";
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Bold characteristic key if found
-    let formatted = trimmed;
-    for (const key of CHAR_KEYS) {
-      const regex = new RegExp(`^(${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\s*[:：]?\\s*(.+)`, "i");
-      const m = formatted.match(regex);
-      if (m) {
-        formatted = `<strong>${m[1]}:</strong> ${m[2]}`;
-        break;
-      }
-    }
-    html += `<p>${formatted}</p>`;
+/** Виділяє «Потужність 750 Вт» жирним ключем, якщо ключ відомий. */
+function withBoldKey(line: string): string {
+  for (const key of CHAR_KEYS) {
+    const re = new RegExp(`^(${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\s*[:：]?\\s*(.+)$`, "i");
+    const m = line.match(re);
+    if (m) return `<strong>${escapeHtml(m[1])}:</strong> ${escapeHtml(m[2])}`;
   }
-  return html;
+  return escapeHtml(line);
+}
+
+export function formatPlainText(text: string): string {
+  const lines = joinWrapped(text.split(/\r?\n/));
+  if (lines.length === 0) return "";
+
+  const html: string[] = [];
+  let bullets: string[] = [];
+
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    html.push(`<ul>${bullets.map((b) => `<li>${withBoldKey(b)}</li>`).join("")}</ul>`);
+    bullets = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (isBullet(line)) {
+      bullets.push(line.replace(BULLET, "").trim());
+      continue;
+    }
+    flushBullets();
+
+    if (isHeading(line, lines[i + 1])) {
+      html.push(`<h3>${escapeHtml(line)}</h3>`);
+      continue;
+    }
+
+    html.push(`<p>${withBoldKey(line)}</p>`);
+  }
+  flushBullets();
+
+  return html.join("");
 }
 
 interface Props {
@@ -103,28 +149,16 @@ interface Props {
 }
 
 export default function ProductDescription({ description }: Props) {
-  if (!description || !description.trim()) {
-    return null;
-  }
+  if (!description || !description.trim()) return null;
 
-  const hasHtml = isHtml(description);
-
-  if (hasHtml) {
-    return (
-      <div
-        className="product-description mt-5 text-g500 leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: description }}
-      />
-    );
-  }
-
-  // Plain text — auto-format
-  const formatted = formatPlainText(description);
+  // Готовий HTML лишаємо як є — його вже почистив sanitizeDescription на
+  // сервері (чужі картинки, скрипти, обробники подій).
+  const html = isHtml(description) ? description : formatPlainText(description);
 
   return (
     <div
       className="product-description mt-5 text-g500 leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: formatted }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }

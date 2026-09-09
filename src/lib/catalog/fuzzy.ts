@@ -15,21 +15,46 @@ import { prisma } from "@/lib/prisma";
  * означало б псувати робочі запити.
  */
 
-/** Нижче цього збіг уже випадковий. Дефолт pg — 0.3, але на назвах товарів
- *  з купою службових слів («Круг відрізний по металу…») він шумить. */
-const MIN_SIMILARITY = 0.32;
+/**
+ * Поріг для `word_similarity` — схожості запиту з НАЙБЛИЖЧИМ шматком назви.
+ *
+ * Тут була `similarity()`, тобто схожість запиту з назвою ЦІЛКОМ, і на
+ * товарних назвах вона не працювала: «балгарка» проти «Grösser Болгарка
+ * акумуляторна GAG 120KBS» дає 0.14, бо решта назви до запиту не подібна.
+ * Одруки не рятувались зовсім — «балгарка» віддавала «Товарів не знайдено»,
+ * хоча болгарки лежать на складі.
+ *
+ * `word_similarity` порівнює запит із найкращим уривком назви: та сама
+ * «балгарка» дає 0.56, «шурупроверт» — 0.64, «дриль» — 1.0. Поріг 0.5
+ * пропускає ці три й відсікає сміття: «ъъъ», «asdfghjk», «кругвидризний»
+ * не дають нічого.
+ */
+const MIN_WORD_SIMILARITY = 0.5;
 
 export async function trigramSearchIds(query: string, take: number): Promise<string[]> {
   const q = query.trim().toLowerCase();
   if (q.length < 3) return [];
 
+  /*
+   * Спершу те, що можна купити.
+   *
+   * Тут стояло `ORDER BY similarity DESC, stock DESC` — і на запиті
+   * «перфоратор bosch» усі 24 місця забрали BOSCH-перфоратори, яких немає на
+   * складі: за схожістю назви вони найкращі, а `stock DESC` до діла не
+   * доходив, бо ліміт відрізав раніше. Покупець бачив 21 сіру картку
+   * «Немає в наявності» — і жодного з 19 перфораторів, що лежать на складі.
+   *
+   * Тому наявність — перший критерій сортування, схожість — другий.
+   * Відсутні позиції лишаються у хвості: людина, яка шукала саме BOSCH,
+   * побачить, що ми його знаємо, але спершу отримає те, що продається.
+   */
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     SELECT id
     FROM "Product"
     WHERE "isActive" = true
       AND price > 0
-      AND similarity(lower(name), ${q}) > ${MIN_SIMILARITY}
-    ORDER BY similarity(lower(name), ${q}) DESC, stock DESC
+      AND word_similarity(${q}, lower(name)) > ${MIN_WORD_SIMILARITY}
+    ORDER BY (stock > 0) DESC, word_similarity(${q}, lower(name)) DESC
     LIMIT ${take}
   `;
   return rows.map((r) => r.id);

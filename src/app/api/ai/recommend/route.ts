@@ -2,89 +2,37 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { findSimilarProducts } from "@/lib/ai/embeddings";
-import { showableProductWhere } from "@/lib/catalog/showable";
-import { isServiceCategory } from "@/lib/catalog/category-display";
-import { findComplementary } from "@/lib/catalog/related";
+import { productRecommendations } from "@/lib/catalog/recommendations";
 
+/**
+ * Рекомендації для сторонніх викликів (застосунок, майбутні екрани).
+ *
+ * Вітрина цим роутом більше не користується: обидва блоки картки товару
+ * збираються на сервері разом зі сторінкою. Логіка тут НЕ дублюється —
+ * і `similar`, і `bought_together` кличуть ту саму
+ * `productRecommendations`, інакше знову розійдуться.
+ */
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const productId = searchParams.get("productId");
     const type = searchParams.get("type") || "similar"; // similar | bought_together | personal
 
-    if (type === "similar" && productId) {
-      // Find semantically similar products
-      const similar = await findSimilarProducts(productId, 6);
-      const products = await prisma.product.findMany({
-        where: { id: { in: similar.map((s) => s.productId) }, ...showableProductWhere() },
-        include: { category: true },
+    if ((type === "similar" || type === "bought_together") && productId) {
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        include: { category: { select: { name: true } } },
       });
-      const scoreMap = new Map(similar.map((s) => [s.productId, s.score]));
-      products.sort((a, b) => (scoreMap.get(b.id) || 0) - (scoreMap.get(a.id) || 0));
-      return NextResponse.json({ products, type: "similar" });
-    }
+      if (!product) return NextResponse.json({ products: [], type });
 
-    if (type === "bought_together" && productId) {
-      // Find products frequently bought together via order history
-      const ordersWithProduct = await prisma.orderItem.findMany({
-        where: { productId },
-        select: { orderId: true },
-      });
-      const orderIds = ordersWithProduct.map((o) => o.orderId);
-
-      if (orderIds.length === 0) {
-        // Без історії замовлень блок має лишатись осмисленим: до круга
-        // радимо болгарку і захист, до бура — перфоратор. Це СУПУТНІ товари,
-        // а не «схожі» — інакше цей блок дублює нижній.
-        const product = await prisma.product.findUnique({
-          where: { id: productId },
-          include: { category: true },
-        });
-        if (!product) return NextResponse.json({ products: [], type: "bought_together" });
-
-        const complementary = await findComplementary(product, 4);
-        if (complementary.length > 0) {
-          return NextResponse.json({ products: complementary, type: "bought_together" });
-        }
-
-        // Тип не розпізнали — лишається сусідство. Для товарів зі звалища
-        // «Імпорт з 1С» категорія нічого не значить, тому там беремо бренд.
-        const neighborhood =
-          isServiceCategory(product.category?.name) && product.brandId
-            ? { brandId: product.brandId }
-            : { categoryId: product.categoryId };
-
-        const products = await prisma.product.findMany({
-          where: { ...neighborhood, id: { not: productId }, ...showableProductWhere() },
-          include: { category: true },
-          take: 4,
-        });
-        return NextResponse.json({ products, type: "bought_together" });
-      }
-
-      const coItems = await prisma.orderItem.findMany({
-        where: { orderId: { in: orderIds }, productId: { not: productId } },
-        include: { product: { include: { category: true } } },
-      });
-
-      // Count co-occurrences
-      const counts: Record<string, { product: typeof coItems[0]["product"]; count: number }> = {};
-      for (const item of coItems) {
-        if (!item.product.isActive || item.product.stock <= 0 || item.product.price <= 0) continue;
-        if (!counts[item.productId]) {
-          counts[item.productId] = { product: item.product, count: 0 };
-        }
-        counts[item.productId].count++;
-      }
-
-      const sorted = Object.values(counts)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6);
-
+      const { boughtTogether, sameType } = await productRecommendations(product);
+      // `similar` історично означало «схожі товари». Семантичного пошуку тут
+      // більше немає (ProductEmbedding порожня, а перебір усіх векторів на
+      // кожен запит коштує занадто дорого) — віддаємо той самий тип іншими
+      // розмірами й виробниками, що й показує вітрина.
       return NextResponse.json({
-        products: sorted.map((s) => s.product),
-        type: "bought_together",
+        products: type === "similar" ? sameType : boughtTogether,
+        type,
       });
     }
 

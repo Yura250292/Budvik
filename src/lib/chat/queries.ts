@@ -465,6 +465,35 @@ export async function markRead(me: Me, key: string, upTo: Date): Promise<Date> {
   return rows[0]?.readAt ?? upTo;
 }
 
+/**
+ * Лише число для бейджа — своїм, легким запитом.
+ *
+ * Через summarize() це коштувало б приєднаного автора, лічильника фото й
+ * довідника людей на КОЖНЕ опитування з кожної вкладки кабінету, тобто раз
+ * на хвилину на людину цілий день. Тут з бази їдуть лише поля, з яких
+ * виводиться ключ розмови.
+ */
 export async function unreadTotal(me: Me): Promise<number> {
-  return (await summarize(me)).totalUnread;
+  const [reads, recent] = await Promise.all([
+    prisma.staffChatRead.findMany({ where: { userId: me.userId }, select: { conversation: true, readAt: true } }),
+    prisma.staffMessage.findMany({
+      where: { AND: [visibleWhere(me), { authorId: { not: me.userId } }] },
+      orderBy: { createdAt: "desc" },
+      take: SUMMARY_WINDOW,
+      select: { id: true, toAll: true, toRoles: true, toUserId: true, authorId: true, createdAt: true },
+    }),
+  ]);
+
+  const readAt = new Map(reads.map((r) => [r.conversation, r.readAt.getTime()]));
+  let total = 0;
+  for (const m of recent) {
+    // Повідомлення в кілька груп рахуємо ОДИН раз: для офісу воно інакше
+    // додавало б по одиниці за кожну галочку відправника.
+    const unread = keysOf(m).some((key) => {
+      const k = parseKey(key);
+      return k && canRead(me, k) && m.createdAt.getTime() > (readAt.get(key) ?? 0);
+    });
+    if (unread) total += 1;
+  }
+  return total;
 }

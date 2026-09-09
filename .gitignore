@@ -84,6 +84,11 @@ output/unifix-catalog/
 # Зібране з сайтів виробників — фото лежать у R2, у git їм робити нічого
 output/vendor-*/
 
+# Перевірка фото очима (scripts/photo-audit.mts): контактні листи й кеш
+# завантажених знімків. Це проміжний матеріал огляду, а не результат —
+# результат живе в базі й у зліпку scripts/backup-*.json.
+output/photo-audit/
+
 # Кеш Gradle нативного модуля треку: сміття від локальних прогонів expo export,
 # яке інакше щоразу висить у git status і одного дня заїде в коміт.
 mobile/modules/*/android/.gradle/

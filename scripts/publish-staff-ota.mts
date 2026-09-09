@@ -95,8 +95,31 @@ function nativeDriftSince(version: string): string | null {
   }
   if (!built) return `не знайшов у git коміт, яким випущено ${version}`;
 
-  const changed = git(["diff", "--name-only", `${built}..HEAD`, "--", "mobile/package.json"]);
-  return changed ? `mobile/package.json змінювався після ${version} (${built})` : null;
+  /**
+   * Порівнюємо САМІ ЗАЛЕЖНОСТІ, а не файл цілком.
+   *
+   * Перша версія цієї перевірки дивилася на `git diff` по всьому
+   * `mobile/package.json` — і того ж дня зупинила публікацію через
+   * перейменований npm-скрипт. Запобіжник, який спрацьовує на порожньому
+   * місці, вимикають назавжди після другого разу, а цей вимикати не можна: він
+   * єдиний стоїть між «довезли виправлення» і «застосунок падає на старті».
+   *
+   * Нативну оболонку визначають рівно `dependencies` і `devDependencies`
+   * (серед других живуть плагіни конфігурації). `scripts`, `name`, версія
+   * самого package.json на те, що зібрано в APK, не впливають ніяк.
+   */
+  const deps = (rev: string): string => {
+    const raw = execFileSync("git", ["show", `${rev}:mobile/package.json`], {
+      cwd: ROOT,
+      encoding: "utf-8",
+    });
+    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    return JSON.stringify({ d: pkg.dependencies ?? {}, dev: pkg.devDependencies ?? {} });
+  };
+
+  return deps(built) === deps("HEAD")
+    ? null
+    : `залежності mobile/package.json змінювалися після ${version} (${built})`;
 }
 
 async function main() {

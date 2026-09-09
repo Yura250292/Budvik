@@ -17,8 +17,10 @@
  * коштує однієї пропущеної точки.
  */
 
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { TRACK_TASK } from "./task-name";
+import { exactGuardStatus } from "@modules/track-guard";
 import { getLastFix, getLastFixAt, getMode, setLastError } from "./state";
 
 /**
@@ -37,9 +39,57 @@ const STALE_MS: Record<"SHIFT" | "AFTER_SHIFT", number> = {
 const MIN_RETRY_MS = 5 * 60_000;
 let lastRestartAt = 0;
 
-export type HealthResult = "не-пишемо" | "свіжо" | "перепідписались" | "зарано-повторювати";
+export type HealthResult =
+  | "не-пишемо"
+  | "свіжо"
+  | "перепідписались"
+  | "зарано-повторювати"
+  | "чекаємо-вікна";
 
-export async function ensureFreshFixes(): Promise<HealthResult> {
+/**
+ * Скільки часу після спрацювання будильника вважати вікном дозволу.
+ *
+ * Android 12+ забороняє піднімати службу переднього плану з фону, але лишив
+ * винятки, і спрацювання ТОЧНОГО будильника — один із них. Вікно коротке:
+ * система дає його на час обробки й трохи по тому. Хвилина — свідомо
+ * обережна оцінка; помилитися тут краще в бік «не чіпати».
+ */
+const ALARM_WINDOW_MS = 60_000;
+
+/**
+ * Чи маємо ми зараз право підняти службу — і чи можна тому ЧІПАТИ підписку.
+ *
+ * Це найдорожча перевірка у файлі, і ось чому. Перепідписка — це зупинка й
+ * запуск наново. Зупинка вдається завжди, запуск із фону — ніколи. Тобто
+ * лікування, застосоване не в тому вікні, ГАРАНТОВАНО вбиває трек до миті,
+ * коли людина відкриє застосунок руками.
+ *
+ * За 14 днів до 09.09.2026 у журналі п'ять `start_failed`, і всі п'ять — це
+ * «Couldn't start the foreground». Жодного іншого приводу впасти в запуску не
+ * було взагалі: сто відсотків падінь — саме цей випадок. Перепідписок за той
+ * самий час 54, у всіх семи планшетів. Тобто сторож, покликаний лікувати
+ * мовчазний приймач, регулярно доробляв за нього роботу до кінця.
+ *
+ * Три законні вікна:
+ *   • передній план — дозволено завжди;
+ *   • будильник щойно спрацював (див. TrackAlarmReceiver.kickJs);
+ *   • пробудження сповіщенням — там своє тимчасове помилування від системи,
+ *     і викликач каже про це сам.
+ *
+ * У збірках без нативного модуля (до 1.6.1) лишається саме передній план — і
+ * це строго краще за сьогоднішнє «спробувати й убити».
+ */
+async function mayRestartService(pushWindow: boolean): Promise<boolean> {
+  if (AppState.currentState === "active") return true;
+  if (pushWindow) return true;
+  const guard = exactGuardStatus();
+  if (!guard.available || !guard.lastFiredAt) return false;
+  return Date.now() - guard.lastFiredAt < ALARM_WINDOW_MS;
+}
+
+export async function ensureFreshFixes(
+  opts: { pushWindow?: boolean } = {}
+): Promise<HealthResult> {
   const mode = await getMode();
 
   /**
@@ -66,9 +116,32 @@ export async function ensureFreshFixes(): Promise<HealthResult> {
   if (silentMs < STALE_MS[mode]) return "свіжо";
 
   if (Date.now() - lastRestartAt < MIN_RETRY_MS) return "зарано-повторювати";
-  lastRestartAt = Date.now();
 
   const minutes = Number.isFinite(silentMs) ? Math.round(silentMs / 60_000) : null;
+
+  /**
+   * Не маємо права підняти службу — не чіпаємо ту, що є.
+   *
+   * Мовчазний приймач — це погано, але підписка, яку зупинили й не змогли
+   * запустити, — це гарантовано мертвий день. Наступне спрацювання будильника
+   * (щонайпізніше за чверть години) прийде вже у вікні дозволу й полікує те
+   * саме, нічого не ламаючи. Різниця в ціні помилки: тут ми ризикуємо
+   * п'ятнадцятьма хвилинами, там — усім, що лишилося до вечора.
+   *
+   * Причина їде в пульс: із сервера «чекаємо вікна» і «перепідписались»
+   * мусять розрізнятися, інакше розбір знову впреться в те, що прапорці
+   * бездоганні, а точок немає.
+   */
+  if (!(await mayRestartService(opts.pushWindow === true))) {
+    await setLastError(
+      minutes === null
+        ? "жодного фікса — чекаємо вікна дозволу"
+        : `приймач мовчав ${minutes} хв — чекаємо вікна дозволу`
+    );
+    return "чекаємо-вікна";
+  }
+
+  lastRestartAt = Date.now();
   await setLastError(
     minutes === null ? "жодного фікса — перепідписка" : `приймач мовчав ${minutes} хв — перепідписка`
   );

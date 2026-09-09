@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ChevronLeft, Sparkles } from "lucide-react";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { ChatHeaderButton } from "@/components/chat/ChatHeaderButton";
 
 /**
  * Темна шапка кабінету — спільна для торгового й водія.
@@ -29,6 +30,7 @@ export function CabinetHeader({
   right,
   sticky = true,
   hideAssistant = false,
+  hideChat = false,
 }: {
   title: string;
   /** Дрібний рядок над заголовком: роль, стан, кількість. */
@@ -48,6 +50,8 @@ export function CabinetHeader({
    * власному, де вона вела б сама в себе.
    */
   hideAssistant?: boolean;
+  /** Сховати кнопку чату — на самому екрані чату вона вела б у себе. */
+  hideChat?: boolean;
 }) {
   const isApp = useIsNativeApp();
   const pathname = usePathname();
@@ -82,6 +86,17 @@ export function CabinetHeader({
       ? "/warehouse/assistant"
       : "/sales/assistant";
   const showAssistant = !hideAssistant && !pathname.endsWith("/assistant");
+
+  /**
+   * Чат живе у своїй секції з тієї самої причини, що й помічник: адреса
+   * вирішує, чий гейт і чия нижня панель дістануться сторінці.
+   */
+  const chatHref = pathname.startsWith("/driver")
+    ? "/driver/chat"
+    : pathname.startsWith("/warehouse")
+      ? "/warehouse/chat"
+      : "/sales/chat";
+  const showChat = !hideChat && !/\/chat(\/|$)/.test(pathname);
 
   return (
     <header
@@ -149,6 +164,10 @@ export function CabinetHeader({
             звідки день починався. Шапка — єдине місце, спільне для всіх
             екранів обох кабінетів.
           */}
+          {/* Чат перед помічником: у нього приходять люди, а не відповіді,
+              і чекати їх довше. Обидві кнопки без плашки — на головній
+              торгового праворуч уже стоять дзвінок, вихід і аватар. */}
+          {showChat && <ChatHeaderButton href={chatHref} variant="dark" />}
           {showAssistant && (
             <Link
               href={assistantHref}

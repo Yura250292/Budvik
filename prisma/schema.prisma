@@ -270,6 +270,11 @@ model User {
 
   notifications Notification[]
 
+  // Чат персоналу
+  staffMessagesSent     StaffMessage[]  @relation("staffMessageAuthor")
+  staffMessagesReceived StaffMessage[]  @relation("staffMessageTo")
+  staffChatReads        StaffChatRead[]
+
   // Warehouse (Telegram bot) relations
   warehouseShifts        WarehouseShift[]       @relation("warehouseShiftWorker")
   warehouseReports       WarehouseReport[]      @relation("warehouseReportWorker")
@@ -3478,6 +3483,8 @@ model AssistantMessage {
   createdAt DateTime @default(now())
 
   thread AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  /// Куди цю відповідь пересилали в чат персоналу.
+  forwards StaffMessage[]
 
   @@index([threadId, createdAt])
 }
@@ -3596,4 +3603,92 @@ model PickSeenLine {
 
   @@unique([salesDocumentId, productId])
   @@index([salesDocumentId])
+}
+
+// ---------------------------------------------------------------------------
+// Чат персоналу
+// ---------------------------------------------------------------------------
+
+/// TEXT — звичайне повідомлення; ASSISTANT — переслана відповідь помічника
+/// (markdown у quote, власні слова автора — у text).
+enum StaffMessageKind {
+  TEXT
+  ASSISTANT
+}
+
+/// Повідомлення чату персоналу: у групу (toAll / toRoles) або одній людині (toUserId).
+///
+/// Розмова — не сутність у базі, а ключ, який виводиться з адреси повідомлення:
+/// `all`, `role-SALES`, `role-DRIVER`, `role-WAREHOUSE`, `dm-<a>-<b>` (id обох
+/// учасників, відсортовані — тому ключ один і для них, і для ADMIN) та `journal`
+/// (усе підряд, лише ADMIN). Повідомлення в [SALES, DRIVER] живе одразу в двох
+/// групових розмовах — саме тому адреса лежить у самому повідомленні, а не в
+/// таблиці розмов.
+model StaffMessage {
+  id       String           @id @default(cuid())
+  authorId String
+  kind     StaffMessageKind @default(TEXT)
+
+  /// Власні слова автора. Порожній, коли є лише фото або переслана відповідь.
+  text  String  @default("")
+  /// Переслана відповідь помічника (markdown). Лише для kind = ASSISTANT.
+  quote String?
+
+  /// Усім працівникам. Якщо true — toRoles порожній.
+  toAll    Boolean @default(false)
+  /// Групи-адресати: [SALES], [DRIVER], [SALES, DRIVER]… Офіс — член кожної.
+  toRoles  Role[]  @default([])
+  /// Особисте — рівно одній людині.
+  toUserId String?
+
+  /// Звідки переслано: посилання в markdown (/sales/clients/…) відкриваються
+  /// лише в тій секції, де їх написав помічник.
+  sourceAssistantMessageId String?
+  sourceSection            String?
+
+  createdAt DateTime @default(now())
+
+  author        User                @relation("staffMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  toUser        User?               @relation("staffMessageTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  sourceMessage AssistantMessage?   @relation(fields: [sourceAssistantMessageId], references: [id], onDelete: SetNull)
+  photos        StaffMessagePhoto[]
+
+  @@index([createdAt])
+  @@index([toUserId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+/// Фото в повідомленні: до 4, у порядку position.
+model StaffMessagePhoto {
+  id        String @id @default(cuid())
+  messageId String
+  /// Ключ у R2: chat/<yyyy>/<mm>/<userId>-<cuid>.jpg — id автора в ключі і є
+  /// перевіркою власності: чужий ключ до повідомлення не пришиєш.
+  key       String
+  url       String
+  width     Int
+  height    Int
+  bytes     Int
+  position  Int    @default(0)
+  createdAt DateTime @default(now())
+
+  message StaffMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, position])
+}
+
+/// До якого моменту людина дочитала розмову.
+///
+/// «Прочитано» тут — властивість пари людина+розмова, а не повідомлення:
+/// одне групове повідомлення читають десятеро, і по рядку на кожного це
+/// зайва таблиця заради того самого числа.
+model StaffChatRead {
+  userId       String
+  /// Ключ розмови: all, role-SALES, dm-<a>-<b>, journal.
+  conversation String
+  readAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, conversation])
 }

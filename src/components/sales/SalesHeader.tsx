@@ -18,6 +18,7 @@ export function SalesHeader({
   sticky = true,
   showProfile = true,
   hideAssistant = false,
+  hideChat = false,
 }: {
   title: string;
   /** Дрібний рядок над заголовком (роль, ім'я, кількість). */
@@ -31,6 +32,8 @@ export function SalesHeader({
   showProfile?: boolean;
   /** Екран помічника не показує кнопку, яка веде сам у себе. */
   hideAssistant?: boolean;
+  /** Те саме для чату. */
+  hideChat?: boolean;
 }) {
   return (
     <CabinetHeader
@@ -39,6 +42,7 @@ export function SalesHeader({
       backTo={backTo}
       sticky={sticky}
       hideAssistant={hideAssistant}
+      hideChat={hideChat}
       right={
         <>
           {right}

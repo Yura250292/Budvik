@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Mic, RotateCcw, SendHorizontal, Square, Volume2, VolumeX, Wrench } from "lucide-react";
+import { ChevronDown, Mic, RotateCcw, SendHorizontal, Share2, Square, Volume2, VolumeX, Wrench } from "lucide-react";
 import AssistantMarkdown from "./AssistantMarkdown";
 import { COPY } from "./copy";
 import { speak, speechOutputSupported, stopSpeaking } from "./voice";
@@ -22,12 +22,15 @@ export function MessageBubble({
   onAsk,
   backHref,
   linksAllowed = true,
+  onForward,
 }: {
   message: UiMessage;
   onAsk?: (text: string) => void;
   backHref?: string;
   /** Див. AssistantMarkdown: у складі картки клієнта закриті гейтом ролі. */
   linksAllowed?: boolean;
+  /** Переслати відповідь у чат персоналу. Немає — кнопки немає. */
+  onForward?: () => void;
 }) {
   if (message.role === "USER") {
     return (
@@ -58,6 +61,16 @@ export function MessageBubble({
       />
       <div className="mt-1 flex items-center gap-2">
         <SpeakButton text={message.content} />
+        {onForward && (
+          <button
+            type="button"
+            onClick={onForward}
+            className="flex h-7 items-center gap-1 rounded-full border border-cab-line px-2 text-[11px] font-semibold text-cab-t3"
+          >
+            <Share2 size={12} />
+            Переслати
+          </button>
+        )}
         {message.tools.length > 0 && (
           <div className="min-w-0 flex-1">
             <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />

@@ -5,6 +5,7 @@ import { signOut, useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import Breadcrumbs from "./Breadcrumbs";
 import NotificationsBell from "./NotificationsBell";
+import { ChatHeaderButton } from "@/components/chat/ChatHeaderButton";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/lib/useProfile";
 import { titleForPath, type AdminRole } from "@/lib/admin-nav";
@@ -114,6 +115,8 @@ export default function AdminHeader({
             </Link>
           )}
 
+          {/* Торговий у чат адмінки не ходить — у нього свій, у кабінеті. */}
+          {role !== "SALES" && <ChatHeaderButton href="/admin/chat" variant="admin" />}
           <NotificationsBell />
 
           <div className="relative" ref={menuRef}>

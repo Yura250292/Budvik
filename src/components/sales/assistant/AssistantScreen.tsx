@@ -24,6 +24,7 @@ import { useAssistantThread } from "./useAssistantThread";
 import { Composer, ErrorRow, MessageBubble, QuickPrompts, ThinkingRow } from "./parts";
 import AssistantMarkdown from "./AssistantMarkdown";
 import ThreadsSheet from "./ThreadsSheet";
+import ShareToChatSheet from "@/components/chat/ShareToChatSheet";
 import { deleteThread as deleteThreadApi, type ThreadSummary } from "./api";
 import { ADMIN_PROMPTS, CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
 
@@ -79,6 +80,13 @@ export default function AssistantScreen({
   const linksAllowed = section !== "warehouse";
   const [draft, setDraft] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
+  /**
+   * Яку відповідь пересилаємо в чат.
+   *
+   * Лише готову: у стрічці, поки вона друкується, id ще немає, а сервер
+   * приймає саме id — текст він бере з бази сам.
+   */
+  const [forwardId, setForwardId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const { data: meta, mutate: reloadThreads } = useSWR<ThreadsResponse>(
@@ -315,6 +323,9 @@ export default function AssistantScreen({
               onAsk={submit}
               backHref={backHref}
               linksAllowed={linksAllowed}
+              onForward={
+                m.role === "ASSISTANT" && !m.failed && !m.pending ? () => setForwardId(m.id) : undefined
+              }
             />
           ))}
 
@@ -380,6 +391,13 @@ export default function AssistantScreen({
           placeholder={section === "admin" ? COPY.placeholderAdmin : undefined}
         />
       </div>
+
+      <ShareToChatSheet
+        open={forwardId !== null}
+        section={section}
+        messageId={forwardId}
+        onClose={() => setForwardId(null)}
+      />
 
       <ThreadsSheet
         open={sheetOpen}

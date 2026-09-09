@@ -33,6 +33,9 @@ export const TOP_ITEMS: NavItem[] = [
   // розділи питанням — швидший шлях, ніж згадувати, у якій вкладці цифра.
   { href: "/admin/assistant", title: "Помічник", desc: "Спитати про фірму: продажі, борги, водії, склад", iconKey: "star", roles: AM },
   { href: "/admin/users", title: "Користувачі", desc: "Ролі, доступи, Telegram", iconKey: "clients", roles: AM },
+  // Поруч із помічником: обидва — не звіт, а спосіб щось спитати. Тільки
+  // тут відповідає людина, і саме тому пункт нагорі, а не в групі.
+  { href: "/admin/chat", title: "Чат", desc: "Повідомлення команді: торгові, водії, склад", iconKey: "chat", roles: AM },
 ];
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -205,6 +208,8 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/track-health",
     "/admin/ai-analysis",
     "/admin/assistant",
+    // Торговий має свій чат у кабінеті, з нижньою панеллю й гейтом секції.
+    "/admin/chat",
   ];
   if (pathname === "/admin/sales") return false;
   return !blocked.some((p) => pathname.startsWith(p));

@@ -1,7 +1,8 @@
 "use client";
 
-import { Truck, Map, History, User } from "lucide-react";
+import { Truck, Map, History, MessageCircle, User } from "lucide-react";
 import { TabBar, type TabDef } from "@/components/cabinet/TabBar";
+import { useChatUnread } from "@/components/chat/useChatUnread";
 
 /**
  * Нижня навігація кабінету водія: чотири розділи, і тільки вони.
@@ -20,13 +21,21 @@ import { TabBar, type TabDef } from "@/components/cabinet/TabBar";
  * шапці — але водій на планшеті шукає перехід унизу, там, де він на решті
  * екранів, і кнопку в кутку просто не помічав.
  */
-const tabs: TabDef[] = [
-  { href: "/driver", label: "Сьогодні", icon: <Truck size={22} />, exact: true },
-  { href: "/driver/map", label: "Карта", icon: <Map size={22} /> },
-  { href: "/driver/history", label: "Історія", icon: <History size={22} /> },
-  { href: "/driver/profile", label: "Акаунт", icon: <User size={22} /> },
-];
-
+/*
+  Чат — вкладкою, а не кнопкою в шапці, як у торгового й складу: у водія
+  було чотири розділи, тобто місце є. Широкі вкладки (wide) довелось
+  прибрати: пʼять по 72 px не влазять у 360-піксельний телефон.
+*/
 export default function DriverBottomNav() {
-  return <TabBar tabs={tabs} wide />;
+  const unread = useChatUnread();
+
+  const tabs: TabDef[] = [
+    { href: "/driver", label: "Сьогодні", icon: <Truck size={22} />, exact: true },
+    { href: "/driver/map", label: "Карта", icon: <Map size={22} /> },
+    { href: "/driver/history", label: "Історія", icon: <History size={22} /> },
+    { href: "/driver/chat", label: "Чат", icon: <MessageCircle size={22} />, live: unread > 0 },
+    { href: "/driver/profile", label: "Акаунт", icon: <User size={22} /> },
+  ];
+
+  return <TabBar tabs={tabs} />;
 }

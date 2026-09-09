@@ -44,7 +44,36 @@ const NATIVE = [
   "mobile/package.json",
 ];
 
-const isNative = (file: string) => NATIVE.some((p) => file.startsWith(p));
+/**
+ * `package.json` серед нативних — але не цілком.
+ *
+ * Оболонку визначають `dependencies` і `devDependencies` (серед других живуть
+ * плагіни конфігурації). `scripts` і назва — ні. Різниця не теоретична: 09.09
+ * перейменування одного npm-скрипта поставило цій звірці ❌ «потрібен новий
+ * APK», хоч нативного не змінилося нічого. Запобіжник, який кричить на
+ * порожньому місці, привчають ігнорувати — а цей мусить лишатися страшним,
+ * бо він єдиний ловить справжню розбіжність між APK і полем.
+ */
+function packageJsonIsNative(since: string): boolean {
+  const deps = (rev: string): string => {
+    try {
+      const pkg = JSON.parse(
+        execFileSync("git", ["show", `${rev}:mobile/package.json`], { encoding: "utf-8" })
+      ) as Record<string, unknown>;
+      return JSON.stringify({ d: pkg.dependencies ?? {}, dev: pkg.devDependencies ?? {} });
+    } catch {
+      // Не змогли прочитати — вважаємо зміненим: мовчазне «все гаразд» тут
+      // дорожче за зайву тривогу.
+      return `нечитабельно:${rev}`;
+    }
+  };
+  return deps(since) !== deps("HEAD");
+}
+
+const isNative = (file: string, since: string) =>
+  file === "mobile/package.json"
+    ? packageJsonIsNative(since)
+    : NATIVE.some((p) => file.startsWith(p));
 
 function commits(since: string): string[] {
   const out = git(["log", "--oneline", `${since}..HEAD`, "--", "mobile/"]);
@@ -57,7 +86,7 @@ function files(since: string): string[] {
 }
 
 const apkLag = commits(STAFF_APK_COMMIT);
-const nativeLag = files(STAFF_APK_COMMIT).filter(isNative);
+const nativeLag = files(STAFF_APK_COMMIT).filter((f) => isNative(f, STAFF_APK_COMMIT));
 const otaLag = commits(STAFF_OTA_COMMIT);
 
 console.log(`Робоча збірка ${STAFF_APK_VERSION_NAME}`);

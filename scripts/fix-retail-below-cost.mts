@@ -159,11 +159,13 @@ async function main() {
     "такі позиції варто звірити в 1С руками. Обмежити: --max-factor=1.5"
   );
 
-  const avgUp = plan.reduce((s, x) => s + (x.to / x.from - 1), 0) / (plan.length || 1);
-  console.log(`\nСереднє підвищення: ${(avgUp * 100).toFixed(1)}%`);
+  const avgUp = withinLimit.reduce((s, x) => s + (x.to / x.from - 1), 0) / (withinLimit.length || 1);
+  console.log(`Середнє підвищення серед них: ${(avgUp * 100).toFixed(1)}%`);
   if (MAX_FACTOR !== Infinity) console.log(`Під межу --max-factor=${MAX_FACTOR} потрапляє: ${withinLimit.length}`);
-  console.log("Приклади:");
-  for (const x of plan.slice(0, 10)) {
+  // Приклади саме з того, що ЗМІНИТЬСЯ, а не з усього переліку: інакше проба
+  // показувала «Ключ трубний 41 → 429 ₴», хоча межа його якраз відкидає.
+  console.log(`\nПриклади того, що зміниться (${withinLimit.length} позицій):`);
+  for (const x of withinLimit.slice(0, 10)) {
     console.log(`   ${x.from.toFixed(2)} → ${x.to.toFixed(2)} ₴ (опт ${x.wholesale.toFixed(2)})  ${x.name.slice(0, 52)}`);
   }
 

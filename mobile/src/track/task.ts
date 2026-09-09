@@ -23,6 +23,43 @@ import { setLastError } from "./state";
 import { logEvent } from "./db";
 import { APP_BUILD } from "@/lib/app-version";
 
+/**
+ * Звідки взяти причину пробудження — і чому це не один рядок.
+ *
+ * Форму даних тут задає не наш сервер, а ланцюг «Expo → FCM → бібліотека», і
+ * вона не така, як здається. Завдання отримує серіалізоване повідомлення FCM
+ * цілком (RemoteMessageSerializer.java), де наші поля лежать усередині мапи
+ * `data`, а Expo додатково кладе весь вміст сповіщення JSON-рядком у
+ * `data.dataString`. Тобто `notification.data.reason`, на яке я писав розбір
+ * спершу, не існує ніде.
+ *
+ * Перебираємо всі три форми й НЕ падаємо на жодній. Причина — це підпис у
+ * журналі, а не умова роботи: пробудження мусить статися навіть тоді, коли ми
+ * не змогли прочитати, чому нас розбудили. Помилка розбору тут коштувала б
+ * рівно того, заради чого все робиться.
+ */
+function reasonFrom(data: unknown): string {
+  const root = (data ?? {}) as Record<string, unknown>;
+
+  const direct = (root.data as Record<string, unknown> | undefined)?.reason;
+  if (typeof direct === "string") return direct;
+
+  const nested = (root.notification as { data?: Record<string, unknown> } | undefined)?.data?.reason;
+  if (typeof nested === "string") return nested;
+
+  const raw = (root.data as Record<string, unknown> | undefined)?.dataString;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as { body?: { reason?: unknown } };
+      if (typeof parsed?.body?.reason === "string") return parsed.body.reason;
+    } catch {
+      /* не JSON — не біда, причина все одно другорядна */
+    }
+  }
+
+  return "без причини";
+}
+
 if (IS_STAFF_BUILD) {
   /**
    * Перший рядок чорної скриньки: контекст JS піднявся.
@@ -118,10 +155,8 @@ if (IS_STAFF_BUILD) {
       return;
     }
     try {
-      const payload = data as { notification?: { data?: Record<string, unknown> } } | undefined;
-      const reason = String(payload?.notification?.data?.reason ?? "без причини");
       const { onWakePush } = await import("./wake");
-      await onWakePush(reason);
+      await onWakePush(reasonFrom(data));
     } catch (e) {
       // Не кидаємо далі: завдання, яке кинуло помилку, Android може перестати
       // будити — а це саме те завдання, яке будити треба обов'язково.

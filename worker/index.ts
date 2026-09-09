@@ -29,6 +29,7 @@ import { alertAgentSilent } from "@/lib/sync-ingest/alerts";
 import { checkTrackSilence as trackSilenceCheck } from "@/lib/track/silence";
 import { autoCloseStaleShifts } from "@/lib/shift/auto-close";
 import { alertUnclosedShifts } from "@/lib/shift/late-alert";
+import { remindUnclosedShifts } from "@/lib/shift/close-reminder";
 import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
 import { notifyOutdatedApps } from "@/lib/app/update-nudge";
@@ -292,6 +293,33 @@ async function closeStaleShifts(): Promise<void> {
 const staleShiftTimer = setInterval(() => void closeStaleShifts(), SILENCE_CHECK_INTERVAL_MS);
 
 /**
+ * Денне нагадування торговому: «зміна ще відкрита».
+ *
+ * Окремим таймером, а не всередині `closeStaleShifts`: там порядок був
+ * значущий (спершу закрити, потім сигналити офісу про решту), а тут вікна
+ * навіть не перетинаються — нагадування живе з 15:00 до 20:00, автозакриття
+ * починається з 20:00.
+ *
+ * Крок ті самі чверть години: «після 15:00» на практиці означає перший тік
+ * у 15:00–15:15, і цієї точності для нагадування досить.
+ */
+async function remindShiftClose(): Promise<void> {
+  try {
+    const sent = (await remindUnclosedShifts()).filter((d) => d.send);
+    if (sent.length > 0) {
+      console.log(
+        `worker: нагадувань закрити зміну — ${sent.length}: ` +
+          sent.map((d) => `${d.name ?? d.userId} (етап ${d.stage})`).join(", ")
+      );
+    }
+  } catch (e) {
+    console.error("worker: нагадування закрити зміну впало", e);
+  }
+}
+
+const closeReminderTimer = setInterval(() => void remindShiftClose(), SILENCE_CHECK_INTERVAL_MS);
+
+/**
  * Четверта перевірка — чи не застигли числа треку.
  *
  * `Shift.gpsDistanceKm` пишеться в мить закриття, а точки доїжджають ще
@@ -472,6 +500,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(silenceTimer);
     clearInterval(trackSilenceTimer);
     clearInterval(staleShiftTimer);
+    clearInterval(closeReminderTimer);
     clearInterval(recountTimer);
     clearInterval(standingsTimer);
     clearInterval(updateNudgeTimer);

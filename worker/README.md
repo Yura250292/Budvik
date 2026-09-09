@@ -10,7 +10,23 @@
 
 ## Що робить, крім прийому даних
 
-Стежить, чи не замовк агент (`alertAgentSilent` у Telegram). На Vercel такої перевірки не могло існувати: функція живе лише під час запиту, а тут перевіряти треба саме **відсутність** запитів.
+Усе, що треба робити **за розкладом** або дивлячись на **відсутність** дії. На Vercel такого не могло існувати в принципі: функція живе лише під час запиту, а тут перевіряти треба саме те, чого не сталося. Кожна робота — окремий `setInterval` у [`index.ts`](index.ts), крок звичайно чверть години, а вікно годин вирішує сама функція.
+
+| Що | Де логіка | Коли |
+|---|---|---|
+| Агент замовк | [`sync-ingest/alerts.ts`](../src/lib/sync-ingest/alerts.ts) | тиша понад 2 год |
+| Трек не пишеться | [`track/silence.ts`](../src/lib/track/silence.ts) | тиша понад 25 хв під час зміни |
+| **Нагадування закрити зміну** | [`shift/close-reminder.ts`](../src/lib/shift/close-reminder.ts) | пуш торговому о 15:00 і 18:00, якщо машина стоїть годину або трек мовчить |
+| Автозакриття забутих змін | [`shift/auto-close.ts`](../src/lib/shift/auto-close.ts) | з 20:00 за зупинкою в треку |
+| «Не закрив зміну» офісу | [`shift/late-alert.ts`](../src/lib/shift/late-alert.ts) | з 20:00 у Telegram |
+| Перерахунок пробігу змін | [`shift/recount.ts`](../src/lib/shift/recount.ts) | раз на годину |
+| Рух у табло команди | [`leaderboard/standings.ts`](../src/lib/leaderboard/standings.ts) | о 19:00, раз на добу |
+| «Вийшла нова збірка» | [`app/update-nudge.ts`](../src/lib/app/update-nudge.ts) | 08:00–19:00, раз на версію |
+| Ранкове зведення керівникові | [`assistant/digest.ts`](../src/lib/assistant/digest.ts) | о 8:00, раз на добу |
+| Нагадування з помічника | [`assistant/facts/reminders.ts`](../src/lib/assistant/facts/reminders.ts) | за часом кожного |
+| Прибирання журналів обміну | [`sync-ingest/retention.ts`](../src/lib/sync-ingest/retention.ts) | о 3:00, раз на добу |
+
+Кожну з них можна прогнати окремо скриптом із `scripts/` у режимі `--dry` — саме заради цього логіка живе в `src/lib`, а не у воркері.
 
 ## Змінні середовища
 

@@ -17,6 +17,8 @@ import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { ensureFreshFixes } from "./health";
 import { ensureRecording, isTracking, startTracking } from "./controller";
 import { flush } from "./uploader";
+import { trackProbeParam } from "./self-probe";
+import { staffApi } from "@/api/staff";
 import { isShiftOpen, getRole, getLastFixAt } from "./state";
 
 /** Рідше, ніж поріг тиші, — щоб перевірка не била в ту саму мить, що й фікс. */
@@ -30,6 +32,16 @@ const CHECK_INTERVAL_MS = 2 * 60_000;
  * небо», а зупинений запис при піднятому прапорці.
  */
 const FIX_STALE_MS = 20 * 60_000;
+
+/**
+ * Як часто слати пробу шару треку.
+ *
+ * Десять хвилин: вона потрібна не для стеження, а щоб зламаний планшет мав
+ * голос. Мітка лежить у пам'яті процесу навмисно — після перезапуску проба
+ * піде одразу, і саме перезапуск найцікавіший.
+ */
+const PROBE_EVERY_MS = 10 * 60_000;
+let lastProbeAt = 0;
 
 export function useTrackHealth(): void {
   useEffect(() => {
@@ -100,17 +112,44 @@ export function useTrackHealth(): void {
      */
     const push = () => void flush().catch(() => {});
 
+    /**
+     * Скарга шару треку — з НАТИВНОГО боку, а не з вебкабінету.
+     *
+     * Перша спроба чіпляла пробу до `checkApkUpdate()`, і це була помилка:
+     * ту функцію не кличе ніхто, а відмітку `app:staff:installed`, за якою
+     * здавалося, ніби застосунок озивається, пише вебкабінет усередині
+     * WebView (StaffBuildCard/UpgradeBanner на сайті). Тобто вона доводить
+     * лише те, що жива вебсторінка, і нічого не каже про нативний JS.
+     *
+     * Тут — інша річ: хук живе в кореневому layout, тобто виконується рівно
+     * тоді, коли працює сам застосунок. І він НЕ залежить від бази треку:
+     * `trackProbeParam` гасить у собі будь-яку помилку, а межа повторів
+     * лежить у пам'яті процесу, а не в SQLite, — інакше зламана база забрала б
+     * і цей канал теж.
+     */
+    const reportProbe = async () => {
+      if (Date.now() - lastProbeAt < PROBE_EVERY_MS) return;
+      lastProbeAt = Date.now();
+      try {
+        await staffApi.staffVersion(await trackProbeParam());
+      } catch {
+        // Мовчки: нема зв'язку — скажемо наступного разу.
+      }
+    };
+
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       check();
       void revive();
       push();
+      void reportProbe();
     });
 
     // І одразу на монтуванні: холодний старт по натиску на сповіщення теж
     // мусить піднімати запис, а не лише перевіряти свіжість фіксів.
     void revive();
     push();
+    void reportProbe();
 
     return () => {
       clearInterval(timer);

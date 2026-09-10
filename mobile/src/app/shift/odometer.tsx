@@ -45,6 +45,8 @@ import {
   Screen,
   TextLink,
 } from "@/ui/kit";
+import { within } from "@/lib/within";
+import { flush } from "@/track/uploader";
 import { setPendingShift } from "@/track/pending-shift";
 import { setShiftOpen } from "@/track/state";
 import { endShiftTracking, startTracking, stopEverything } from "@/track/controller";
@@ -53,6 +55,16 @@ import { cancelCloseReminders, scheduleCloseReminders } from "@/track/reminder";
 /** Фото звужуємо до 1280 px: сервер відхиляє завеликі, а більше й не потрібно. */
 const PHOTO_WIDTH = 1280;
 const PHOTO_QUALITY = 0.7;
+
+/**
+ * Скільки чекаємо на злив буфера перед закриттям зміни.
+ *
+ * Двадцять секунд — це десяток пачок на живій мережі, тобто будь-який
+ * реальний денний хвіст. Не встигли — закриваємо однаково: хвіст доїде
+ * пізніше, а погодинний перерахунок (`src/lib/shift/recount.ts`) виправить
+ * число в картці. Тримати людину на вертушці довше немає за що.
+ */
+const CLOSE_FLUSH_MS = 20_000;
 
 export default function OdometerScreen() {
   const router = useRouter();
@@ -177,6 +189,25 @@ export default function OdometerScreen() {
 
     try {
       if (isClosing) {
+        /**
+         * Спершу віддати буфер — і аж ПОТІМ закривати зміну.
+         *
+         * Пробіг за треком сервер рахує рівно в мить закриття, з тих точок,
+         * які має на той момент. А злив буфера стояв нижче, в
+         * `endShiftTracking`, тобто вже після рахунку: усе, що лежало в
+         * планшеті, приїжджало в закриту зміну із запізненням.
+         *
+         * 10.09 у Кулика день закрився з «156 км по одометру, 111 по
+         * трекеру»: точки з 14:31 і далі ще лежали в планшеті. Число пішло
+         * власникові в Telegram як факт, і саме воно виглядало як поламаний
+         * трек, хоч трек був цілий. Погодинний перерахунок виправляє картку,
+         * але повідомлення про закриття не переписує ніхто — його читають
+         * один раз.
+         *
+         * Межа часу тут обов'язкова: закриття не має залежати від того, чи є
+         * зв'язок у селі. Не встигли — закриваємо з тим, що доїхало.
+         */
+        await within(flush(true), CLOSE_FLUSH_MS, undefined);
         const res = await staffApi.shiftClose(body);
         // Трек не сходиться з одометром — сказати зараз, поки людина ще
         // пам'ятає число на табло. Зміна вже закрита: це не перепона.

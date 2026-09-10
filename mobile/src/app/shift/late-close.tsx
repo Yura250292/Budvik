@@ -32,8 +32,16 @@ import {
   Screen,
 } from "@/ui/kit";
 import { setShiftOpen } from "@/track/state";
+import { within } from "@/lib/within";
+import { flush } from "@/track/uploader";
 import { stopEverything } from "@/track/controller";
 import { cancelCloseReminders } from "@/track/reminder";
+
+/**
+ * Скільки чекаємо на злив буфера перед закриттям. Те саме число, що й на
+ * звичайному закритті (`shift/odometer.tsx`), і з тієї самої причини.
+ */
+const CLOSE_FLUSH_MS = 20_000;
 
 export default function LateCloseScreen() {
   const router = useRouter();
@@ -78,6 +86,12 @@ export default function LateCloseScreen() {
   const close = async (endedAt: string, source: "GPS" | "MANUAL") => {
     setBusy(true);
     try {
+      /**
+       * Буфер — ПЕРЕД закриттям, і тут це важить більше, ніж деінде: пробіг
+       * пізньої зміни рахується ЛИШЕ за треком, одометра за такий час уже не
+       * спитати. Точки, що лежать у планшеті, вирізало б із дня начисто.
+       */
+      await within(flush(true), CLOSE_FLUSH_MS, undefined);
       await staffApi.lateClose({ endedAt, source });
       await setShiftOpen(false);
       await cancelCloseReminders();

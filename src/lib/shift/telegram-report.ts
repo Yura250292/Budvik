@@ -172,6 +172,80 @@ export async function buildShiftOpenedMessage(
 }
 
 /**
+ * Скільки хвилин між останньою точкою і закриттям вважати дірою в треку.
+ *
+ * Двадцять — те саме число, що й на планшеті (`watchdog.FIX_STALE_MS`): точка
+ * пишеться щонайрідше раз на хвилину навіть на місці, тож така пауза вже не
+ * «погано видно небо».
+ */
+const TRACK_GAP_MIN = 20;
+
+/**
+ * Чесний рядок про те, що трек під числом неповний.
+ *
+ * `gpsDistanceKm` рахується РІВНО в мить закриття, з тих точок, які на той
+ * момент доїхали. Коли планшет мовчав останню годину, число виходить
+ * заниженим — а в повідомленні воно стоїть поруч з одометром як рівний йому
+ * факт. 10.09 у Кулика так вийшло «156 по одометру, 111 по трекеру», і
+ * різниця виглядала як накручений одометр, хоч насправді бракувало треку.
+ *
+ * Картку виправить погодинний перерахунок (`shift/recount.ts`), а от
+ * повідомлення не переписує ніхто — його читають один раз, і саме тому
+ * застереження мусить бути в ньому, а не деінде.
+ *
+ * Буфер планшета розрізняє два різні випадки, і плутати їх не можна: точки
+ * лежать у планшеті (доїдуть, пробіг відновиться) чи їх не записано взагалі
+ * (кілометрів цієї години не існуватиме ніколи).
+ */
+async function trackGapLine(
+  shiftId: string,
+  userId: string,
+  endedAt: Date | null
+): Promise<string | null> {
+  if (!endedAt) return null;
+
+  const [lastPoint, beat] = await Promise.all([
+    prisma.trackPoint.findFirst({
+      where: { shiftId },
+      orderBy: { recordedAt: "desc" },
+      select: { recordedAt: true },
+    }),
+    prisma.deviceHeartbeat.findFirst({
+      where: { userId },
+      orderBy: { at: "desc" },
+      select: { at: true, buffered: true },
+    }),
+  ]);
+  if (!lastPoint) return null;
+
+  const minutes = Math.floor((endedAt.getTime() - lastPoint.recordedAt.getTime()) / 60_000);
+  if (minutes < TRACK_GAP_MIN) return null;
+
+  /**
+   * «У планшеті порожньо» — твердження, а не здогад, і сказати його можна
+   * лише зі СВІЖОГО пульсу. Пульс годинної давності описує планшет, яким той
+   * був годину тому; за цей час буфер міг набратися. Помилитися тут дорого в
+   * обидва боки: «дані цілі» заспокоїть даремно, «дані втрачено» пошле
+   * шукати те, що само доїде.
+   */
+  const beatAgeMin = beat ? Math.floor((endedAt.getTime() - beat.at.getTime()) / 60_000) : null;
+  const beatFresh = beatAgeMin != null && beatAgeMin <= TRACK_GAP_MIN;
+  const buffered = beat?.buffered ?? 0;
+
+  const tail =
+    buffered > 0
+      ? `   У планшеті чекає ${buffered} точок: доїдуть — пробіг перерахується сам.`
+      : beatFresh
+        ? `   У планшеті порожньо — цих кілометрів не записано взагалі.`
+        : `   Планшет мовчить і сам (пульсу ${beatAgeMin ?? "—"} хв): чи записалися ці кілометри — невідомо.`;
+
+  return (
+    `⚠️ Трек неповний: остання точка о ${kyivTime(lastPoint.recordedAt)}, ` +
+    `далі ${minutes} хв тиші — по трекеру тут занижено.\n${tail}`
+  );
+}
+
+/**
  * Текст звіту про закриту зміну.
  *
  * `reasonLine` передає автозакриття — пояснення, чому обрано саме цей час
@@ -185,6 +259,7 @@ export async function buildShiftClosedMessage(
   const shift = await prisma.shift.findUnique({
     where: { id: shiftId },
     select: {
+      id: true,
       userId: true,
       startedAt: true,
       endedAt: true,
@@ -230,6 +305,9 @@ export async function buildShiftClosedMessage(
       (shift.stopKm != null && shift.stopKm >= 1 ? ` (без ${num(shift.stopKm)} км на місці)` : ""),
     ordersLine(orders),
   ];
+
+  const gap = await trackGapLine(shift.id, shift.userId, shift.endedAt);
+  if (gap) lines.push(gap);
 
   if (opts.reasonLine) lines.push(`ℹ️ ${opts.reasonLine}`);
 

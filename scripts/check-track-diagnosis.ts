@@ -218,5 +218,50 @@ check(
   null
 );
 
+console.log("\nВідмова системи в запуску — не «запис вимкнено»");
+/**
+ * 09-10.09: у Передрія 181 і 56 відмов за добу, дірки в треку по 3,5 години.
+ * Діагноз казав «Запис вимкнено при відкритій зміні» — тобто звинувачував
+ * людину в тому, що робила система.
+ */
+const REFUSED =
+  "Запис не піднявся (11:04, спроб 56): Call to function " +
+  "'ExpoLocation.startLocationUpdatesAsync' has been rejected.\n" +
+  "→ Caused by: Couldn't start the foreground service.";
+check(
+  "Багато відмов поспіль — питання до дозволу, а не до людини",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    lastPointMinutesAgo: 90,
+    beat: beat({ tracking: false, lastFixMinutesAgo: 90, lastError: REFUSED }),
+  }),
+  /Android не дає підняти запис із фону — 56 спроб поспіль.*Дозволяти завжди/s
+);
+check(
+  "Одна відмова — просто відкрити застосунок",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    lastPointMinutesAgo: 90,
+    beat: beat({
+      tracking: false,
+      lastFixMinutesAgo: 90,
+      lastError: REFUSED.replace("спроб 56", "спроб 2"),
+    }),
+  }),
+  /Відкритий застосунок піднімає його одразу/
+);
+check(
+  "Запис справді вимкнено — стара відповідь лишається",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    lastPointMinutesAgo: 90,
+    beat: beat({ tracking: false, lastFixMinutesAgo: 90, lastError: null }),
+  }),
+  "Запис вимкнено при відкритій зміні"
+);
+
 console.log(failed === 0 ? "\nУсе зійшлося.\n" : `\nНе зійшлося: ${failed}.\n`);
 process.exit(failed === 0 ? 0 : 1);

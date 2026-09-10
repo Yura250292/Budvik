@@ -583,13 +583,22 @@ export const staffApi = {
 
   /* ---------- Збірка й вихід ---------- */
 
-  staffVersion: () =>
+  /**
+   * Перевірка версії — і заразом єдиний канал, яким зламаний планшет ще може
+   * поскаржитися.
+   *
+   * `probe` тут не за компанію: пульс іде через SQLite, і коли база треку
+   * мертва, замовкає все — пульс, журнал, буфер, точки. Цей же запит на тих
+   * самих планшетах проходить, тож проба чіпляється саме до нього
+   * (див. track/self-probe.ts).
+   */
+  staffVersion: (probe?: string) =>
     staffRequest<{
       versionCode: number;
       versionName: string;
       minVersionCode: number;
       sizeBytes: number;
-    }>("/api/app/staff/version"),
+    }>(`/api/app/staff/version${probe ? `?probe=${encodeURIComponent(probe)}` : ""}`),
 
   /** Гасить токен цього пристрою на сервері, а не лише в памʼяті телефона. */
   logout: () => staffRequest<{ ok: boolean }>("/api/device/logout", { method: "POST" }),

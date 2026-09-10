@@ -15,12 +15,21 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { ensureFreshFixes } from "./health";
-import { ensureRecording, isTracking } from "./controller";
+import { ensureRecording, isTracking, startTracking } from "./controller";
 import { flush } from "./uploader";
-import { isShiftOpen, getRole } from "./state";
+import { isShiftOpen, getRole, getLastFixAt } from "./state";
 
 /** Рідше, ніж поріг тиші, — щоб перевірка не била в ту саму мить, що й фікс. */
 const CHECK_INTERVAL_MS = 2 * 60_000;
+
+/**
+ * Скільки тиші приймача означає, що прапорцю «пишемо» вірити не можна.
+ *
+ * Те саме число, що в сторожі (`watchdog.ts`): точка пишеться щонайрідше раз
+ * на хвилину навіть на місці, тож двадцять хвилин — це вже не «погано видно
+ * небо», а зупинений запис при піднятому прапорці.
+ */
+const FIX_STALE_MS = 20 * 60_000;
 
 export function useTrackHealth(): void {
   useEffect(() => {
@@ -44,12 +53,39 @@ export function useTrackHealth(): void {
      * сповіщення «Трек зупинився».
      */
     const revive = async () => {
-      const [shiftOpen, role, tracking] = await Promise.all([
+      const [shiftOpen, role, tracking, fixAt] = await Promise.all([
         isShiftOpen(),
         getRole(),
         isTracking().catch(() => true),
+        getLastFixAt().catch(() => null),
       ]);
-      if (!(shiftOpen || role === "DRIVER") || tracking) return;
+      if (!(shiftOpen || role === "DRIVER")) return;
+
+      /**
+       * Прапорець «пишемо» — не доказ, і саме тому тут його вже мало.
+       *
+       * `hasStartedLocationUpdatesAsync` читає збережену позначку, а не живу
+       * службу. Коли Android прибиває процес, позначка лишається піднятою — і
+       * наступного ранку застосунок бачить «усе гаразд» і не робить нічого.
+       * 10.09.2026 так минув ранок у трьох торгових: зміну відкрито, планшет
+       * у руках, а запис не стартував жодного разу.
+       *
+       * Тому питаємо не «чи ми пишемо», а «чи приходять координати». Немає
+       * фікса понад двадцять хвилин при відкритій зміні — запускаємо
+       * ПРИМУСОВО, попри піднятий прапорець.
+       *
+       * Робити це можна саме тут і тільки тут: хук живе на передньому плані, а
+       * з переднього плану Android дозволяє підняти службу завжди. У фоні той
+       * самий крок був би зупинкою без запуску — див. health.ts.
+       */
+      const silentMs = fixAt ? Date.now() - fixAt : Infinity;
+      const stale = silentMs > FIX_STALE_MS;
+      if (tracking && !stale) return;
+
+      if (tracking && stale) {
+        await startTracking("SHIFT", { force: true }).catch(() => {});
+        return;
+      }
       await ensureRecording().catch(() => {});
     };
 

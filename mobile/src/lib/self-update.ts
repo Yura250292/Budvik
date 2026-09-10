@@ -31,6 +31,7 @@ import { Platform } from "react-native";
 import { API_BASE } from "@/api/client";
 import { staffApi, APP_HEADER } from "@/api/staff";
 import { getToken } from "@/lib/auth-store";
+import { trackProbeParam } from "@/track/self-probe";
 
 /** Номер збірки, яка реально встановлена (не той, що приїхав з оновленням JS). */
 export function installedVersionCode(): number {
@@ -54,7 +55,15 @@ export type UpdateStatus = {
  */
 export async function checkApkUpdate(): Promise<UpdateStatus | null> {
   try {
-    const info = await staffApi.staffVersion();
+    /**
+     * Проба шару треку їде разом із перевіркою версії.
+     *
+     * Не тому, що їм по дорозі, а тому, що це ЄДИНИЙ запит, який доходить із
+     * планшета, де база треку не відкрилася. Проба сама себе гасить і не
+     * кидає — інакше вона забрала б у такого планшета останній живий канал.
+     */
+    const probe = await trackProbeParam().catch(() => undefined);
+    const info = await staffApi.staffVersion(probe);
     const installed = installedVersionCode();
     return {
       apkAvailable: info.versionCode > installed,

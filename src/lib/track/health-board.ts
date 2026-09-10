@@ -50,6 +50,15 @@ export type TabletHealth = {
   verdict: string;
   /** Що зробити просто зараз. Порожньо, коли робити нічого не треба. */
   action: string | null;
+  /**
+   * Скарга шару треку, яка приїхала ПОЗА пульсом.
+   *
+   * Пульс збирається з читань SQLite, тож коли база треку не відкривається,
+   * планшет замовкає цілком — і зламаний стає невідрізненним від вимкненого.
+   * Ця проба їде з перевіркою версії (див. api/app/staff/version) і тому
+   * доходить звідти, звідки не доходить нічого іншого.
+   */
+  probe: { text: string; at: string; minutesAgo: number } | null;
 };
 
 type BeatView = {
@@ -125,7 +134,7 @@ export async function trackHealthBoard(day?: string): Promise<{
   const tablets: TabletHealth[] = [];
 
   for (const u of users) {
-    const [shift, beatRow, events, pointAgg] = await Promise.all([
+    const [shift, beatRow, events, pointAgg, probeRow] = await Promise.all([
       prisma.shift.findFirst({
         where: { userId: u.id, status: "OPEN" },
         orderBy: { startedAt: "desc" },
@@ -142,6 +151,10 @@ export async function trackHealthBoard(day?: string): Promise<{
         where: { userId: u.id, recordedAt: { gte: from, lte: to } },
         _count: { _all: true },
         _max: { recordedAt: true },
+      }),
+      prisma.syncState.findUnique({
+        where: { key: `app:staff:probe:${u.id}` },
+        select: { value: true, updatedAt: true },
       }),
     ]);
 
@@ -220,6 +233,13 @@ export async function trackHealthBoard(day?: string): Promise<{
       state,
       verdict,
       action,
+      probe: probeRow
+        ? {
+            text: probeRow.value ?? "",
+            at: probeRow.updatedAt.toISOString(),
+            minutesAgo: minutesSince(probeRow.updatedAt, now) ?? 0,
+          }
+        : null,
     });
   }
 

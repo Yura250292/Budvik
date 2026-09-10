@@ -54,6 +54,20 @@ async function main() {
     }
     console.log(`     точок за день ${t.points.today}, остання ${hm(t.points.lastAt)}`);
 
+    /**
+     * Проба шару треку — окремим рядком, бо вона відповідає на інше питання.
+     * Пульс каже «як почувається запис»; проба каже, чи шар треку взагалі
+     * живий. Коли пульс старий, а проба свіжа — застосунок відкривали, і
+     * мовчить саме трек, а не планшет.
+     */
+    if (t.probe) {
+      const stale = t.beat ? t.probe.minutesAgo < t.beat.minutesAgo : true;
+      console.log(
+        `     проба треку ${hm(t.probe.at)} (${t.probe.minutesAgo} хв тому): ${t.probe.text}` +
+          (stale ? "   ← свіжіша за пульс" : "")
+      );
+    }
+
     if (withEvents && t.events.length) {
       console.log("     журнал пристрою:");
       for (const e of [...t.events].reverse()) {

@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { requireRoles, STAFF_ROLES } from "@/lib/app/identity";
-import { summarize } from "@/lib/chat/queries";
+import { hasPushDevice, summarize } from "@/lib/chat/queries";
 import { isOffice } from "@/lib/chat/audience";
 import { NO_STORE, chatErrorResponse } from "../_shared";
 
@@ -18,7 +18,10 @@ export async function GET(req: Request) {
   const guard = await requireRoles(req, STAFF_ROLES);
   if (!guard.ok) return guard.response;
   try {
-    const { conversations, totalUnread, people } = await summarize(guard.me);
+    const [{ conversations, totalUnread, people }, pushReady] = await Promise.all([
+      summarize(guard.me),
+      hasPushDevice(guard.me.userId),
+    ]);
     return NextResponse.json(
       {
         me: { id: guard.me.userId, role: guard.me.role },
@@ -26,6 +29,8 @@ export async function GET(req: Request) {
         totalUnread,
         people,
         canPickGroups: isOffice(guard.me.role),
+        /** Чи долетить сповіщення, коли чат закритий. */
+        pushReady,
       },
       NO_STORE
     );

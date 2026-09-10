@@ -41,6 +41,8 @@ export type ConversationsResponse = {
   totalUnread: number;
   people: Person[];
   canPickGroups: boolean;
+  /** Чи є зареєстрований пристрій — від цього залежить, чи прийде сповіщення. */
+  pushReady: boolean;
 };
 
 export type ReadMark = { userId: string; readAt: string };
@@ -90,12 +92,19 @@ export async function sendMessage(input: SendInput): Promise<{ message: ChatMess
 }
 
 export async function uploadPhoto(file: File, width: number, height: number): Promise<UploadedPhoto> {
-  const form = new FormData();
-  form.set("file", file);
-  form.set("width", String(width));
-  form.set("height", String(height));
-  // Content-Type не ставимо руками: браузер сам додасть boundary.
-  const res = await fetch("/api/chat/upload", { method: "POST", body: form });
+  /**
+   * Файл іде СИРИМ тілом, без конверта multipart.
+   *
+   * Той конверт складає браузер, але в застосунку він приїздив на сервер без
+   * boundary — і запит падав ще до нашого коду (та сама вада зламала фото
+   * профілю 10.09). Одне поле з одним файлом не варте конверта, який може
+   * розклеїтись; розміри, відомі після стиснення, їдуть у запиті.
+   */
+  const res = await fetch(`/api/chat/upload?w=${width}&h=${height}`, {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error ?? `Помилка ${res.status}`);
   return body;

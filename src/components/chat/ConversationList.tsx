@@ -11,6 +11,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { MessageSquarePlus, ScrollText, Store, Truck, Users, Warehouse } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { PushWarning } from "./PushWarning";
 import { COPY } from "./copy";
 import { fetcher, type ConversationsResponse, type ConversationSummary } from "./api";
 
@@ -47,7 +48,7 @@ export function ConversationList({
   base,
   activeKey = null,
 }: {
-  section: string;
+  section: "sales" | "driver" | "warehouse" | "admin";
   base: string;
   /** Яку розмову відкрито — на широкому екрані список лишається поруч. */
   activeKey?: string | null;
@@ -57,13 +58,13 @@ export function ConversationList({
     revalidateOnFocus: true,
     keepPreviousData: true,
   });
-  void section;
-
   const people = new Map((data?.people ?? []).map((p) => [p.id, p]));
   const conversations = data?.conversations ?? [];
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-4 py-4">
+      {data?.pushReady === false && <PushWarning section={section} />}
+
       <Link
         href={`${base}/new`}
         className="flex h-[52px] items-center justify-center gap-2 rounded-xl bg-bk px-4 text-[15px] font-bold text-white active:opacity-80"

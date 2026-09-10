@@ -151,6 +151,21 @@ export function whereForKey(k: ConversationKey): Prisma.StaffMessageWhereInput {
   }
 }
 
+/**
+ * Чи зареєстрований хоч один пристрій цієї людини на сповіщення.
+ *
+ * Питання не технічне: якщо пристрою немає, чат для неї працює лише поки
+ * вона в нього дивиться. Мовчазна вада найдорожча — 08.09 у базі не було
+ * ЖОДНОГО токена і про це ніхто не знав, — тож тепер це видно в самому чаті.
+ */
+export async function hasPushDevice(userId: string): Promise<boolean> {
+  const found = await prisma.pushToken.findFirst({
+    where: { userId, revokedAt: null },
+    select: { id: true },
+  });
+  return Boolean(found);
+}
+
 export async function listPeople(): Promise<Person[]> {
   return prisma.user.findMany({
     where: { role: { in: [...STAFF] as Role[] } },

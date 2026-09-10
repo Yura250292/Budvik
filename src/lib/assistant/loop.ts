@@ -83,8 +83,30 @@ export async function runTurn(input: RunTurnInput) {
     clientHint: input.clientHint,
   });
 
-  if (direct) {
+  if (direct && !direct.miss) {
     return finishDirect(input, direct, startedAt);
+  }
+
+  /**
+   * Промах коду — не відповідь.
+   *
+   * Код шукав «вчорашній оборот Кулика» серед товарів і не знайшов. Раніше
+   * це й було відповіддю («такого товару немає»), і модель не мала шансу.
+   * Тепер слід пошуку лишається в стрічці, а питання йде моделі разом із
+   * підказкою, що саме вже перевірено, — щоб вона не повторила той самий
+   * марний пошук, а спробувала інакше.
+   */
+  if (direct?.miss) {
+    for (const tool of direct.tools) {
+      input.emit({
+        event: "tool_start",
+        data: { id: `direct-${tool.name}`, name: tool.name, label: tool.label },
+      });
+      input.emit({
+        event: "tool_done",
+        data: { id: `direct-${tool.name}`, name: tool.name, ok: true, ms: tool.ms },
+      });
+    }
   }
 
   const context = buildTurnContext({
@@ -93,6 +115,7 @@ export async function runTurn(input: RunTurnInput) {
     selfScoped: input.selfScoped,
     kind: input.ctx.kind,
     clientHint: input.clientHint,
+    codeMiss: direct?.miss ?? null,
   });
 
   // Історія вже містить щойно збережене питання — беремо її як є, а

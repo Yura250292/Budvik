@@ -223,6 +223,7 @@ export async function loadSeenEntities(threadId: string): Promise<SeenEntities> 
       // Товар без артикула посилання все одно не отримає (див. guards).
       seen.clients.add(id);
       seen.reps.add(id);
+      seen.docs.add(id);
       if (!seen.products.has(id)) seen.products.set(id, null);
     }
   }

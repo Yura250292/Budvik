@@ -22,6 +22,26 @@ export type ClientHit = {
   lastDocAt: Date | null;
 };
 
+/**
+ * Один клієнт зі списку збігів — там, де спитати «котрий із них?» не можна.
+ *
+ * Маршрут збирається з десятка імен одразу; зупинити людину списком
+ * однофамільців на другому імені означало б змусити її диктувати весь
+ * перелік заново. Тому правило те саме, що й у решті пошуку: свій клієнт
+ * із документами перемагає однофамільця з чужого портфеля, а серед чужих
+ * береться той, хто взагалі щось купував. Кілька збігів без жодного
+ * документа — null: такого вибору робити не варто, і викликач має сказати
+ * «не впізнав».
+ */
+export function pickOneClient(hits: ClientHit[]): ClientHit | null {
+  if (hits.length === 0) return null;
+  if (hits.length === 1) return hits[0];
+  const mine = hits.filter((h) => h.mine && h.lastDocAt);
+  if (mine.length >= 1) return mine[0];
+  const withDocs = hits.filter((h) => h.lastDocAt);
+  return withDocs.length >= 1 ? withDocs[0] : null;
+}
+
 export async function findClients(
   query: string,
   repId: string,

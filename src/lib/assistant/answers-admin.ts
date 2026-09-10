@@ -30,14 +30,21 @@ import {
   timed,
   type DirectAnswer,
 } from "@/lib/assistant/md";
-import { capitalize, periodChips, periodOf } from "@/lib/assistant/period";
+import { capitalize, ddmm, periodChips, periodOf } from "@/lib/assistant/period";
 import { clientLink, days as daysWord, money, percent, productLink } from "@/lib/assistant/text";
 import { listStaff, resolveStaff, type StaffRole } from "@/lib/assistant/facts/staff";
-import { answerClientCard } from "@/lib/assistant/answers";
+import { answerClientCard, askWhich as askWhichClient, notFound, resolveClient } from "@/lib/assistant/answers";
+import { staffProfileTool } from "@/lib/assistant/tools/staff";
+import {
+  documentByNumber,
+  documentLines,
+  listDocuments,
+  type DocKind,
+  type DocumentFilter,
+} from "@/lib/assistant/facts/documents";
 import {
   driversReportTool,
   shiftsReportTool,
-  siteOrdersTool,
   staffNowTool,
   stockHealthTool,
   syncHealthTool,
@@ -45,11 +52,7 @@ import {
   teamReceivablesTool,
 } from "@/lib/assistant/tools/admin";
 import { driversTodayTool } from "@/lib/assistant/tools/warehouse";
-import {
-  moneyFlowsTool,
-  salesAnalysisTool,
-  siteTrafficTool,
-} from "@/lib/assistant/tools/admin-money";
+import { moneyFlowsTool, salesAnalysisTool, siteReportTool } from "@/lib/assistant/tools/admin-money";
 import { collectedByMethod, collectedByRepBrand, collectedMethodMap, collectedTotals } from "@/lib/analytics/money-facts";
 import { returnedProducts, returnsByClient, revenueByRep } from "@/lib/analytics/facts";
 import { monthForecast } from "@/lib/assistant/facts/forecast";
@@ -126,6 +129,7 @@ export async function answerStaffNow(
       return {
         markdown: `## 📍 Хто де зараз\n\nСпівробітника «${who}» у базі немає.`,
         tools,
+        miss: { searched: who, among: "співробітників" },
       };
     }
     asked = match.user.name;
@@ -573,6 +577,7 @@ export async function answerShifts(
       return {
         markdown: `## 🚗 Зміни\n\nСпівробітника «${who}» у базі немає.`,
         tools,
+        miss: { searched: who, among: "співробітників" },
       };
     }
   }
@@ -702,7 +707,13 @@ export async function answerDriverPayroll(
   if (who) {
     const match = await resolveStaff(who, ["DRIVER"]);
     if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
-    if (!match.ok) return { markdown: `## 💸 Водії\n\nВодія «${who}» у базі немає.`, tools };
+    if (!match.ok) {
+      return {
+        markdown: `## 💸 Водії\n\nВодія «${who}» у базі немає.`,
+        tools,
+        miss: { searched: who, among: "водіїв" },
+      };
+    }
   }
 
   const facts = await callTool(
@@ -783,7 +794,13 @@ export async function answerDriverPayroll(
 export async function answerSiteOrders(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const period = periodOf(ctx.today, spec);
-  const facts = await callTool(siteOrdersTool, ctx, { days: period.days }, tools);
+  // Межі, а не «днів»: «за вчора» — це один день у минулому, а не сьогодні.
+  const facts = await callTool(
+    siteReportTool,
+    ctx,
+    { mode: "orders", period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
 
   const byStatus = (facts.по_статусах ?? []) as Array<{ статус: string; кількість: number; сума: number }>;
   const pending = (facts.чекають_обробки ?? []) as Array<{
@@ -1435,13 +1452,143 @@ export async function answerSalesAnalysis(
 
 /* ── 🌐 Сайт ─────────────────────────────────────────────────────────── */
 
+/** Сайт — одна відповідь на два режими, як і інструмент. */
+export async function answerSiteReport(
+  ctx: ToolContext,
+  spec: PeriodSpec,
+  mode: "orders" | "traffic"
+): Promise<DirectAnswer> {
+  return mode === "orders" ? answerSiteOrders(ctx, spec) : answerSiteTraffic(ctx, spec);
+}
+
+/* ── 🅰️ ABC по товарах і брендах ─────────────────────────────────────── */
+
+type AbcItem = {
+  товар_id?: string;
+  бренд_id?: string;
+  назва: string;
+  артикул?: string | null;
+  бренд?: string | null;
+  клас: string;
+  оборот: number;
+  маржа_відсотків: number | null;
+  частка_обороту_відсотків: number;
+  місяців_активних: number;
+};
+
+/**
+ * Що тримає оборот серед товарів чи брендів — і що з нього виводити.
+ *
+ * Той самий звіт, що й «хто тримає оборот» по клієнтах (answerAbcClients),
+ * але з артикулами: товар без артикула в офісі не знайдуть. Маржу показуємо
+ * поруч із класом: товар класу A з маржею нижче середньої по класу — не
+ * «локомотив», а найбільший споживач знижки.
+ */
+export async function answerAbcItems(
+  ctx: ToolContext,
+  spec: PeriodSpec,
+  dimension: "product" | "brand",
+  basis: "amount" | "profit"
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+  const facts = await callTool(
+    stockHealthTool,
+    ctx,
+    { mode: "abc", dimension, basis, period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+
+  const classes = (facts.класи ?? []) as Array<{
+    клас: string;
+    позицій: number;
+    оборот: number;
+    частка_обороту_відсотків: number;
+  }>;
+  const topA = (facts.топ_A ?? []) as AbcItem[];
+  const shaky = (facts.A_нерівні ?? []) as AbcItem[];
+  const deadC = (facts.C_нерівні_кандидати_на_виведення ?? []) as AbcItem[];
+  const what = dimension === "brand" ? "брендах" : "товарах";
+  const byWhat = basis === "profit" ? " за прибутком" : "";
+
+  if (topA.length === 0) {
+    return {
+      markdown: `## 🅰️ ABC по ${what} · ${period.label}\n\n${capitalize(period.label)} продажів немає, ABC рахувати нема на чому.`,
+      tools,
+    };
+  }
+
+  const known = topA.filter((r) => r.маржа_відсотків != null);
+  const avgMargin = known.length
+    ? known.reduce((sum, r) => sum + (r.маржа_відсотків ?? 0), 0) / known.length
+    : null;
+
+  const name = (r: AbcItem) =>
+    dimension === "product" ? productLink(short(r.назва, 34), r.артикул ?? null) : `**${short(r.назва, 34)}**`;
+  const line = (r: AbcItem, icon: string, tail?: string) => {
+    const low = avgMargin != null && r.маржа_відсотків != null && r.маржа_відсотків < avgMargin * 0.7;
+    const margin = r.маржа_відсотків != null ? ` · маржа ${low ? "🔴" : "🟢"} ${percent(r.маржа_відсотків)}` : "";
+    return `- ${icon} ${name(r)} — **${money(r.оборот)}** (${percent(r.частка_обороту_відсотків)} обороту)${margin}${tail ?? ""}`;
+  };
+  const classIcon: Record<string, string> = { A: "🅰️", B: "🅱️", C: "🅲" };
+  const classWhat: Record<string, string> = { A: "80 % обороту", B: "наступні 15 %", C: "останні 5 %" };
+
+  return {
+    markdown: md([
+      `## 🅰️ ABC по ${what}${byWhat} · ${period.label}`,
+      "",
+      ...table(
+        ["Клас", "Позицій", "💰 Оборот", "Частка", "Що це"],
+        classes.map((c) => [
+          `${classIcon[c.клас] ?? c.клас} ${c.клас}`,
+          c.позицій,
+          money(c.оборот),
+          percent(c.частка_обороту_відсотків),
+          classWhat[c.клас] ?? "",
+        ])
+      ),
+      avgMargin != null ? `_Середня маржа по класу A: ${percent(avgMargin)}._` : "",
+      "",
+      "### 👑 Клас A — що тримає оборот",
+      ...topA.slice(0, 10).map((r) => line(r, "🅰️")),
+      ...(shaky.length
+        ? [
+            "",
+            "### ⚠️ A, але нерівні",
+            "_Оборот є, ритму немає: беруть від випадку до випадку._",
+            ...shaky.map((r) => line(r, "⚠️", ` · продавався ${r.місяців_активних} із ${facts.місяців} міс.`)),
+          ]
+        : []),
+      ...(deadC.length
+        ? [
+            "",
+            "### 🧊 C і нерівні — кандидати на виведення",
+            ...deadC.map((r) => line(r, "🧊", ` · ${r.місяців_активних} із ${facts.місяців} міс.`)),
+          ]
+        : []),
+      "",
+      Number(facts.покриття_собівартості_відсотків) < 90
+        ? `_Маржа порахована для ${percent(Number(facts.покриття_собівартості_відсотків))} обороту: у решти рядків 1С не передала собівартість._`
+        : "",
+      facts.xyz_доступний ? "" : `_Рівність продажів (XYZ) не рахувалась: у періоді лише ${facts.місяців} міс._`,
+      "",
+      followUps(
+        dimension === "product" ? "ABC по брендах" : "ABC по товарах",
+        basis === "profit" ? `ABC по ${what} за оборотом` : `ABC по ${what} за прибутком`,
+        "Мертві залишки"
+      ),
+    ]),
+    tools,
+  };
+}
+
 export async function answerSiteTraffic(ctx: ToolContext, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const period = periodOf(ctx.today, spec);
   const facts = await callTool(
-    siteTrafficTool,
+    siteReportTool,
     ctx,
-    { period_from: period.fromDay, period_to: period.toDay },
+    { mode: "traffic", period_from: period.fromDay, period_to: period.toDay },
     tools
   );
 
@@ -1528,6 +1675,622 @@ export async function answerDigest(ctx: ToolContext): Promise<DirectAnswer> {
       "_Це те саме зведення, що йде вранці в Telegram._",
       "",
       followUps("Хто де зараз", "Дебіторка фірми", "Що закінчується на складі"),
+    ]),
+    tools,
+  };
+}
+
+/* ── 🧾 Накладні ──────────────────────────────────────────────────────── */
+
+/** Посилання на картку документа в адмінці. */
+const docLink = (id: string, number: string) => `[${number}](/admin/erp/sales/${id})`;
+
+/** «2026-09-09» → «09.09»; інше лишаємо як є. */
+const shortDate = (day: string) => (/^\d{4}-\d{2}-\d{2}$/.test(day) ? ddmm(day) : day);
+
+/** Стан документа знаком: керівник читає таблицю з телефона. */
+function docState(type: string, status: string): string {
+  if (/поверн/i.test(type)) return "↩️ повернення";
+  if (/скасован/i.test(status)) return `🔴 ${status}`;
+  if (/проведен/i.test(status)) return `🟢 ${status}`;
+  if (/пакує/i.test(status)) return `📦 ${status}`;
+  if (/дороз/i.test(status)) return `🚚 ${status}`;
+  if (/доставлен/i.test(status)) return `✅ ${status}`;
+  return `🟡 ${status}`;
+}
+
+type DocIntent = {
+  period: PeriodSpec;
+  number: string | null;
+  who: string | null;
+  asDriver: boolean;
+  docType: DocKind;
+  withLines: boolean;
+};
+
+/**
+ * Накладні: перелік за період або одна за номером.
+ *
+ * Це та відповідь, якої бракувало найбільше: «вчорашній оборот Кулика з
+ * накладними» доти йшло в пошук товару. Документи — таблицею, а не
+ * списком: головний обʼєкт тут номер із сумою, і рядки порівнюють між
+ * собою; тапабельність лишається — і номер, і клієнт у клітинках є
+ * посиланнями.
+ */
+export async function answerDocuments(ctx: ToolContext, intent: DocIntent): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+
+  if (intent.number) return answerDocumentCard(ctx, intent.number, intent.docType, tools);
+
+  const period = periodOf(ctx.today, intent.period);
+  const filter: DocumentFilter = { from: period.from, to: period.to, docType: intent.docType, limit: 25 };
+  let title = "усі";
+  let followName: string | null = null;
+  let mode: "rep" | "client" | "driver" | "all" = "all";
+
+  if (intent.who) {
+    if (intent.asDriver) {
+      const match = await resolveStaff(intent.who, ["DRIVER"]);
+      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+      if (!match.ok) {
+        return {
+          markdown: `## 🧾 Накладні\n\nВодія «${intent.who}» у базі немає.`,
+          tools,
+          miss: { searched: intent.who, among: "водіїв" },
+        };
+      }
+      filter.driverId = match.user.id;
+      title = `повіз ${match.user.name}`;
+      followName = match.user.name;
+      mode = "driver";
+    } else {
+      const match = await resolveStaff(intent.who, ["SALES"]);
+      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+      if (match.ok) {
+        filter.repId = match.user.id;
+        title = match.user.name;
+        followName = match.user.name;
+        mode = "rep";
+      } else {
+        // Не співробітник — клієнт: «документи по Кунанцю».
+        const found = await resolveClient(ctx, intent.who, tools);
+        if ("none" in found) {
+          return { markdown: notFound(intent.who), tools, miss: { searched: intent.who, among: "співробітників і клієнтів" } };
+        }
+        if ("ambiguous" in found) return { markdown: askWhichClient(intent.who, found.ambiguous, true), tools };
+        filter.counterpartyId = found.hit.id;
+        title = found.hit.name;
+        followName = found.hit.name;
+        mode = "client";
+      }
+    }
+  }
+
+  const list = await timed({ name: "documents", label: "Дивлюся накладні" }, () => listDocuments(filter), tools);
+  const kindWord = intent.docType === "orders" ? "Замовлення" : intent.docType === "returns" ? "Повернення" : "Накладні";
+  const heading = `## 🧾 ${kindWord} · ${short(title, 28)} · ${period.label}`;
+
+  if (list.усього === 0) {
+    const empty =
+      mode === "all"
+        ? `${capitalize(period.label)} проведених документів немає.`
+        : mode === "driver"
+          ? `${capitalize(period.label)} у ${followName} доставок з документами немає.`
+          : `${capitalize(period.label)} у ${followName} проведених ${intent.docType === "orders" ? "замовлень" : intent.docType === "returns" ? "повернень" : "реалізацій"} немає.`;
+    return {
+      markdown: md([heading, "", empty, "", periodChips(`${kindWord} ${followName ?? ""}`.trim())]),
+      tools,
+    };
+  }
+
+  const t = list.разом;
+  const rows = list.документи.map((d) => [
+    docLink(d.документ_id, d.номер),
+    mode === "client"
+      ? d.торговий_id
+        ? repLink(d.торговий_id, short(d.торговий ?? "", 22))
+        : short(d.торговий ?? "—", 22)
+      : d.клієнт_id
+        ? clientLink(d.клієнт_id, short(d.клієнт ?? "", 26))
+        : short(d.клієнт ?? "—", 26),
+    money(d.сума),
+    docState(d.тип, d.статус),
+  ]);
+
+  const lineBlocks: string[] = [];
+  if (intent.withLines) {
+    if (list.документи.length <= 5) {
+      for (const d of list.документи) {
+        const lines = await timed(
+          { name: "document_lines", label: `Рядки № ${d.номер}` },
+          () => documentLines(d.документ_id, 12),
+          tools
+        );
+        lineBlocks.push(
+          "",
+          `### № ${d.номер} · ${short(d.клієнт ?? d.торговий ?? "", 30)} · ${money(d.сума)}`,
+          ...table(
+            ["Артикул", "Товар", "К-сть", "Ціна", "Сума"],
+            lines.рядки.map((l) => [l.артикул ?? "—", short(l.товар, 30), l.кількість, money(l.ціна), money(l.сума)])
+          ),
+          lines.рядків_усього > lines.рядки.length ? `_…і ще ${lines.рядків_усього - lines.рядки.length} рядків._` : ""
+        );
+      }
+    } else {
+      lineBlocks.push("", "_Рядки показую, коли документів не більше п'яти — назвіть номер або звузьте період._");
+    }
+  }
+
+  const first = list.документи[0];
+  return {
+    markdown: md([
+      heading,
+      "",
+      ...table(
+        ["Документів", "💰 Оборот", "Клієнтів", "↩️ Повернень", "Сер. чек"],
+        [[t.документів, money(t.оборот), t.клієнтів, t.повернень, money(t.середній_чек)]]
+      ),
+      t.маржа != null && t.маржа_відсотків != null ? `_Маржа: ${money(t.маржа)} (${percent(t.маржа_відсотків)})._` : "",
+      "",
+      ...table(["№", mode === "client" ? "Торговий" : "Клієнт", "Сума", "Стан"], rows),
+      list.усього > list.показано ? `_…і ще ${list.усього - list.показано} документів за цей період._` : "",
+      ...lineBlocks,
+      "",
+      t.без_торгового > 0 && mode === "all" ? `_Без торгового: ${t.без_торгового} документів — офісні, у 1С без відповідального._` : "",
+      "",
+      followUps(
+        followName ? `${kindWord} ${followName} за тиждень` : `${kindWord} за тиждень`,
+        mode === "rep" ? `Дебіторка ${followName}` : mode === "client" ? `Що з ${followName}` : "Продажі по торгових",
+        first ? `Накладна №${first.номер} з рядками` : null
+      ),
+    ]),
+    tools,
+  };
+}
+
+/** Одна накладна за номером: шапка, рядки, маржа, збірка, доставка. */
+async function answerDocumentCard(
+  ctx: ToolContext,
+  number: string,
+  docType: DocKind,
+  tools: DirectAnswer["tools"]
+): Promise<DirectAnswer> {
+  const card = await timed(
+    { name: "documents", label: `Шукаю документ ${number}` },
+    () => documentByNumber(number, docType === "all" ? null : docType),
+    tools
+  );
+  if (!card) {
+    return {
+      markdown: `## 🧾 Накладна ${number}\n\nДокумента з таким номером у базі немає.`,
+      tools,
+      miss: { searched: number, among: "документів" },
+    };
+  }
+
+  const d = card.документ as {
+    документ_id: string;
+    номер: string;
+    тип: string;
+    статус: string;
+    дата: string;
+    час: string;
+    клієнт_id: string | null;
+    клієнт: string | null;
+    адреса: string | null;
+    торговий_id: string | null;
+    торговий: string | null;
+    сума: number;
+    знижка: number;
+    позицій: number;
+    з_1с: boolean;
+    доставка_спосіб: string | null;
+    примітки: string | null;
+  };
+  const lines = card.рядки as Array<{ артикул: string | null; товар: string; кількість: number; ціна: number; сума: number }>;
+  const picked = (card.зібрав ?? []) as Array<{ хто: string; рядків: number; з: string; по: string }>;
+  const picking = card.збірка as { позицій: number; зібрано: number; лишилось: number } | null;
+  const delivery = (card.доставка ?? []) as Array<{ джерело: string; водій: string | null; номер: string; день: string; стан: string | null }>;
+  const replaced = card.замінено_на as { документ_id: string; номер: string; сума: number } | undefined;
+  const twin = (card.інший_з_тим_самим_номером ?? []) as Array<{ документ_id: string; номер: string; тип: string; статус: string; сума: number }>;
+  const margin = card.маржа as number | null;
+  const marginPct = card.маржа_відсотків as number | null;
+  const marginSource = String(card.маржа_джерело ?? "");
+
+  const kindWord = /поверн/i.test(d.тип) ? "Повернення" : /замовл/i.test(d.тип) ? "Замовлення" : "Накладна";
+  return {
+    markdown: md([
+      `## 🧾 ${kindWord} № ${d.номер} · ${shortDate(d.дата)} ${d.час} · ${docState(d.тип, d.статус)}`,
+      "",
+      ...table(
+        ["Клієнт", "Торговий", "Сума", "Позицій"],
+        [
+          [
+            d.клієнт_id ? clientLink(d.клієнт_id, short(d.клієнт ?? "", 28)) : short(d.клієнт ?? "—", 28),
+            d.торговий_id ? repLink(d.торговий_id, short(d.торговий ?? "", 22)) : "—",
+            money(d.сума),
+            d.позицій,
+          ],
+        ]
+      ),
+      d.знижка > 0 ? `_Знижка в шапці: ${money(d.знижка)}._` : "",
+      "",
+      ...table(
+        ["Артикул", "Товар", "К-сть", "Ціна", "Сума"],
+        lines.slice(0, 25).map((l) => [l.артикул ?? "—", short(l.товар, 30), l.кількість, money(l.ціна), money(l.сума)])
+      ),
+      Number(card.рядків_усього) > Math.min(25, lines.length) ? `_…і ще ${Number(card.рядків_усього) - Math.min(25, lines.length)} рядків._` : "",
+      "",
+      margin != null && marginPct != null
+        ? `💹 Маржа: **${money(margin)}** (${percent(marginPct)})${/оцінк/i.test(marginSource) ? " — оцінка за останньою собівартістю" : ""}`
+        : "💹 Маржа: собівартості в 1С немає.",
+      picking
+        ? `📦 Збірка: зібрано ${picking.зібрано} із ${picking.позицій}${picked.length ? ` · ${picked.map((p) => `${p.хто}, ${p.з}–${p.по}`).join("; ")}` : ""}`
+        : "📦 Збірка: відміток збірки немає.",
+      delivery.length
+        ? `🚚 Доставка: ${delivery.map((r) => `${r.водій ?? "водій не призначений"} · ${r.джерело} №${r.номер} · ${shortDate(r.день)}${r.стан ? ` · ${r.стан}` : ""}`).join("; ")}`
+        : "🚚 Доставка: в маршрут не поставлено.",
+      replaced ? `⚠️ Чернетка 1С, замінена на ${docLink(replaced.документ_id, replaced.номер)} (${money(replaced.сума)}).` : "",
+      twin.length
+        ? `_Є ще ${twin.map((o) => `${o.тип} ${docLink(o.документ_id, o.номер)} (${o.статус}, ${money(o.сума)})`).join(", ")}._`
+        : "",
+      d.примітки ? `_Примітка: ${d.примітки}_` : "",
+      "",
+      followUps(
+        d.клієнт ? `Накладні ${short(d.клієнт, 24)} за місяць` : null,
+        d.клієнт ? `Що з ${short(d.клієнт, 24)}` : null,
+        d.торговий ? `Дебіторка ${d.торговий}` : null
+      ),
+    ]),
+    tools,
+  };
+}
+
+/* ── 👤 Профіль співробітника ─────────────────────────────────────────── */
+
+type Loose = Record<string, unknown>;
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+const obj = (v: unknown): Loose | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Loose) : null);
+const arr = <T = Loose,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+/**
+ * Одна людина цілком — торговий, водій чи складовщик.
+ *
+ * Спершу співробітник, потім клієнт: «що з Куликом» — профіль торгового,
+ * «що з Кунанцем» — картка клієнта, і той самий шаблон питання веде туди,
+ * де є дані. Сам профіль складає інструмент staff_profile — щоб модель і
+ * код називали ті самі числа.
+ */
+export async function answerStaffProfile(ctx: ToolContext, who: string, spec: PeriodSpec): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const match = await resolveStaff(who, ["SALES", "DRIVER", "WAREHOUSE"]);
+  if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+  if (!match.ok) return answerClientCard(ctx, who);
+
+  if (match.user.role === "WAREHOUSE") return answerWarehouse(ctx, spec, who);
+
+  const period = periodOf(ctx.today, spec);
+  const facts = await callTool(
+    staffProfileTool,
+    ctx,
+    { who, period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+  if (facts.помилка) return { markdown: `## 👤 ${match.user.name}\n\n${String(facts.помилка)}`, tools };
+
+  const person = obj(facts.особа) ?? {};
+  const medians = obj(facts.медіани) ?? {};
+  const name = match.user.name;
+
+  if (match.user.role === "DRIVER") return driverProfile(name, period, person, medians, tools);
+  return repProfile(match.user.id, name, period, person, medians, tools);
+}
+
+function repProfile(
+  id: string,
+  name: string,
+  period: ReturnType<typeof periodOf>,
+  person: Loose,
+  medians: Loose,
+  tools: DirectAnswer["tools"]
+): DirectAnswer {
+  const sales = obj(person.продажі);
+  const dyn = obj(person.динаміка);
+  const debt = obj(person.дебіторка);
+  const collected = obj(person.зібрано_грошей);
+  const returns = obj(person.повернення);
+  const shifts = obj(person.зміни);
+  const portfolio = obj(person.портфель);
+  const now = obj(person.зараз);
+  const brands = arr(person.бренди).slice(0, 5);
+  const debtors = arr(debt?.боржники).slice(0, 5);
+  const strong = arr<string>(person.сильне);
+  const weak = arr<string>(person.слабке);
+  const forecast = obj(person.прогноз_місяця);
+
+  const overduePct = num(debt?.прострочено_відсотків);
+  const momentum = num(dyn?.оборот_відсотків);
+  const returnsPct = num(returns?.частка_відсотків);
+  const returnsMedian = num(returns?.медіана_команди_відсотків);
+
+  return {
+    markdown: md([
+      `## 👤 ${repLink(id, name)} · торговий · ${period.label}`,
+      "",
+      sales
+        ? table(
+            ["💰 Оборот", "Місце", "Реалізацій", "Клієнтів", "Сер. чек"],
+            [
+              [
+                money(num(sales.оборот) ?? 0),
+                sales.місце != null ? `${sales.місце} із ${sales.з_торгових ?? "?"}` : "—",
+                num(sales.реалізацій) ?? 0,
+                num(sales.клієнтів) ?? 0,
+                money(num(sales.середній_чек) ?? 0),
+              ],
+            ]
+          ).join("\n")
+        : `_${capitalize(period.label)} реалізацій немає._`,
+      "",
+      ...table(
+        ["Динаміка", "💵 Зібрано", "🔴 Прострочено", "↩️ Повернення"],
+        [
+          [
+            momentum == null ? "—" : `${arrow(momentum)} ${percent(momentum)}`,
+            money(num(collected?.сума) ?? 0),
+            overduePct == null
+              ? "—"
+              : `${light(overduePct < 10 ? "good" : overduePct <= 25 ? "mid" : "bad")} ${percent(overduePct)} (${money(num(debt?.прострочено) ?? 0)})`,
+            returnsPct == null
+              ? "—"
+              : `${returnsMedian != null && returnsPct > returnsMedian * 1.5 ? "🔴" : "🟢"} ${percent(returnsPct)}`,
+          ],
+        ]
+      ),
+      forecast && num(forecast.прогноз) != null
+        ? `🔮 Темп місяця: ${money(num(forecast.темп_на_день) ?? 0)}/день, прогноз до кінця — **${money(num(forecast.прогноз) ?? 0)}**${num(forecast.план) ? `, план ${money(num(forecast.план) ?? 0)} ${bar(num(forecast.виконання_відсотків))}` : ""}.`
+        : "",
+      "",
+      debt
+        ? `### 💰 Дебіторка\nБорг **${money(num(debt.борг) ?? 0)}**, прострочено ${money(num(debt.прострочено) ?? 0)}, боржників ${num(debt.боржників) ?? 0}.`
+        : "",
+      ...debtors.map(
+        (d) =>
+          `- 🔴 ${d.клієнт_id ? clientLink(String(d.клієнт_id), short(String(d.клієнт ?? ""), 34)) : short(String(d.клієнт ?? ""), 34)} — прострочено **${money(num(d.прострочено) ?? 0)}** із ${money(num(d.борг) ?? 0)}${d.найстаріше_днів != null ? ` · ${daysWord(Number(d.найстаріше_днів))}` : ""}${d.платник ? ` · ${String(d.платник)}` : ""}`
+      ),
+      brands.length ? "" : null,
+      brands.length ? "### 🏷 Топ брендів" : null,
+      ...(brands.length
+        ? table(
+            ["Бренд", "Оборот"],
+            brands.map((b) => [String(b.бренд ?? ""), money(num(b.оборот) ?? 0)])
+          )
+        : []),
+      shifts
+        ? `### 🚗 Зміни й пробіг\nЗмін ${num(shifts.змін) ?? 0} за ${daysWord(num(shifts.днів) ?? 0)}, робочих ${num(shifts.робочих_км) ?? 0} км (GPS ${num(shifts.gps_км) ?? 0} км), особистих ${num(shifts.особистих_км) ?? 0} км, пальне ${money(num(shifts.пальне_грн) ?? 0)}${num(shifts.підозрілих) ? ` · ⚠️ підозрілих одометрів ${shifts.підозрілих}` : ""}${num(shifts.візитів_відмічено) ? ` · візитів ${shifts.візитів_відмічено}` : ""}.`
+        : "",
+      portfolio
+        ? `### 👥 Портфель\nКлієнтів ${num(portfolio.усього) ?? 0}: активних ${num(portfolio.активних) ?? 0}, сповзають ${num(portfolio.сповзають) ?? 0}, сплять ${num(portfolio.сплять) ?? 0}, втрачених ${num(portfolio.втрачених) ?? 0}, нових ${num(portfolio.нових) ?? 0}.`
+        : "",
+      now
+        ? `### 📍 Зараз\n${str(now.зміна) ?? "зміни немає"}${num(now.останній_сигнал_хв_тому) != null ? ` · сигнал ${minutesText(num(now.останній_сигнал_хв_тому))} тому` : ""}${num(now.пройдено_км) ? ` · ${now.пройдено_км} км` : ""}${num(now.замовлень_сьогодні) ? ` · замовлень сьогодні ${now.замовлень_сьогодні}` : ""}${str(now.проблема) ? ` · ⚠️ ${now.проблема}` : ""}`
+        : "",
+      "",
+      strong.length ? `✅ **Сильне:** ${strong.join(", ")}.` : "",
+      weak.length ? `⚠️ **Провисає:** ${weak.join(", ")}.` : "",
+      num(medians.оборот) != null
+        ? `_Медіана команди за цей період: оборот ${money(num(medians.оборот) ?? 0)}${num(medians.середній_чек) != null ? `, середній чек ${money(num(medians.середній_чек) ?? 0)}` : ""}._`
+        : "",
+      str(person.примітка) ? `_${person.примітка}_` : "",
+      "",
+      followUps(`Накладні ${name} за тиждень`, `Дебіторка ${name}`, `Зміни ${name} за місяць`),
+    ]),
+    tools,
+  };
+}
+
+function driverProfile(
+  name: string,
+  period: ReturnType<typeof periodOf>,
+  person: Loose,
+  medians: Loose,
+  tools: DirectAnswer["tools"]
+): DirectAnswer {
+  const routes = obj(person.маршрути);
+  const pay = obj(person.зарплата);
+  const cash = obj(person.каса);
+  const today = obj(person.сьогодні);
+  const todayCash = obj(today?.каса);
+  const shifts = obj(person.зміни);
+  const now = obj(person.зараз);
+  const perPoint = num(routes?.грн_на_точку);
+  const medianPerPoint = num(medians.грн_на_точку);
+  const pointLight =
+    perPoint == null || medianPerPoint == null
+      ? ""
+      : perPoint <= medianPerPoint
+        ? "🟢 "
+        : perPoint <= medianPerPoint * 1.3
+          ? "🟡 "
+          : "🔴 ";
+
+  return {
+    markdown: md([
+      `## 👤 ${name} · водій · ${period.label}`,
+      "",
+      routes
+        ? table(
+            ["Листів", "Км", "Точок", "💸 Зарплата", "₴/точку"],
+            [
+              [
+                num(routes.листів) ?? 0,
+                num(routes.км) ?? 0,
+                num(routes.точок_разом) ?? 0,
+                money(num(pay?.разом) ?? num(routes.зарплата) ?? 0),
+                perPoint == null ? "—" : `${pointLight}${money(perPoint)}`,
+              ],
+            ]
+          ).join("\n")
+        : `_${capitalize(period.label)} маршрутних листів немає._`,
+      pay && num(pay.бонуси) ? `_Зарплата: за листи ${money(num(pay.за_листи) ?? 0)}, бонуси ${money(num(pay.бонуси) ?? 0)}._` : "",
+      "",
+      cash
+        ? `### 💵 Каса\nЗдач ${num(cash.здач) ?? 0}: заявлено ${money(num(cash.заявлено) ?? 0)}, підтверджено ${money(num(cash.підтверджено) ?? 0)}${num(cash.очікує_підтвердження) ? `, чекає підтвердження ${money(num(cash.очікує_підтвердження) ?? 0)}` : ""}${num(cash.з_розбіжністю_офісу) ? ` · ⚠️ з розбіжністю ${cash.з_розбіжністю_офісу}` : ""}.`
+        : "",
+      today
+        ? `### 🚚 Сьогодні\nТочок ${num(today.точок) ?? 0}, відмічено ${num(today.відмічено) ?? 0}${num(today.забрати_грошей) ? `, забрати ${money(num(today.забрати_грошей) ?? 0)}` : ""}${todayCash ? ` · каса: зібрано ${money(num(todayCash.зібрано) ?? 0)}, здано ${money(num(todayCash.здано) ?? 0)}, на руках ${money(num(todayCash.на_руках) ?? 0)}` : ""}.`
+        : "",
+      shifts && num(shifts.змін)
+        ? `### 🚗 Зміни\nЗмін ${shifts.змін}, робочих ${num(shifts.робочих_км) ?? 0} км (GPS ${num(shifts.gps_км) ?? 0} км)${num(shifts.підозрілих) ? ` · ⚠️ підозрілих одометрів ${shifts.підозрілих}` : ""}.`
+        : "",
+      now
+        ? `### 📍 Зараз\n${str(now.зміна) ?? "зміни немає"}${num(now.останній_сигнал_хв_тому) != null ? ` · сигнал ${minutesText(num(now.останній_сигнал_хв_тому))} тому` : ""}${str(now.проблема) ? ` · ⚠️ ${now.проблема}` : ""}`
+        : "",
+      "",
+      medianPerPoint != null
+        ? `_Медіана водіїв: ${money(medianPerPoint)} за точку${num(medians.км_на_точку) != null ? `, ${medians.км_на_точку} км на точку` : ""}._`
+        : "",
+      str(person.примітка) ? `_${person.примітка}_` : "",
+      "",
+      followUps(`Зарплата ${name} за місяць`, `Що повіз ${name} вчора`, `Де зараз ${name}`),
+    ]),
+    tools,
+  };
+}
+
+/* ── 🏗 Склад: хто збирає накладні ────────────────────────────────────── */
+
+/**
+ * Збірка на складі: команда або один складовщик.
+ *
+ * Роль перевіряємо перед відповіддю: «скільки зібрав Кулик» — це про
+ * гроші торгового, а не про накладні, і відповідь іде в зібране за період.
+ * Відміток збірки в застосунку поки немає — тоді відповідь чесно каже про
+ * це й показує лише зміни та фото-звіти, а не нулі як факт.
+ */
+export async function answerWarehouse(
+  ctx: ToolContext,
+  spec: PeriodSpec,
+  who: string | null
+): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+
+  if (who) {
+    const match = await resolveStaff(who, ["WAREHOUSE", "SALES"]);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok) {
+      return {
+        markdown: `## 🏗 Склад\n\nСпівробітника «${who}» у базі немає.`,
+        tools,
+        miss: { searched: who, among: "співробітників" },
+      };
+    }
+    if (match.user.role === "SALES") return answerTeamCollected(ctx, spec);
+
+    const facts = await callTool(staffProfileTool, ctx, { who, period_from: period.fromDay, period_to: period.toDay }, tools);
+    if (facts.помилка) return { markdown: `## 🏗 ${match.user.name}\n\n${String(facts.помилка)}`, tools };
+    const person = obj(facts.особа) ?? {};
+    const pick = obj(person.збірка);
+    const photos = obj(person.звітів_фото);
+    const shifts = obj(person.зміни);
+    const docs = arr(person.документи).slice(0, 15);
+    const hasMarks = (num(pick?.документів) ?? 0) > 0;
+
+    return {
+      markdown: md([
+        `## 🏗 ${match.user.name} · склад · ${period.label}`,
+        "",
+        hasMarks
+          ? table(
+              ["Документів", "Рядків", "Хв/док", "Док/день", "Змін"],
+              [
+                [
+                  num(pick?.документів) ?? 0,
+                  num(pick?.рядків) ?? 0,
+                  num(pick?.хв_на_документ) ?? "—",
+                  num(pick?.документів_на_день) ?? "—",
+                  num(shifts?.змін) ?? 0,
+                ],
+              ]
+            ).join("\n")
+          : `Відміток збірки в застосунку ${period.label} немає.`,
+        photos
+          ? `📷 Фото накладних: прочитано ${num(photos.прочитано) ?? 0}${num(photos.читається) ? `, читається ${photos.читається}` : ""}${num(photos.не_вийшло) ? `, не вийшло ${photos.не_вийшло}` : ""}.`
+          : "",
+        shifts && !hasMarks ? `🕒 Змін ${num(shifts.змін) ?? 0}, годин ${num(shifts.годин) ?? 0}.` : "",
+        docs.length ? "" : null,
+        docs.length ? "### 📋 Документи" : null,
+        ...(docs.length
+          ? table(
+              ["№", "Клієнт", "Рядків", "Час"],
+              docs.map((d) => [
+                d.документ_id ? docLink(String(d.документ_id), String(d.номер ?? "")) : String(d.номер ?? ""),
+                short(String(d.клієнт ?? ""), 26),
+                `${num(d.рядків_відмічено) ?? 0}/${num(d.позицій_у_накладній) ?? 0}`,
+                `${str(d.почав) ?? ""}–${str(d.закінчив) ?? ""}`,
+              ])
+            )
+          : []),
+        "",
+        str(facts.примітка) ? `_${facts.примітка}_` : "",
+        "",
+        followUps("Складовщики за тиждень", `Що зібрав ${match.user.name} вчора`, "Накладні за сьогодні"),
+      ]),
+      tools,
+    };
+  }
+
+  const facts = await callTool(
+    staffProfileTool,
+    ctx,
+    { role: "WAREHOUSE", period_from: period.fromDay, period_to: period.toDay },
+    tools
+  );
+  const team = obj(facts.склад);
+  const workers = arr(team?.працівники);
+  const medians = obj(facts.медіани);
+  const medianMin = num(medians?.хв_на_документ);
+  const anyMarks = workers.some((w) => (num(w.документів) ?? 0) > 0);
+
+  return {
+    markdown: md([
+      `## 🏗 Склад · збірка · ${period.label}`,
+      "",
+      anyMarks
+        ? table(
+            ["Хто", "Док.", "Рядків", "Хв/док", "Док/день", "Змін"],
+            workers.map((w) => {
+              const min = num(w.хв_на_документ);
+              const lightMark =
+                min == null || medianMin == null ? "" : min <= medianMin ? "🟢 " : min <= medianMin * 1.3 ? "🟡 " : "🔴 ";
+              return [
+                String(w.ім_я ?? ""),
+                num(w.документів) ?? 0,
+                num(w.рядків) ?? 0,
+                min == null ? "—" : `${lightMark}${min}`,
+                num(w.документів_на_день) ?? "—",
+                num(w.змін) ?? 0,
+              ];
+            })
+          ).join("\n")
+        : `Відміток збірки в застосунку ${period.label} немає — видно лише зміни й фото накладних.`,
+      ...(anyMarks
+        ? []
+        : table(
+            ["Хто", "Змін", "Годин", "📷 Фото"],
+            workers.map((w) => [
+              String(w.ім_я ?? ""),
+              num(w.змін) ?? 0,
+              num(w.годин) ?? 0,
+              num(obj(w.звітів_фото)?.прочитано) ?? 0,
+            ])
+          )),
+      "",
+      str(facts.примітка) ? `_${facts.примітка}_` : "",
+      "",
+      followUps("Складовщики за місяць", "Накладні за сьогодні", "Де зараз водії"),
     ]),
     tools,
   };

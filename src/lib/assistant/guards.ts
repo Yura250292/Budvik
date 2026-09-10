@@ -26,14 +26,24 @@ export type SeenEntities = {
   numbers: Set<number>;
   /** Торгові, згадані інструментами цього ходу — для посилань на картку. */
   reps: Set<string>;
+  /** Документи (накладні), які показав інструмент — посилання на картку в адмінці. */
+  docs: Set<string>;
 };
 
 export function emptyEntities(): SeenEntities {
-  return { clients: new Set(), products: new Map(), reps: new Set(), numbers: new Set() };
+  return { clients: new Set(), products: new Map(), reps: new Set(), docs: new Set(), numbers: new Set() };
 }
 
-const CLIENT_KEYS = new Set(["клієнт_id", "counterpartyId"]);
-const PRODUCT_KEYS = new Set(["товар_id", "productId"]);
+/*
+ * Латинські snake_case-ключі (client_id, product_id, rep_id, driver_id, sku)
+ * віддає ЛИШЕ query_db — інструмент керівника (kinds: ["ADMIN"]). Жоден
+ * інструмент торгового, водія чи складовщика таких ключів не повертає
+ * (перевірено grep-ом), і повертати не має: інакше посилання в адмінку
+ * дісталося б тому, кому туди зась.
+ */
+const CLIENT_KEYS = new Set(["клієнт_id", "counterpartyId", "client_id"]);
+const PRODUCT_KEYS = new Set(["товар_id", "productId", "product_id"]);
+const DOC_KEYS = new Set(["документ_id"]);
 /**
  * Торгові — лише в помічника керівника, і лише вони.
  *
@@ -44,7 +54,7 @@ const PRODUCT_KEYS = new Set(["товар_id", "productId"]);
  * інших інструментів, і тоді торговий міг би отримати посилання в
  * заборонений йому розділ.
  */
-const REP_KEYS = new Set(["торговий_id", "водій_id"]);
+const REP_KEYS = new Set(["торговий_id", "водій_id", "rep_id", "driver_id"]);
 
 /** Обходить результат інструмента й збирає id, які модель побачить. */
 export function collectEntities(
@@ -74,10 +84,17 @@ function walk(value: unknown, into: SeenEntities) {
       if (CLIENT_KEYS.has(key)) {
         into.clients.add(raw);
       } else if (PRODUCT_KEYS.has(key)) {
-        const sku = typeof obj["артикул"] === "string" ? (obj["артикул"] as string) : null;
+        const sku =
+          typeof obj["артикул"] === "string"
+            ? (obj["артикул"] as string)
+            : typeof obj["sku"] === "string"
+              ? (obj["sku"] as string)
+              : null;
         into.products.set(raw, sku ?? into.products.get(raw) ?? null);
       } else if (REP_KEYS.has(key)) {
         into.reps.add(raw);
+      } else if (DOC_KEYS.has(key)) {
+        into.docs.add(raw);
       }
     }
     walk(raw, into);
@@ -86,7 +103,7 @@ function walk(value: unknown, into: SeenEntities) {
 
 /** Плоский список id — його зберігаємо разом із повідомленням інструмента. */
 export function entityIdList(entities: SeenEntities): string[] {
-  return [...entities.clients, ...entities.products.keys(), ...entities.reps];
+  return [...entities.clients, ...entities.products.keys(), ...entities.reps, ...entities.docs];
 }
 
 /**
@@ -108,7 +125,15 @@ export function entityIdList(entities: SeenEntities): string[] {
  */
 export type NumberCheck = { checked: number; unverified: number[] };
 
-const NUMBER_RE = /(?<![\w./-])(\d{1,3}(?:[\s\u00A0\u202F]\d{3})+|\d+(?:[.,]\d+)?)(?![\w./-])/g;
+/*
+ * Копійки після розділювача тисяч: «64 198,56».
+ *
+ * Без хвоста (?:[.,]\d+)? регулярка розривала таке число надвоє — на
+ * 64198 і 56, — і обидві половини йшли у «числа поза даними». Помітилось,
+ * коли query_db почав віддавати суми з копійками.
+ */
+const NUMBER_RE =
+  /(?<![\w./-])(\d{1,3}(?:[\s\u00A0\u202F]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)(?![\w./-])/g;
 
 /** Нижче цього числа вважаємо лічильником, а не сумою з бази. */
 const SMALL = 40;
@@ -160,7 +185,7 @@ function isKnown(value: number, known: Set<number>): boolean {
   return false;
 }
 
-const LINK_RE = /\[([^\]]{1,120})\]\((client|product|rep):([A-Za-z0-9_-]{6,40})\)/g;
+const LINK_RE = /\[([^\]]{1,120})\]\((client|product|rep|doc):([A-Za-z0-9_-]{6,40})\)/g;
 
 /**
  * Переписує службові посилання у справжні адреси кабінету.
@@ -192,6 +217,15 @@ export function rewriteLinks(
         return label;
       }
       return `[${label}](/admin/sales-reps/${entityId})`;
+    }
+
+    if (kind === "doc") {
+      // Картка документа — в адмінці; доступна лише тим, кому показав інструмент.
+      if (!entities.docs.has(entityId)) {
+        stripped++;
+        return label;
+      }
+      return `[${label}](/admin/erp/sales/${entityId})`;
     }
 
     if (!entities.products.has(entityId)) {

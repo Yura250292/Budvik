@@ -24,6 +24,9 @@ const ADMIN_QUESTIONS = [
   "Хто зараз на маршруті",
   "Продажі по торгових за місяць",
   "Скільки продав Кулик за тиждень",
+  "Скільки продав Кулик вчора",
+  "Оборот за вчора",
+  "Продажі за минулий тиждень",
   "Дебіторка по торгових",
   "Дебіторка по Кулику",
   "Хто скільки зібрав за тиждень",
@@ -42,6 +45,19 @@ const ADMIN_QUESTIONS = [
   "Хто відвалився",
   "Скільки людей на сайті за 30 днів",
   "Повернення по фірмі за 90 днів",
+  "Побудуй маршрут: Левкович, Скуратов, Хома Юля",
+  "Покажи вчорашній оборот Кулика з накладними",
+  "Накладні Кулика за вчора з рядками",
+  "Що повіз Пайда вчора",
+  "Документи по Кунанцю за тиждень",
+  "Розкажи про Кулика",
+  "Розкажи про Пайду",
+  "Що з Кунанцем",
+  "Складовщики за тиждень",
+  "Скільки зібрав Юра",
+  "ABC по товарах",
+  "ABC по брендах за квартал",
+  "Замовлення з сайту за вчора",
   "Що ти вмієш",
 ];
 
@@ -104,8 +120,13 @@ for (const question of [...QUESTIONS, ...DRIVER_QUESTIONS, ...(admin ? ADMIN_QUE
 
   const started = Date.now();
   const answer = await tryDirectAnswer(ctx, question, { hasHistory: false });
-  console.log(`\n${"═".repeat(72)}\n▸ ${question}   [${answer ? `${Date.now() - started} мс` : "МОДЕЛЬ"}]\n`);
-  if (answer) console.log(answer.markdown);
+  const tag = !answer
+    ? "МОДЕЛЬ"
+    : answer.miss
+      ? `МОДЕЛЬ (промах коду: «${answer.miss.searched}» серед ${answer.miss.among})`
+      : `${Date.now() - started} мс`;
+  console.log(`\n${"═".repeat(72)}\n▸ ${question}   [${tag}]\n`);
+  if (answer && !answer.miss) console.log(answer.markdown);
 }
 
 await prisma.$disconnect();

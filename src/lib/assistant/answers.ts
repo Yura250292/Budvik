@@ -45,6 +45,8 @@ import { kyivOffsetMs } from "@/lib/date/kyiv";
 import { shiftDay } from "@/lib/analytics/period";
 import type { PeriodSpec } from "@/lib/assistant/router";
 import { orderStops, planDay } from "@/lib/assistant/facts/day-plan";
+import { resolveRouteStops } from "@/lib/assistant/facts/route-build";
+import { defaultDepot } from "@/lib/routes/depot";
 import {
   MAX_POINTS_PER_LINK,
   batchNavigateUrl,
@@ -779,7 +781,7 @@ export async function answerRoute(ctx: ToolContext, weekday: number | null): Pro
 
 type Resolved = { hit: ClientHit } | { ambiguous: ClientHit[] } | { none: true };
 
-async function resolveClient(
+export async function resolveClient(
   ctx: ToolContext,
   subject: string,
   tools: DirectAnswer["tools"]
@@ -808,7 +810,7 @@ async function resolveClient(
   return { ambiguous: hits };
 }
 
-function askWhich(subject: string, hits: ClientHit[], company = false): string {
+export function askWhich(subject: string, hits: ClientHit[], company = false): string {
   return md([
     `## 🔎 Кілька збігів на «${subject}»`,
     "Про кого з них ідеться?",
@@ -823,14 +825,14 @@ function askWhich(subject: string, hits: ClientHit[], company = false): string {
   ]);
 }
 
-const notFound = (subject: string) =>
+export const notFound = (subject: string) =>
   `Клієнта «${subject}» у базі не знайшли. Спробуйте коротший фрагмент назви, код ЄДРПОУ або прізвище контактної особи.`;
 
 /** «З чим заходити до …» */
 export async function answerEntryOffer(ctx: ToolContext, subject: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
-  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("none" in found) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
@@ -909,7 +911,7 @@ export async function answerEntryOffer(ctx: ToolContext, subject: string): Promi
 export async function answerRecommend(ctx: ToolContext, subject: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
-  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("none" in found) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
@@ -968,7 +970,7 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
   if ("none" in found) {
     const asProduct = await searchProducts(subject, ctx.scope.repId, 1);
     if (asProduct.length > 0) return answerProduct(ctx, subject);
-    return { markdown: notFound(subject), tools };
+    return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів і товарів" } };
   }
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
@@ -981,7 +983,7 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
     ),
     agingByCounterparty([client.id]),
   ]);
-  if (!profile) return { markdown: notFound(subject), tools };
+  if (!profile) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
 
   const debt = aging.get(client.id);
   const overdue = debt?.overdue ?? 0;
@@ -1069,7 +1071,7 @@ export async function answerClientCard(ctx: ToolContext, subject: string): Promi
 export async function answerLastOrder(ctx: ToolContext, subject: string): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
-  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("none" in found) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
@@ -1147,7 +1149,7 @@ export async function answerClientProduct(
 ): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const found = await resolveClient(ctx, subject, tools);
-  if ("none" in found) return { markdown: notFound(subject), tools };
+  if ("none" in found) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
   if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
   const client = found.hit;
@@ -1210,12 +1212,16 @@ export async function answerHelp(ctx: ToolContext): Promise<DirectAnswer> {
         "## 🤖 Що я вмію",
         "",
         "- 🧑‍💼 **Команда** — оборот, місця, динаміка, план і прогноз по кожному торговому",
+        "- 👤 **Профіль співробітника** — торговий, водій чи складовщик цілком: «розкажи про Кулика»",
+        "- 🧾 **Накладні** — за день по торговому, клієнту чи водію; одна — за номером з рядками",
         "- 💰 **Дебіторка фірми** — скільки винні, скільки прострочено, найбільші боржники",
         "- 📍 **Хто де зараз** — відкриті зміни, сигнал планшета, пробіг, замовлення за день",
         "- 🚗 **Зміни** — кілометри, пальне, підозрілі одометри, автозакриття",
         "- 🚚 **Водії** — маршрути на день, листи, зарплата, ефективність",
         "- 🛒 **Замовлення з сайту** — що чекає обробки й скільки вже висить",
-        "- 📦 **Склад** — дефіцит, оборотність, мертвий запас",
+        "- 📦 **Склад** — дефіцит, оборотність, мертвий запас, ABC по товарах і брендах",
+        "- 🏗 **Збірка на складі** — хто скільки накладних зібрав і як швидко",
+        "- 🧭 **Маршрут за точками** — від складу, з посиланням у карти: «побудуй маршрут: А, Б, В»",
         "- 🔄 **Обмін із 1С** — чи живий агент, свіжість каналів, розбіжності",
         "- 🏪 **Клієнт і товар** — картка, борг, історія, залишок по всій базі",
         "- 💳 **Гроші фірми** — відвантажено проти зібраного, аванси, закупівлі",
@@ -1223,8 +1229,9 @@ export async function answerHelp(ctx: ToolContext): Promise<DirectAnswer> {
         "- 🌐 **Сайт** — відвідувачі, що шукають і чого не знаходять",
         "- ☀️ **«Що нового»** — те саме зведення, що приходить вранці в Telegram",
         "- ⏰ **Нагадування** — «нагадай завтра о 10 подивитись дебіторку»",
+        "- 🗄 **Будь-який інший зріз бази** — питання, якого тут немає, я розберу з даними сам",
         "",
-        "_План дня чи маршрут конкретного торгового — це розмова «як торговий»: створіть нову й оберіть людину._",
+        "_План дня конкретного торгового — це розмова «як торговий»: створіть нову й оберіть людину._",
         "",
         followUps("Хто де зараз", "Продажі по торгових", "Дебіторка фірми"),
       ]),
@@ -1371,6 +1378,7 @@ export async function answerProduct(ctx: ToolContext, query: string): Promise<Di
         "Ні товару, ні клієнта з такою назвою не знайшли. Спробуйте артикул або одне точне слово з назви.",
       ]),
       tools,
+      miss: { searched: query, among: "товарів і клієнтів" },
     };
   }
 
@@ -1450,7 +1458,11 @@ export async function answerBasket(ctx: ToolContext, query: string): Promise<Dir
   const tools: DirectAnswer["tools"] = [];
   const target = await resolveProduct(ctx, query, tools);
   if (!target) {
-    return { markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`, tools };
+    return {
+      markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`,
+      tools,
+      miss: { searched: query, among: "товарів" },
+    };
   }
 
   const pairs = await timed(
@@ -1523,7 +1535,11 @@ export async function answerSubstitute(ctx: ToolContext, query: string): Promise
   const tools: DirectAnswer["tools"] = [];
   const target = await resolveProduct(ctx, query, tools);
   if (!target) {
-    return { markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`, tools };
+    return {
+      markdown: `Товару «${query}» не знайшли. Спробуйте артикул або одне точне слово з назви.`,
+      tools,
+      miss: { searched: query, among: "товарів" },
+    };
   }
 
   const { options } = await timed(
@@ -1668,16 +1684,6 @@ export async function answerReturns(ctx: ToolContext, spec: PeriodSpec): Promise
 
 /* ── Маршрут за списком клієнтів ──────────────────────────────────────── */
 
-/** Один клієнт зі списку збігів: свій із документами має перевагу. */
-function pickOne(hits: ClientHit[]): ClientHit | null {
-  if (hits.length === 0) return null;
-  if (hits.length === 1) return hits[0];
-  const mine = hits.filter((h) => h.mine && h.lastDocAt);
-  if (mine.length >= 1) return mine[0];
-  const withDocs = hits.filter((h) => h.lastDocAt);
-  return withDocs.length >= 1 ? withDocs[0] : null;
-}
-
 /**
  * «Побудуй маршрут: Кунанець, Левкович, Склад».
  *
@@ -1690,54 +1696,26 @@ function pickOne(hits: ClientHit[]): ClientHit | null {
  * Зупиняти людину списком однофамільців посеред збору маршруту — це
  * змусити її повторювати весь перелік заново.
  */
-export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<DirectAnswer> {
+export async function answerRouteTo(
+  ctx: ToolContext,
+  names: string[],
+  startFrom: "me" | "depot" = "me"
+): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
 
+  /*
+   * Беремо ОДНОГО клієнта на ім'я, а не питаємо (див. pickOneClient):
+   * інакше «побудуй маршрут: Левкович, Скуратов, Склад» зупинялося б на
+   * другому імені, і список довелося б диктувати знову. Керівникові ще й
+   * геокодуємо вільні адреси — у нього маршрут будується для водія.
+   */
   const found = await timed(
     { name: "search_clients", label: "Шукаю клієнтів маршруту" },
-    async () =>
-      Promise.all(
-        names.map(async (name) => ({
-          name,
-          /**
-           * Беремо ОДНОГО, а не питаємо.
-           *
-           * Правила ті самі, що й у решті пошуку: свій клієнт із
-           * документами перемагає однофамільця з чужого портфеля. Інакше
-           * «побудуй маршрут: Левкович, Скуратов, Склад» зупинялося б на
-           * другому імені, і торговому довелося б диктувати список знову.
-           */
-          hit: pickOne(await findClients(name, ctx.scope.repId, { limit: 4 })),
-        }))
-      ),
+    () => resolveRouteStops(names, ctx.scope.repId, { geocode: ctx.kind === "ADMIN" }),
     tools
   );
-
-  const picked: Array<{ id: string; name: string; lat: number; lng: number }> = [];
-  const unclear: string[] = [];
-  const noPin: string[] = [];
-
-  const ids = found.filter((f) => f.hit).map((f) => f.hit!.id);
-  const geo = ids.length
-    ? await prisma.counterparty.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, name: true, deliveryLat: true, deliveryLng: true },
-      })
-    : [];
-  const geoById = new Map(geo.map((g) => [g.id, g]));
-
-  for (const f of found) {
-    if (!f.hit) {
-      unclear.push(f.name);
-      continue;
-    }
-    const g = geoById.get(f.hit.id);
-    if (g?.deliveryLat == null || g.deliveryLng == null) {
-      noPin.push(f.hit.name);
-      continue;
-    }
-    picked.push({ id: g.id, name: g.name, lat: g.deliveryLat, lng: g.deliveryLng });
-  }
+  const picked = found.picked.map((s, i) => ({ id: s.id ?? `addr-${i}`, name: s.name, lat: s.lat, lng: s.lng }));
+  const { unclear, noPin } = found;
 
   if (picked.length === 0) {
     return {
@@ -1752,11 +1730,15 @@ export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<
     };
   }
 
-  const start = await prisma.trackPoint.findFirst({
-    where: { userId: ctx.scope.repId },
-    orderBy: { recordedAt: "desc" },
-    select: { lat: true, lng: true },
-  });
+  /* Торговий їде від себе; керівник — від складу, бо власного треку не має. */
+  const depot = startFrom === "depot" ? await defaultDepot() : null;
+  const start = depot
+    ? { lat: depot.lat, lng: depot.lng }
+    : await prisma.trackPoint.findFirst({
+        where: { userId: ctx.scope.repId },
+        orderBy: { recordedAt: "desc" },
+        select: { lat: true, lng: true },
+      });
 
   const route = await timed(
     { name: "route_order", label: "Шикую порядок обʼїзду" },
@@ -1767,7 +1749,7 @@ export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<
 
   return {
     markdown: md([
-      "## 🧭 Маршрут",
+      depot ? "## 🧭 Маршрут · від складу" : "## 🧭 Маршрут",
       route?.km
         ? `${pointsWord(order.length)} · ${route.km} км · ~${hoursMinutes(route.minutes ?? 0)} у дорозі`
         : pointsWord(order.length),
@@ -1781,7 +1763,9 @@ export async function answerRouteTo(ctx: ToolContext, names: string[]): Promise<
       unclear.length ? `_Не впізнав: ${unclear.join(", ")} — скажіть точніше._` : null,
       "",
       route?.source === "osrm"
-        ? "_Порядок — OSRM, від вашої останньої точки треку._"
+        ? depot
+          ? `_Порядок — OSRM, від складу «${depot.name}»._`
+          : "_Порядок — OSRM, від вашої останньої точки треку._"
         : "_Порядок за відстанню: дорогу порахувати не вдалося._",
       "",
       followUps("З чим заходити до першого?", "Хто з них винен?"),
@@ -1984,6 +1968,7 @@ export async function answerCityClients(ctx: ToolContext, city: string): Promise
         "Жодного клієнта з такою адресою чи назвою в базі немає. Спробуйте коротшу назву — «Сокільник», «Стрий».",
       ]),
       tools,
+      miss: { searched: city, among: "адрес і назв клієнтів" },
     };
   }
 
@@ -2152,7 +2137,7 @@ export async function answerPayments(
 
   if (subject) {
     const found = await resolveClient(ctx, subject, tools);
-    if ("none" in found) return { markdown: notFound(subject), tools };
+    if ("none" in found) return { markdown: notFound(subject), tools, miss: { searched: subject, among: "клієнтів" } };
     if ("ambiguous" in found) return { markdown: askWhich(subject, found.ambiguous, ctx.scope.company), tools };
 
     const client = found.hit;

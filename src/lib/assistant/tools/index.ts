@@ -6,11 +6,12 @@
  * товар. Модель читає опис зверху вниз, і для питання «сплануй день»
  * потрібний інструмент має траплятися першим.
  *
- * Тринадцять на ВИД — стеля, яку варто тримати. Кожен інструмент коштує
- * ~120 токенів у КОЖНОМУ запиті ходу; півсотні інструментів з'їли б
- * контекст ще до першого факту, а модель почала б обирати навмання.
- * Загальний список довший — його рятує фільтр kinds: кожен вид бачить
- * лише свій десяток.
+ * Стеля: тринадцять для торгового, двадцять для керівника. Кожен інструмент
+ * коштує ~120 токенів у КОЖНОМУ запиті ходу; півсотні інструментів з'їли б
+ * контекст ще до першого факту, а модель почала б обирати навмання. Далі
+ * рости лише режимами (mode) усередині наявних схем — так уже живуть
+ * stock_health, money_flows, sales_analysis і site_report. Загальний список
+ * довший — його рятує фільтр kinds: кожен вид бачить лише своє.
  */
 
 import type { AssistantKind, ToolDef, ToolSchema } from "@/lib/assistant/types";
@@ -35,8 +36,20 @@ import {
   ordersToPackTool,
   myInvoicesTool,
 } from "@/lib/assistant/tools/warehouse";
-import { ADMIN_TOOLS } from "@/lib/assistant/tools/admin";
-import { ADMIN_MONEY_TOOLS } from "@/lib/assistant/tools/admin-money";
+import {
+  driversReportTool,
+  shiftsReportTool,
+  staffNowTool,
+  stockHealthTool,
+  syncHealthTool,
+  teamOverviewTool,
+  teamReceivablesTool,
+} from "@/lib/assistant/tools/admin";
+import { moneyFlowsTool, salesAnalysisTool, siteReportTool } from "@/lib/assistant/tools/admin-money";
+import { staffProfileTool } from "@/lib/assistant/tools/staff";
+import { documentsTool } from "@/lib/assistant/tools/documents";
+import { buildRouteTool } from "@/lib/assistant/tools/route";
+import { queryDbTool } from "@/lib/assistant/tools/query";
 
 export const TOOLS: ToolDef[] = [
   myDayContext,
@@ -48,13 +61,27 @@ export const TOOLS: ToolDef[] = [
    * шукати. Решті видів вони не видно (див. kinds), тож порядок для них
    * не міняється.
    */
-  ...ADMIN_TOOLS,
-  ...ADMIN_MONEY_TOOLS,
+  staffNowTool,
+  teamOverviewTool,
+  staffProfileTool,
+  teamReceivablesTool,
+  documentsTool,
+  shiftsReportTool,
+  driversReportTool,
   /*
    * Складські — одразу після денних і перед клієнтськими: у складовщика це
    * і є «де я і що зі мною», тобто перше, чого модель має шукати.
+   * Керівник бачить drivers_today тут же, поруч із водіями.
    */
   driversTodayTool,
+  buildRouteTool,
+  siteReportTool,
+  stockHealthTool,
+  syncHealthTool,
+  moneyFlowsTool,
+  salesAnalysisTool,
+  /* Останнім із керівницьких: спершу готові зведення, і лише потім довільний SELECT. */
+  queryDbTool,
   ordersToPackTool,
   myInvoicesTool,
   searchClients,

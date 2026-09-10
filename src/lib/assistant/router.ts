@@ -1,4 +1,5 @@
 import type { AssistantKind } from "@/lib/assistant/types";
+import { kyivDate } from "@/lib/date/kyiv";
 
 /**
  * Розпізнавання наміру без моделі.
@@ -56,7 +57,8 @@ export type Intent =
   | { kind: "NEARBY"; radiusKm: number | null }
   | { kind: "CITY_CLIENTS"; city: string }
   | { kind: "PAYMENTS"; period: PeriodSpec; subject: string | null }
-  | { kind: "ROUTE_TO"; names: string[] }
+  /** start: «me» — від останньої точки треку, «depot» — від складу (керівник). */
+  | { kind: "ROUTE_TO"; names: string[]; start: "me" | "depot" }
   | { kind: "REMIND"; text: string }
   | { kind: "REMINDERS" }
   | { kind: "BASKET"; query: string }
@@ -72,11 +74,23 @@ export type Intent =
   | { kind: "SHIFTS"; period: PeriodSpec; who: string | null }
   | { kind: "DRIVERS_DAY"; day: "today" | "tomorrow" | "yesterday" }
   | { kind: "DRIVER_PAYROLL"; period: PeriodSpec; who: string | null }
-  | { kind: "SITE_ORDERS"; period: PeriodSpec }
+  | { kind: "SITE_REPORT"; mode: "orders" | "traffic"; period: PeriodSpec }
+  /** Накладні: за період по людині/клієнту/водію, або одна за номером. */
+  | {
+      kind: "DOCUMENTS";
+      period: PeriodSpec;
+      number: string | null;
+      who: string | null;
+      asDriver: boolean;
+      docType: "sales" | "orders" | "returns" | "all";
+      withLines: boolean;
+    }
+  | { kind: "STAFF_PROFILE"; who: string; period: PeriodSpec }
+  | { kind: "WAREHOUSE_ACTIVITY"; period: PeriodSpec; who: string | null }
   | { kind: "LOW_STOCK"; brand: string | null; mode: "low" | "turnover" | "dead" }
+  | { kind: "ABC_ITEMS"; dimension: "product" | "brand"; basis: "amount" | "profit"; period: PeriodSpec }
   | { kind: "MONEY_FLOWS"; period: PeriodSpec; mode: "flows" | "purchases" }
   | { kind: "SALES_ANALYSIS"; period: PeriodSpec; mode: "discounts" | "geo" | "cohorts" }
-  | { kind: "SITE_TRAFFIC"; period: PeriodSpec }
   | { kind: "SYNC_HEALTH" }
   | { kind: "DIGEST" };
 
@@ -105,7 +119,7 @@ const ANAPHORA = /(^|\s)(він|його|йому|ним|нього|вона|ї�
 const NOT_A_NAME =
   // Закінчення виписані як [а-яіїєґ], а не \w: у JavaScript \w — це ASCII,
   // і «клієнт\w*» не збігається з «клієнту» взагалі.
-  /^((цьому|цього|цей|тому|того|цим|нашому|нашого|своєму)\s+)?(клієнт[а-яіїєґ]*|боржник[а-яіїєґ]*|магазин[а-яіїєґ]*|точ[кц][а-яіїєґ]*|контрагент[а-яіїєґ]*|йому|його|їм|когось|кого|всіх|усіх|них|мої|моїх|сьогодні|завтра|тут|це|щось|грош[а-яіїєґ]*|борг[а-яіїєґ]*|оплат[а-яіїєґ]*|замовлен[а-яіїєґ]*|продаж[а-яіїєґ]*|повернен[а-яіїєґ]*|точ[а-яіїєґ]*|нагадуван[а-яіїєґ]*|маршрут[а-яіїєґ]*|план[а-яіїєґ]*|артикул[а-яіїєґ]*|код[и]?|склад[а-яіїєґ]*|наявніст[а-яіїєґ]*|штрихкод[а-яіїєґ]*|назв[а-яіїєґ]*|ціну|ціни|залишок|залишки|наявність)$|^за\s+(тиждень|тижн[а-яіїєґ]*|місяц[ья]?|день|дні|днів|\d+\s*дн[а-яіїєґ]*|квартал|сьогодні|вчора)$/i;
+  /^((цьому|цього|цей|тому|того|цим|нашому|нашого|своєму)\s+)?(клієнт[а-яіїєґ]*|боржник[а-яіїєґ]*|магазин[а-яіїєґ]*|точ[кц][а-яіїєґ]*|контрагент[а-яіїєґ]*|йому|його|їм|когось|кого|всіх|усіх|них|мої|моїх|сьогодні|завтра|тут|це|щось|грош[а-яіїєґ]*|борг[а-яіїєґ]*|оплат[а-яіїєґ]*|замовлен[а-яіїєґ]*|продаж[а-яіїєґ]*|повернен[а-яіїєґ]*|точ[а-яіїєґ]*|нагадуван[а-яіїєґ]*|маршрут[а-яіїєґ]*|план[а-яіїєґ]*|артикул[а-яіїєґ]*|код[и]?|склад[а-яіїєґ]*|наявніст[а-яіїєґ]*|штрихкод[а-яіїєґ]*|назв[а-яіїєґ]*|ціну|ціни|залишок|залишки|наявність)$|^за\s+(тиждень|тижн[а-яіїєґ]*|місяц[ья]?|день|дні|днів|\d+\s*дн[а-яіїєґ]*|квартал|сьогодні|вчора|учора|позавчора|\d{1,2}[.\/]\d{1,2}([.\/]\d{2,4})?|\d{1,2}\s+(січня|лютого|березня|квітня|травня|червня|липня|серпня|вересня|жовтня|листопада|грудня)|(цей|минулий|попередній)\s+(тиждень|місяць))$|^(цього|минулого|попереднього)\s+(тижня|місяця)$|^(вчора|учора|сьогодні|позавчора)$/i;
 
 /**
  * Хвіст, що починається зі сполучника чи питального слова, — це друга
@@ -134,7 +148,7 @@ const FIND_CLIENT = /(знайди|покажи|пошукай|шукай|най
  * секунду й безкоштовно.
  */
 const PRODUCT_ASK =
-  /(які\s+(в\s+нас\s+)?є\s+|що\s+є\s+(з\s+)?|чи\s+є\s+(в\s+наявності\s+)?|скільки\s+(ще\s+)?(на\s+складі|залишилось|лишилось|є)\s*|який\s+залишок\s*|(скажи|покажи|глянь|подивись|подивися|пошукай|пошукати|знайди|найди|шукай)\s+(мені\s+)?(який\s+)?(залиш[а-яіїєґ]*|наявність|ціну)?\s*(по|на)?\s*|залиш[а-яіїєґ]*\s+(по\s+)?|є\s+на\s+складі\s*|що\s+(там\s+)?по\s+|яка\s+ціна\s+(на\s+)?|почім\s+|скільки\s+кошту[а-яіїєґ]*\s+|скільки\s+ще\s+|скільки\s+|^(чи\s+)?є\s+)/i;
+  /(які\s+(в\s+нас\s+)?є\s+|що\s+є\s+(з\s+)?|чи\s+є\s+(в\s+наявності\s+)?|скільки\s+(ще\s+)?(на\s+складі|залишилось|лишилось|є)\s*|який\s+залишок\s*|(скажи|покажи|глянь|подивись|подивися|пошукай|пошукати|знайди|найди|шукай)\s+(мені\s+)?(який\s+)?((залиш[а-яіїєґ]*|наявність|ціну)\s+)?((по|на)\s+)?|залиш[а-яіїєґ]*\s+(по\s+)?|є\s+на\s+складі\s*|що\s+(там\s+)?по\s+|яка\s+ціна\s+(на\s+)?|почім\s+|скільки\s+кошту[а-яіїєґ]*\s+|скільки\s+ще\s+|скільки\s+|^(чи\s+)?є\s+)/i;
 
 /**
  * Те саме питання з товаром ПОСЕРЕДИНІ: «скільки піни залишилось».
@@ -243,6 +257,51 @@ function subjectBetween(text: string, re: RegExp): string | null {
   return name;
 }
 
+/**
+ * Хвіст, який виглядає як назва товару, але говорить про звіт.
+ *
+ * «Покажи вчорашній оборот Кулика з накладними» після голого «покажи »
+ * лишало хвіст із пʼяти слів, і той ішов у пошук товару: 0 позицій, 0
+ * клієнтів, упевнене «не знайшли» — і модель, яка це питання вміє, не
+ * отримувала його ніколи. Словник тут — аналітика й період; закінчення
+ * підібрані так, щоб «накладка», «планка», «змінний» і «трековий» лишалися
+ * товарами.
+ */
+const NOT_A_PRODUCT =
+  /(^|\s)(оборот[а-яіїєґ]*|продаж[а-яіїєґ]*|накладн[аіуо][а-яіїєґ]*|документ[а-яіїєґ]*|реалізаці[а-яіїєґ]*|відвантаж[а-яіїєґ]*|борг[а-яіїєґ]*|дебіторк[а-яіїєґ]*|прострочк[а-яіїєґ]*|оплат[а-яіїєґ]*|зібра[а-яіїєґ]*|збірк[а-яіїєґ]*|змін[аиу]?|пробіг[а-яіїєґ]*|маршрут[а-яіїєґ]*|зарплат[а-яіїєґ]*|виручк[а-яіїєґ]*|замовленн?[а-яіїєґ]*|візит[а-яіїєґ]*|трек[уи]?|клієнт[а-яіїєґ]*|торгов(ий|ого|ому|им|і|их|ими|а|ої|ій|ою)|воді[йїя][а-яіїєґ]*|складовщик[а-яіїєґ]*|план(у|ом|и|ів)?|прогноз[а-яіїєґ]*|порівня[а-яіїєґ]*|звіт[а-яіїєґ]*|вчора|учора|позавчора|сьогодні|тиждень|тижн[а-яіїєґ]*|місяц[ьяі]?)(\s|$)/i;
+
+/**
+ * Назва товару з питання — або null, якщо це не про товар.
+ *
+ * Три форми питання (ключове слово перед назвою, назва посередині, назва
+ * спереду) і один запобіжник на всіх: хвіст зі словами про звіт або довший
+ * за шість слів — не назва. Шість, а не менше: «кругів відрізних по металу
+ * 125 Ataman» — справжній запит, і справжній запобіжник тут словник.
+ */
+function productSubject(text: string): string | null {
+  const query =
+    subjectAfter(text, PRODUCT_ASK) ??
+    subjectBetween(text, PRODUCT_MIDDLE) ??
+    subjectBetween(text, PRODUCT_LEADING);
+  if (!query || NOT_A_PRODUCT.test(query)) return null;
+  return query.split(/\s+/).length > 6 ? null : query;
+}
+
+/* ── Накладні й документи ─────────────────────────────────────────────── */
+
+const DOC_WORD =
+  /(^|\s)(накладн[аіуо][а-яіїєґ]*|документ[а-яіїєґ]*|реалізаці[а-яіїєґ]*|відвантаженн[а-яіїєґ]*|видатков[аіу][а-яіїєґ]*)(\s|$)/i;
+/** «Накладна №6466», «документ 412/2026» — номер одразу за словом. */
+const DOC_NUMBER =
+  /(^|\s)(накладн[аіуо][а-яіїєґ]*|документ[а-яіїєґ]*|реалізаці[а-яіїєґ]*|замовленн[а-яіїєґ]*|поверненн[а-яіїєґ]*)\s*(№|номер\s*|#)?\s*([A-Za-zА-ЯІЇЄҐа-яіїєґ]{0,6}-?\d{3,11}(?:\/\d{2,4})?)(\s|$)/i;
+const DOC_LIST = /(^|\s)(з\s+накладними|по\s+накладних|з\s+документами|по\s+документах)(\s|$)/i;
+const DOC_ROWS = /(^|\s)(з\s+рядками|з\s+позиціями|з\s+деталями|детально|докладно|порядково)(\s|$)/i;
+const DRIVER_HAUL =
+  /(^|\s)(що|скільки|які\s+накладні|куди)\s+(повіз|повезла|віз|везла|везе|розвіз|розвозив|доставив|доставила|привіз|відвіз)/;
+const SHIPPED_WHAT = /(^|\s)що\s+(відвантажили|відвантажено|продали|виписали|провели|оформили)(\s|$)/i;
+/** «Останню накладну Кунанця» — це картка останнього документа клієнта, як і раніше. */
+const LAST_DOC = /(^|\s)останн[а-яіїєґ]*\s+(накладн|замовлен|документ|реалізаці)/i;
+
 function weekdayIn(text: string): number | null {
   for (const [re, n] of WEEKDAYS) if (re.test(text)) return n;
   return null;
@@ -262,7 +321,32 @@ export type PeriodSpec =
   /** offset 0 — поточний місяць, -1 — попередній. */
   | { kind: "month"; offset: 0 | -1 }
   /** Руками названі межі: «з 01.08 по 15.08». */
-  | { kind: "range"; from: string; to: string };
+  | { kind: "range"; from: string; to: string }
+  /** Один день: 0 — сьогодні, −1 — вчора, −2 — позавчора. */
+  | { kind: "day"; offset: number }
+  /** Тиждень пн–нд за Києвом: 0 — поточний (до сьогодні), −1 — минулий. */
+  | { kind: "week"; offset: 0 | -1 };
+
+const MONTHS_GEN = [
+  "січня", "лютого", "березня", "квітня", "травня", "червня",
+  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+];
+const MONTH_GEN = `(${MONTHS_GEN.join("|")})`;
+
+/**
+ * Дата без року — цього року, а якщо вона ще не настала — минулого.
+ *
+ * «Оборот за 10 грудня», поставлене в січні, — про грудень, що минув, а не
+ * про той, що буде; питати про майбутній оборот немає сенсу.
+ */
+function isoDay(d: string, month: number, y: string | undefined): string | null {
+  const day = Number(d);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const today = kyivDate(new Date());
+  const year = y ? (y.length === 2 ? 2000 + Number(y) : Number(y)) : Number(today.slice(0, 4));
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return !y && iso > today ? `${year - 1}${iso.slice(4)}` : iso;
+}
 
 /**
  * «за тиждень», «за місяць», «за 45 днів» — інакше типові 30.
@@ -276,7 +360,19 @@ function periodIn(
   text: string,
   fallback: PeriodSpec = { kind: "month", offset: 0 }
 ): PeriodSpec {
-  if (/(^|\s)сьогодн/i.test(text)) return { kind: "days", days: 1 };
+  /*
+   * Один день і тиждень словами — перед усім іншим: «вчорашній оборот»
+   * містить і «оборот», і «вчорашній», і без цієї гілки «вчора» мовчки
+   * ставало поточним місяцем. Порядок важливий: «позавчора» містить «вчора».
+   */
+  if (/(^|\s)(позавчора|позавчорашн[а-яіїєґ]*)(\s|$)/i.test(text)) return { kind: "day", offset: -2 };
+  if (/(^|\s)(вчора|учора|вчорашн[а-яіїєґ]*|учорашн[а-яіїєґ]*)(\s|$)/i.test(text)) return { kind: "day", offset: -1 };
+  if (/(^|\s)(сьогодні|сьогоднішн[а-яіїєґ]*)(\s|$)/i.test(text)) return { kind: "day", offset: 0 };
+  // «тиждень» і «тижня» — різні основи (тижд/тижн), тому [дн].
+  if (/(^|\s)(цього|поточного|за\s+цей|на\s+цьому)\s+тиж[дн]/i.test(text)) return { kind: "week", offset: 0 };
+  if (/(^|\s)(минулого|попереднього|за\s+минулий|за\s+попередній)\s+тиж[дн]/i.test(text)) {
+    return { kind: "week", offset: -1 };
+  }
   if (/(^|\s)тижд|(^|\s)тижн/i.test(text)) return { kind: "days", days: 7 };
   if (/(^|\s)квартал/i.test(text)) return { kind: "days", days: 90 };
 
@@ -304,6 +400,18 @@ function periodIn(
   const explicit = /за\s+(\d{1,3})\s*(дн|день|днів|дні)/i.exec(text);
   if (explicit) {
     return { kind: "days", days: Math.min(365, Math.max(1, Number(explicit[1]))) };
+  }
+
+  /* Конкретний день: «за 10.09», «за 10 вересня». */
+  const single = /(^|\s)(за\s+|на\s+|по\s+)?(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{2,4}))?(\s|$)/.exec(text);
+  if (single) {
+    const day = isoDay(single[3], Number(single[4]), single[5]);
+    if (day) return { kind: "range", from: day, to: day };
+  }
+  const named = new RegExp(`(^|\\s)(за\\s+)?(\\d{1,2})\\s+${MONTH_GEN}(\\s+(\\d{4}))?(\\s|$)`, "i").exec(text);
+  if (named) {
+    const day = isoDay(named[3], MONTHS_GEN.indexOf(named[4].toLowerCase()) + 1, named[6]);
+    if (day) return { kind: "range", from: day, to: day };
   }
 
   if (/(минул|попередн)[а-яіїєґ]*\s+місяц/i.test(text)) return { kind: "month", offset: -1 };
@@ -491,12 +599,14 @@ function salesIntent(
     /(побуду(й|вати)\s+маршрут|склади\s+маршрут|проклад[еи]\s+маршрут|маршрут\s+(до|через|по)|покажи\s+(на\s+карті|маршрут)|заїду\s+(до|в))\s*:?\s*/i
   );
   if (routeTo) {
+    // «Побудуй маршрут від мене: …» — «від мене» це старт, а не перша точка.
     const names = routeTo
+      .replace(/^від\s+мене\s*:?\s*/i, "")
       .split(/[,;]|\s+(?:і|й|та|потім|далі)\s+/i)
       .map((n) => n.trim())
       .filter((n) => n.length >= 3)
       .slice(0, 12);
-    if (names.length > 0) return { kind: "ROUTE_TO", names };
+    if (names.length > 0) return { kind: "ROUTE_TO", names, start: "me" };
   }
 
   /**
@@ -623,10 +733,7 @@ function salesIntent(
   );
   if (substitute) return { kind: "SUBSTITUTE", query: substitute };
 
-  const product =
-    subjectAfter(text, PRODUCT_ASK) ??
-    subjectBetween(text, PRODUCT_MIDDLE) ??
-    subjectBetween(text, PRODUCT_LEADING);
+  const product = productSubject(text);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
@@ -659,10 +766,7 @@ function driverIntent(text: string): Intent | null {
     subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+|як\s+доїхати\s+до\s+)/i);
   if (card) return { kind: "CLIENT_CARD", subject: card };
 
-  const product =
-    subjectAfter(text, PRODUCT_ASK) ??
-    subjectBetween(text, PRODUCT_MIDDLE) ??
-    subjectBetween(text, PRODUCT_LEADING);
+  const product = productSubject(text);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
@@ -695,10 +799,7 @@ function warehouseIntent(text: string): Intent | null {
     subjectAfter(text, /(що\s+з\s+|розкажи\s+про\s+|картка\s+|адреса\s+|телефон\s+)/i);
   if (card) return { kind: "CLIENT_CARD", subject: card };
 
-  const product =
-    subjectAfter(text, PRODUCT_ASK) ??
-    subjectBetween(text, PRODUCT_MIDDLE) ??
-    subjectBetween(text, PRODUCT_LEADING);
+  const product = productSubject(text);
   if (product) return { kind: "PRODUCT", query: product };
 
   return null;
@@ -738,6 +839,79 @@ function adminIntent(
     )
   ) {
     return { kind: "DIGEST" };
+  }
+
+  /* ── Накладні ─────────────────────────────────────────────────────── */
+
+  /*
+   * Перед усім іншим: «вчорашній оборот Кулика з накладними» містить і
+   * «оборот», і період, і слово-документ, а означає саме перелік
+   * накладних. «Останню накладну Кунанця» лишається карткою останнього
+   * документа клієнта — вона нижче, у каскаді торгового.
+   */
+  if (!LAST_DOC.test(text)) {
+    const num = DOC_NUMBER.exec(text);
+    if (num) {
+      return {
+        kind: "DOCUMENTS",
+        period: periodIn(text),
+        number: num[4],
+        who: null,
+        asDriver: false,
+        docType: /поверн/i.test(num[2]) ? "returns" : /замовл/i.test(num[2]) ? "orders" : "all",
+        withLines: true,
+      };
+    }
+
+    const haul = nameAfter(text, DRIVER_HAUL);
+    if (haul) {
+      return {
+        kind: "DOCUMENTS",
+        period: periodIn(text, { kind: "day", offset: 0 }),
+        number: null,
+        who: stripPeriodTail(haul) ?? haul,
+        asDriver: true,
+        docType: "all",
+        withLines: false,
+      };
+    }
+
+    const returnsOf = /(^|\s)поверненн/i.test(text) ? nameAfter(text, /(^|\s)поверненн[а-яіїєґ]*/) : null;
+    if (DOC_WORD.test(text) || DOC_LIST.test(text) || DOC_ROWS.test(text) || SHIPPED_WHAT.test(text) || returnsOf) {
+      const who =
+        returnsOf ??
+        nameAfter(
+          text,
+          /(^|\s)(накладн[аіуо][а-яіїєґ]*|документ[а-яіїєґ]*|реалізаці[а-яіїєґ]*|відвантаженн[а-яіїєґ]*)(\s+(по|у|в|від|для))?/
+        ) ??
+        nameAfter(text, /(^|\s)(виписав|виписала|оформив|оформила|провів|провела|зробив|зробила|відвантажив|відвантажила)/) ??
+        nameAfter(text, /(^|\s)(оборот|продажі|виручка)/) ??
+        subjectAfter(text, /(накладн[аіуо][а-яіїєґ]*|документ[а-яіїєґ]*|реалізаці[а-яіїєґ]*)\s+(по\s+|у\s+|в\s+|від\s+|для\s+)/i);
+      return {
+        kind: "DOCUMENTS",
+        period: periodIn(text, { kind: "days", days: 7 }),
+        number: null,
+        who: stripPeriodTail(who),
+        asDriver: false,
+        docType: returnsOf ? "returns" : /(^|\s)замовленн/i.test(text) ? "orders" : "sales",
+        withLines: DOC_ROWS.test(text),
+      };
+    }
+  }
+
+  /* ── Профіль співробітника ────────────────────────────────────────── */
+
+  /*
+   * «Розкажи про Кулика», «що з Куликом», «проаналізуй Пайду» — спершу
+   * співробітник, потім клієнт: відповідь сама піде в картку клієнта, коли
+   * в штаті такого імені немає («що з Кунанцем»).
+   */
+  const profileWho = nameAfter(
+    text,
+    /(^|\s)(розкажи\s+(мені\s+)?про|проаналізуй|проаналізувати|розбери|як\s+працює|як\s+справи\s+(у|в)|що\s+з|що\s+по|профіль|картка|оціни|як\s+там|що\s+там\s+(з|у|в|по))/
+  );
+  if (profileWho) {
+    return { kind: "STAFF_PROFILE", who: stripPeriodTail(profileWho) ?? profileWho, period: periodIn(text) };
   }
 
   /* ── Хто де зараз ─────────────────────────────────────────────────── */
@@ -805,7 +979,7 @@ function adminIntent(
       text
     )
   ) {
-    return { kind: "SITE_ORDERS", period: periodIn(text, { kind: "days", days: 7 }) };
+    return { kind: "SITE_REPORT", mode: "orders", period: periodIn(text, { kind: "days", days: 7 }) };
   }
 
   /* ── Відвідуваність сайту ─────────────────────────────────────────── */
@@ -815,7 +989,7 @@ function adminIntent(
       text
     )
   ) {
-    return { kind: "SITE_TRAFFIC", period: periodIn(text, { kind: "days", days: 30 }) };
+    return { kind: "SITE_REPORT", mode: "traffic", period: periodIn(text, { kind: "days", days: 30 }) };
   }
 
   /* ── Склад ────────────────────────────────────────────────────────── */
@@ -876,6 +1050,27 @@ function adminIntent(
     return { kind: "SALES_ANALYSIS", period: periodIn(text), mode: "cohorts" };
   }
 
+  /* ── Склад: хто збирає накладні ───────────────────────────────────── */
+
+  /*
+   * Перед грошима навмисно: «скільки зібрав Юра» — про накладні на складі,
+   * а «скільки зібрали за тиждень» — про гроші. Розводить їх ім'я з
+   * великої літери; відповідь ще й перевірить роль — торговий з таким
+   * іменем поверне гроші.
+   */
+  if (
+    /(^|\s)(складовщик[а-яіїєґ]*|складівник[а-яіїєґ]*|збірк[аиу]\s+(за|по|на|сьогодні|вчора)|хто\s+(на\s+складі\s+)?(збирає|збирав|зібрав|пакує|пакував|найшвидш|найповільн)|на\s+складі\s+(хто|скільки|найшвидш|найповільн)|хто\s+скільки\s+зібрав\s+на\s+складі)/i.test(
+      text
+    ) &&
+    !DOC_NUMBER.test(text)
+  ) {
+    return { kind: "WAREHOUSE_ACTIVITY", period: periodIn(text, { kind: "days", days: 7 }), who: null };
+  }
+  const packedBy = nameAfter(text, /(^|\s)(скільки|що|які\s+накладні)\s+(зібрав|зібрала|запакував|запакувала|спакував|спакувала)/);
+  if (packedBy) {
+    return { kind: "WAREHOUSE_ACTIVITY", period: periodIn(text, { kind: "days", days: 7 }), who: stripPeriodTail(packedBy) };
+  }
+
   /* ── Гроші, зібрані за період ─────────────────────────────────────── */
 
   if (
@@ -929,9 +1124,19 @@ function adminIntent(
   if (soldBy && !teamWord.test(soldBy)) {
     return { kind: "TEAM_SALES", period: periodIn(text), who: stripPeriodTail(soldBy) };
   }
+  /* «Оборот Кулика», «продажі Скуратова за тиждень» — родовий відмінок без прийменника. */
+  const soldGenitive = nameAfter(text, /(^|\s)(оборот|продажі|продаж|виручка|реалізації)/);
+  if (soldGenitive && !teamWord.test(soldGenitive)) {
+    return { kind: "TEAM_SALES", period: periodIn(text), who: stripPeriodTail(soldGenitive) };
+  }
+  /*
+   * Оборот фірми без слова «фірма»: «оборот за вчора», «продажі цього
+   * тижня», просто «оборот». Період або дуже коротке питання — ознака, що
+   * питають про всю компанію, а не про товар зі словом «продаж» у назві.
+   */
   if (
     /(^|\s)(продаж[а-яіїєґ]*|оборот[а-яіїєґ]*|виручк[а-яіїєґ]*|реалізаці[а-яіїєґ]*)/i.test(text) &&
-    (teamWord.test(text) || soldBy != null)
+    (teamWord.test(text) || soldBy != null || PERIOD_WORD.test(text) || text.split(/\s+/).length <= 2)
   ) {
     return { kind: "TEAM_SALES", period: periodIn(text), who: null };
   }
@@ -947,6 +1152,25 @@ function adminIntent(
     )
   ) {
     return { kind: "SYNC_HEALTH" };
+  }
+
+  /* ── ABC по товарах і брендах ─────────────────────────────────────── */
+
+  /*
+   * Каскад торгового ловить кожне «abc» як ABC по клієнтах. Товари й
+   * бренди — інший вимір того самого звіту, тож розводимо за словом поруч;
+   * «ABC по клієнтах» і «хто тримає оборот» ідуть далі, як і раніше.
+   */
+  if (
+    /(^|\s)(abc|авс|abc\/xyz|xyz)(\s|$)/i.test(text) &&
+    /(товар|позиці|бренд|асортимент|продукт|склад|sku)/i.test(text)
+  ) {
+    return {
+      kind: "ABC_ITEMS",
+      dimension: /бренд/i.test(text) ? "brand" : "product",
+      basis: /(прибут|марж)/i.test(text) ? "profit" : "amount",
+      period: periodIn(text, { kind: "days", days: 180 }),
+    };
   }
 
   /* ── Решта — каскад торгового, але не все з нього ─────────────────── */
@@ -975,6 +1199,14 @@ function adminIntent(
     /* Оплати без імені клієнта — це «скільки зібрала фірма». */
     case "PAYMENTS":
       return base.subject ? base : { kind: "TEAM_COLLECTED", period: base.period };
+
+    /*
+     * Маршрут за названими точками керівник будує від складу: власного
+     * треку в нього немає. «Від мене» — з офісного ноутбука теж нічого не
+     * дасть, але людина попросила явно, тож беремо її останню точку.
+     */
+    case "ROUTE_TO":
+      return { ...base, start: /(^|\s)від\s+мене(\s|:|$)/i.test(text) ? "me" : "depot" };
 
     /* Зведення портфеля перетворюються на зведення фірми. */
     case "SALES":
@@ -1013,15 +1245,48 @@ function adminIntent(
  */
 function stripPeriodTail(name: string | null): string | null {
   if (!name) return null;
-  const cut = name
-    .replace(
-      /\s+за\s+(сьогодні|вчора|тиждень|тижн[а-яіїєґ]*|місяц[ья]?|місяць|квартал|рік|\d{1,3}\s*дн[а-яіїєґ]*)$/i,
-      ""
-    )
-    .replace(/\s+(за\s+)?(минул|попередн)[а-яіїєґ]*\s+(тиждень|місяц[ья]?|місяць)$/i, "")
-    .replace(/\s+з\s+\d{1,2}[.\/]\d{1,2}.*$/i, "")
-    .trim();
+  const once = (value: string) =>
+    value
+      .replace(/^(вчорашн|учорашн|сьогоднішн|позавчорашн)[а-яіїєґ]*\s+/i, "")
+      .replace(
+        /\s+(з\s+накладними|по\s+накладних|з\s+документами|з\s+рядками|з\s+позиціями|з\s+деталями|детально|докладно)$/i,
+        ""
+      )
+      .replace(
+        /\s+за\s+(сьогодні|вчора|учора|позавчора|тиждень|тижн[а-яіїєґ]*|місяц[ья]?|місяць|квартал|рік|\d{1,3}\s*дн[а-яіїєґ]*)$/i,
+        ""
+      )
+      .replace(/\s+(вчора|учора|сьогодні|позавчора)$/i, "")
+      .replace(/\s+(за\s+)?(цього|поточного|минулого|попереднього)\s+(тижня|місяця)$/i, "")
+      .replace(/\s+(за\s+)?(минул|попередн)[а-яіїєґ]*\s+(тиждень|місяц[ья]?|місяць)$/i, "")
+      .replace(/\s+(за\s+|на\s+|по\s+)?\d{1,2}[.\/]\d{1,2}([.\/]\d{2,4})?$/i, "")
+      .replace(new RegExp(`\\s+(за\\s+)?\\d{1,2}\\s+${MONTH_GEN}(\\s+\\d{4})?$`, "i"), "")
+      .replace(/\s+з\s+\d{1,2}[.\/]\d{1,2}.*$/i, "")
+      .trim();
+  // Хвости чіпляються один за одного («Кулика за вчора з накладними»), тому два проходи.
+  const cut = once(once(name));
   return cut.length >= 3 ? cut : null;
+}
+
+/** Слово, після якого стоїть період: ознака, що питають про звіт, а не про товар. */
+const PERIOD_WORD =
+  /(^|\s)(за|цього|поточного|минулого|попереднього|сьогодні|вчора|учора|позавчора|\d{1,2}[.\/]\d{1,2})(\s|$)/i;
+
+/**
+ * Ім'я з великої літери одразу після тригера: «оборот Кулика», «розкажи
+ * про Пайду». Велика літера — і є ознака імені (як у «де Пайда»), тому
+ * шаблон імені без прапорця /i, а тригер — з ним.
+ */
+const NAME_AT_START = /^([А-ЯІЇЄҐ][а-яіїєґ'ʼ-]{2,}(?:\s+[А-ЯІЇЄҐ][а-яіїєґ'ʼ-]{2,})?)(?=\s|$)/;
+const NOT_A_PERSON = /^(Сьогодні|Вчора|Учора|Завтра|Позавчора|За|По|Цього|Минулого|Поточного|Попереднього)$/;
+
+function nameAfter(text: string, trigger: RegExp): string | null {
+  const match = new RegExp(trigger.source, "i").exec(text);
+  if (!match) return null;
+  const rest = text.slice(match.index + match[0].length).replace(/^\s+/, "");
+  const name = NAME_AT_START.exec(rest);
+  if (!name || NOT_A_NAME.test(name[1]) || NOT_A_PERSON.test(name[1])) return null;
+  return name[1];
 }
 
 /** «Сьогодні / завтра / вчора» — спільно для водійських питань. */

@@ -22,6 +22,7 @@ import { buildDiscountReport } from "@/lib/analytics/discounts";
 import { buildGeoRevenueReport } from "@/lib/analytics/geo-revenue";
 import { buildCohortReport } from "@/lib/analytics/cohorts";
 import { siteTrafficFacts } from "@/lib/webstats/traffic";
+import { siteOrdersTool } from "@/lib/assistant/tools/admin";
 
 const PERIOD_PARAMS = {
   days: { type: "integer", description: "Скільки останніх днів. Без цього й без дат — календарний місяць із 1 числа." },
@@ -268,7 +269,7 @@ export const salesAnalysisTool: ToolDef = {
 
 /* ── Сайт ─────────────────────────────────────────────────────────────── */
 
-export const siteTrafficTool: ToolDef = {
+const siteTrafficTool: ToolDef = {
   name: "site_traffic",
   label: "Дивлюся відвідуваність сайту",
   kinds: ["ADMIN"],
@@ -285,4 +286,36 @@ export const siteTrafficTool: ToolDef = {
   },
 };
 
-export const ADMIN_MONEY_TOOLS: ToolDef[] = [moneyFlowsTool, salesAnalysisTool, siteTrafficTool];
+/**
+ * Сайт — одна схема замість двох.
+ *
+ * Замовлення й відвідуваність — різні звіти, але для моделі це дві схеми
+ * в КОЖНОМУ запиті ходу; режимом вони коштують одну. Тіла лишаються
+ * окремими інструментами (site_orders в admin.ts і site_traffic тут) —
+ * їх кличуть і кодові відповіді.
+ */
+export const siteReportTool: ToolDef = {
+  name: "site_report",
+  label: "Дивлюся сайт",
+  kinds: ["ADMIN"],
+  description:
+    "Сайт (інтернет-магазин). mode=orders — замовлення з сайту: скільки й на яку суму по статусах за період, які найдовше чекають обробки, чернетки торгових; викликай на «замовлення з сайту», «нові замовлення», «необроблені». mode=traffic — відвідувачі й сесії, що дивляться і що шукають, звідки приходять, кліки по телефону, кошик і конверсія; викликай на «скільки людей на сайті», «що шукають», «звідки приходять».",
+  parameters: {
+    type: "object",
+    properties: {
+      mode: {
+        type: "string",
+        enum: ["orders", "traffic"],
+        description: "orders — замовлення з сайту (за замовчуванням), traffic — відвідуваність.",
+      },
+      include_drafts: { type: "boolean", description: "Лише для orders: додати чернетки торгових. За замовчуванням так." },
+      ...PERIOD_PARAMS,
+    },
+  },
+  async run(ctx, args) {
+    const mode = args.mode == null ? "orders" : enumOf(args.mode, "mode", ["orders", "traffic"] as const);
+    return mode === "orders" ? siteOrdersTool.run(ctx, args) : siteTrafficTool.run(ctx, args);
+  },
+};
+
+/* Реєстрація — у tools/index.ts: порядок там і є порядком у схемі для моделі. */

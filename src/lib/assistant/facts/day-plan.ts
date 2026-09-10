@@ -530,16 +530,32 @@ async function arrivalStats(
 
 /* ── Порядок обʼїзду ──────────────────────────────────────────────────── */
 
+/**
+ * Плече між сусідніми точками в порядку обʼїзду: `legs[i]` — дорога від
+ * попередньої точки (для i = 0 — від старту) до `order[i]`.
+ *
+ * Лише з OSRM. Резервний порядок за відстанню по прямій плечей не дає —
+ * null, а не «приблизно»: кілометри по прямій у полі читаються як дорога,
+ * і саме з вигаданих кілометрів колись починалися суперечки про пробіг.
+ */
+export type RouteLeg = { km: number; min: number };
+
 export async function orderStops<T extends { lat: number; lng: number }>(
   stops: T[],
   start: { lat: number; lng: number } | null
-): Promise<{ order: T[]; km: number | null; minutes: number | null; source: "osrm" | "відстань" } | null> {
+): Promise<{
+  order: T[];
+  km: number | null;
+  minutes: number | null;
+  source: "osrm" | "відстань";
+  legs: RouteLeg[] | null;
+} | null> {
   if (stops.length === 0) return null;
 
   const from = start ?? stops[0];
 
   if (stops.length === 1) {
-    return { order: stops, km: null, minutes: null, source: "відстань" };
+    return { order: stops, km: null, minutes: null, source: "відстань", legs: null };
   }
 
   try {
@@ -557,7 +573,17 @@ export async function orderStops<T extends { lat: number; lng: number }>(
 
     const clean = ordered.filter(Boolean);
     if (clean.length === stops.length) {
-      return { order: clean, km: trip.totalDistanceKm, minutes: trip.totalDurationMin, source: "osrm" };
+      /**
+       * OSRM віддає плечі вже в порядку обʼїзду: з source=first і
+       * roundtrip=false їх рівно стільки, скільки точок, і перше — від
+       * старту. Інша кількість означала б, що сервер зрозумів запит
+       * інакше, ніж ми, — тоді плечам вірити не можна.
+       */
+      const legs =
+        trip.legs.length === clean.length
+          ? trip.legs.map((l) => ({ km: l.distanceKm, min: l.durationMin }))
+          : null;
+      return { order: clean, km: trip.totalDistanceKm, minutes: trip.totalDurationMin, source: "osrm", legs };
     }
   } catch {
     // OSRM недоступний — нижче резервний порядок.
@@ -570,5 +596,5 @@ export async function orderStops<T extends { lat: number; lng: number }>(
    * й повертається, а не стрибає туди-сюди.
    */
   const sorted = [...stops].sort((a, b) => distanceKm(from, a) - distanceKm(from, b));
-  return { order: sorted, km: null, minutes: null, source: "відстань" };
+  return { order: sorted, km: null, minutes: null, source: "відстань", legs: null };
 }

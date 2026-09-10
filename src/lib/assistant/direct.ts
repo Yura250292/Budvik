@@ -16,6 +16,10 @@
 
 import { detectIntent } from "@/lib/assistant/router";
 import {
+  answerAbcItems,
+  answerDocuments,
+  answerStaffProfile,
+  answerWarehouse,
   answerDigest,
   answerDriverPayroll,
   answerDriversDay,
@@ -23,8 +27,7 @@ import {
   answerMoneyFlows,
   answerSalesAnalysis,
   answerShifts,
-  answerSiteOrders,
-  answerSiteTraffic,
+  answerSiteReport,
   answerStaffNow,
   answerSyncHealth,
   answerTeamCollected,
@@ -162,7 +165,7 @@ export async function tryDirectAnswer(
       return answerBenchmark(ctx, intent.period);
 
     case "ROUTE_TO":
-      return answerRouteTo(ctx, intent.names);
+      return answerRouteTo(ctx, intent.names, intent.start);
 
     case "REMIND":
       return answerRemind(ctx, intent.text);
@@ -218,11 +221,14 @@ export async function tryDirectAnswer(
     case "DRIVER_PAYROLL":
       return answerDriverPayroll(ctx, intent.period, intent.who);
 
-    case "SITE_ORDERS":
-      return answerSiteOrders(ctx, intent.period);
+    case "SITE_REPORT":
+      return answerSiteReport(ctx, intent.period, intent.mode);
 
     case "LOW_STOCK":
       return answerLowStock(ctx, intent.brand, intent.mode);
+
+    case "ABC_ITEMS":
+      return answerAbcItems(ctx, intent.period, intent.dimension, intent.basis);
 
     case "SYNC_HEALTH":
       return answerSyncHealth(ctx);
@@ -233,11 +239,19 @@ export async function tryDirectAnswer(
     case "SALES_ANALYSIS":
       return answerSalesAnalysis(ctx, intent.period, intent.mode);
 
-    case "SITE_TRAFFIC":
-      return answerSiteTraffic(ctx, intent.period);
+
 
     case "DIGEST":
       return answerDigest(ctx);
+
+    case "DOCUMENTS":
+      return answerDocuments(ctx, intent);
+
+    case "STAFF_PROFILE":
+      return answerStaffProfile(ctx, intent.who, intent.period);
+
+    case "WAREHOUSE_ACTIVITY":
+      return answerWarehouse(ctx, intent.period, intent.who);
   }
 
   return null;

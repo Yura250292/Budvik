@@ -41,6 +41,7 @@ import { buildDriverFacts, getRates, loadBonuses } from "@/lib/drivers/payroll-f
 import { calculateDriverPeriod } from "@/lib/drivers/payroll";
 import { buildLowStockReport, DEFAULT_PARAMS } from "@/lib/procurement/low-stock";
 import { buildTurnoverReport } from "@/lib/analytics/turnover";
+import { buildAbcReport, type AbcBasis, type AbcDimension, type AbcRow } from "@/lib/analytics/abc";
 import { deadStockItems } from "@/lib/assistant/facts/product-facts";
 import { syncHealthFacts } from "@/lib/sync-ingest/health-facts";
 import { DEAD_STOCK_DAYS } from "@/lib/assistant/config";
@@ -48,14 +49,19 @@ import { ORDER_STATUS_LABELS, DELIVERY_METHOD_LABELS } from "@/lib/utils";
 import type { OrderStatus } from "@prisma/client";
 
 /** Спільний шматок схеми: період беруть шість інструментів із восьми. */
-const PERIOD_PARAMS = {
+export const PERIOD_PARAMS = {
   days: { type: "integer", description: "Скільки останніх днів. Без цього й без дат — календарний місяць із 1 числа." },
   period_from: { type: "string", description: "Початок періоду, YYYY-MM-DD. Разом із period_to." },
   period_to: { type: "string", description: "Кінець періоду, YYYY-MM-DD." },
 } as const;
 
+/** Чи модель узагалі назвала період — інакше інструмент бере свій дефолт. */
+export function hasPeriodArgs(args: Record<string, unknown>): boolean {
+  return args.days != null || typeof args.period_from === "string" || typeof args.period_to === "string";
+}
+
 /** Дати з аргументів перевіряємо, навіть коли модель їх вигадала. */
-function checkedPeriod(today: string, args: Record<string, unknown>) {
+export function checkedPeriod(today: string, args: Record<string, unknown>) {
   if (typeof args.period_from === "string" || typeof args.period_to === "string") {
     validDay(args.period_from, "period_from", today);
     validDay(args.period_to, "period_to", today);
@@ -593,13 +599,13 @@ export const siteOrdersTool: ToolDef = {
   parameters: {
     type: "object",
     properties: {
-      days: { type: "integer", description: "За скільки днів рахувати. За замовчуванням 7." },
+      ...PERIOD_PARAMS,
       include_drafts: { type: "boolean", description: "Додати чернетки торгових. За замовчуванням так." },
     },
   },
   async run(ctx, args) {
-    const window = int(args.days, "days", { min: 1, max: 365, fallback: 7 });
-    const period = periodFromArgs(ctx.today, { days: window });
+    // Без жодного натяку на період — тиждень, а не місяць: сайтові замовлення живуть днями.
+    const period = hasPeriodArgs(args) ? checkedPeriod(ctx.today, args) : periodFromArgs(ctx.today, { days: 7 });
     const withDrafts = bool(args.include_drafts, true);
 
     const [byStatus, pending, drafts, staff] = await Promise.all([
@@ -678,25 +684,110 @@ export const siteOrdersTool: ToolDef = {
 
 /* ── Склад ────────────────────────────────────────────────────────────── */
 
+/**
+ * ABC/XYZ одним обʼєктом для моделі.
+ *
+ * Звіт віддає до 300 рядків — моделі стільки не треба: класи, матриця й
+ * три короткі списки (A, A×Z, C×Z) відповідають на «що тримає оборот» і
+ * «що виводити» без переказу всієї таблиці. Артикули дотягуємо окремо:
+ * у рядках звіту їх немає, а без артикула товар в офісі не знайдуть.
+ */
+async function abcFacts(
+  period: ReturnType<typeof periodFromArgs>,
+  dimension: AbcDimension,
+  basis: AbcBasis,
+  brand: { id: string; name: string } | null
+) {
+  const report = await buildAbcReport(period.from, period.to, dimension, null, 300, basis);
+  // Бренд звужує лише списки: класи рахувалися по всьому асортименту.
+  const rows =
+    brand && dimension === "product"
+      ? report.rows.filter((r) => (r.brandName ?? "").toLowerCase() === brand.name.toLowerCase())
+      : report.rows;
+
+  const topA = rows.filter((r) => r.abc === "A").slice(0, 15);
+  const shakyA = rows.filter((r) => r.abc === "A" && r.xyz === "Z").slice(0, 5);
+  const deadC = dimension === "product" ? rows.filter((r) => r.abc === "C" && r.xyz === "Z").slice(0, 5) : [];
+
+  const skuOf = new Map<string, string | null>();
+  if (dimension === "product") {
+    const ids = [...new Set([...topA, ...shakyA, ...deadC].map((r) => r.id))];
+    const products = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, sku: true } });
+    for (const p of products) skuOf.set(p.id, p.sku);
+  }
+
+  const idKey = dimension === "product" ? "товар_id" : dimension === "client" ? "клієнт_id" : "бренд_id";
+  const row = (r: AbcRow) => ({
+    [idKey]: r.id,
+    назва: r.name,
+    ...(dimension === "product" ? { артикул: skuOf.get(r.id) ?? null, бренд: r.brandName ?? null } : {}),
+    клас: `${r.abc}${r.xyz ?? ""}`,
+    оборот: uah(r.amount),
+    прибуток: r.marginPct == null ? null : uah(r.profit),
+    маржа_відсотків: r.marginPct == null ? null : pct(r.marginPct),
+    частка_обороту_відсотків: pct(r.share),
+    документів: r.docs,
+    місяців_активних: r.activeMonths,
+  });
+
+  return {
+    період: periodFacts(period),
+    вимір: dimension === "product" ? "товари" : dimension === "brand" ? "бренди" : "клієнти",
+    база: basis === "profit" ? "прибуток" : "оборот",
+    бренд: brand?.name ?? "усі бренди",
+    разом_оборот: uah(report.total),
+    покриття_собівартості_відсотків: pct(report.coverage),
+    місяців: report.months,
+    xyz_доступний: report.xyzAvailable,
+    класи: report.summary.map((s) => ({
+      клас: s.abc,
+      позицій: s.count,
+      оборот: uah(s.amount),
+      частка_позицій_відсотків: pct(s.countShare),
+      частка_обороту_відсотків: pct(s.amountShare),
+    })),
+    матриця: report.matrix.map((c) => ({ клас: `${c.abc}${c.xyz}`, позицій: c.count, оборот: uah(c.amount) })),
+    топ_A: topA.map(row),
+    A_нерівні: shakyA.length ? shakyA.map(row) : undefined,
+    C_нерівні_кандидати_на_виведення: deadC.length ? deadC.map(row) : undefined,
+    примітка:
+      "A — перші 80 % обороту, B — наступні 15 %, C — останні 5 %. X/Y/Z — рівність продажів по місяцях: Z — беруть від випадку до випадку. Маржа — лише де 1С передала собівартість; за прибутком (basis=profit) класи рахуються тільки по таких рядках." +
+      (brand && dimension === "product" ? " Бренд звузив лише списки, класи рахувались по всьому асортименту." : ""),
+  };
+}
+
 export const stockHealthTool: ToolDef = {
   name: "stock_health",
   label: "Дивлюся склад",
   kinds: ["ADMIN"],
   description:
-    "Стан складу: дефіцит (що продається й скінчилось, скільки замовити й на яку суму, по яких брендах), оборотність (запас у грошах, скільки лежить без руху, обертів на рік) і мертві залишки. Параметр brand звужує до бренду, mode обирає блок. Викликай на «що замовити», «дефіцит», «закінчується», «нуль на складі», «оборотність», «мертвий запас».",
+    "Стан складу: дефіцит (що продається й скінчилось, скільки замовити й на яку суму, по яких брендах), оборотність (запас у грошах, скільки лежить без руху, обертів на рік), мертві залишки і ABC/XYZ (mode=abc: класи по товарах, брендах або клієнтах за оборотом чи прибутком, з матрицею XYZ). Параметр brand звужує до бренду, mode обирає блок. Викликай на «що замовити», «дефіцит», «закінчується», «нуль на складі», «оборотність», «мертвий запас», «ABC», «що тримає оборот по товарах».",
   parameters: {
     type: "object",
     properties: {
       brand: { type: "string", description: "Назва бренду або її частина." },
       mode: {
         type: "string",
-        enum: ["low", "turnover", "dead", "all"],
-        description: "low — дефіцит (за замовчуванням), turnover — оборотність, dead — мертві залишки, all — усе разом.",
+        enum: ["low", "turnover", "dead", "all", "abc"],
+        description:
+          "low — дефіцит (за замовчуванням), turnover — оборотність, dead — мертві залишки, all — усе разом, abc — ABC/XYZ-аналіз.",
       },
+      dimension: {
+        type: "string",
+        enum: ["product", "brand", "client"],
+        description: "Лише для mode=abc: по товарах (за замовчуванням), брендах чи клієнтах.",
+      },
+      basis: {
+        type: "string",
+        enum: ["amount", "profit"],
+        description: "Лише для mode=abc: класи за оборотом (за замовчуванням) чи за валовим прибутком.",
+      },
+      ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
-    const mode = args.mode == null ? "low" : enumOf(args.mode, "mode", ["low", "turnover", "dead", "all"] as const);
+    const mode =
+      args.mode == null ? "low" : enumOf(args.mode, "mode", ["low", "turnover", "dead", "all", "abc"] as const);
 
     let brand: { id: string; name: string } | null = null;
     if (typeof args.brand === "string" && args.brand.trim()) {
@@ -707,6 +798,17 @@ export const stockHealthTool: ToolDef = {
         orderBy: { name: "asc" },
       });
       if (!brand) return { помилка: `Бренду «${query}» у базі немає` };
+    }
+
+    if (mode === "abc") {
+      const dimension =
+        (args.dimension == null
+          ? null
+          : enumOf(args.dimension, "dimension", ["product", "brand", "client"] as const)) ?? "product";
+      const basis = (args.basis == null ? null : enumOf(args.basis, "basis", ["amount", "profit"] as const)) ?? "amount";
+      // ABC без періоду — пів року: місяць дає замало місяців для XYZ.
+      const period = hasPeriodArgs(args) ? checkedPeriod(ctx.today, args) : periodFromArgs(ctx.today, { days: 180 });
+      return abcFacts(period, dimension, basis, brand);
     }
 
     const wantLow = mode === "low" || mode === "all";
@@ -856,13 +958,4 @@ export const syncHealthTool: ToolDef = {
 };
 
 /** Порядок тут — порядок, у якому їх читає модель: спершу «що зараз», далі гроші, далі склад. */
-export const ADMIN_TOOLS: ToolDef[] = [
-  staffNowTool,
-  teamOverviewTool,
-  teamReceivablesTool,
-  shiftsReportTool,
-  driversReportTool,
-  siteOrdersTool,
-  stockHealthTool,
-  syncHealthTool,
-];
+/* Реєстрація — у tools/index.ts: порядок там і є порядком у схемі для моделі. */

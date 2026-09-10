@@ -44,7 +44,35 @@ export function periodOf(today: string, spec: PeriodSpec) {
   if (spec.kind === "range") {
     const toDay = spec.to > today ? today : spec.to;
     const fromDay = clamp(spec.from);
+    if (fromDay === toDay) return buildPeriod(fromDay, toDay, `за ${dayMonth(fromDay)}`);
     return buildPeriod(fromDay, toDay, `з ${dayMonth(fromDay)} по ${dayMonth(toDay)}`);
+  }
+
+  /**
+   * Один день: «вчора», «позавчора», «сьогодні».
+   *
+   * Доти «вчора» періодом не було взагалі, і питання «оборот Кулика за
+   * вчора» мовчки відповідалося за поточний місяць — з підписом, який
+   * цього не показував.
+   */
+  if (spec.kind === "day") {
+    const day = shiftDay(today, spec.offset);
+    const word =
+      spec.offset === 0 ? "сьогодні" : spec.offset === -1 ? "вчора" : spec.offset === -2 ? "позавчора" : dayMonth(day);
+    return buildPeriod(clamp(day), day, `${word} (${ddmm(day)})`);
+  }
+
+  /** Тиждень за Києвом: понеділок — неділя; поточний — до сьогодні. */
+  if (spec.kind === "week") {
+    const dow = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7;
+    const monday = shiftDay(today, -dow + 7 * spec.offset);
+    const sunday = shiftDay(monday, 6);
+    const toDay = sunday > today ? today : sunday;
+    return buildPeriod(
+      clamp(monday),
+      toDay,
+      `${spec.offset === 0 ? "цього тижня" : "минулого тижня"} (${Number(monday.slice(8, 10))}–${ddmm(toDay)})`
+    );
   }
 
   const fromDay = clamp(shiftDay(today, -(spec.days - 1)));
@@ -76,6 +104,11 @@ export function dayMonth(day: string): string {
     "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
   ];
   return `${Number(day.slice(8, 10))} ${MONTHS_GEN[Number(day.slice(5, 7)) - 1]}`;
+}
+
+/** «09.09» — коротка дата для підпису одного дня. */
+export function ddmm(day: string): string {
+  return `${day.slice(8, 10)}.${day.slice(5, 7)}`;
 }
 
 /** «2026-09» + (−1) → «2026-08». */

@@ -9,12 +9,13 @@
  * скрізь.
  */
 
+import { Check, CheckCheck } from "lucide-react";
 import AssistantMarkdown from "@/components/sales/assistant/AssistantMarkdown";
 import { Avatar } from "@/components/ui/Avatar";
 import { audienceLabel } from "@/lib/chat/audience";
 import { PhotoGrid } from "./PhotoGrid";
 import { COPY } from "./copy";
-import type { ChatMessage } from "./api";
+import type { ChatMessage, ReadStatus } from "./api";
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
@@ -24,6 +25,8 @@ export function MessageRow({
   mine,
   section,
   showAudience,
+  status,
+  onShowReaders,
 }: {
   message: ChatMessage;
   mine: boolean;
@@ -31,6 +34,9 @@ export function MessageRow({
   section: "sales" | "driver" | "warehouse" | "admin";
   /** Показати, кому це було адресовано: у журналі й коли груп кілька. */
   showAudience: boolean;
+  /** Хто вже переглянув. Лише під СВОЇМИ повідомленнями. */
+  status?: ReadStatus;
+  onShowReaders?: () => void;
 }) {
   /**
    * Посилання у пересланій відповіді ведуть у кабінет тієї секції, де
@@ -63,15 +69,44 @@ export function MessageRow({
   );
 
   if (mine) {
+    /**
+     * Галочка = «сервер прийняв», подвійна = «хтось прочитав».
+     *
+     * «Доставлено» тут НЕ показуємо: пристрій нам про доставку не звітує,
+     * і намальована галочка означала б те, чого ми не знаємо. У групі
+     * замість слова стоїть число — воно відповідає на справжнє питання
+     * «скільки з них уже бачили».
+     */
+    const seen = status ? status.seenBy.length : 0;
+    const statusRow =
+      message.failed || message.pending || !status ? null : status.isDm ? (
+        <span className="inline-flex items-center gap-0.5">
+          {seen > 0 ? <CheckCheck size={13} className="text-info-fg" /> : <Check size={13} />}
+          {seen > 0 ? COPY.readStatus : COPY.sentStatus}
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onShowReaders}
+          className="inline-flex items-center gap-0.5 underline decoration-dotted underline-offset-2"
+        >
+          {seen > 0 ? <CheckCheck size={13} className="text-info-fg" /> : <Check size={13} />}
+          {seen > 0 ? COPY.readBy(seen) : COPY.noneRead}
+        </button>
+      );
+
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%]">
           <div className={`rounded-2xl rounded-br-md px-3.5 py-2.5 ${message.failed ? "bg-bad-bg text-bad-fg" : "bg-bk text-white"}`}>
             {body}
           </div>
-          <p className="mt-0.5 text-right text-[11px] text-cab-t3">
-            {message.failed ? COPY.notSent : message.pending ? "…" : time(message.createdAt)}
-            {!!audience && !message.failed && ` · ${audience}`}
+          <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-1.5 text-right text-[11px] text-cab-t3">
+            <span>
+              {message.failed ? COPY.notSent : message.pending ? "…" : time(message.createdAt)}
+              {!!audience && !message.failed && ` · ${audience}`}
+            </span>
+            {statusRow}
           </p>
         </div>
       </div>

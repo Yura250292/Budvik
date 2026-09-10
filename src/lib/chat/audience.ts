@@ -150,6 +150,29 @@ export function canWriteAudience(me: Me, a: Audience): boolean {
   return a.toRoles.every((r) => r === me.role);
 }
 
+/**
+ * Хто взагалі бачить цю розмову — з довідника людей.
+ *
+ * Клієнт уже має довідник (він їде зі списком розмов), тож статуси
+ * «переглянуто» рахуються без ще одного запиту на сервер.
+ */
+export function participantsOf<T extends { id: string; role: string }>(
+  k: ConversationKey,
+  people: readonly T[]
+): T[] {
+  switch (k.type) {
+    case "all":
+      return people.filter((p) => isStaff(p.role));
+    case "role":
+      return people.filter((p) => p.role === k.role || isOffice(p.role));
+    case "dm":
+      return people.filter((p) => p.id === k.a || p.id === k.b);
+    case "journal":
+      // Журнал ніхто не «читає» як розмову — це зріз усього підряд.
+      return [];
+  }
+}
+
 /** Підпис адреси на повідомленні: «Усі», «Торгові, Водії», «Особисто». */
 export function audienceLabel(m: { toAll: boolean; toRoles: readonly string[]; toUserId: string | null }): string {
   if (m.toUserId) return "Особисто";

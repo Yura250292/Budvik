@@ -194,7 +194,7 @@ export async function summarize(me: Me): Promise<{
     prisma.staffChatRead.findMany({ where: { userId: me.userId }, select: { conversation: true, readAt: true } }),
     prisma.staffMessage.findMany({
       where: visibleWhere(me),
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: SUMMARY_WINDOW,
       select: {
         id: true,
@@ -292,22 +292,42 @@ export async function summarize(me: Me): Promise<{
   return { conversations, totalUnread: unreadIds.size, people };
 }
 
+export type ReadMark = { userId: string; readAt: string };
+
 export async function listMessages(
   me: Me,
   key: string,
   opts: { before?: Date | null; limit?: number } = {}
-): Promise<{ conversation: { key: string; type: ConversationKey["type"]; label: string; canWrite: boolean; userId?: string }; messages: ChatMessage[]; hasMore: boolean }> {
+): Promise<{
+  conversation: { key: string; type: ConversationKey["type"]; label: string; canWrite: boolean; userId?: string };
+  messages: ChatMessage[];
+  hasMore: boolean;
+  /** Хто до якої миті дочитав цю розмову — з цього рахуються галочки. */
+  reads: ReadMark[];
+}> {
   const k = parseKey(key);
   if (!k) throw new ChatError(404, "Розмову не знайдено");
   if (!canRead(me, k)) throw new ChatError(403, "Немає доступу до цієї розмови");
 
   const limit = Math.min(Math.max(opts.limit ?? PAGE, 1), 200);
-  const rows = await prisma.staffMessage.findMany({
-    where: { AND: [whereForKey(k), ...(opts.before ? [{ createdAt: { lt: opts.before } }] : [])] },
-    orderBy: { createdAt: "desc" },
-    take: limit + 1,
-    select: MESSAGE_SELECT,
-  });
+  const [rows, readRows] = await Promise.all([
+    prisma.staffMessage.findMany({
+      where: { AND: [whereForKey(k), ...(opts.before ? [{ createdAt: { lt: opts.before } }] : [])] },
+      // id другим ключем: два повідомлення можуть лягти в ту саму
+      // мілісекунду, і тоді порядок у стрічці стрибав би між опитуваннями.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: MESSAGE_SELECT,
+    }),
+    // Мітки всіх, а не лише свою: статус «переглянуто» під СВОЇМ повідомленням
+    // означає, що його прочитав хтось інший.
+    k.type === "journal"
+      ? Promise.resolve([])
+      : prisma.staffChatRead.findMany({
+          where: { conversation: formatKey(k) },
+          select: { userId: true, readAt: true },
+        }),
+  ]);
   const hasMore = rows.length > limit;
   const messages = rows.slice(0, limit).reverse().map(serialize);
 
@@ -338,6 +358,7 @@ export async function listMessages(
     },
     messages,
     hasMore,
+    reads: readRows.map((r) => ({ userId: r.userId, readAt: r.readAt.toISOString() })),
   };
 }
 
@@ -478,7 +499,7 @@ export async function unreadTotal(me: Me): Promise<number> {
     prisma.staffChatRead.findMany({ where: { userId: me.userId }, select: { conversation: true, readAt: true } }),
     prisma.staffMessage.findMany({
       where: { AND: [visibleWhere(me), { authorId: { not: me.userId } }] },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: SUMMARY_WINDOW,
       select: { id: true, toAll: true, toRoles: true, toUserId: true, authorId: true, createdAt: true },
     }),

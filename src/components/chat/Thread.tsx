@@ -16,8 +16,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { Callout } from "@/components/cabinet/ui";
+import { participantsOf, parseKey } from "@/lib/chat/audience";
 import { ChatComposer } from "./ChatComposer";
 import { MessageRow } from "./MessageRow";
+import { ReadersSheet } from "./ReadersSheet";
 import { CONVERSATIONS_URL } from "./ConversationList";
 import { UNREAD_URL } from "./useChatUnread";
 import { COPY } from "./copy";
@@ -26,6 +28,9 @@ import {
   markConversationRead,
   sendMessage,
   type ChatMessage,
+  type ConversationsResponse,
+  type Person,
+  type ReadStatus,
   type ThreadResponse,
   type UploadedPhoto,
 } from "./api";
@@ -68,8 +73,16 @@ export function Thread({
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [older, setOlder] = useState<ChatMessage[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [readersOf, setReadersOf] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef<string | null>(null);
+
+  /**
+   * Довідник людей уже завантажений списком розмов — SWR віддає його з
+   * кешу, без другого запиту. Учасників розмови виводимо з нього ж, тож
+   * сервер шле лише мітки часу.
+   */
+  const { data: meta } = useSWR<ConversationsResponse>(CONVERSATIONS_URL, fetcher, { revalidateOnFocus: false });
 
   const server = useMemo(() => data?.messages ?? [], [data]);
   const serverIds = useMemo(() => new Set(server.map((m) => m.id)), [server]);
@@ -113,8 +126,8 @@ export function Thread({
     setOlder((prev) => [...res.messages, ...prev]);
   }, [messages, url]);
 
-  const submit = async (photos: UploadedPhoto[]) => {
-    const text = draft.trim();
+  const submit = async (photos: UploadedPhoto[], typed: string) => {
+    const text = typed.trim();
     if (!text && photos.length === 0) return;
     const conv = data?.conversation;
     if (!conv) return;
@@ -158,6 +171,42 @@ export function Thread({
     }
   };
 
+  /** Хто дочитав до якої миті. */
+  const readAtByUser = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of data?.reads ?? []) map.set(r.userId, new Date(r.readAt).getTime());
+    return map;
+  }, [data]);
+
+  const participants = useMemo<Person[]>(() => {
+    const k = parseKey(conversation);
+    return k && meta?.people ? participantsOf(k, meta.people) : [];
+  }, [conversation, meta]);
+
+  const statusFor = useCallback(
+    (m: ChatMessage): ReadStatus | undefined => {
+      if (!data || m.pending || m.failed) return undefined;
+      const others = participants.filter((p) => p.id !== m.author.id);
+      if (others.length === 0) return undefined;
+      const at = new Date(m.createdAt).getTime();
+      const seenBy = others.filter((p) => (readAtByUser.get(p.id) ?? 0) >= at);
+      return {
+        seenBy,
+        pending: others.filter((p) => !seenBy.includes(p)),
+        isDm: data.conversation.type === "dm",
+      };
+    },
+    [data, participants, readAtByUser]
+  );
+
+  const readersMessage = readersOf ? messages.find((m) => m.id === readersOf) : null;
+  const readersStatus = readersMessage ? statusFor(readersMessage) : undefined;
+  const seenAt = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const r of data?.reads ?? []) out[r.userId] = r.readAt;
+    return out;
+  }, [data]);
+
   const showAudience = data?.conversation.type === "journal";
   let lastDay = "";
 
@@ -196,7 +245,14 @@ export function Thread({
                 {separator && (
                   <p className="py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-cab-t3">{separator}</p>
                 )}
-                <MessageRow message={m} mine={m.author.id === meId} section={section} showAudience={showAudience ?? false} />
+                <MessageRow
+                  message={m}
+                  mine={m.author.id === meId}
+                  section={section}
+                  showAudience={showAudience ?? false}
+                  status={m.author.id === meId ? statusFor(m) : undefined}
+                  onShowReaders={() => setReadersOf(m.id)}
+                />
               </div>
             );
           })}
@@ -213,9 +269,23 @@ export function Thread({
             </p>
           </div>
         ) : (
-          <ChatComposer value={draft} onChange={setDraft} onSend={(photos) => void submit(photos)} busy={sending} />
+          <ChatComposer
+            value={draft}
+            onChange={setDraft}
+            onSend={(photos, text) => void submit(photos, text)}
+            busy={sending}
+          />
         )}
       </div>
+
+      {readersStatus && (
+        <ReadersSheet
+          seenBy={readersStatus.seenBy}
+          pending={readersStatus.pending}
+          seenAt={seenAt}
+          onClose={() => setReadersOf(null)}
+        />
+      )}
     </>
   );
 }

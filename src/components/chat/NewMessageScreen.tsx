@@ -27,7 +27,7 @@ export function NewMessageScreen({ base, embedded }: { base: string; embedded: b
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (photos: UploadedPhoto[]) => {
+  const submit = async (photos: UploadedPhoto[], typed: string) => {
     if (!audienceChosen(audience)) {
       setError(COPY.pickAudience);
       return;
@@ -35,7 +35,7 @@ export function NewMessageScreen({ base, embedded }: { base: string; embedded: b
     setBusy(true);
     setError(null);
     try {
-      const res = await sendMessage({ ...audience, text: draft.trim(), photos });
+      const res = await sendMessage({ ...audience, text: typed.trim(), photos });
       void mutate(CONVERSATIONS_URL);
       router.replace(`${base}/${res.conversation}`);
     } catch (e) {
@@ -66,7 +66,7 @@ export function NewMessageScreen({ base, embedded }: { base: string; embedded: b
         <ChatComposer
           value={draft}
           onChange={setDraft}
-          onSend={(photos) => void submit(photos)}
+          onSend={(photos, text) => void submit(photos, text)}
           busy={busy}
           disabled={!data}
         />

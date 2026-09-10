@@ -1,19 +1,18 @@
 /**
- * Чат персоналу в кабінеті: список, розмова, доставка колезі, бейдж.
+ * Чат персоналу: доставка між двома сесіями, статуси, дві колонки, смайлики.
  *
- * Дві сесії в одному тесті, бо перевіряти тут треба саме зустріч: те, що
- * написав торговий, має за секунди зʼявитися у водія — і зникнути з
- * лічильника непрочитаного, щойно той відкриє розмову.
+ * Пишемо ТІЛЬКИ в особисту розмову двох тестових акаунтів. Чат уже живий, і
+ * повідомлення в «Усі» чи в групу ролі побачила б уся фірма — а надіслане
+ * через роут ще й розлетілося б пушами.
  *
  * Запуск (сервер уже піднятий):
  *   E2E_NO_SERVER=1 E2E_BASE_URL=http://localhost:3100 \
- *     npx playwright test tests/e2e/staff-chat.spec.ts --project=mobile
+ *     CHAT_E2E_USERS='<json>' npx playwright test tests/e2e/staff-chat.spec.ts
  *
- * Потрібні кукі тестових акаунтів у CHAT_E2E_USERS (JSON зі скрипта
- * scripts/_probe-chat-ui.mjs) — інакше тест пропускається.
+ * CHAT_E2E_USERS — токени тестових акаунтів; без них тест пропускається.
  */
 
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 type Who = { id: string; name: string; token: string };
 const USERS: Record<string, Who> | null = process.env.CHAT_E2E_USERS
@@ -22,8 +21,13 @@ const USERS: Record<string, Who> | null = process.env.CHAT_E2E_USERS
 
 const BASE = new URL(process.env.E2E_BASE_URL ?? "http://localhost:3100");
 
+/** Ключ особистої розмови: id обох, відсортовані — як на сервері. */
+const dmKey = (a: string, b: string) => (a < b ? `dm-${a}-${b}` : `dm-${b}-${a}`);
+
 async function loginAs(context: BrowserContext, who: Who) {
   // Обидва імені: middleware читає __Secure-, клієнтський /api/auth/session — просте.
+  // secure навіть на http: без нього Chrome відкидає кукі з префіксом
+  // __Secure- разом з усім набором, а на localhost вона допускається.
   await context.addCookies(
     ["next-auth.session-token", "__Secure-next-auth.session-token"].map((name) => ({
       name,
@@ -31,79 +35,134 @@ async function loginAs(context: BrowserContext, who: Who) {
       domain: BASE.hostname,
       path: "/",
       httpOnly: true,
-      // secure навіть на http: без цього Chrome відкидає кукі з префіксом
-      // __Secure- разом з усім набором, а на localhost вона допускається.
       secure: true,
       sameSite: "Lax" as const,
     }))
   );
 }
 
-/** Текст із міткою прогону — щоб тест не бачив залишків попереднього. */
 const stamp = () => `тест ${Date.now().toString().slice(-6)}`;
+
+/**
+ * Саме бульбашка в стрічці, а не будь-де на екрані.
+ *
+ * Той самий текст стоїть ще й у переліку розмов збоку (як «останнє
+ * повідомлення»), тож пошук по всій сторінці знаходить два збіги. Бульбашка —
+ * це <p>, рядок переліку — <span>.
+ */
+const bubble = (page: Page, text: string) => page.getByRole("paragraph").filter({ hasText: text });
+
+/**
+ * Натиснути кнопку в мобільному контексті.
+ *
+ * `click()` у проєкті «mobile» шле МИШУ на пристрій, який емулює дотик, і
+ * така подія до сторінки не доходить: поле лишається заповненим, запиту
+ * немає. Живий палець і миша на ноутбуці працюють обидва — тому тут саме
+ * `tap()`, з відкотом на клік там, де дотику немає.
+ */
+/**
+ * Відкрити екран чату й дочекатися, поки він ОЖИВЕ.
+ *
+ * `domcontentloaded` означає лише готову розмітку: до гідратації кнопка вже
+ * намальована, але обробника ще немає, і дотик по ній не робить нічого.
+ * Ознака життя — перший клієнтський запит списку розмов: його робить уже
+ * React, а не сервер.
+ */
+async function openChat(page: Page, path: string) {
+  const ready = page.waitForResponse((r) => r.url().includes("/api/chat/conversations") && r.ok(), { timeout: 30_000 });
+  await page.goto(path, { waitUntil: "domcontentloaded" });
+  await ready;
+}
+
+async function press(page: Page, target: Locator) {
+  const touch = await page.evaluate(() => "ontouchstart" in window || navigator.maxTouchPoints > 0);
+  if (touch) await target.tap();
+  else await target.click();
+}
+
+/**
+ * Набрати текст і надіслати його.
+ *
+ * Пауза між набором і натисканням — не забаганка: `fill()` міняє поле
+ * миттєво, а екран проводить кожну літеру через стан батьківського
+ * компонента. Натискання в ТОЙ САМИЙ такт ловить кнопку між двома
+ * станами, і повідомлення не йде. Палець стільки не встигає — між
+ * останньою літерою й кнопкою мінімум пів секунди.
+ */
+async function sendText(page: Page, text: string) {
+  const field = page.getByPlaceholder("Повідомлення…");
+  const button = page.getByRole("button", { name: "Надіслати" });
+  await field.fill(text);
+  await expect(button).toBeEnabled();
+  await page.waitForTimeout(300);
+  await press(page, button);
+  // Поле очистилось — отже екран прийняв відправку, а не проковтнув її.
+  await expect(field).toHaveValue("", { timeout: 15_000 });
+}
 
 test.describe("чат персоналу", () => {
   test.skip(!USERS, "немає CHAT_E2E_USERS");
 
-  test("торговий пише в «Усі», водій це бачить", async ({ browser }) => {
+  test("особисте доходить до адресата й позначається переглянутим", async ({ browser }) => {
     const salesCtx = await browser.newContext();
     const driverCtx = await browser.newContext();
     await loginAs(salesCtx, USERS!.sales);
     await loginAs(driverCtx, USERS!.driver);
+    const dm = dmKey(USERS!.sales.id, USERS!.driver.id);
 
     const sales: Page = await salesCtx.newPage();
-    await sales.goto("/sales/chat", { waitUntil: "domcontentloaded" });
-
-    // Список розмов: «Усі» і своя група є, чужих груп немає.
-    await expect(sales.getByRole("link", { name: /Усі/ })).toBeVisible();
-    await expect(sales.getByText("Торгові", { exact: true })).toBeVisible();
-    await expect(sales.getByText("Водії", { exact: true })).toHaveCount(0);
-
-    await sales.getByRole("link", { name: /Усі/ }).first().click();
+    await openChat(sales, `/sales/chat/${dm}`);
     const text = `${stamp()} привіт з кабінету`;
-    await sales.getByPlaceholder("Повідомлення…").fill(text);
-    await sales.getByRole("button", { name: "Надіслати" }).click();
-    // Не оптимістичну бульбашку чекаємо, а підтверджену: та зʼявляється
-    // одразу і з обірваним запитом теж, тож сама по собі нічого не доводить.
-    await expect(sales.getByText(text)).toBeVisible({ timeout: 15_000 });
+    await sendText(sales, text);
+
+    await expect(bubble(sales, text)).toBeVisible({ timeout: 15_000 });
     await expect(sales.getByText("Не надіслано")).toHaveCount(0);
+    // Поки адресат не відкрив — одна галочка.
+    await expect(sales.getByText("Надіслано").first()).toBeVisible({ timeout: 15_000 });
 
-    // Водій бачить те саме повідомлення в «Усі» — опитування раз на 5 с.
+    // Водій відкриває розмову — і бачить те саме повідомлення.
     const driver: Page = await driverCtx.newPage();
-    await driver.goto("/driver/chat/all", { waitUntil: "domcontentloaded" });
-    await expect(driver.getByText(text)).toBeVisible({ timeout: 20_000 });
+    await openChat(driver, `/driver/chat/${dm}`);
+    await expect(bubble(driver, text)).toBeVisible({ timeout: 20_000 });
 
-    // …і автор підписаний, бо в групі пишуть кілька людей. first(): у стрічці
-    // накопичуються повідомлення попередніх прогонів того самого автора.
-    await expect(driver.getByText(USERS!.sales.name).first()).toBeVisible();
+    // …а у відправника галочка стає подвійною (опитування раз на 5 с).
+    await expect(sales.getByText("Переглянуто").first()).toBeVisible({ timeout: 30_000 });
 
     await salesCtx.close();
     await driverCtx.close();
   });
 
-  test("особисте видно лише двом", async ({ browser }) => {
-    const salesCtx = await browser.newContext();
-    const driverCtx = await browser.newContext();
-    await loginAs(salesCtx, USERS!.sales);
-    await loginAs(driverCtx, USERS!.driver);
+  test("на ноутбуці ліворуч список, праворуч розмова", async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await loginAs(ctx, USERS!.sales);
+    const page = await ctx.newPage();
+    const dm = dmKey(USERS!.sales.id, USERS!.driver.id);
 
-    const sales = await salesCtx.newPage();
-    await sales.goto("/sales/chat/new", { waitUntil: "domcontentloaded" });
-    await sales.getByRole("button", { name: new RegExp(USERS!.driver.name) }).click();
-    const text = `${stamp()} особисто водію`;
-    await sales.getByPlaceholder("Повідомлення…").fill(text);
-    await sales.getByRole("button", { name: "Надіслати" }).click();
-    await expect(sales.getByText(text)).toBeVisible({ timeout: 15_000 });
-    // Після надсилання ми всередині розмови — адреса стала ключем dm-…
-    await expect(sales).toHaveURL(/\/sales\/chat\/dm-/, { timeout: 15_000 });
+    await openChat(page, `/sales/chat/${dm}`);
+    // Перелік розмов лишається на місці, поки відкрита розмова.
+    // exact: інакше сюди ж підпадає кнопка «Написати нове повідомлення» в шапці.
+    await expect(page.getByRole("link", { name: "Нове повідомлення", exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("link", { name: new RegExp(USERS!.driver.name) })).toBeVisible();
+    // …і поле вводу тієї самої розмови поруч.
+    await expect(page.getByPlaceholder("Повідомлення…")).toBeVisible();
 
-    // У водія воно в списку, і бейдж непрочитаного світиться.
-    const driver = await driverCtx.newPage();
-    await driver.goto("/driver/chat", { waitUntil: "domcontentloaded" });
-    await expect(driver.getByText(text)).toBeVisible({ timeout: 20_000 });
+    await ctx.close();
+  });
 
-    await salesCtx.close();
-    await driverCtx.close();
+  test("смайлик лягає в поле", async ({ browser }) => {
+    const ctx = await browser.newContext();
+    await loginAs(ctx, USERS!.sales);
+    const page = await ctx.newPage();
+    const dm = dmKey(USERS!.sales.id, USERS!.driver.id);
+
+    await openChat(page, `/sales/chat/${dm}`);
+    const field = page.getByPlaceholder("Повідомлення…");
+    await field.fill("буду ");
+    await press(page, page.getByRole("button", { name: "Смайлики" }));
+    await press(page, page.getByRole("button", { name: "Смайлик 👍" }));
+    await expect(field).toHaveValue("буду 👍");
+
+    await ctx.close();
   });
 
   test("кнопка чату з лічильником стоїть у шапці кабінету", async ({ browser }) => {

@@ -31,4 +31,13 @@ export const COPY = {
   sent: "Надіслано",
   uploading: "Готую фото…",
   maxPhotos: "Не більше 4 фото",
+  emoji: "Смайлики",
+  attach: "Додати фото",
+  sentStatus: "Надіслано",
+  readStatus: "Переглянуто",
+  readBy: (n: number) => `Переглянули ${n}`,
+  noneRead: "Ще не переглянули",
+  pickConversation: "Оберіть розмову ліворуч",
+  backToList: "Розмови",
+  groupChat: "Групова розмова",
 } as const;

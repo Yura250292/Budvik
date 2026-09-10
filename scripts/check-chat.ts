@@ -23,7 +23,7 @@ import { GET as messagesHandler } from "../src/app/api/chat/messages/[conversati
 import { POST as sendHandler } from "../src/app/api/chat/messages/route";
 import { POST as readHandler } from "../src/app/api/chat/read/route";
 import { GET as unreadHandler } from "../src/app/api/chat/unread/route";
-import { chatPathFor, dmKey } from "../src/lib/chat/audience";
+import { chatPathFor, dmKey, participantsOf, parseKey } from "../src/lib/chat/audience";
 import { notifyStaffMessage } from "../src/lib/chat/notify";
 
 const p = new PrismaClient();
@@ -57,6 +57,9 @@ const markRead = (t: string, conversation: string, upTo: string) =>
   ).then(json);
 
 const unread = (t: string) => unreadHandler(new Request("http://x/api/chat/unread", { headers: auth(t) })).then(json);
+
+/** Чи прийшло поле reads узагалі (а не лише чи воно непорожнє). */
+const res0 = (res: Res) => (res.body as { reads?: unknown } | null)?.reads;
 
 /** Чи є повідомлення з таким текстом у розмові. */
 const seen = (res: Res, text: string) =>
@@ -219,6 +222,42 @@ async function main() {
   const userMsg = await p.assistantMessage.create({ data: { threadId: thread.id, role: "USER", content: "питання" } });
   const notAnswer = await send(T.sales1, { toAll: true, sourceAssistantMessageId: userMsg.id });
   check("Власне питання (не відповідь) → 404", notAnswer.status === 404, notAnswer);
+
+  // --- 7б. Статуси «переглянуто» ---
+  /**
+   * Галочки рахуються з міток прочитання розмови, а не з окремої таблиці на
+   * кожне повідомлення. Перевіряємо саме те, від чого залежить показ: чи
+   * приїхали мітки всіх учасників і чи правильно з них виводиться список
+   * тих, хто ще не бачив.
+   */
+  const statusText = `${MARK} перевірка галочок`;
+  await send(T.sales1, { text: statusText, toRoles: ["SALES"] });
+  const salesThread = await messages(T.sales1, "role-SALES");
+  const mine = salesThread.body.messages.find((m: any) => m.text === statusText);
+  const readsOf = (res: Res) => (res.body?.reads ?? []) as Array<{ userId: string; readAt: string }>;
+  check("Мітки прочитання їдуть разом із повідомленнями", Array.isArray(res0(salesThread)), {
+    reads: readsOf(salesThread).length,
+  });
+  const seenBefore = readsOf(salesThread).filter(
+    (r) => r.userId !== sales1.id && new Date(r.readAt).getTime() >= new Date(mine.createdAt).getTime()
+  );
+  check("Одразу після надсилання ніхто не переглянув", seenBefore.length === 0, seenBefore);
+
+  await markRead(T.sales2, "role-SALES", mine.createdAt);
+  const afterSeen = readsOf(await messages(T.sales1, "role-SALES")).filter(
+    (r) => r.userId !== sales1.id && new Date(r.readAt).getTime() >= new Date(mine.createdAt).getTime()
+  );
+  check("Після відкриття колегою — переглянуто", afterSeen.some((r) => r.userId === sales2.id), afterSeen);
+
+  // Учасники групи виводяться з довідника людей — тим самим кодом, що й у кабінеті.
+  const people = (await conversations(T.sales1)).body.people as Array<{ id: string; role: string }>;
+  const groupPeople = participantsOf(parseKey("role-SALES")!, people).map((p) => p.id);
+  check("У групі торгових є обидва торгові", groupPeople.includes(sales1.id) && groupPeople.includes(sales2.id));
+  check("…і офіс як учасник", groupPeople.includes(manager.id) && groupPeople.includes(admin.id));
+  check("…але не водій", !groupPeople.includes(driver.id), groupPeople.length);
+  const dmPeople = participantsOf(parseKey(dm)!, people).map((p) => p.id);
+  check("В особистій рівно двоє", dmPeople.length === 2 && dmPeople.includes(sales1.id) && dmPeople.includes(sales2.id), dmPeople);
+  check("У журналі учасників немає (це зріз, а не розмова)", participantsOf(parseKey("journal")!, people).length === 0);
 
   // --- 8б. Пуш: адреси, які застосунок справді вміє відкрити ---
   /**

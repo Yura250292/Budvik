@@ -42,7 +42,16 @@ function when(iso: string): string {
   return date.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit" });
 }
 
-export function ConversationList({ section, base }: { section: string; base: string }) {
+export function ConversationList({
+  section,
+  base,
+  activeKey = null,
+}: {
+  section: string;
+  base: string;
+  /** Яку розмову відкрито — на широкому екрані список лишається поруч. */
+  activeKey?: string | null;
+}) {
   const { data, isLoading } = useSWR<ConversationsResponse>(CONVERSATIONS_URL, fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: true,
@@ -72,7 +81,10 @@ export function ConversationList({ section, base }: { section: string; base: str
             <Link
               key={c.key}
               href={`${base}/${c.key}`}
-              className="flex items-center gap-3 rounded-2xl border border-cab-line bg-white px-3.5 py-3 active:opacity-70"
+              aria-current={c.key === activeKey ? "page" : undefined}
+              className={`flex items-center gap-3 rounded-2xl border px-3.5 py-3 active:opacity-70 ${
+                c.key === activeKey ? "border-bk bg-cab-bg" : "border-cab-line bg-white"
+              }`}
             >
               {person ? (
                 <Avatar name={person.name} id={person.id} src={person.avatarUrl} color={person.color} size={40} />

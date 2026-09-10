@@ -43,10 +43,21 @@ export type ConversationsResponse = {
   canPickGroups: boolean;
 };
 
+export type ReadMark = { userId: string; readAt: string };
+
 export type ThreadResponse = {
   conversation: { key: string; type: ConversationSummary["type"]; label: string; canWrite: boolean; userId?: string };
   messages: ChatMessage[];
   hasMore: boolean;
+  reads: ReadMark[];
+};
+
+/** Хто вже переглянув повідомлення, а хто ще ні. */
+export type ReadStatus = {
+  seenBy: Person[];
+  pending: Person[];
+  /** Особиста розмова: галочка означає «прочитав співрозмовник». */
+  isDm: boolean;
 };
 
 export type Audience = { toAll: boolean; toRoles: GroupRole[]; toUserId: string | null };

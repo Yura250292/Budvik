@@ -12,11 +12,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, ImageIcon, Mic, SendHorizontal, X } from "lucide-react";
+import { Camera, ImageIcon, Mic, Paperclip, SendHorizontal, Smile, X } from "lucide-react";
 import { useVoiceInput } from "@/components/sales/assistant/useVoiceInput";
 import { compress } from "@/components/cabinet/photo/compress";
 import { useInPageCamera } from "@/components/cabinet/photo/useInPageCamera";
 import { CameraView } from "@/components/cabinet/photo/CameraView";
+import { EmojiPicker } from "./EmojiPicker";
 import { uploadPhoto, type UploadedPhoto } from "./api";
 import { COPY } from "./copy";
 
@@ -34,8 +35,11 @@ export function ChatComposer({
 }: {
   value: string;
   onChange: (v: string) => void;
-  /** Фото віддаємо вже завантаженими — роут повідомлень приймає лише ключі. */
-  onSend: (photos: UploadedPhoto[]) => void;
+  /**
+   * Фото віддаємо вже завантаженими (роут приймає лише ключі), а текст —
+   * прямо з поля: див. коментар до submit нижче.
+   */
+  onSend: (photos: UploadedPhoto[], text: string) => void;
   busy: boolean;
   disabled?: boolean;
   placeholder?: string;
@@ -45,6 +49,8 @@ export function ChatComposer({
   const captureRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<Pending[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const camera = useInPageCamera();
   const voice = useVoiceInput((text) => onChange(text));
 
@@ -55,6 +61,14 @@ export function ChatComposer({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [value]);
+
+  useEffect(() => {
+    if (!attachOpen) return;
+    const close = () => setAttachOpen(false);
+    // mousedown, а не click: інакше дотик, яким меню відкрили, одразу його й закриє.
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [attachOpen]);
 
   // Прев'ю живуть на blob-адресах — звільняємо, коли екран зникає.
   useEffect(
@@ -89,6 +103,29 @@ export function ChatComposer({
     }
   };
 
+  /**
+   * Смайлик лягає в ПОЗИЦІЮ КУРСОРА, а не в кінець рядка.
+   *
+   * Люди дописують знак посеред набраного тексту («приїду 🚚 о 15»), і
+   * дописування в хвіст щоразу вимагало б переставляти його вручну.
+   */
+  const insertEmoji = (emoji: string) => {
+    const el = ref.current;
+    if (!el) {
+      onChange(value + emoji);
+      return;
+    }
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? start;
+    onChange(value.slice(0, start) + emoji + value.slice(end));
+    // Курсор за смайликом — інакше наступний символ ішов би перед ним.
+    requestAnimationFrame(() => {
+      el.focus();
+      const at = start + emoji.length;
+      el.setSelectionRange(at, at);
+    });
+  };
+
   const drop = (id: string) => {
     setPhotos((prev) => {
       const gone = prev.find((p) => p.id === id);
@@ -104,9 +141,23 @@ export function ChatComposer({
   const ready = photos.filter((p) => p.uploaded).map((p) => p.uploaded!) as UploadedPhoto[];
   const canSend = !busy && !uploading && !disabled && (value.trim().length > 0 || ready.length > 0);
 
+  /**
+   * Текст беремо з САМОГО поля, а не з пропса.
+   *
+   * Значення живе в батьківському екрані, тож кожна літера робить коло
+   * «поле → onChange → стан батька → пропс назад». Дотик по «Надіслати» в
+   * тому ж такті, що й останній символ, ловив ще ПОРОЖНІЙ пропс — і
+   * повідомлення тихо зникало: ні бульбашки, ні помилки. На планшеті, де
+   * потік JS зайнятий треком, це не рідкість, а щоденне.
+   *
+   * Тому перевірка «є що слати» теж рахується від живого значення: кнопка
+   * може відставати від поля, поле від себе — ні.
+   */
   const submit = () => {
-    if (!canSend) return;
-    onSend(ready);
+    if (busy || uploading || disabled) return;
+    const live = (ref.current?.value ?? value).trim();
+    if (!live && ready.length === 0) return;
+    onSend(ready, live);
     photos.forEach((p) => URL.revokeObjectURL(p.preview));
     setPhotos([]);
     setError(null);
@@ -120,7 +171,8 @@ export function ChatComposer({
 
   return (
     <>
-      <div className="border-t border-cab-line bg-white px-4 py-2.5">
+      <div className="relative border-t border-cab-line bg-white px-4 py-2.5">
+        {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
         {!!error && <p className="mb-1.5 text-[11px] text-bad-fg">{error}</p>}
         {!!camera.error && (
           <div className="mb-2 rounded-xl border border-warn-line bg-warn-bg p-2.5">
@@ -187,45 +239,93 @@ export function ChatComposer({
           aria-label={COPY.camera}
         />
 
+        {/*
+          Один ряд, чотири цілі дотику: скріпка, поле, мікрофон, надіслати.
+          Камера й галерея сховані під скріпку, а смайлик стоїть У ПОЛІ —
+          на 390 px пʼять окремих кнопок лишали полю ~90 px, і плейсхолдер
+          «Повідомлення…» переносився на два рядки.
+        */}
         <div className="flex items-end gap-2">
-          <button
-            type="button"
-            aria-label={COPY.camera}
-            onClick={() => void camera.open()}
-            disabled={disabled || photos.length >= MAX_PHOTOS}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cab-line text-cab-t2 disabled:opacity-40"
-          >
-            <Camera size={18} />
-          </button>
-          <button
-            type="button"
-            aria-label={COPY.gallery}
-            onClick={() => galleryRef.current?.click()}
-            disabled={disabled || photos.length >= MAX_PHOTOS}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cab-line text-cab-t2 disabled:opacity-40"
-          >
-            <ImageIcon size={18} />
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-label={COPY.attach}
+              aria-expanded={attachOpen}
+              onClick={(e) => {
+                e.stopPropagation();
+                setAttachOpen((v) => !v);
+              }}
+              disabled={disabled || photos.length >= MAX_PHOTOS}
+              className={`flex h-11 w-11 items-center justify-center rounded-xl disabled:opacity-40 ${
+                attachOpen ? "bg-bk text-white" : "border border-cab-line text-cab-t2"
+              }`}
+            >
+              <Paperclip size={18} />
+            </button>
+            {attachOpen && (
+              <div
+                className="absolute bottom-full left-0 z-20 mb-1 w-44 overflow-hidden rounded-xl border border-cab-line bg-white shadow-[0_-6px_20px_rgba(0,0,0,0.12)]"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachOpen(false);
+                    void camera.open();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[14px] font-medium text-bk active:bg-cab-bg"
+                >
+                  <Camera size={17} className="text-cab-t2" />
+                  {COPY.camera}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachOpen(false);
+                    galleryRef.current?.click();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2.5 border-t border-cab-line px-3 text-left text-[14px] font-medium text-bk active:bg-cab-bg"
+                >
+                  <ImageIcon size={17} className="text-cab-t2" />
+                  {COPY.gallery}
+                </button>
+              </div>
+            )}
+          </div>
 
-          <textarea
-            ref={ref}
-            rows={1}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            enterKeyHint="send"
-            maxLength={4000}
-            disabled={disabled}
-            placeholder={placeholder ?? COPY.placeholder}
-            // 16px обов'язково: менший шрифт змушує мобільний браузер
-            // масштабувати сторінку при фокусі.
-            className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-xl border border-cab-line bg-white px-3 py-2.5 text-base text-bk outline-none placeholder:text-cab-t3 focus:border-bk disabled:bg-cab-bg"
-          />
+          <div className="relative min-w-0 flex-1">
+            <textarea
+              ref={ref}
+              rows={1}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              enterKeyHint="send"
+              maxLength={4000}
+              disabled={disabled}
+              placeholder={placeholder ?? COPY.placeholder}
+              // 16px обов'язково: менший шрифт змушує мобільний браузер
+              // масштабувати сторінку при фокусі. pr-11 — місце під смайлик.
+              className="max-h-[140px] min-h-[44px] w-full resize-none rounded-xl border border-cab-line bg-white py-2.5 pl-3 pr-11 text-base text-bk outline-none placeholder:text-cab-t3 focus:border-bk disabled:bg-cab-bg"
+            />
+            <button
+              type="button"
+              aria-label={COPY.emoji}
+              aria-expanded={emojiOpen}
+              onClick={() => setEmojiOpen((v) => !v)}
+              disabled={disabled}
+              className={`absolute bottom-1.5 right-1.5 flex h-9 w-9 items-center justify-center rounded-lg disabled:opacity-40 ${
+                emojiOpen ? "bg-bk text-white" : "text-cab-t3"
+              }`}
+            >
+              <Smile size={19} />
+            </button>
+          </div>
 
           {voice.supported && (
             <button

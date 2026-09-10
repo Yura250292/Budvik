@@ -79,9 +79,15 @@ export default function SalesProfilePage() {
     setPhotoError(null);
     setPhotoBusy(true);
 
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/account/avatar", { method: "POST", body: fd });
+    // Файл летить сирим тілом, а не multipart: конверт із boundary дорогою до
+    // функції розклеювався і сервер відповідав «no boundary found in
+    // multipart body». Тип ставимо явно, але сервер усе одно перевіряє байти —
+    // з галереї Android тип буває порожній.
+    const res = await fetch("/api/account/avatar", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
     const data = await res.json().catch(() => ({}));
     setPhotoBusy(false);
 

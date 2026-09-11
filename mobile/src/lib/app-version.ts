@@ -8,9 +8,30 @@
 
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
+import * as Application from "expo-application";
 
+/**
+ * Версія JS-бандла — та, з якою його ОПУБЛІКУВАЛИ, а не та, що стоїть на
+ * планшеті.
+ *
+ * `Constants.expoConfig` їде разом із бандлом. Оновлення повітрям, зібране з
+ * дерева, де в app.config.ts стоїть 1.6.3, і опубліковане під runtime 1.5.1,
+ * на планшеті з оболонкою 1.5.1 назве себе «1.6.3». 11.09.2026 так і сталося:
+ * Валентин звітував «1.6.3 ota.01a08f09», нативного модуля в нього не було, а
+ * APK він не ставив узагалі.
+ */
 export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 export const APP_VERSION_CODE = Number(Constants.expoConfig?.android?.versionCode ?? 0);
+
+/**
+ * Версія ОБОЛОНКИ — те, що справді встановлено. Це і є runtime, під який
+ * приходять оновлення повітрям, і саме її порівнюють зі збіркою у сховищі,
+ * вирішуючи, чи показати «Оновіть застосунок».
+ *
+ * `expo-application` читає versionName із маніфесту APK, а не з бандла. Без
+ * нього — поза Android, у тестах — лишається версія бандла: краще, ніж нічого.
+ */
+export const NATIVE_VERSION = Application.nativeApplicationVersion ?? APP_VERSION;
 
 /**
  * Яка САМЕ збірка JS працює зараз: вбудована в APK чи доїхала повітрям.
@@ -27,8 +48,23 @@ export const APP_BUNDLE = Updates.isEmbeddedLaunch
   ? "apk"
   : `ota.${(Updates.updateId ?? "?").replace(/-/g, "").slice(0, 8)}`;
 
-/** Те, чим застосунок називає себе в пульсі: версія і бандл нерозривно. */
-export const APP_BUILD = `${APP_VERSION} ${APP_BUNDLE}`;
+/**
+ * Те, чим застосунок називає себе в пульсі.
+ *
+ * ПЕРШЕ СЛОВО — версія оболонки, і це не стиль, а контракт. Два читачі на
+ * сервері беруть саме його: `scripts/publish-staff-ota.mts` вирішує з нього,
+ * під які runtime публікувати (перше слово = живі оболонки в полі), а
+ * `src/lib/app/update-nudge.ts` — кому казати «поставте новий APK». Поки тут
+ * стояла версія бандла, обидва помилялися в один бік: оновлений повітрям
+ * планшет виглядав як оновлений оболонкою, і публікація під його справжній
+ * runtime могла зникнути з наступним же запуском скрипта.
+ *
+ * Версія JS — окремим хвостом і лише коли відрізняється: «1.5.1 ota.01a08f09
+ * js1.6.3» читається людиною як «стара оболонка з новим кодом», тобто саме
+ * те, що треба побачити.
+ */
+export const APP_BUILD =
+  `${NATIVE_VERSION} ${APP_BUNDLE}` + (NATIVE_VERSION === APP_VERSION ? "" : ` js${APP_VERSION}`);
 
 /**
  * Заголовок x-budvik-app.

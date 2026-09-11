@@ -6,7 +6,7 @@
  */
 
 import { staffApi, StaffApiError, APP_BUILD } from "@/api/staff";
-import { exactGuardStatus } from "@modules/track-guard";
+import { exactGuardStatus, systemProbe } from "@modules/track-guard";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
 import { notifyNow } from "./notify";
@@ -406,7 +406,20 @@ function describeGuards(status: string | null): string | null {
       })
     : "жодного разу";
   const kind = alarm.exact ? "точний" : "приблизний";
-  return `${status ?? "UNKNOWN"} · будильник ${fired} (${kind})`;
+  const line = `${status ?? "UNKNOWN"} · будильник ${fired} (${kind})`;
+
+  /**
+   * І — відповідь САМОЇ системи, а не наша думка про себе.
+   *
+   * Кошик пояснює, чому будильник, який ми справно ставимо і який система
+   * дозволяє ставити точним, б'є раз на добу замість 96. Список служб
+   * відповідає на друге питання того ж розбору: чи існує наша служба
+   * насправді, чи лише позначка про неї.
+   */
+  const probe = systemProbe();
+  if (!probe.available) return line;
+  const services = probe.services?.length ? probe.services.join("+") : "жодної";
+  return `${line} · кошик ${probe.standbyBucket ?? "?"} · служби ${services}`;
 }
 
 /**

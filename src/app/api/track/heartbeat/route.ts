@@ -127,15 +127,16 @@ export async function POST(req: NextRequest) {
        */
       watchdogAt: date(body.watchdogAt),
       /**
-       * 64, а не 20: сторожів тепер два, і поруч зі станом фонових завдань
-       * сюди їде стан будильника («AVAILABLE · будильник 13:33 (точний)»).
-       * На двадцяти символах доказ обривався на слові «будильни» — тобто
-       * рівно те, заради чого його додали, і не доїжджало.
+       * 200, і межа тут росла вже двічі — щоразу обрізаючи саме той доказ,
+       * заради якого рядок і розширювали. Спершу на 20 символах гинуло слово
+       * «будильни», тепер на 64 гинула б відповідь системи про себе:
+       * «AVAILABLE · будильник 13:33 (точний) · кошик RESTRICTED · служби
+       * LocationTaskService*» — це 90 з гаком.
        *
        * Міграції не треба: колонка оголошена як String? без @db.VarChar,
        * тобто в Postgres це text без обмеження довжини. Ріже саме цей рядок.
        */
-      watchdogStatus: text(body.watchdogStatus, 64),
+      watchdogStatus: text(body.watchdogStatus, 200),
       contextStartedAt: date(body.contextStartedAt),
       fixBatches: int(body.fixBatches, 0, 1_000_000),
       contextPoints: int(body.contextPoints, 0, 1_000_000),

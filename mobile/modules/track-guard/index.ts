@@ -27,12 +27,28 @@ export type ExactGuardStatus = {
   armedFor?: number;
 };
 
+/**
+ * Що система думає про наш застосунок — її словами, не нашими.
+ *
+ * Усе інше в пульсі ми звітуємо ПРО СЕБЕ: чи ми вважаємо, що пишемо; чи ми
+ * вважаємо, що підписані. Саме тому розбір і впирався в бездоганні прапорці
+ * при мертвому треку. Ці два поля — навпаки, відповідь Android.
+ */
+export type SystemProbe = {
+  available: boolean;
+  /** ACTIVE | WORKING_SET | FREQUENT | RARE | RESTRICTED — кошик застосунку. */
+  standbyBucket?: string;
+  /** Власні служби, які система тримає зараз. Зірочка — у передньому плані. */
+  services?: string[];
+};
+
 type TrackGuardModule = {
   scheduleOfflineGuard(intervalMinutes: number): boolean;
   cancelOfflineGuard(): boolean;
   scheduleExactGuard(intervalMinutes: number): boolean;
   cancelExactGuard(): boolean;
   exactGuardStatus(): ExactGuardStatus;
+  systemProbe(): SystemProbe;
 };
 
 /**
@@ -88,6 +104,21 @@ export function cancelExactGuard(): boolean {
     return native.cancelExactGuard();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Проба системи. У збірці без нативної частини — `available: false`, і це не
+ * помилка: старий APK просто не вміє про це спитати.
+ */
+export function systemProbe(): SystemProbe {
+  if (!hasOfflineGuard || typeof native?.systemProbe !== "function") {
+    return { available: false };
+  }
+  try {
+    return native.systemProbe();
+  } catch {
+    return { available: false };
   }
 }
 

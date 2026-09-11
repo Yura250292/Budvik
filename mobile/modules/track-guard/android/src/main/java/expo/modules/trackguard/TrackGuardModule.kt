@@ -1,6 +1,9 @@
 package expo.modules.trackguard
 
+import android.app.ActivityManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Data
@@ -98,6 +101,42 @@ class TrackGuardModule : Module() {
      * прокинувся й нічого не зміг» виглядали з сервера однаково. Тепер видно
      * окремо, чи будильник узагалі спрацював і чи він точний.
      */
+    /**
+     * Що САМА система думає про наш застосунок — двома числами, яких досі
+     * не було звідки взяти.
+     *
+     * 11.09.2026 розбір уперся в глухий кут: два планшети однієї моделі з
+     * однаковою прошивкою, однаковими дозволами й знятою оптимізацією
+     * батареї. В одного точний будильник б'є кожні 15 хвилин цілодобово, у
+     * другого — п'ять разів за три доби. Усе, що ми вміли спитати, в обох
+     * відповідало однаково й бездоганно.
+     *
+     * `standbyBucket` — кошик, у який Android сам поклав застосунок. У
+     * RESTRICTED система відкладає і будильники, і фонові завдання приблизно
+     * до одного разу на добу — рівно та картина, яку ми бачимо. І головне:
+     * зняття оптимізації батареї з цього кошика НЕ виводить, тому наші
+     * перевірки й показували, що все гаразд.
+     *
+     * `services` — чи існує наша служба переднього плану НАСПРАВДІ. Прапорець
+     * `hasStartedLocationUpdatesAsync` читає збережену позначку й після
+     * підняття процесу з фону бреше (це вже коштувало нам дня 07.09). З
+     * Android O `getRunningServices` віддає лише власні служби застосунку —
+     * тобто дозволу не треба, а відповідь пряма: система або тримає нашу
+     * службу, або ні.
+     *
+     * Обидва виклики загороджені: проба, яка сама впала, не має права
+     * забирати з планшета пульс.
+     */
+    Function("systemProbe") {
+      val context = appContext.reactContext
+        ?: return@Function mapOf("available" to false)
+      mapOf(
+        "available" to true,
+        "standbyBucket" to standbyBucket(context),
+        "services" to ownServices(context)
+      )
+    }
+
     Function("exactGuardStatus") {
       val context = appContext.reactContext
         ?: return@Function mapOf("available" to false)
@@ -109,6 +148,40 @@ class TrackGuardModule : Module() {
       )
     }
   }
+
+  /**
+   * Кошик застосунку словом. Про СЕБЕ питати можна без жодного дозволу —
+   * PACKAGE_USAGE_STATS потрібен лише щоб питати про чужі застосунки.
+   */
+  private fun standbyBucket(context: Context): String = runCatching {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@runCatching "не питали"
+    val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+      ?: return@runCatching "немає служби"
+    when (val bucket = usm.appStandbyBucket) {
+      UsageStatsManager.STANDBY_BUCKET_ACTIVE -> "ACTIVE"
+      UsageStatsManager.STANDBY_BUCKET_WORKING_SET -> "WORKING_SET"
+      UsageStatsManager.STANDBY_BUCKET_FREQUENT -> "FREQUENT"
+      UsageStatsManager.STANDBY_BUCKET_RARE -> "RARE"
+      // 45; константа є лише з API 30, тож числом — інакше стара збірка не злізе.
+      45 -> "RESTRICTED"
+      else -> "код $bucket"
+    }
+  }.getOrElse { "проба впала: ${it.message}" }
+
+  /**
+   * Власні служби, які система тримає ЗАРАЗ. Зірочка — у передньому плані.
+   *
+   * Імена короткі навмисно: рядок їде в пульс поруч із рештою діагностики й
+   * читається очима, а повне ім'я класу з'їло б його цілком.
+   */
+  @Suppress("DEPRECATION")
+  private fun ownServices(context: Context): List<String> = runCatching {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+      ?: return@runCatching emptyList()
+    am.getRunningServices(Int.MAX_VALUE)
+      .filter { it.service.packageName == context.packageName }
+      .map { it.service.className.substringAfterLast('.') + if (it.foreground) "*" else "" }
+  }.getOrElse { listOf("проба впала: ${it.message}") }
 
   private fun schedule(context: Context, minutes: Long): Boolean = runCatching {
     /**

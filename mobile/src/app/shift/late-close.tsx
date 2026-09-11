@@ -33,7 +33,7 @@ import {
 } from "@/ui/kit";
 import { setShiftOpen } from "@/track/state";
 import { within } from "@/lib/within";
-import { flush } from "@/track/uploader";
+import { flush, heartbeat } from "@/track/uploader";
 import { stopEverything } from "@/track/controller";
 import { cancelCloseReminders } from "@/track/reminder";
 
@@ -42,6 +42,9 @@ import { cancelCloseReminders } from "@/track/reminder";
  * звичайному закритті (`shift/odometer.tsx`), і з тієї самої причини.
  */
 const CLOSE_FLUSH_MS = 20_000;
+
+/** Скільки чекаємо на прощальний пульс. Те саме число, що в odometer.tsx. */
+const STATE_BEAT_MS = 10_000;
 
 export default function LateCloseScreen() {
   const router = useRouter();
@@ -100,6 +103,12 @@ export default function LateCloseScreen() {
        * людина вже вдома, дописувати нічого.
        */
       await stopEverything();
+      /**
+       * І сказати серверу, чим усе скінчилося, — з переднього плану, поки
+       * запит гарантовано проходить (див. odometer.tsx). Інакше остання
+       * звістка від планшета лишиться тією, що застала його зламаним.
+       */
+      await within(heartbeat(true), STATE_BEAT_MS, null);
       Alert.alert(
         "Зміну закрито",
         "Пробіг порахований за GPS — одометра за такий час уже не спитати."

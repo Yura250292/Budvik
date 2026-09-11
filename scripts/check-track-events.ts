@@ -36,6 +36,7 @@ const KIND: Record<string, string> = {
   push: "реєстрація сповіщень",
   mic: "мікрофон помічника",
   wake: "розбуджено сповіщенням",
+  reload: "ПЕРЕЗАВАНТАЖЕННЯ контексту",
 };
 
 async function main() {

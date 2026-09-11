@@ -37,6 +37,7 @@ import { flushPendingShift } from "./pending-shift";
 import { flushPendingVisits } from "./pending-visits";
 import { ensureRecording, isTracking, startTracking, warnRecordingDown } from "./controller";
 import { ensureFreshFixes } from "./health";
+import { reloadIfStuck } from "./unstick";
 import { checkJsUpdate } from "@/lib/self-update";
 
 /**
@@ -74,7 +75,7 @@ export async function runWatchdog(): Promise<void> {
    * Дані від переставляння нічого не втрачають: вони лежать у SQLite і
    * дочекаються наступного рядка. Мертвий трек не дочекається нічого.
    */
-  await ensureFreshFixes().catch(() => {});
+  const health = await ensureFreshFixes().catch(() => null);
 
   /**
    * Відкладена зміна — найперша з мережевого: поки вона не пройшла, сервер не
@@ -86,6 +87,16 @@ export async function runWatchdog(): Promise<void> {
   // Далі віддати те, що назбиралося: буфер важливіший за все інше.
   await maybeFlush().catch(() => {});
   await heartbeat().catch(() => {});
+
+  /**
+   * Застряглий контекст — окремо від перепідписки й ПІСЛЯ мережевої роботи.
+   *
+   * Перепідписка вище лікує мовчазний приймач. А тут інше: приймач працює,
+   * служба жива, але цей контекст JS її не чує — і жодне «стоп + старт» його
+   * не оживляє. Ліки — рестарт контексту, і вікна дозволу на це не треба, тож
+   * стоїть після всього, що вікно потребує. Подробиці — в unstick.ts.
+   */
+  await reloadIfStuck("сторож", { justResubscribed: health === "перепідписались" }).catch(() => {});
 
   const [role, shiftOpen, tracking, mode] = await Promise.all([
     getRole(),

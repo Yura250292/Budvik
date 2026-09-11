@@ -33,7 +33,9 @@
  * відкриє його руками.
  */
 
-import { ensureRecording, isTracking, warnRecordingDown } from "./controller";
+import { isTracking, warnRecordingDown } from "./controller";
+import { ensureFreshFixes } from "./health";
+import { reloadIfStuck } from "./unstick";
 import { flush, heartbeat } from "./uploader";
 import { logEvent } from "./db";
 import { isShiftOpen } from "./state";
@@ -64,8 +66,25 @@ export async function onWakePush(reason: string): Promise<void> {
     return;
   }
 
-  const raised = await ensureRecording().catch(() => false);
-  void logEvent("wake", raised ? "запис піднято" : "запис уже йшов або не піднявся");
+  /**
+   * Лікуємо ЗАСТІЙ, а не читаємо прапорець.
+   *
+   * Досі тут стояв `ensureRecording`, який дивиться на `isTracking()` — а той
+   * після підняття процесу з фону бреше. 10.09 Кулик о 14:26: «розбуджено
+   * сповіщенням» → «службу запущено» → нуль точок, а пульс поруч каже
+   * `sub=false` і фікс з учора. Єдине законне вікно змарнували на «вже
+   * пишемо».
+   *
+   * `ensureFreshFixes` питає інше — чи приходили фікси, — і сам падає в
+   * `ensureRecording`, коли режиму немає. `pushWindow` каже йому, що зараз
+   * можна піднімати службу з фону: сповіщення щойно доїхало, система дала
+   * тимчасове помилування. Параметр існував від початку — його просто ніхто
+   * не передавав.
+   */
+  const health = await ensureFreshFixes({ pushWindow: true }).catch(() => "не-пишемо" as const);
+  const raised = health === "перепідписались";
+  const ok = raised || health === "свіжо";
+  void logEvent("wake", `запис: ${health}`);
 
   /**
    * Не піднявся — аж тепер кажемо людині.
@@ -82,7 +101,7 @@ export async function onWakePush(reason: string): Promise<void> {
    * `warnRecordingDown` уже має власну межу (раз на пів години) і мовчить
    * при закритій зміні, тож повторів не буде.
    */
-  if (!raised) {
+  if (!ok) {
     const stillDown = await isTracking().catch(() => false);
     if (!stillDown) await warnRecordingDown().catch(() => {});
   }
@@ -90,6 +109,18 @@ export async function onWakePush(reason: string): Promise<void> {
   // Те, що лежить у планшеті, віддаємо тим самим пробудженням: мережа зараз
   // напевно є — сповіщення щойно доїхало саме нею.
   await flush(true).catch(() => {});
+
+  /**
+   * Сервер стукає саме тоді, коли точок немає давно, — тобто в тому стані,
+   * коли контекст міг застрягти при живій службі. Перепідписка вище цього не
+   * лікує; рестарт — лікує (див. unstick.ts). Щойно перепідписалися — даємо
+   * їй хвилину, не рвемо одразу.
+   *
+   * ПІСЛЯ зливу навмисно: якщо рестарт станеться, цей контекст більше нічого
+   * не відправить, а мережа саме зараз є. Буфер у SQLite переживе рестарт, але
+   * навіщо відкладати те, що можна віддати цієї ж миті.
+   */
+  await reloadIfStuck("пробудження", { justResubscribed: raised }).catch(() => {});
 
   /**
    * Пульс примусовий: без нього сервер не дізнається, чим скінчилося

@@ -75,7 +75,8 @@ try {
 
   console.log(`\n${"─".repeat(70)}\n${buffer}\n${"─".repeat(70)}`);
   console.log(
-    `раундів ${out.rounds} · токенів ${out.usage.total} (вхід ${out.usage.prompt}) · ` +
+    `раундів ${out.rounds} · токенів ${out.usage.total} (вхід ${out.usage.prompt}, ` +
+      `вихід ${out.usage.completion}, з них міркування ${out.usage.reasoning}) · ` +
       `${((Date.now() - started) / 1000).toFixed(1)} с · відкинутих посилань ${out.strippedLinks}`
   );
 } catch (e) {

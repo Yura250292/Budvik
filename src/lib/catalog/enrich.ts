@@ -281,10 +281,16 @@ ${list}
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      // Канонічна назва: псевдонім `deepseek-chat` офіційно вимкнено
+      // 24.07.2026, він відповідає вже без жодних гарантій.
+      model: "deepseek-flash",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
       max_tokens: 4000,
+      // Обовʼязково разом зі зміною назви: міркування в DeepSeek увімкнені
+      // за замовчуванням, а в тому режимі `temperature` мовчки не діє й
+      // токени роздуму їдять стелю, якої тут рівно на 40 описів.
+      thinking: { type: "disabled" },
     }),
     signal: AbortSignal.timeout(120000),
   });

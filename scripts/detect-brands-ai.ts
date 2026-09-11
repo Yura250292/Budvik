@@ -34,7 +34,8 @@ const prisma = new PrismaClient();
 // незалежно від моделі, тож ризику від дешевшої тут немає, а різниця в ціні
 // на 500 запитів відчутна.
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
-const MODEL = "deepseek-chat";
+// Канонічна назва: псевдонім `deepseek-chat` офіційно вимкнено 24.07.2026.
+const MODEL = "deepseek-flash";
 const CHUNK = 60;
 
 /** Скільки пачок обробляти одночасно. DeepSeek тримає такий темп спокійно. */
@@ -127,6 +128,11 @@ async function detectChunk(names: string[]): Promise<Map<number, string>> {
       model: MODEL,
       max_tokens: 4000,
       temperature: 0,
+      // Нуль у temperature тут головний: він і тримає модель від
+      // вигадування брендів. У режимі міркувань (а він у DeepSeek
+      // увімкнений за замовчуванням) цей нуль мовчки ігнорується, тож
+      // вимикати міркування треба явно.
+      thinking: { type: "disabled" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: numbered },

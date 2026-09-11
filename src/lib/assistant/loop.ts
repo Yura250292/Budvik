@@ -24,7 +24,11 @@ import {
   FINAL_ONLY_BELOW_MS,
   MAX_ROUNDS,
   MAX_TOKENS_FINAL,
+  MAX_TOKENS_THINKING,
   MAX_TOOL_CALLS_PER_TURN,
+  THINKING_ENABLED,
+  THINKING_KINDS,
+  THINKING_MIN_MS,
   TOOL_CONCURRENCY,
   TURN_DEADLINE_MS,
 } from "@/lib/assistant/config";
@@ -57,6 +61,42 @@ export type RunTurnInput = {
   signal?: AbortSignal;
   emit: (event: TurnEvent) => void;
 };
+
+/**
+ * Чи думати в цьому ході. Рішення ухвалюється ОДИН РАЗ і на всі раунди.
+ *
+ * Спокуса зекономити й увімкнути міркування лише з другого раунду — коли
+ * інструменти вже щось віддали і є над чим думати — коштувала бойового
+ * прогону. DeepSeek відповідає на такий хід 400:
+ *
+ *   "The `reasoning_content` in the thinking mode must be passed back"
+ *
+ * Тобто в режимі міркувань кожне попереднє повідомлення помічника з
+ * викликами інструментів мусить нести своє `reasoning_content`. Повідомлення
+ * першого раунду, зробленого БЕЗ міркувань, його не має й мати не може —
+ * і весь хід падає на другому раунді. Вмикати посеред розмови не можна:
+ * або з першого слова, або ніяк.
+ *
+ * Дві умови, обидві перевіряються до циклу.
+ *
+ * ВИД. Лише ті, що в THINKING_KINDS, — сьогодні це керівник. Решті
+ * міркування додають секунди, не додаючи правильності.
+ *
+ * ЧАС. Якщо хід уже з'їв більшу частину свого бюджету на спробі відповісти
+ * без моделі, на думання його не лишилось: швидка відповідь краща за
+ * обірваний роздум.
+ *
+ * Окремий запобіжник — ASSISTANT_THINKING=off: вимикає все це без деплою.
+ */
+function thinkingForTurn(input: {
+  kind: ToolContext["kind"];
+  timeLeftMs: number;
+}): "enabled" | "disabled" {
+  if (!THINKING_ENABLED) return "disabled";
+  if (!THINKING_KINDS.includes(input.kind)) return "disabled";
+  if (input.timeLeftMs < THINKING_MIN_MS) return "disabled";
+  return "enabled";
+}
 
 export async function runTurn(input: RunTurnInput) {
   const startedAt = Date.now();
@@ -129,8 +169,27 @@ export async function runTurn(input: RunTurnInput) {
   const tools = toolSchemas(input.ctx.kind);
   const limit = pLimitLike(TOOL_CONCURRENCY);
 
+  /**
+   * Режим міркувань — на весь хід, бо змінити його посеред розмови API не дає.
+   *
+   * Стеля відповіді залежить від нього: токени роздуму йдуть у той самий
+   * `max_tokens`, що й текст, тож у режимі міркувань її треба підняти —
+   * інакше роздум зʼїсть відповідь, і користувач отримає позначку «обірвано»
+   * замість тексту.
+   */
+  const thinking = thinkingForTurn({ kind: input.ctx.kind, timeLeftMs: timeLeft() });
+  const maxTokens = thinking === "enabled" ? MAX_TOKENS_THINKING : MAX_TOKENS_FINAL;
+
   let promptTokens = 0;
   let completionTokens = 0;
+  /**
+   * Скільки з вихідних токенів пішло на міркування.
+   *
+   * Окремо від completionTokens, бо це єдиний спосіб побачити з проду, чи
+   * міркування взагалі вмикаються і чого вони коштують. Без цього числа
+   * «помічник керівника став думати» лишається словами.
+   */
+  let reasoningTokens = 0;
   let toolCallsUsed = 0;
   let rounds = 0;
   let nudged = false;
@@ -166,7 +225,8 @@ export async function runTurn(input: RunTurnInput) {
       messages,
       tools,
       toolChoice: toolsOff ? "none" : "auto",
-      maxTokens: MAX_TOKENS_FINAL,
+      maxTokens,
+      thinking,
       signal: input.signal,
       onDelta: (text) => {
         answered += text;
@@ -177,6 +237,7 @@ export async function runTurn(input: RunTurnInput) {
 
     promptTokens += result.usage?.prompt_tokens ?? 0;
     completionTokens += result.usage?.completion_tokens ?? 0;
+    reasoningTokens += result.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
 
     if (result.toolCalls.length > 0) {
       // Вступ на кшталт «зараз подивлюся борги» вже показаний — прибираємо
@@ -193,6 +254,10 @@ export async function runTurn(input: RunTurnInput) {
         role: "assistant",
         content: result.content || null,
         tool_calls: result.toolCalls,
+        // Міркування повертаємо моделі — так вимагає документація, коли
+        // запит несе `tools`. У базу воно не пишеться: наступний хід
+        // почнеться з чистого аркуша, і проба показала, що це не помилка.
+        ...(result.reasoning ? { reasoning_content: result.reasoning } : {}),
       });
 
       const jobs = result.toolCalls.map((call) =>
@@ -250,6 +315,7 @@ export async function runTurn(input: RunTurnInput) {
       usage: {
         prompt: promptTokens,
         completion: completionTokens,
+        reasoning: reasoningTokens,
         total: promptTokens + completionTokens,
       },
       rounds,
@@ -304,7 +370,7 @@ async function finishDirect(input: RunTurnInput, direct: DirectAnswer, startedAt
 
   return {
     messageId: saved.id,
-    usage: { prompt: 0, completion: 0, total: 0 },
+    usage: { prompt: 0, completion: 0, reasoning: 0, total: 0 },
     rounds: 0,
     strippedLinks: 0,
   };

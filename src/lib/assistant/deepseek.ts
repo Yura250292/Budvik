@@ -29,6 +29,14 @@ export class DeepSeekError extends Error {
 
 export type ChatResult = {
   content: string;
+  /**
+   * Міркування моделі — окремим полем, не в `content`.
+   *
+   * Користувачеві вони не показуються: у стрім іде лише `content`. Потрібні
+   * для двох речей — повернути їх моделі наступним раундом і побачити в
+   * журналі, скільки вона думала.
+   */
+  reasoning: string;
   toolCalls: ToolCall[];
   /** "tool_calls" | "stop" | "length" — від нього залежить, що робити далі. */
   finishReason: string;
@@ -49,6 +57,15 @@ export async function streamChat(opts: {
   /** "none" — заборонити інструменти й вимагати текст. */
   toolChoice: "auto" | "none";
   maxTokens: number;
+  /**
+   * Чи думати перед відповіддю. Вирішує цикл ходу, а не цей файл.
+   *
+   * Проба 11.09.2026 підтвердила, що в режимі міркувань працюють і
+   * інструменти зі стрімом, і `tool_choice: "none"`, — тож вибір тут
+   * вільний. А от `temperature` у цьому режимі мовчки не діє: помилки не
+   * буде, значення просто проігнорують.
+   */
+  thinking: "enabled" | "disabled";
   signal?: AbortSignal;
   onDelta?: (text: string) => void;
 }): Promise<ChatResult> {
@@ -82,10 +99,16 @@ export async function streamChat(opts: {
           : {}),
         max_tokens: opts.maxTokens,
         temperature: TEMPERATURE,
-        // Міркування вимкнені навмисно: помічник обирає інструмент і
-        // переказує готові числа — це не та задача, де довше думання дає
-        // кращу відповідь, зате воно коштує секунд десять на хід.
-        thinking: { type: "disabled" },
+        /**
+         * Міркування вимкнені за замовчуванням, і це рішення, а не недогляд.
+         *
+         * У DeepSeek режим міркувань увімкнений САМ, якщо поля немає. Для
+         * «обрати інструмент і переказати готові числа» це марна витрата
+         * секунд і токенів, тож помічник торгового, водія й складовщика
+         * просить вимкнути. Керівникові цикл ходу просить увімкнути — там
+         * питання на зважування, де думання змінює відповідь по суті.
+         */
+        thinking: { type: opts.thinking },
         stream: true,
         stream_options: { include_usage: true },
       }),
@@ -107,6 +130,7 @@ export async function streamChat(opts: {
 
   let buffer = "";
   let content = "";
+  let reasoning = "";
   let finishReason = "stop";
   let usage: Usage | null = null;
   const calls = new Map<number, { id: string; name: string; args: string }>();
@@ -129,7 +153,11 @@ export async function streamChat(opts: {
 
         let chunk: {
           choices?: Array<{
-            delta?: { content?: string | null; tool_calls?: DeltaToolCall[] };
+            delta?: {
+              content?: string | null;
+              reasoning_content?: string | null;
+              tool_calls?: DeltaToolCall[];
+            };
             finish_reason?: string | null;
           }>;
           usage?: Usage | null;
@@ -152,6 +180,18 @@ export async function streamChat(opts: {
           content += text;
           opts.onDelta?.(text);
         }
+
+        /**
+         * Міркування збираємо, але В СТРІМ НЕ ВІДДАЄМО.
+         *
+         * Воно приходить окремим полем і раніше за відповідь, тож спокуса
+         * показати його «щоб не чекали порожнього екрана» велика. Не
+         * показуємо: це чернетка думки, у якій модель вільно називає
+         * припущення, що не потрапили у відповідь, — а торговий цитує
+         * помічника клієнтові. Поки воно триває, інтерфейс показує «Думаю…».
+         */
+        const thought = choice.delta?.reasoning_content;
+        if (thought) reasoning += thought;
 
         for (const frag of choice.delta?.tool_calls ?? []) {
           const slot = calls.get(frag.index) ?? { id: "", name: "", args: "" };
@@ -176,5 +216,5 @@ export async function streamChat(opts: {
       function: { name: c.name, arguments: c.args || "{}" },
     }));
 
-  return { content, toolCalls, finishReason, usage };
+  return { content, reasoning, toolCalls, finishReason, usage };
 }

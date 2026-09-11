@@ -97,7 +97,24 @@ export type ToolCall = {
 
 export type ChatMessage =
   | { role: "system" | "user"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+  | {
+      role: "assistant";
+      content: string | null;
+      tool_calls?: ToolCall[];
+      /**
+       * Міркування цього ж ходу, повернені моделі назад.
+       *
+       * Документація DeepSeek вимагає їх повертати, коли запит несе `tools`.
+       * Проба показала, що без них приходить не 400, а звичайна відповідь —
+       * тобто вимога нежорстка. Повертаємо все одно: це документований
+       * шлях, а коштує воно кілька вхідних токенів, майже завжди з кешу.
+       *
+       * Заповнене лише тоді, коли міркування того раунду були ввімкнені:
+       * надсилати порожнє поле немає змісту, а надсилати його в раунд без
+       * міркувань проба не перевіряла.
+       */
+      reasoning_content?: string;
+    }
   | { role: "tool"; tool_call_id: string; content: string };
 
 export type ToolSchema = {
@@ -111,4 +128,6 @@ export type Usage = {
   total_tokens?: number;
   prompt_cache_hit_tokens?: number;
   prompt_cache_miss_tokens?: number;
+  /** Скільки з вихідних токенів пішло на міркування, а не на текст. */
+  completion_tokens_details?: { reasoning_tokens?: number };
 };

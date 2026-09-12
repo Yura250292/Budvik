@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { staffGps } from "@/lib/shift/track-visibility";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { findLastFinished, shiftTrackKm, summarize, ABANDON_AFTER_HOURS } from "@/lib/shift/service";
 import { REOPEN_WINDOW_HOURS } from "@/lib/shift/confirm";
@@ -83,7 +84,9 @@ export async function GET(req: NextRequest) {
     shift: open
       ? {
           ...summarize(open),
-          gpsDistanceKm: gpsKm,
+          // Порівняння з одометром сховано від торгового — див. track-visibility.ts
+          gpsDistanceKm: staffGps(gpsKm),
+          odometerToGpsRatio: staffGps(open.odometerToGpsRatio),
           pointsCount,
           hoursOpen,
           // Підказка застосунку: час нагадати про закриття, поки зміну
@@ -127,7 +130,7 @@ export async function GET(req: NextRequest) {
             startOdometer: pending.startOdometer,
             endOdometer: pending.endOdometer,
             distanceKm: pending.distanceKm,
-            gpsDistanceKm: pending.gpsDistanceKm,
+            gpsDistanceKm: staffGps(pending.gpsDistanceKm),
             afterWorkKm: pending.afterWorkKm,
             lateCloseSource: pending.lateCloseSource,
             closedAutomatically: pending.closedAutomatically,

@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { staffGps } from "@/lib/shift/track-visibility";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,8 @@ export async function GET(req: NextRequest) {
   const recent = shifts.filter((s) => s.startedAt >= monthAgo && s.distanceKm != null);
 
   return NextResponse.json({
-    shifts,
+    // Пробіг за GPS сховано від торгового — див. track-visibility.ts
+    shifts: shifts.map((s) => ({ ...s, gpsDistanceKm: staffGps(s.gpsDistanceKm) })),
     summary: {
       count: recent.length,
       totalKm: recent.reduce((sum, s) => sum + (s.distanceKm ?? 0), 0),

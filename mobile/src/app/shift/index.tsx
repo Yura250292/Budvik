@@ -268,11 +268,20 @@ export default function ShiftScreen() {
                 Нуль о другій годині дня означає, що день ще можна врятувати.
               */}
               <TileRow>
-                <StatTile
-                  label="За GPS"
-                  value={shift.gpsDistanceKm != null ? formatNumber(shift.gpsDistanceKm) : "—"}
-                  unit="км"
-                />
+                {/*
+                  Плитка «За GPS» з'являється, лише коли сервер прислав число.
+                  Поки трек лагодять, він не присилає його нікому — див.
+                  src/lib/shift/track-visibility.ts. «Точок» нижче лишається:
+                  це не оцінка людини, а відповідь на питання «чи трек живий»,
+                  і нуль о другій дня ще можна врятувати.
+                */}
+                {shift.gpsDistanceKm != null && (
+                  <StatTile
+                    label="За GPS"
+                    value={formatNumber(shift.gpsDistanceKm)}
+                    unit="км"
+                  />
+                )}
                 <StatTile
                   label="Триває"
                   value={shift.hoursOpen != null ? formatNumber(shift.hoursOpen) : "—"}

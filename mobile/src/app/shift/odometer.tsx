@@ -541,8 +541,17 @@ function ClosingSummary({
     <Card>
       <CardTitle>Що вийде за зміну</CardTitle>
       <Row label="За одометром" value={km != null ? `${km} км` : "—"} />
-      <Row label="За GPS" value={gps != null ? `${String(gps).replace(".", ",")} км` : "—"} />
-      {ratio != null && (
+      {/*
+        Рядків про GPS немає, коли сервер не прислав числа, — а поки трек
+        лагодять, він не присилає його нікому (src/lib/shift/track-visibility.ts).
+        Показати тут «За GPS —» було б гірше за мовчання: порожнє місце в
+        картці читається як поламане й породжує те саме питання, заради якого
+        число й ховали.
+      */}
+      {gps != null && (
+        <Row label="За GPS" value={`${String(gps).replace(".", ",")} км`} />
+      )}
+      {gps != null && ratio != null && (
         <Row
           label="Співвідношення"
           value={`${ratio.toFixed(2).replace(".", ",")} · ${
@@ -557,9 +566,11 @@ function ClosingSummary({
           shift.hoursOpen != null ? ` · ${String(shift.hoursOpen).replace(".", ",")} год` : ""
         }`}
       />
-      <Note>
-        Одометр більший за GPS на кілька відсотків — так і має бути: трек це ламана між точками.
-      </Note>
+      {gps != null && (
+        <Note>
+          Одометр більший за GPS на кілька відсотків — так і має бути: трек це ламана між точками.
+        </Note>
+      )}
     </Card>
   );
 }

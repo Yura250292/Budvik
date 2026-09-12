@@ -101,10 +101,10 @@ export default function ShiftDetailScreen() {
                 label="Пробіг за одометром"
                 value={sh.distanceKm != null ? `${sh.distanceKm} км` : "—"}
               />
-              <Row
-                label="За GPS"
-                value={sh.gpsDistanceKm != null ? `${dec(sh.gpsDistanceKm)} км` : "—"}
-              />
+              {/* Без числа рядок не малюємо — див. track-visibility.ts на сервері. */}
+              {sh.gpsDistanceKm != null && (
+                <Row label="За GPS" value={`${dec(sh.gpsDistanceKm)} км`} />
+              )}
               {sh.odometerToGpsRatio != null && (
                 <Row
                   label="Співвідношення"

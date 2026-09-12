@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { staffGps } from "@/lib/shift/track-visibility";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { buildTrackPath } from "@/lib/track/gaps";
 
@@ -99,6 +100,9 @@ export async function GET(
   return NextResponse.json({
     shift: {
       ...shift,
+      // Порівняння з одометром сховано від торгового — див. track-visibility.ts
+      gpsDistanceKm: staffGps(shift.gpsDistanceKm),
+      odometerToGpsRatio: staffGps(shift.odometerToGpsRatio),
       autoClosedByShiftId: undefined,
       /** Кінцеве показання порахувалося з ранкового фото наступної зміни. */
       endOdometerFromNextShiftAt: shift.endPhotoUrl == null ? (closedBy?.startedAt ?? null) : null,

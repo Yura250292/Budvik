@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { SHOW_TRACK_TO_STAFF, staffGps } from "@/lib/shift/track-visibility";
 import type { OdometerSource } from "@prisma/client";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import {
@@ -154,20 +155,30 @@ export async function POST(req: NextRequest) {
    *
    * Не блокуємо: трек — здогадка, а зміну закрити треба завжди. Але мовчати
    * теж не можна: за годину людина вже не згадає, що було на табло.
+   *
+   * ВИМКНЕНО з 12.09.2026. Поки трек лагодять, «здогадка» описує не поїздку, а
+   * кількість точок, які встигли доїхати: 11.09 Кулик отримав «за маршрутом
+   * 46,3 км, а за одометром 228» на правильне число з приладу. Умова
+   * повернення — у track-visibility.ts.
    */
   const trackWarning =
-    odometerSuspicious && gpsKm != null && gpsKm > 5 && distanceKm >= 0 && pointsCount >= 100
+    SHOW_TRACK_TO_STAFF &&
+    odometerSuspicious &&
+    gpsKm != null &&
+    gpsKm > 5 &&
+    distanceKm >= 0 &&
+    pointsCount >= 100
       ? `За маршрутом виходить ${gpsKm} км, а за одометром ${distanceKm} км. ` +
         `Перевірте показання — офіс уточнить.`
       : null;
 
   return NextResponse.json({
     warning: trackWarning,
-    shift: summarize(updated),
+    shift: { ...summarize(updated), gpsDistanceKm: staffGps(gpsKm), odometerToGpsRatio: staffGps(ratio) },
     comparison: {
       distanceKm: updated.distanceKm,
-      gpsDistanceKm: gpsKm,
-      odometerToGpsRatio: ratio,
+      gpsDistanceKm: staffGps(gpsKm),
+      odometerToGpsRatio: staffGps(ratio),
       previousDistanceKm: previous && previous.id !== updated.id ? previous.distanceKm : null,
     },
   });

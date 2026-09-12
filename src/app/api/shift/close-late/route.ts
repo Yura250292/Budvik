@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { staffGps } from "@/lib/shift/track-visibility";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { guessWorkEnd, gpsKmBetween } from "@/lib/shift/late-close";
 import { autoCloseNote, closeWithoutPhoto } from "@/lib/shift/reconcile";
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
       id: updated.id,
       endedAt: updated.endedAt,
       durationMinutes: updated.durationMinutes,
-      gpsDistanceKm: updated.gpsDistanceKm,
+      gpsDistanceKm: staffGps(updated.gpsDistanceKm),
       afterWorkKm: updated.afterWorkKm,
     },
     note:

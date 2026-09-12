@@ -23,7 +23,8 @@ import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-rou
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCallback } from "react";
 import { API_BASE } from "@/api/client";
-import { APP_VERSION, APP_VERSION_CODE, NATIVE_VERSION } from "@/api/staff";
+import { APP_VERSION_CODE, NATIVE_VERSION } from "@/api/staff";
+import { installedVersionCode } from "@/lib/self-update";
 import { getToken } from "@/lib/auth-store";
 import { bridgeScript, parseBridgeMessage, type BridgeState } from "@/lib/bridge";
 import { nativeRouteFor } from "@/lib/native-routes";
@@ -62,6 +63,26 @@ async function micPermission(): Promise<"granted" | "denied" | "unknown"> {
 }
 import { UpdateBar } from "@/ui/UpdateBar";
 import { colors, space, radius } from "@/theme";
+
+/**
+ * Номер ВСТАНОВЛЕНОЇ збірки — те, з чим сайт порівнює сховище.
+ *
+ * `APP_VERSION_CODE` бралося з `Constants.expoConfig`, тобто з JS-бандла. А
+ * бандл їде повітрям: зібраний із дерева, де версія вже 1.6.3, він називав
+ * себе 10603 на планшеті, де стоїть APK 10602. Сайт порівнював 10603 із 10603,
+ * вирішував «уже найновіша» і ХОВАВ пункт «Оновити застосунок» у меню
+ * аватарки — тобто єдиний шлях, яким збірку й ставлять.
+ *
+ * 12.09.2026 через це APK 1.6.3 не пропонувався жодному планшету, хоча лежав
+ * у сховищі з ранку. Третє місце з тією самою пасткою: пульс (2bb42c2),
+ * User-Agent кабінету (2302f84) і ось це.
+ *
+ * `nativeBuildVersion` читає маніфест справді встановленого APK. Нуль
+ * повертається поза Android — там лишається версія бандла, бо іншої немає.
+ */
+function installedCode(): number {
+  return installedVersionCode() || APP_VERSION_CODE;
+}
 
 export default function CabinetScreen() {
   const router = useRouter();
@@ -125,8 +146,8 @@ export default function CabinetScreen() {
   const [bridge, setBridge] = useState<BridgeState>({
     shiftOpen: false,
     pending: 0,
-    version: APP_VERSION,
-    versionCode: APP_VERSION_CODE,
+    version: NATIVE_VERSION,
+    versionCode: installedCode(),
     micPermission: "unknown",
   });
 
@@ -197,8 +218,8 @@ export default function CabinetScreen() {
         const next: BridgeState = {
           shiftOpen,
           pending,
-          version: APP_VERSION,
-          versionCode: APP_VERSION_CODE,
+          version: NATIVE_VERSION,
+          versionCode: installedCode(),
           micPermission: mic,
         };
         setBridge(next);

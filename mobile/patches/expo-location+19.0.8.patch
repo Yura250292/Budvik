@@ -1,0 +1,81 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+index 46e2ec5..a389f69 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
+@@ -255,9 +255,18 @@ class LocationModule : Module(), LifecycleEventListener, SensorEventListener, Ac
+       if (!shouldUseForegroundService && isMissingBackgroundPermissions()) {
+         throw LocationBackgroundUnauthorizedException()
+       }
+-      if (!AppForegroundedSingleton.isForegrounded && options.foregroundService != null) {
+-        throw ForegroundServiceStartNotAllowedException()
+-      }
++      // ПАТЧ Budvik: рішення ухвалює Android, а не ця перевірка.
++      //
++      // Тут стояла беззастережна відмова, коли застосунок не на екрані. Це
++      // перевірка бібліотеки, а не системи: Android навіть не питали. На
++      // Android 11 системного обмеження немає взагалі, а на 12+ існують
++      // законні винятки (точний будильник, доставка push), у яких запуск
++      // дозволений — і саме в них наш сторож і пробує.
++      //
++      // 12.09.2026, планшет SM-T295 (Android 11, кошик EXEMPTED, дозвіл
++      // ALWAYS): 60 відмов за день, жодної від системи. Тепер пробуємо, а
++      // якщо Android справді заборонить — він кине власний виняток, який
++      // застосунок ловить і записує в журнал (controller.startTracking).
+ 
+       if (!hasForegroundServicePermissions()) {
+         throw ForegroundServicePermissionsException()
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
+index e659285..2794fa1 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
+@@ -165,10 +165,16 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+       return
+     }
+-    if (!AppForegroundedSingleton.isForegrounded) {
+-      Log.w(TAG, "Foreground location task cannot be started while the app is in the background!")
+-      return
+-    }
++    // ПАТЧ Budvik: пробуємо промотувати службу й з фону.
++    //
++    // Тут був мовчазний вихід, коли застосунок не на екрані, — і саме через
++    // нього після підняття процесу у фоні служба існувала, але БЕЗ переднього
++    // плану. Android тоді ріже їй локацію до кількох фіксів на годину: 12.09
++    // на планшеті Кавецького 197 викликів завдання дали 3 точки, а в пробі
++    // було видно `LocationTaskService` без зірочки.
++    //
++    // Виходу немає — нижче спроба обгороджена, і відмова системи лишає все
++    // рівно в тому стані, що й цей return, тільки зі слідом у журналі.
+     val task = mTask ?: run {
+       Log.w(TAG, "Location task is null")
+       return
+@@ -198,7 +204,14 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+       extras.putString("taskName", task.name)
+       extras.putBoolean("killService", serviceOptions.getBoolean("killServiceOnDestroy", false))
+       serviceIntent.putExtras(extras)
+-      context.startForegroundService(serviceIntent)
++      // ПАТЧ Budvik: з Android 12 система може відмовити своїм винятком, і
++      // неспійманий він убив би процес просто у фоновому завданні.
++      try {
++        context.startForegroundService(serviceIntent)
++      } catch (e: Exception) {
++        Log.w(TAG, "Android відмовив у запуску служби з фону: ${e.message}")
++        return
++      }
+       context.bindService(
+         serviceIntent,
+         object : ServiceConnection {
+@@ -219,7 +232,12 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+       )
+     } else {
+       // Restart the service with new service options.
+-      mService?.startForeground(options.getArguments(FOREGROUND_SERVICE_KEY).toBundle())
++      // ПАТЧ Budvik: те саме — відмова системи не має валити завдання.
++      try {
++        mService?.startForeground(options.getArguments(FOREGROUND_SERVICE_KEY).toBundle())
++      } catch (e: Exception) {
++        Log.w(TAG, "Android відмовив у поверненні служби в передній план: ${e.message}")
++      }
+     }
+   }
+ 

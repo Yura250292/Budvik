@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "patch-package": "^8.0.1",
     "playwright": "1.62.1",
     "typescript": "~5.9.2"
   },
@@ -60,7 +61,8 @@
     "screens": "node scripts/screens.mjs",
     "build:staff": "eas build -p android --profile staff",
     "update:shop": "EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel production --message",
-    "update:staff:one": "APP_FLAVOR=staff EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel staff --platform android --message"
+    "update:staff:one": "APP_FLAVOR=staff EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel staff --platform android --message",
+    "postinstall": "patch-package"
   },
   "private": true
 }

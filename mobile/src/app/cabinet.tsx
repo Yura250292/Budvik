@@ -23,7 +23,7 @@ import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-rou
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCallback } from "react";
 import { API_BASE } from "@/api/client";
-import { APP_VERSION, APP_VERSION_CODE } from "@/api/staff";
+import { APP_VERSION, APP_VERSION_CODE, NATIVE_VERSION } from "@/api/staff";
 import { getToken } from "@/lib/auth-store";
 import { bridgeScript, parseBridgeMessage, type BridgeState } from "@/lib/bridge";
 import { nativeRouteFor } from "@/lib/native-routes";
@@ -568,8 +568,16 @@ export default function CabinetScreen() {
          * яку адресу оновлень питати (стара Kotlin-збірка називає себе інакше),
          * а решта UA лишається браузерною — інакше захист хостингу побачив би
          * клієнта без JS і віддав 429.
+         *
+         * Версія ОБОЛОНКИ, а не бандла. Сервер пише її в
+         * `app:staff:installed:<id>` (api/app/staff/version), і саме за цим
+         * рядком дивляться, хто вже поставив новий APK. З версією бандла він
+         * брехав: 12.09.2026 всі шість планшетів показували «1.6.3», хоча APK
+         * не поставив жоден — оновлення повітрям, зібране з дерева 1.6.3,
+         * називало себе його версією. Та сама пастка, що й у пульсі (див.
+         * lib/app-version.ts).
          */
-        applicationNameForUserAgent={`BudvikStaff/${APP_VERSION}`}
+        applicationNameForUserAgent={`BudvikStaff/${NATIVE_VERSION}`}
         onNavigationStateChange={(nav) => {
           canGoBack.current = nav.canGoBack;
         }}

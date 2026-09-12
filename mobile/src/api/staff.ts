@@ -15,9 +15,15 @@
 
 import { API_BASE } from "./client";
 import { getToken, clearToken } from "@/lib/auth-store";
-import { APP_VERSION, APP_VERSION_CODE, APP_BUILD, STAFF_APP_HEADER } from "@/lib/app-version";
+import {
+  APP_VERSION,
+  APP_VERSION_CODE,
+  APP_BUILD,
+  NATIVE_VERSION,
+  STAFF_APP_HEADER,
+} from "@/lib/app-version";
 
-export { APP_VERSION, APP_VERSION_CODE, APP_BUILD };
+export { APP_VERSION, APP_VERSION_CODE, APP_BUILD, NATIVE_VERSION };
 /** Мітка збірки в кожному запиті — див. src/lib/app-version.ts. */
 export const APP_HEADER = STAFF_APP_HEADER;
 

@@ -16,8 +16,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRoles, FIELD_ROLES } from "@/lib/app/identity";
 import { confirmShift, loadForConfirm } from "@/lib/shift/confirm";
+import { staffGps } from "@/lib/shift/track-visibility";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Пробіг за GPS — не для торгового, поки трек лагодять.
+ *
+ * Звірка зміни — останнє місце, звідки це число ще виходило до людини:
+ * застосунок відповідь не читає, але тіло віддавалося з ним, і досить було
+ * одного екрана, щоб воно знову зʼявилося. Див. src/lib/shift/track-visibility.ts.
+ */
+function hideTrack<T extends { gpsDistanceKm: number | null } | null>(shift: T): T {
+  return shift ? ({ ...shift, gpsDistanceKm: staffGps(shift.gpsDistanceKm) } as T) : shift;
+}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRoles(req, FIELD_ROLES);
@@ -45,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (shift.confirmedAt) {
     // Повторне підтвердження — не помилка: застосунок міг не отримати
     // відповідь і повторити запит.
-    return NextResponse.json({ shift, repeated: true });
+    return NextResponse.json({ shift: hideTrack(shift), repeated: true });
   }
 
   let endedAt: Date | undefined;
@@ -66,5 +78,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  return NextResponse.json({ shift: result.shift });
+  return NextResponse.json({ shift: hideTrack(result.shift) });
 }

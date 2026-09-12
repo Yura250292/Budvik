@@ -33,6 +33,35 @@ const GRACE_MIN = 10;
 /** Пульс раз на чверть години; удвічі більше — планшет замовк. */
 const BEAT_SILENT_MIN = 35;
 
+/**
+ * Кошик застосунку — словом, а не кодом.
+ *
+ * Нативна проба (track-guard) знає лише ACTIVE/WORKING_SET/FREQUENT/RARE і 45,
+ * решту віддає як «код N»: константи для них або приховані, або з'явилися
+ * пізніше за компільовану збірку. Перекладаємо тут, бо це один рядок на
+ * сервері проти нового APK на кожен планшет.
+ *
+ * Числа — з AOSP UsageStatsManager. 5 (EXEMPTED) — цільовий стан: саме туди
+ * кладе застосунок знята оптимізація батареї, і саме його 12.09.2026 показав
+ * планшет Кавецького одразу після встановлення 1.6.3.
+ */
+const BUCKETS: Record<string, string> = {
+  "5": "EXEMPTED (без обмежень)",
+  "10": "ACTIVE",
+  "20": "WORKING_SET",
+  "30": "FREQUENT",
+  "40": "RARE (система відкладає)",
+  "45": "RESTRICTED (раз на добу)",
+  "50": "NEVER",
+};
+
+function nameBuckets(status: string | null): string | null {
+  if (!status) return status;
+  return status.replace(/кошик код (\d+)/, (whole, code: string) =>
+    BUCKETS[code] ? `кошик ${BUCKETS[code]}` : whole
+  );
+}
+
 export type HealthState = "OK" | "WARN" | "DEAD" | "IDLE";
 
 export type TabletHealth = {
@@ -184,7 +213,7 @@ export async function trackHealthBoard(day?: string): Promise<{
           batteryOptimized: beatRow.batteryOptimized,
           batteryPct: beatRow.batteryPct,
           watchdogAt: iso(beatRow.watchdogAt),
-          watchdogStatus: beatRow.watchdogStatus,
+          watchdogStatus: nameBuckets(beatRow.watchdogStatus),
           contextStartedAt: iso(beatRow.contextStartedAt),
           /**
            * Вік контексту рахуємо ДО МИТІ ПУЛЬСУ, а не до «зараз».

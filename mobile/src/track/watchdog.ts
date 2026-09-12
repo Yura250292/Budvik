@@ -38,7 +38,7 @@ import { flushPendingVisits } from "./pending-visits";
 import { ensureRecording, isTracking, startTracking, warnRecordingDown } from "./controller";
 import { ensureFreshFixes } from "./health";
 import { reloadIfStuck } from "./unstick";
-import { checkJsUpdate } from "@/lib/self-update";
+import { applyJsUpdateIfIdle, checkJsUpdate } from "@/lib/self-update";
 
 /**
  * Скільки хвилин без жодної координати означають, що трек стоїть.
@@ -161,7 +161,21 @@ export async function runWatchdog(): Promise<void> {
    * (UpdateBar): рестарт посеред візиту стер би незбережене, а посеред зміни
    * зупинив би службу — ціна помилки вища за чверть години очікування.
    */
-  await checkJsUpdate().catch(() => {});
+  const downloaded = await checkJsUpdate().catch(() => null);
+
+  /**
+   * І ЗАСТОСУВАТИ його — бо інакше воно лежатиме завантаженим казна-скільки.
+   *
+   * Досі сторож лише качав, а застосовував хук на переходах AppState — тобто
+   * тільки поки живий екран. У планшета, який ніхто не відкриває цілий день,
+   * такого переходу немає, і виправлення чекало холодного старту, тобто миті,
+   * коли Android сам приб'є процес. 12.09.2026 це виглядало як «оновлення не
+   * приїхало» на планшетах, у яких воно вже лежало.
+   *
+   * Сама перевірка «чи можна зараз» — усередині: при відкритій зміні рестарт
+   * не робиться (див. applyJsUpdateIfIdle).
+   */
+  await applyJsUpdateIfIdle(downloaded).catch(() => {});
 }
 
 export async function registerWatchdog(): Promise<void> {

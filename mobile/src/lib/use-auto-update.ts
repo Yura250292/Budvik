@@ -34,7 +34,7 @@
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import * as Updates from "expo-updates";
-import { checkJsUpdate } from "@/lib/self-update";
+import { AUTO_RELOAD_TRIED_KEY, checkJsUpdate } from "@/lib/self-update";
 import { getMeta, setMeta } from "@/track/db";
 import { getMode } from "@/track/state";
 
@@ -48,8 +48,13 @@ import { getMode } from "@/track/state";
  */
 const AWAY_ENOUGH_MS = 10 * 60_000;
 
-/** Ключ у сховищі: яке саме оновлення ми вже пробували застосувати самі. */
-const TRIED_KEY = "autoReloadTried";
+/**
+ * Ключ у сховищі: яке саме оновлення ми вже пробували застосувати самі.
+ *
+ * Живе в self-update.ts, бо той самий лічильник потрібен фоновому шляху
+ * (`applyJsUpdateIfIdle`): два різні означали б рестарт по колу.
+ */
+const TRIED_KEY = AUTO_RELOAD_TRIED_KEY;
 
 export function useAutoUpdate(): void {
   const { isUpdatePending, downloadedUpdate } = Updates.useUpdates();

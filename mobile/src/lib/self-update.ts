@@ -32,6 +32,8 @@ import { API_BASE } from "@/api/client";
 import { staffApi, APP_HEADER } from "@/api/staff";
 import { getToken } from "@/lib/auth-store";
 import { trackProbeParam } from "@/track/self-probe";
+import { getMeta, setMeta } from "@/track/db";
+import { getMode } from "@/track/state";
 
 /** Номер збірки, яка реально встановлена (не той, що приїхав з оновленням JS). */
 export function installedVersionCode(): number {
@@ -127,14 +129,52 @@ export async function downloadAndInstallApk(
  * Перезавантажувати застосунок одразу не можна: людина може бути посеред
  * заповнення візиту, і раптовий рестарт стер би незбережене.
  */
-export async function checkJsUpdate(): Promise<boolean> {
-  if (!Updates.isEnabled) return false;
+export async function checkJsUpdate(): Promise<string | null> {
+  if (!Updates.isEnabled) return null;
   try {
     const res = await Updates.checkForUpdateAsync();
-    if (!res.isAvailable) return false;
-    await Updates.fetchUpdateAsync();
-    return true;
+    if (!res.isAvailable) return null;
+    const fetched = await Updates.fetchUpdateAsync();
+    return fetched.isNew ? (fetched.manifest?.id ?? "невідоме") : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Ключ у сховищі: яке саме оновлення ми вже пробували застосувати самі.
+ *
+ * Спільний із `use-auto-update.ts` навмисно. Два лічильники означали б, що
+ * планшет, у якого оновлення не піднімається, крутить рестарт по колу: один
+ * шлях уже спробував, другий про це не знає.
+ */
+export const AUTO_RELOAD_TRIED_KEY = "autoReloadTried";
+
+/**
+ * Застосувати завантажене оновлення — з ФОНУ, без людини.
+ *
+ * ЧОМУ ЦЕ ПОТРІБНО ОКРЕМО ВІД ХУКА. `use-auto-update.ts` слухає AppState, тобто
+ * працює лише поки живий інтерфейс. А торговий відкриває цей застосунок двічі
+ * на день — вранці відкрити зміну й ввечері закрити; решту дня він в іншій
+ * програмі, а ми у фоні. Сторож тим часом справно ЗАВАНТАЖУЄ нове JS і ніколи
+ * його не застосовує: переходу AppState немає, бо немає екрана. Виправлення
+ * лежало в планшеті завантаженим і чекало випадковості — холодного старту,
+ * коли Android приб'є процес.
+ *
+ * ЧОМУ ЛИШЕ ПРИ ЗУПИНЕНОМУ ЗАПИСІ. Перезавантаження піднімає новий контекст
+ * JS, і той мусить наново підписатися на локацію — а підписка тягне службу
+ * переднього плану, яку Android від 12-ї версії з фону запускати забороняє.
+ * Тобто оновлення посеред зміни вбило б саме те, заради чого воно їде. Умова
+ * та сама, що й у хука, і саме вона врятувала 04.09.
+ */
+export async function applyJsUpdateIfIdle(updateId: string | null): Promise<boolean> {
+  if (!updateId) return false;
+  // Запис іде — чекаємо кінця зміни. Планшет усе одно стоїть у машині ніч.
+  if ((await getMode().catch(() => null)) !== null) return false;
+  // Одне оновлення — одна спроба: якщо воно не піднімається, expo-updates
+  // відкотиться, а прапорець лишиться, і без цієї мітки був би вічний рестарт.
+  if ((await getMeta(AUTO_RELOAD_TRIED_KEY).catch(() => null)) === updateId) return false;
+  await setMeta(AUTO_RELOAD_TRIED_KEY, updateId).catch(() => {});
+  await Updates.reloadAsync().catch(() => {});
+  return true;
 }

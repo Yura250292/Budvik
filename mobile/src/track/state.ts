@@ -186,6 +186,22 @@ export async function getWatchdogRun(): Promise<number | null> {
 export async function setWatchdogStatus(status: string | null): Promise<void> {
   await setMeta("watchdogStatus", status);
 }
+/**
+ * Чи стояло завдання локації в СИСТЕМІ при останній перевірці.
+ *
+ * "1" — є, "0" — немає, порожньо — ще не питали. Зберігаємо, бо пульс шле
+ * `uploader.heartbeat` синхронним рядком, а питати систему звідти дорого й не
+ * завжди можна; перевірка ж робиться в health.ts на кожному оберті сторожа.
+ */
+export async function setTaskRegistered(v: boolean): Promise<void> {
+  await setMeta("taskRegistered", v ? "1" : "0");
+}
+
+export async function getTaskRegistered(): Promise<boolean | null> {
+  const v = await getMeta("taskRegistered");
+  return v == null ? null : v === "1";
+}
+
 export async function getWatchdogStatus(): Promise<string | null> {
   return getMeta("watchdogStatus");
 }

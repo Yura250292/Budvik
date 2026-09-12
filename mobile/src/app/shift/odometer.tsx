@@ -50,6 +50,7 @@ import { flush, heartbeat } from "@/track/uploader";
 import { setPendingShift } from "@/track/pending-shift";
 import { setShiftOpen } from "@/track/state";
 import { endShiftTracking, startTracking, stopEverything } from "@/track/controller";
+import { isTaskRegistered } from "@/track/health";
 import { cancelCloseReminders, scheduleCloseReminders } from "@/track/reminder";
 
 /** Фото звужуємо до 1280 px: сервер відхиляє завеликі, а більше й не потрібно. */
@@ -79,6 +80,33 @@ const CLOSE_FLUSH_MS = 20_000;
  * заради довідки не можна.
  */
 const STATE_BEAT_MS = 10_000;
+
+/**
+ * Звірити запис зі СПИСКОМ СИСТЕМИ — і саме на цьому екрані.
+ *
+ * Торговий відкриває цей застосунок двічі на день: вранці, щоб відкрити зміну
+ * з фото одометра, і ввечері, щоб її закрити. Решту дня він працює в іншій
+ * програмі, а ми у фоні. Тобто це єдина мить, коли Android дозволяє все і
+ * людина ще поруч — іншої нагоди підняти запис за день не буде.
+ *
+ * `startTracking` повертає успіх, коли виклик не кинув винятку. Але система
+ * могла завдання не взяти — а expo-task-manager ще й знімає реєстрацію САМ,
+ * коли headless-рушій JS не піднімається (TaskService.java: «Host
+ * unreachable? Unregister all tasks for that app»). Тоді прапорець «пишемо»
+ * стоятиме піднятий цілий день над мертвим треком.
+ *
+ * `getRegisteredTasksAsync` — єдина перевірка, яка цього не приховує. Не
+ * взяло — пробуємо ще раз, поки ми на передньому плані й маємо право.
+ */
+async function verifyTaskRegistered(): Promise<void> {
+  try {
+    if ((await isTaskRegistered()) === false) {
+      await startTracking("SHIFT", { force: true });
+    }
+  } catch {
+    /* перевірка не має права завалити відкриття зміни */
+  }
+}
 
 export default function OdometerScreen() {
   const router = useRouter();
@@ -243,6 +271,7 @@ export default function OdometerScreen() {
         // фото й чесним одометром.
         await scheduleCloseReminders();
         await startTracking("SHIFT");
+        await verifyTaskRegistered();
       }
 
       /**
@@ -310,6 +339,7 @@ export default function OdometerScreen() {
         // нагадування живе на пристрої й мережі не потребує.
         await scheduleCloseReminders();
         await startTracking("SHIFT");
+        await verifyTaskRegistered();
       }
       Alert.alert(
         "Немає зв’язку",

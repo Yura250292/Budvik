@@ -31,6 +31,7 @@ import {
   getStartErrorMeta,
   getWatchdogRun,
   getWatchdogStatus,
+  getTaskRegistered,
   contextStats,
   getSentEventId,
   setSentEventId,
@@ -395,9 +396,17 @@ async function warnLocationOff(): Promise<void> {
  * Час коротким — година й хвилини за пристроєм: цей рядок читає людина в
  * пульті, а не машина.
  */
-function describeGuards(status: string | null): string | null {
+function describeGuards(status: string | null, taskRegistered?: boolean | null): string | null {
+  /**
+   * Стан завдання локації — першим і поза умовою про нативний модуль.
+   *
+   * Це найважливіше слово в усьому рядку: коли система зняла реєстрацію, усі
+   * інші прапорці лишаються бездоганними, а координат немає й не буде. І
+   * питати про нього можна в будь-якій збірці, на відміну від проби системи.
+   */
+  const task = taskRegistered === false ? " · ЗАВДАННЯ ЛОКАЦІЇ ЗНЯТО" : "";
   const alarm = exactGuardStatus();
-  if (!alarm.available) return status;
+  if (!alarm.available) return (status ?? "UNKNOWN") + task;
 
   const fired = alarm.lastFiredAt
     ? new Date(alarm.lastFiredAt).toLocaleTimeString("uk-UA", {
@@ -406,7 +415,7 @@ function describeGuards(status: string | null): string | null {
       })
     : "жодного разу";
   const kind = alarm.exact ? "точний" : "приблизний";
-  const line = `${status ?? "UNKNOWN"} · будильник ${fired} (${kind})`;
+  const line = `${status ?? "UNKNOWN"}${task} · будильник ${fired} (${kind})`;
 
   /**
    * І — відповідь САМОЇ системи, а не наша думка про себе.
@@ -452,6 +461,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     device,
     watchdogAt,
     watchdogStatus,
+    taskRegistered,
     sentEventId,
   ] = await Promise.all([
     unsentCount(sentThrough),
@@ -466,6 +476,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
     readDeviceState(),
     getWatchdogRun(),
     getWatchdogStatus(),
+    getTaskRegistered(),
     getSentEventId(),
   ]);
 
@@ -580,7 +591,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
        * «прокинувся й нічого не зміг» місяць виглядали з сервера однаково;
        * тепер видно окремо, чи система взагалі виконала своє зобов'язання.
        */
-      watchdogStatus: describeGuards(watchdogStatus) ?? undefined,
+      watchdogStatus: describeGuards(watchdogStatus, taskRegistered) ?? undefined,
       /**
        * Життя цього контексту JS і чи викликала нас служба хоч раз.
        *

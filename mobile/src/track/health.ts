@@ -19,9 +19,11 @@
 
 import { AppState } from "react-native";
 import * as Location from "expo-location";
+import * as TaskManager from "expo-task-manager";
 import { TRACK_TASK } from "./task-name";
 import { exactGuardStatus } from "@modules/track-guard";
-import { getLastFix, getLastFixAt, getMode, setLastError } from "./state";
+import { logEvent } from "./db";
+import { getLastFixAt, getMode, setLastError, setTaskRegistered } from "./state";
 
 /**
  * Скільки тиші вважати збоєм.
@@ -44,7 +46,40 @@ export type HealthResult =
   | "свіжо"
   | "перепідписались"
   | "зарано-повторювати"
-  | "чекаємо-вікна";
+  | "чекаємо-вікна"
+  | "завдання-зняте";
+
+/**
+ * Чи стоїть завдання локації в СИСТЕМІ — питаємо її, а не свій прапорець.
+ *
+ * `hasStartedLocationUpdatesAsync` читає збережену позначку й після підняття
+ * процесу з фону бреше. `getRegisteredTasksAsync` віддає те, що система
+ * вважає зареєстрованим НАСПРАВДІ.
+ *
+ * Різниця не теоретична. У вихідниках expo-task-manager
+ * (TaskService.java, executeTask) є гілка: якщо headless-рушій JS не
+ * піднявся, викликається `unregisterAllTasksForAppScopeKey` — «Host
+ * unreachable? Unregister all tasks for that app». Тобто наше завдання
+ * локації система знімає САМА, мовчки, і після цього координати не прийдуть
+ * ніколи, хоч би що казав прапорець.
+ *
+ * У журналі пробуджень за тиждень до 12.09.2026 це видно прямо: зі 136
+ * записів у 37 завдання `budvik-track-location` у списку вже не було, і
+ * після кожного такого — нуль точок.
+ *
+ * null — питати не вдалося; це не те саме, що «немає», і діяти на цьому не
+ * можна.
+ */
+export async function isTaskRegistered(): Promise<boolean | null> {
+  try {
+    const list = await TaskManager.getRegisteredTasksAsync();
+    const has = list.some((t) => t.taskName === TRACK_TASK);
+    await setTaskRegistered(has).catch(() => {});
+    return has;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Скільки часу після спрацювання будильника вважати вікном дозволу.
@@ -107,6 +142,33 @@ export async function ensureFreshFixes(
     lastRestartAt = Date.now();
     const { ensureRecording } = await import("./controller");
     return (await ensureRecording().catch(() => false)) ? "перепідписались" : "не-пишемо";
+  }
+
+  /**
+   * ЗНЯТЕ ЗАВДАННЯ — перед усім іншим, і без огляду на свіжість фіксів.
+   *
+   * Це єдиний стан, у якому ми не здогадуємось, а ЗНАЄМО: координат не буде.
+   * Перевірка свіжості нижче тут не годиться — між зняттям реєстрації і
+   * старінням останнього фікса лежать хвилини, і всі вони витрачалися б на
+   * «свіжо, все гаразд».
+   *
+   * Лікування те саме — підняти запис наново, — але зупиняти нема чого:
+   * завдання вже немає. Тому `startTracking` без попереднього стопу, і
+   * тільки у вікні дозволу: підняти службу з фону Android не дасть, а
+   * спроба поза вікном лише спалить запобіжник MIN_RETRY_MS.
+   */
+  const registered = await isTaskRegistered();
+  if (registered === false) {
+    if (!(await mayRestartService(opts.pushWindow === true))) {
+      await setLastError("завдання локації знято системою — чекаємо вікна дозволу");
+      return "чекаємо-вікна";
+    }
+    lastRestartAt = Date.now();
+    await setLastError("завдання локації знято системою — піднімаємо наново");
+    void logEvent("task_gone", "завдання локації зникло зі списку системи");
+    const { startTracking } = await import("./controller");
+    await startTracking(mode, { force: true }).catch(() => false);
+    return "завдання-зняте";
   }
 
   // Пізніше з двох джерел: мітка фікса або час останньої записаної точки.

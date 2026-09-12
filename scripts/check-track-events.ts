@@ -37,6 +37,7 @@ const KIND: Record<string, string> = {
   mic: "мікрофон помічника",
   wake: "розбуджено сповіщенням",
   reload: "ПЕРЕЗАВАНТАЖЕННЯ контексту",
+  task_gone: "СИСТЕМА ЗНЯЛА завдання локації",
 };
 
 async function main() {

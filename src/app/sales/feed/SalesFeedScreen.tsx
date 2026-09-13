@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -35,6 +36,13 @@ export default function SalesFeedScreen() {
     <>
       <SalesHeader title="Стрічка" subtitle="Події ваших клієнтів" backTo="/sales" />
       <Page>
+        <Link
+          href="/sales/watches"
+          className="flex items-center justify-between rounded-2xl border border-cab-line bg-white px-3.5 py-3 text-[14px] font-semibold text-bk active:opacity-80"
+        >
+          Мої запити «Коли буде»
+          <span className="text-cab-t3">→</span>
+        </Link>
         {today && hasTodayNumbers(today) && (
           <Card padded={false}>
             <div className="px-4 pt-3.5 pb-1 sm:px-5">

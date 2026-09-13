@@ -261,6 +261,14 @@ export function arrivalWindow(day: string): { from: Date; to: Date } {
   };
 }
 
+/** «Приїхало під ваш запит: Піна SOMA FIX» / «Вільно 24 шт · Арт. 12345». */
+export function describeWatch(input: { name: string; sku: string | null; free: number }): { title: string; body: string } {
+  return {
+    title: `Приїхало під ваш запит: ${shortName(input.name, 40)}`,
+    body: `Вільно ${input.free} шт${input.sku ? ` · Арт. ${input.sku}` : ""}`,
+  };
+}
+
 /** «сьогодні», «завтра», «ср, 16.09». `day` і `today` — київські дні. */
 export function routeDayLabel(day: string, today: string): string {
   if (day === today) return "сьогодні";
@@ -332,4 +340,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_CALL_LIST: "дзвінки",
   REP_ARRIVAL: "прихід",
   REP_ROUTE: "у маршруті",
+  REP_WATCH: "під запит",
 };

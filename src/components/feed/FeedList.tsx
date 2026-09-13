@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Banknote, ChevronRight, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, Truck, Undo2 } from "lucide-react";
+import { Banknote, BellRing, ChevronRight, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, Truck, Undo2 } from "lucide-react";
 import { REP_FEED_TYPES } from "@/lib/rep-feed/types";
 
 /**
@@ -35,13 +35,19 @@ export const FEED_ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.CALL_LIST]: PhoneCall,
   [REP_FEED_TYPES.ARRIVAL]: PackagePlus,
   [REP_FEED_TYPES.ROUTE]: Route,
+  [REP_FEED_TYPES.WATCH]: BellRing,
 };
 
 /** Оплата — зелена, повернення — червоне, підказки й прихід — жовті, документи — нейтральні. */
 export function feedTone(type: string): string {
   if (type === REP_FEED_TYPES.PAYMENT) return "text-ok";
   if (type === REP_FEED_TYPES.RETURN) return "text-bad";
-  if (type === REP_FEED_TYPES.VISIT || type === REP_FEED_TYPES.CALL_LIST || type === REP_FEED_TYPES.ARRIVAL) {
+  if (
+    type === REP_FEED_TYPES.VISIT ||
+    type === REP_FEED_TYPES.CALL_LIST ||
+    type === REP_FEED_TYPES.ARRIVAL ||
+    type === REP_FEED_TYPES.WATCH
+  ) {
     return "text-[#B8860B]";
   }
   return "text-cab-t2";

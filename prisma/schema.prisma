@@ -227,6 +227,8 @@ model User {
   /// Вимкнена категорія лишається в стрічці, але пуш по ній не йде
   /// (src/lib/rep-feed/prefs.ts). NULL — усе ввімкнено.
   notificationPrefs Json?
+  /// Запити торгового «повідомити, коли приїде» (src/lib/rep-feed/watches.ts).
+  productWatches ProductWatch[] @relation("productWatchUser")
 
   /// Торговий, чий QR привів цього клієнта. Ставиться один раз (перший виграє)
   /// і далі не перезаписується — інакше чужий QR «перехоплював» би клієнта.
@@ -417,6 +419,8 @@ model Product {
   // Джерело — назва з 1С («кратно 10шт», «Уп. 5 шт»), розбирає src/lib/pack-qty.ts.
   // Квадратні дужки [N] у назві НЕ кратність, а кількість у ящику (там буває [1] і [500]).
   packQty        Int? // 1/null — поштучно
+  /// Хто з торгових чекає на цей товар (src/lib/rep-feed/watches.ts).
+  watches        ProductWatch[] @relation("productWatchProduct")
   // Штрихкоди з 1С — для пошуку камерою в застосунку.
   //
   // Масив, а не одне поле: в 1С у номенклатури буває кілька штрихкодів
@@ -3065,6 +3069,26 @@ model PushToken {
 /// Застосунок обіцяє показувати обране офлайн, тож воно мусить переживати
 /// перевстановлення — а заразом підтягується й на сайті, коли людина заходить
 /// із того самого акаунта.
+/// «Повідомити, коли приїде» — запит торгового на відсутній товар.
+///
+/// Не WishlistItem: той — обране покупця на вітрині, без жодної дії. Тут
+/// подія: коли вільний залишок стає більшим за нуль, воркер пише рядок у
+/// стрічку й шле пуш. «Виконано» не зберігається окремим полем — це
+/// наявність рядка стрічки з ключем REP_WATCH:<id>:<createdAt>, тож повторна
+/// підписка (новий createdAt) дає нову подію.
+model ProductWatch {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation("productWatchUser", fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation("productWatchProduct", fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId])
+}
+
 model WishlistItem {
   id String @id @default(cuid())
 

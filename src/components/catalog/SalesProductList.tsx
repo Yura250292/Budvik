@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import SwipeToCart from "@/components/catalog/SwipeToCart";
+import { WatchButton } from "@/components/sales/WatchButton";
 import { isRealSku } from "@/lib/catalog/sku-search";
 import { getCart, addToCart, updateCartQty, getCartTotal, getCartCount, type CartItem } from "@/lib/cart";
 
@@ -122,6 +123,8 @@ export default function SalesProductList({ products }: { products: Product[] }) 
                     <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-g400">
                       {isRealSku(p.sku) && <span>Арт. {p.sku}</span>}
                       <StockTag stock={p.stock} />
+                      {/* Позиції немає — «Коли буде»: пуш, щойно з'явиться у вільному залишку. */}
+                      {p.stock <= 0 && <WatchButton productId={p.id} />}
                     </div>
                   </div>
                   <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
@@ -155,6 +158,11 @@ export default function SalesProductList({ products }: { products: Product[] }) 
                     <Price value={p.price} />
                     <StockTag stock={p.stock} />
                   </div>
+                  {p.stock <= 0 && (
+                    <div className="mt-1.5">
+                      <WatchButton productId={p.id} />
+                    </div>
+                  )}
                   <div className="mt-2">
                     <QtyControl
                       qty={qty}

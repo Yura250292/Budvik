@@ -9,6 +9,7 @@
 import {
   arrivalWindow,
   describeRoute,
+  describeWatch,
   routeDayLabel,
   daysAgo,
   describe,
@@ -175,6 +176,13 @@ check("маршрут: з водієм", rt.title === "Поїде завтра: 
 const rtNo = describeRoute({ name: "Химич", number: "6553", amount: 100, day: "2026-09-15", today: "2026-09-14", driver: null, sheetNumber: "1865" });
 check("маршрут: без водія — без слова «водій»", !rtNo.body.includes("водій"), rtNo);
 check("маршрут → документ", feedHref(REP_FEED_TYPES.ROUTE, "d1") === "/sales/orders/d1");
+
+// ---- товар під запит ----
+check("запит → сторінка запитів", feedHref(REP_FEED_TYPES.WATCH, "p1") === "/sales/watches" && feedHref(REP_FEED_TYPES.WATCH, null) === "/sales/watches");
+check("сторінка запитів проходить білий список тапів", /^\/(sales|driver|warehouse)(\/[\w\-/]*)?$/.test("/sales/watches"));
+const wt = describeWatch({ name: "SOMA FIX Піна монтажна 750", sku: "12345", free: 24 });
+check("запит: текст", wt.title === "Приїхало під ваш запит: SOMA FIX Піна монтажна 750" && wt.body === "Вільно 24 шт · Арт. 12345", wt);
+check("запит: без артикула", describeWatch({ name: "Піна", sku: null, free: 1 }).body === "Вільно 1 шт");
 
 // ---- внутрішні контрагенти ----
 const staff = new Set(["Кулик Дмитро", "Передрій Дмитро", "Юрій Скуратов"].map(nameKey));

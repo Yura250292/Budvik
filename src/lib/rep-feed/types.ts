@@ -36,6 +36,8 @@ export const REP_FEED_TYPES = {
   ARRIVAL: "REP_ARRIVAL",
   /** Накладна потрапила в маршрутний лист 1С. */
   ROUTE: "REP_ROUTE",
+  /** Приїхав товар, на який торговий поставив «повідомити, коли буде». */
+  WATCH: "REP_WATCH",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -80,6 +82,7 @@ export type FeedEvent = {
  */
 export function feedHref(type: string, relatedId: string | null | undefined): string | null {
   if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/clients";
+  if (type === REP_FEED_TYPES.WATCH) return "/sales/watches";
   if (!relatedId) return null;
   // День у шляху, а не в ?day=: білий список тапів застосунку
   // (notification-taps.ts, CABINET_TARGET) параметрів запиту не пропускає.
@@ -108,7 +111,7 @@ export const FEED_FILTERS = [
     ],
   },
   { key: "returns", label: "Повернення", types: [REP_FEED_TYPES.RETURN] },
-  { key: "arrivals", label: "Прихід", types: [REP_FEED_TYPES.ARRIVAL] },
+  { key: "arrivals", label: "Прихід", types: [REP_FEED_TYPES.ARRIVAL, REP_FEED_TYPES.WATCH] },
   { key: "tips", label: "Підказки", types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST] },
 ] as const satisfies readonly { key: string; label: string; types: readonly RepFeedType[] | null }[];
 

@@ -30,7 +30,13 @@ function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
   }
   // Список дзвінків і сторінка приходу рахуються для конкретного торгового —
   // керівник відкрив би їх для себе й побачив порожнечу.
-  if (row.type === REP_FEED_TYPES.CALL_LIST || row.type === REP_FEED_TYPES.ARRIVAL) return null;
+  if (
+    row.type === REP_FEED_TYPES.CALL_LIST ||
+    row.type === REP_FEED_TYPES.ARRIVAL ||
+    row.type === REP_FEED_TYPES.WATCH
+  ) {
+    return null;
+  }
   return `/admin/erp/sales/${row.relatedId}`;
 }
 

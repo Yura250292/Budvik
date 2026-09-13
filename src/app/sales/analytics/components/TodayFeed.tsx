@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Banknote, ChevronRight, FileCheck, PackageCheck, Truck, Undo2 } from "lucide-react";
+import { Banknote, ChevronRight, FileCheck, MapPin, PackageCheck, PhoneCall, Truck, Undo2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { money } from "@/components/ui/Stat";
 import { feedHref, isRepFeedType, REP_FEED_PREFIX, REP_FEED_TYPES } from "@/lib/rep-feed/types";
+import type { RepToday } from "@/lib/rep-feed/today";
 
 /**
  * «Сьогодні» — стрічка подій дня на головній торгового.
@@ -16,6 +18,11 @@ import { feedHref, isRepFeedType, REP_FEED_PREFIX, REP_FEED_TYPES } from "@/lib/
  * Рядки — ті самі Notification, що й у дзвіночку в шапці: один запит на
  * обидва (useNotifications), інакше сторінка ходила б по список двічі.
  * Показуємо лише типи стрічки (префікс REP_) за київське сьогодні.
+ *
+ * Над рядками — цифри дня з /api/sales/today: замовлення (чернетки окремо,
+ * бо офіс проводить їх годинами пізніше) і зібрані гроші. Це те, заради
+ * чого власник просив геймефікацію: табло приходить лише ввечері, а тут
+ * рахунок видно посеред дня.
  */
 
 export type NotificationRow = {
@@ -53,13 +60,42 @@ const ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.DOC_PICKED]: PackageCheck,
   [REP_FEED_TYPES.RETURN]: Undo2,
   [REP_FEED_TYPES.DOC_DELIVERED]: Truck,
+  [REP_FEED_TYPES.VISIT]: MapPin,
+  [REP_FEED_TYPES.CALL_LIST]: PhoneCall,
 };
 
-/** Оплата — зелена, повернення — червоне, документи — нейтральні. */
+/** Оплата — зелена, повернення — червоне, підказки — жовті, документи — нейтральні. */
 function tone(type: string): string {
   if (type === REP_FEED_TYPES.PAYMENT) return "text-ok";
   if (type === REP_FEED_TYPES.RETURN) return "text-bad";
+  if (type === REP_FEED_TYPES.VISIT || type === REP_FEED_TYPES.CALL_LIST) return "text-[#B8860B]";
   return "text-cab-t2";
+}
+
+/** Цифри дня; null — ще не завантажились або впали (тоді просто без них). */
+export function useToday(): RepToday | null {
+  const [today, setToday] = useState<RepToday | null>(null);
+  useEffect(() => {
+    fetch("/api/sales/today")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setToday(d))
+      .catch(() => {});
+  }, []);
+  return today;
+}
+
+function TodayNumbers({ today }: { today: RepToday }) {
+  const { orders } = today;
+  const parts: string[] = [];
+  const n = orders.count + orders.draftCount;
+  if (n > 0) {
+    const word = n % 10 === 1 && n % 100 !== 11 ? "замовлення" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "замовлення" : "замовлень";
+    const drafts = orders.draftCount > 0 ? ` (${orders.draftCount} у чернетках)` : "";
+    parts.push(`${n} ${word} на ${money(orders.totalUah + orders.draftUah)} ₴${drafts}`);
+  }
+  if (today.collectedCount > 0) parts.push(`зібрано ${money(today.collectedUah)} ₴`);
+  if (parts.length === 0) return null;
+  return <p className="px-4 pb-2 text-[13px] text-cab-t2 sm:px-5">{parts.join(" · ")}</p>;
 }
 
 const MAX_ROWS = 8;
@@ -77,12 +113,14 @@ function kyivClock(iso: string): string {
   });
 }
 
-export function TodayFeed({ items }: { items: NotificationRow[] }) {
-  const today = kyivDay(new Date().toISOString());
+export function TodayFeed({ items, today }: { items: NotificationRow[]; today: RepToday | null }) {
+  const day = kyivDay(new Date().toISOString());
   const rows = items.filter(
-    (n) => n.type.startsWith(REP_FEED_PREFIX) && isRepFeedType(n.type) && kyivDay(n.createdAt) === today
+    (n) => n.type.startsWith(REP_FEED_PREFIX) && isRepFeedType(n.type) && kyivDay(n.createdAt) === day
   );
-  if (rows.length === 0) return null;
+  const hasNumbers =
+    !!today && (today.orders.count + today.orders.draftCount > 0 || today.collectedCount > 0);
+  if (rows.length === 0 && !hasNumbers) return null;
 
   const shown = rows.slice(0, MAX_ROWS);
   const hidden = rows.length - shown.length;
@@ -91,8 +129,9 @@ export function TodayFeed({ items }: { items: NotificationRow[] }) {
     <Card padded={false}>
       <div className="flex items-baseline justify-between px-4 pt-3.5 pb-1 sm:px-5">
         <h2 className="text-sm font-semibold text-bk">Сьогодні</h2>
-        <span className="text-xs text-cab-t3">{rows.length}</span>
+        {rows.length > 0 && <span className="text-xs text-cab-t3">{rows.length}</span>}
       </div>
+      {today && <TodayNumbers today={today} />}
       <ul className="divide-y divide-cab-line">
         {shown.map((n) => {
           const Icon = ICONS[n.type] ?? FileCheck;

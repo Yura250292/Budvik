@@ -6,6 +6,7 @@ import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { Body, Button, Card, CardTitle, Note, Page } from "@/components/cabinet/ui";
+import { PushPrefsCard } from "@/components/sales/PushPrefsCard";
 
 /** Поле форми в мові кабінету. 16px — інакше iOS зумить сторінку при фокусі. */
 const FIELD =
@@ -352,6 +353,7 @@ export default function SalesProfilePage() {
             </button>
           </>
         )}
+        <PushPrefsCard />
       </Page>
     </>
   );

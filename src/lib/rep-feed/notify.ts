@@ -7,6 +7,13 @@
  *   курсор → зібрати події → записати рядки (дублі — «вже знаємо») →
  *   згрупувати по торговому → вирішити про пуш → надіслати → посунути курсор.
  *
+ * Три джерела подій:
+ *   - events.ts — оплати, документи, склад, доставка: читаються «з курсора»;
+ *   - visit-card.ts — зупинка біля клієнта: читається «зараз» із треку;
+ *   - call-list.ts — список дзвінків: раз на день об 11:00.
+ * Два останні мають власний ключ дедуплікації по дню і не залежать від
+ * курсора; їхні помилки не зупиняють головну стрічку.
+ *
  * Чому не гак в обробнику обміну, як у складських сповіщень
  * (warehouse/pick-notify.ts). Джерела живуть у двох деплоях: оплати й
  * документи пише обмін у воркері, а позначки складу й доставку — роути на
@@ -24,6 +31,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { sendPushToUser } from "@/lib/push/send";
 import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
+import { collectCallLists } from "./call-list";
 import { collectEvents } from "./events";
 import {
   CURSOR_OVERLAP_MS,
@@ -33,7 +41,9 @@ import {
   inPushHours,
   MAX_EVENTS_PER_TICK,
 } from "./format";
+import { isPushMuted, parsePushPrefs, type PushPrefs } from "./prefs";
 import type { FeedEvent } from "./types";
+import { collectVisitCards } from "./visit-card";
 
 /** Ключ курсора в SyncState: ISO-момент початку останнього успішного тіку. */
 export const CURSOR_KEY = "repFeed:cursor";
@@ -68,6 +78,16 @@ function isUniqueViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 }
 
+/** Джерело, яке не має права зупинити головну стрічку своєю помилкою. */
+async function safely(label: string, run: () => Promise<FeedEvent[]>): Promise<FeedEvent[]> {
+  try {
+    return await run();
+  } catch (e) {
+    console.error(`[rep-feed] ${label} впав:`, e);
+    return [];
+  }
+}
+
 /**
  * Один прохід стрічки.
  *
@@ -98,7 +118,12 @@ export async function notifyRepFeed(
     since = new Date(cursor.getTime() - CURSOR_OVERLAP_MS);
   }
 
-  const events = await collectEvents(since, docDayFloor(now));
+  // Головна стрічка кидає далі: без неї курсор рухати не можна.
+  const events = [
+    ...(await collectEvents(since, docDayFloor(now))),
+    ...(await safely("картка перед візитом", () => collectVisitCards(now))),
+    ...(await safely("список дзвінків", () => collectCallLists(now))),
+  ];
 
   // ---- запис: нові проти відомих ----
   const fresh: Inserted[] = [];
@@ -147,13 +172,13 @@ export async function notifyRepFeed(
     byRep.set(item.event.repId, list);
   }
 
-  const names = new Map(
+  const users = new Map(
     (
       await prisma.user.findMany({
         where: { id: { in: [...byRep.keys()] } },
-        select: { id: true, name: true },
+        select: { id: true, name: true, notificationPrefs: true },
       })
-    ).map((u) => [u.id, u.name])
+    ).map((u) => [u.id, { name: u.name, prefs: parsePushPrefs(u.notificationPrefs) as PushPrefs }])
   );
 
   const brake = events.length > MAX_EVENTS_PER_TICK;
@@ -162,51 +187,75 @@ export async function notifyRepFeed(
 
   const pushes: PushDecision[] = [];
   for (const [repId, items] of byRep) {
-    const grouped = groupPush(items.map((i) => i.event));
-    const base = {
-      repId,
-      name: names.get(repId) ?? null,
-      ...grouped,
-      events: items.length,
-    };
+    const user = users.get(repId);
+    const name = user?.name ?? null;
 
-    if (brake) {
-      pushes.push({ ...base, sent: false, why: `аварійне гальмо: ${events.length} подій за тік` });
-      continue;
+    // Вимкнене в профілі — у стрічку так, у пуш ні.
+    const muted = items.filter((i) => isPushMuted(user?.prefs, i.event.type));
+    const live = items.filter((i) => !isPushMuted(user?.prefs, i.event.type));
+    if (muted.length > 0) {
+      const g = groupPush(muted.map((i) => i.event));
+      pushes.push({ repId, name, ...g, events: muted.length, sent: false, why: "вимкнено в профілі" });
     }
-    if (quiet) {
-      pushes.push({ ...base, sent: false, why: "тихі години — лише в стрічку" });
-      continue;
-    }
-    const pushedToday = await prisma.notification.count({
-      where: { userId: repId, pushedAt: { gte: dayStart } },
-    });
-    if (pushedToday >= DAILY_PUSH_CAP) {
-      pushes.push({ ...base, sent: false, why: `денна стеля ${DAILY_PUSH_CAP} вичерпана` });
-      continue;
-    }
+    if (live.length === 0) continue;
 
-    if (dry) {
-      pushes.push({ ...base, sent: false, why: "dry — надіслали б" });
-      continue;
-    }
+    /**
+     * Одиниці розсилки: картка візиту й список дзвінків — кожен своїм
+     * пушем (у заголовку «3 події» вони гинуть), решта — одним зведеним.
+     */
+    const units: Inserted[][] = [];
+    for (const i of live) if (i.event.standalone) units.push([i]);
+    const grouped = live.filter((i) => !i.event.standalone);
+    if (grouped.length > 0) units.push(grouped);
 
-    await sendPushToUser(repId, {
-      title: grouped.title,
-      body: grouped.body,
-      data: { screen: "/cabinet", target: grouped.target },
-      /**
-       * Пробити режим сну — планшет лежить у машині з погашеним екраном,
-       * і без високого пріоритету Android притримує сповіщення до наступного
-       * пробудження. Обсяг обмежений денною стелею, тож це не спам.
-       */
-      urgent: true,
-    });
-    await prisma.notification.updateMany({
-      where: { id: { in: items.map((i) => i.notificationId).filter((id): id is string => !!id) } },
-      data: { pushedAt: now },
-    });
-    pushes.push({ ...base, sent: true, why: "надіслано" });
+    let pushedToday: number | null = null;
+
+    for (const unit of units) {
+      const g = groupPush(unit.map((i) => i.event));
+      const base = { repId, name, ...g, events: unit.length };
+
+      if (brake) {
+        pushes.push({ ...base, sent: false, why: `аварійне гальмо: ${events.length} подій за тік` });
+        continue;
+      }
+      if (quiet) {
+        pushes.push({ ...base, sent: false, why: "тихі години — лише в стрічку" });
+        continue;
+      }
+      if (pushedToday == null) {
+        pushedToday = await prisma.notification.count({
+          where: { userId: repId, pushedAt: { gte: dayStart } },
+        });
+      }
+      if (pushedToday >= DAILY_PUSH_CAP) {
+        pushes.push({ ...base, sent: false, why: `денна стеля ${DAILY_PUSH_CAP} вичерпана` });
+        continue;
+      }
+
+      if (dry) {
+        pushedToday++;
+        pushes.push({ ...base, sent: false, why: "dry — надіслали б" });
+        continue;
+      }
+
+      await sendPushToUser(repId, {
+        title: g.title,
+        body: g.body,
+        data: { screen: "/cabinet", target: g.target },
+        /**
+         * Пробити режим сну — планшет лежить у машині з погашеним екраном,
+         * і без високого пріоритету Android притримує сповіщення до
+         * наступного пробудження. Обсяг обмежений денною стелею.
+         */
+        urgent: true,
+      });
+      await prisma.notification.updateMany({
+        where: { id: { in: unit.map((i) => i.notificationId).filter((id): id is string => !!id) } },
+        data: { pushedAt: now },
+      });
+      pushedToday++;
+      pushes.push({ ...base, sent: true, why: "надіслано" });
+    }
   }
 
   if (brake) {

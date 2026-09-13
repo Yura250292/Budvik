@@ -14,7 +14,7 @@ import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { OverdueAlert } from "./analytics/components/OverdueAlert";
-import { TodayFeed, useNotifications, type NotificationRow } from "./analytics/components/TodayFeed";
+import { TodayFeed, useNotifications, useToday, type NotificationRow } from "./analytics/components/TodayFeed";
 import { feedHref } from "@/lib/rep-feed/types";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import AssistantTile from "@/components/sales/assistant/AssistantTile";
@@ -190,6 +190,7 @@ function Home() {
   const period = usePeriodFromUrl();
   const { data, row, loading, error, reload } = useMySummary(period);
   const feed = useNotifications();
+  const today = useToday();
 
   const name = (session?.user as { name?: string } | undefined)?.name ?? "Торговий";
 
@@ -252,7 +253,7 @@ function Home() {
             він читає незалежно від того, чи зібралась зведена. */}
         {data && !row && (
           <>
-            <TodayFeed items={feed.items} />
+            <TodayFeed items={feed.items} today={today} />
             <AssistantTile />
           </>
         )}
@@ -271,7 +272,7 @@ function Home() {
 
             {/* Події дня — те, заради чого прийшов пуш: оплати, проведені й
                 зібрані накладні. Порожня стрічка нічого не малює. */}
-            <TodayFeed items={feed.items} />
+            <TodayFeed items={feed.items} today={today} />
 
             <AssistantTile />
 

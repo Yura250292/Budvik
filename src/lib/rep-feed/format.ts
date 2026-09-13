@@ -3,7 +3,7 @@
  *
  * Чисті функції без бази — саме їх ганяє scripts/check-rep-feed.mts без
  * підключення. Усе, що вирішує «слати чи ні» за станом бази (стеля на день,
- * курсор), живе в notify.ts.
+ * курсор, вимкнені категорії), живе в notify.ts.
  */
 
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
@@ -43,12 +43,26 @@ export function uah(n: number): string {
   return Math.round(n).toLocaleString("uk-UA").replace(/\s/g, " ");
 }
 
+/** Українська множина: plural(3, "день", "дні", "днів") → "дні". */
+export function plural(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(Math.round(n));
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+}
+
 export function eventsWord(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "подія";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "події";
-  return "подій";
+  return plural(n, "подія", "події", "подій");
+}
+
+/** «сьогодні», «вчора», «3 дні тому», «40 днів тому». */
+export function daysAgo(n: number): string {
+  const d = Math.max(0, Math.round(n));
+  if (d === 0) return "сьогодні";
+  if (d === 1) return "вчора";
+  return `${d} ${plural(d, "день", "дні", "днів")} тому`;
 }
 
 /** «Химич» замість «ФОП Химич Іван Петрович (Стрий)» — у пуші місця мало. */
@@ -69,6 +83,14 @@ export function docDayFloor(now: Date, days = DOC_FLOOR_DAYS): Date {
   return new Date(today.getTime() - days * DAY_MS);
 }
 
+/** Межі київського дня для дат 1С (той самий принцип, що docDayFloor). */
+export function docDayBounds(day: string): { from: Date; to: Date } {
+  return {
+    from: new Date(`${day}T00:00:00.000Z`),
+    to: new Date(`${day}T23:59:59.999Z`),
+  };
+}
+
 export function inPushHours(now: Date): boolean {
   const h = kyivHour(now);
   return h >= PUSH_FROM_HOUR && h < PUSH_TO_HOUR;
@@ -82,7 +104,7 @@ export type DescribeInput =
   | { type: "REP_DOC_DELIVERED"; name: string | null | undefined; number: string; amount: number };
 
 /**
- * Заголовок і тіло для одного типу події.
+ * Заголовок і тіло для однієї події документа чи оплати.
  *
  * Про борг після оплати. Оплата приїжджає з 1С за 5 хвилин, а сальдо
  * боргу — окремим каналом раз на годину. Тож у мить пуша
@@ -116,6 +138,62 @@ export function describe(input: DescribeInput): { title: string; body: string } 
     case REP_FEED_TYPES.DOC_DELIVERED:
       return { title: `Доставлено №${input.number}`, body: `${name} · ${uah(input.amount)} ₴` };
   }
+}
+
+export type VisitInput = {
+  name: string | null | undefined;
+  debt: number;
+  overdue: number;
+  /** Вік найстарішої непогашеної частини, днів. */
+  oldestDays: number;
+  /** Скільки днів минуло від останнього замовлення; null — не замовляв. */
+  lastOrderDaysAgo: number | null;
+  /** Назви товарів, які варто запропонувати, у порядку ваги. */
+  recommend: string[];
+};
+
+/** Скільки назв товарів уміщаємо в картку візиту. */
+const VISIT_RECO = 3;
+
+/**
+ * Картка перед візитом. Повертає null, коли сказати нічого: без боргу й
+ * без порад пуш «Ви у Химича» — це шум, і людина навчиться його гасити.
+ */
+export function describeVisit(input: VisitInput): { title: string; body: string } | null {
+  const recos = input.recommend.filter(Boolean).slice(0, VISIT_RECO);
+  if (input.debt <= 0 && recos.length === 0) return null;
+
+  const parts: string[] = [];
+  if (input.debt > 0) {
+    const overdue =
+      input.overdue > 0
+        ? ` (прострочено ${uah(input.overdue)}, ${Math.round(input.oldestDays)} дн)`
+        : "";
+    parts.push(`Борг ${uah(input.debt)} ₴${overdue}`);
+  }
+  if (input.lastOrderDaysAgo != null) {
+    parts.push(`останнє замовлення ${daysAgo(input.lastOrderDaysAgo)}`);
+  }
+  if (recos.length > 0) {
+    parts.push(`поповнити: ${recos.map((r) => shortName(r, 30)).join(", ")}`);
+  }
+  // Заголовок пуша вміщає ~45 знаків: повне ім'я з містом важливіше за обрізок.
+  return { title: `Ви у ${shortName(input.name, 44)}`, body: parts.join(" · ") };
+}
+
+export type CallListItem = { name: string | null | undefined; action: string };
+
+/** Скільки клієнтів перелічуємо в тілі пуша про дзвінки. */
+const CALL_LIST_HEAD = 3;
+
+export function describeCallList(items: CallListItem[]): { title: string; body: string } {
+  const n = items.length;
+  const head = items.slice(0, CALL_LIST_HEAD).map((i) => `${shortName(i.name, 24)} — ${i.action}`);
+  const rest = n - head.length;
+  return {
+    title: `Кому подзвонити сьогодні: ${n}`,
+    body: rest > 0 ? `${head.join(" · ")} і ще ${rest}` : head.join(" · "),
+  };
 }
 
 export type GroupedPush = { title: string; body: string; target: string };
@@ -155,4 +233,6 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_DOC_PICKED: "зібрано",
   REP_RETURN: "повернення",
   REP_DOC_DELIVERED: "доставлено",
+  REP_VISIT: "візит",
+  REP_CALL_LIST: "дзвінки",
 };

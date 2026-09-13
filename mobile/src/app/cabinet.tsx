@@ -786,8 +786,14 @@ export default function CabinetScreen() {
            * «маршрут у Google Maps» у помічника торгового просто нічого не
            * робило. Google Maps і Waze усередині WebView усе одно не
            * працюють як навігація: їм потрібен свій застосунок.
+           *
+           * Viber і «поділитися в Telegram» — з тієї самої причини. Виписка по
+           * клієнту в кабінеті торгового має кнопки «Viber» і «Telegram», а
+           * WebView ці адреси відкинув би: viber: — не наш домен, t.me/share —
+           * теж. Без Viber на планшеті openURL мовчки відмовить, і на сторінці
+           * лишається копіювання тексту.
            */
-          if (/^(https:\/\/(www\.)?google\.[a-z.]+\/maps|https:\/\/maps\.app\.goo\.gl|https:\/\/(www\.)?waze\.com|waze:|geo:|tel:)/i.test(req.url)) {
+          if (/^(https:\/\/(www\.)?google\.[a-z.]+\/maps|https:\/\/maps\.app\.goo\.gl|https:\/\/(www\.)?waze\.com|waze:|geo:|tel:|viber:|https:\/\/t\.me\/share)/i.test(req.url)) {
             Linking.openURL(req.url).catch(() => {});
             return false;
           }

@@ -1391,14 +1391,29 @@ model SyncState {
 model Notification {
   id        String   @id @default(cuid())
   userId    String
-  type      String // "WHOLESALE_ORDER_REQUEST"
+  /// "WHOLESALE_ORDER_REQUEST", "SALES_DOC_CONFIRMED", … і стрічка торгового
+  /// з префіксом "REP_" (див. src/lib/rep-feed/types.ts).
+  type      String
   title     String
   body      String
   isRead    Boolean  @default(false)
-  relatedId String? // salesDocumentId
+  /// salesDocumentId; для REP_PAYMENT — counterpartyId (посилання будує feedHref).
+  relatedId String?
   createdAt DateTime @default(now())
 
+  /// Ключ події для стрічки торгового («REP_PAYMENT:<allocationId>»).
+  ///
+  /// Унікальність тут — замок: детектор у воркері читає джерела з перекриттям
+  /// у хвилину, і без ключа кожен тік дописував би ті самі події вдруге.
+  /// Старі сповіщення без ключа (NULL) між собою не конфліктують.
+  dedupKey String? @unique
+  /// Коли про рядок надіслали пуш. NULL — лише в стрічці (тихі години, стеля
+  /// на день). Саме по цьому полю рахується денна стеля пушів.
+  pushedAt DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 // ========== Звіти з складу (Telegram бот Budvik_Sklad) ==========

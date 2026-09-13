@@ -34,6 +34,7 @@ import { recountRecentShifts } from "@/lib/shift/recount";
 import { notifyStandingChanges } from "@/lib/leaderboard/standings";
 import { notifyOutdatedApps } from "@/lib/app/update-nudge";
 import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
+import { notifyRepFeed } from "@/lib/rep-feed/notify";
 import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
@@ -452,6 +453,38 @@ async function pushReminders(): Promise<void> {
 const remindersTimer = setInterval(() => void pushReminders(), SILENCE_CHECK_INTERVAL_MS);
 
 /**
+ * Стрічка торгового — оплати, проведені й зібрані накладні, повернення.
+ *
+ * Свій крок у 5 хвилин, а не спільні 15: обмін привозить оплату за 5 хвилин,
+ * і чекати ще чверть години означало б, що торговий дізнається про гроші
+ * пізніше, ніж касир устигне про них забути. Курсор, дедуплікація, тихі
+ * години й денна стеля — усередині notifyRepFeed; воркеру лишається
+ * розклад і журнал. Перший тік після деплою лише прогріває курсор.
+ */
+const REP_FEED_INTERVAL_MS = 5 * 60_000;
+
+async function pushRepFeed(): Promise<void> {
+  try {
+    const run = await notifyRepFeed();
+    if (run.warmed) {
+      console.log("worker: стрічка торгових — курсор прогріто, історію не програємо");
+      return;
+    }
+    const sent = run.pushes.filter((p) => p.sent);
+    if (run.inserted > 0 || sent.length > 0) {
+      console.log(
+        `worker: стрічка торгових — подій ${run.inserted} нових (${run.known} відомих), пушів ${sent.length}` +
+          (sent.length > 0 ? `: ${sent.map((p) => `${p.name ?? p.repId} «${p.title}»`).join(", ")}` : "")
+      );
+    }
+  } catch (e) {
+    console.error("worker: стрічка торгових впала", e);
+  }
+}
+
+const repFeedTimer = setInterval(() => void pushRepFeed(), REP_FEED_INTERVAL_MS);
+
+/**
  * Сьома перевірка — прибирання за обміном.
  *
  * Раз на добу і вночі: журнали обміну ростуть по шість тисяч рядків на день
@@ -506,6 +539,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(updateNudgeTimer);
     clearInterval(digestTimer);
     clearInterval(remindersTimer);
+    clearInterval(repFeedTimer);
     clearInterval(pruneTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));

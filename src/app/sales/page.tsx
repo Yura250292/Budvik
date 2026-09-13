@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
@@ -14,6 +14,8 @@ import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { OverdueAlert } from "./analytics/components/OverdueAlert";
+import { TodayFeed, useNotifications, type NotificationRow } from "./analytics/components/TodayFeed";
+import { feedHref } from "@/lib/rep-feed/types";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import AssistantTile from "@/components/sales/assistant/AssistantTile";
 import {
@@ -50,24 +52,24 @@ function HomeSkeleton() {
   );
 }
 
-/** Дзвіночок і «Вийти» — єдине, що лишилось від старої шапки. */
-function HeaderActions() {
-  const [notifications, setNotifications] = useState<{ id: string; title: string; body: string; isRead: boolean; createdAt: string; relatedId?: string }[]>([]);
+/**
+ * Дзвіночок і «Вийти» — єдине, що лишилось від старої шапки.
+ *
+ * Список сповіщень приходить згори (useNotifications у Home): той самий
+ * запит живить і стрічку «Сьогодні» під планом, тож окремого fetch тут
+ * більше немає.
+ */
+function HeaderActions({
+  notifications,
+  unreadCount,
+  markAllRead,
+}: {
+  notifications: NotificationRow[];
+  unreadCount: number;
+  markAllRead: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const isApp = useIsNativeApp();
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
-
-  useEffect(() => {
-    fetch("/api/notifications")
-      .then((r) => r.json())
-      .then((d) => setNotifications(Array.isArray(d) ? d : []))
-      .catch(() => {});
-  }, []);
-
-  const markAllRead = async () => {
-    await fetch("/api/notifications/read-all", { method: "PATCH" });
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-  };
 
   return (
     <>
@@ -153,6 +155,9 @@ function HeaderActions() {
                   </p>
                 </>
               );
+              // Оплата веде на картку клієнта, документи — на документ;
+              // старі типи без relatedId лишаються простим текстом.
+              const href = feedHref(n.type, n.relatedId);
               return (
                 <div
                   key={n.id}
@@ -162,8 +167,8 @@ function HeaderActions() {
                     background: n.isRead ? "white" : "#FFF9E6",
                   }}
                 >
-                  {n.relatedId ? (
-                    <Link href={`/sales/orders/${n.relatedId}`} onClick={() => setOpen(false)}>
+                  {href ? (
+                    <Link href={href} onClick={() => setOpen(false)}>
                       {body}
                     </Link>
                   ) : (
@@ -184,6 +189,7 @@ function Home() {
   const { data: session } = useSession();
   const period = usePeriodFromUrl();
   const { data, row, loading, error, reload } = useMySummary(period);
+  const feed = useNotifications();
 
   const name = (session?.user as { name?: string } | undefined)?.name ?? "Торговий";
 
@@ -196,7 +202,17 @@ function Home() {
 
   return (
     <>
-      <SalesHeader title={name} subtitle="Мої показники" right={<HeaderActions />} />
+      <SalesHeader
+        title={name}
+        subtitle="Мої показники"
+        right={
+          <HeaderActions
+            notifications={feed.items}
+            unreadCount={feed.unreadCount}
+            markAllRead={feed.markAllRead}
+          />
+        }
+      />
 
       <Page>
         {/* Перше, що бачить людина в кабінеті, поки вона ще на старому трекері. */}
@@ -234,7 +250,12 @@ function Home() {
 
         {/* Без метрик помічник потрібен не менше: клієнти, борги й склад
             він читає незалежно від того, чи зібралась зведена. */}
-        {data && !row && <AssistantTile />}
+        {data && !row && (
+          <>
+            <TodayFeed items={feed.items} />
+            <AssistantTile />
+          </>
+        )}
 
         {data && row && (
           <>
@@ -247,6 +268,10 @@ function Home() {
             {/* Прострочка — одразу під планом: це не показник, а борг, який
                 щодня дорожчає. Наприкінці екрана її просто не гортали. */}
             <OverdueAlert row={row} href={withPeriod("/sales/analytics/money", period)} />
+
+            {/* Події дня — те, заради чого прийшов пуш: оплати, проведені й
+                зібрані накладні. Порожня стрічка нічого не малює. */}
+            <TodayFeed items={feed.items} />
 
             <AssistantTile />
 

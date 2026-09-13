@@ -42,6 +42,8 @@ export const REP_FEED_TYPES = {
   PRICE_UP: "REP_PRICE_UP",
   /** Офіс закрив заявку торгового: виконано чи відхилено. */
   REQUEST_DONE: "REP_REQUEST_DONE",
+  /** Підсумок тижня у п'ятницю: продажі, зібране, місце в команді. */
+  WEEK: "REP_WEEK",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -88,6 +90,7 @@ export function feedHref(type: string, relatedId: string | null | undefined): st
   if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/clients";
   if (type === REP_FEED_TYPES.WATCH) return "/sales/watches";
   if (type === REP_FEED_TYPES.REQUEST_DONE) return "/sales/requests";
+  if (type === REP_FEED_TYPES.WEEK) return "/sales";
   if (!relatedId) return null;
   // День у шляху, а не в ?day=: білий список тапів застосунку
   // (notification-taps.ts, CABINET_TARGET) параметрів запиту не пропускає.
@@ -121,7 +124,7 @@ export const FEED_FILTERS = [
   {
     key: "tips",
     label: "Підказки",
-    types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST, REP_FEED_TYPES.REQUEST_DONE],
+    types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST, REP_FEED_TYPES.REQUEST_DONE, REP_FEED_TYPES.WEEK],
   },
 ] as const satisfies readonly { key: string; label: string; types: readonly RepFeedType[] | null }[];
 

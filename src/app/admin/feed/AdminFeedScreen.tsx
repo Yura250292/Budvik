@@ -35,7 +35,8 @@ function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
     row.type === REP_FEED_TYPES.CALL_LIST ||
     row.type === REP_FEED_TYPES.ARRIVAL ||
     row.type === REP_FEED_TYPES.WATCH ||
-    row.type === REP_FEED_TYPES.PRICE_UP
+    row.type === REP_FEED_TYPES.PRICE_UP ||
+    row.type === REP_FEED_TYPES.WEEK
   ) {
     return null;
   }

@@ -14,7 +14,8 @@
  *   - arrivals.ts — прихід товару для клієнтів торгового: раз на день о 10:00;
  *   - route-sheets.ts — накладна потрапила в маршрутний лист 1С;
  *   - watches.ts — приїхав товар, на який торговий чекав;
- *   - price-changes.ts — зранку: подорожчало те, що беруть клієнти торгового.
+ *   - price-changes.ts — зранку: подорожчало те, що беруть клієнти торгового;
+ *   - week-summary.ts — у п'ятницю: підсумок тижня з місцем у команді.
  * Вони мають власні ключі дедуплікації й не залежать від курсора; їхні
  * помилки не зупиняють головну стрічку.
  *
@@ -41,6 +42,7 @@ import { collectEvents } from "./events";
 import { collectRouteSheetEvents } from "./route-sheets";
 import { collectWatchEvents } from "./watches";
 import { collectPriceUps, recordPriceChanges } from "./price-changes";
+import { collectWeekSummaries } from "./week-summary";
 import {
   CURSOR_OVERLAP_MS,
   DAILY_PUSH_CAP,
@@ -146,6 +148,7 @@ export async function notifyRepFeed(
     ...(await safely("маршрутні листи", () => collectRouteSheetEvents(now))),
     ...(await safely("товар під запит", () => collectWatchEvents(now))),
     ...(await safely("подорожчання", () => collectPriceUps(now))),
+    ...(await safely("підсумок тижня", () => collectWeekSummaries(now))),
   ];
 
   // ---- запис: нові проти відомих ----

@@ -11,6 +11,9 @@ import {
   describeRoute,
   describeWatch,
   describePriceUp,
+  describeWeek,
+  isKyivFriday,
+  weekStart,
   inDigestWindow,
   priceBasis,
   priceWindow,
@@ -202,6 +205,21 @@ const pw = priceWindow("2026-09-14");
 check("вікно цін понеділка: пт 09:00 — пн 09:00 за Києвом", pw.from.toISOString() === "2026-09-11T06:00:00.000Z" && pw.to.toISOString() === "2026-09-14T06:00:00.000Z", pw);
 const k = (hhmm: string) => new Date(`2026-09-14T${hhmm}:00+03:00`);
 check("зведення: 10:59 для 10 — так, 12:59 — так, 13:00 — ні, 09:59 — ні", inDigestWindow(k("10:59"), 10) && inDigestWindow(k("12:59"), 10) && !inDigestWindow(k("13:00"), 10) && !inDigestWindow(k("09:59"), 10));
+
+// ---- підсумок тижня ----
+check("тиждень → головна", feedHref(REP_FEED_TYPES.WEEK, null) === "/sales");
+check("понеділок тижня: пт 18.09 → пн 14.09, нд 20.09 → пн 14.09, пн → той самий", weekStart("2026-09-18") === "2026-09-14" && weekStart("2026-09-20") === "2026-09-14" && weekStart("2026-09-14") === "2026-09-14");
+check("п'ятниця за Києвом: пт 18.09 23:30 Києва (20:30Z) — так; сб 00:30 Києва (пт 21:30Z) — ні", isKyivFriday(new Date("2026-09-18T20:30:00Z")) && !isKyivFriday(new Date("2026-09-18T21:30:00Z")));
+const wk = describeWeek({ revenue: 312400, prevRevenue: 278900, docs: 41, collected: 280100, clients: 23, place: 3, of: 9 });
+check("тиждень: текст", wk.title === "Ваш тиждень: 312 400 ₴ продажів" && wk.body === "+12% до минулого · накладних 41 · клієнтів 23 · зібрано 280 100 ₴ · місце 3 з 9", wk);
+const wkDown = describeWeek({ revenue: 10000, prevRevenue: 20000, docs: 0, collected: 0, clients: 0, place: 1, of: 1 });
+check("тиждень: падіння з мінусом, без місця в команді з одного", wkDown.body === "−50% до минулого", wkDown);
+const wkTiny = describeWeek({ revenue: 11057, prevRevenue: 37, docs: 2, collected: 0, clients: 2, place: 6, of: 6 });
+check("тиждень: мізерна база — без відсотка", !wkTiny.body.includes("%"), wkTiny);
+const wkJump = describeWeek({ revenue: 90000, prevRevenue: 6000, docs: 1, collected: 0, clients: 1, place: null, of: 6 });
+check("тиждень: стрибок понад 300% — без відсотка", !wkJump.body.includes("%"), wkJump);
+const wkNeg = describeWeek({ revenue: -291026, prevRevenue: 72000, docs: 12, collected: 156948, clients: 12, place: null, of: 6 });
+check("тиждень: від'ємний оборот названо прямо, без відсотка", wkNeg.title === "Ваш тиждень: −291 026 ₴ чистого обороту з поверненнями" && !wkNeg.body.includes("%"), wkNeg);
 
 // ---- заявки в офіс ----
 check("заявка → сторінка заявок", feedHref(REP_FEED_TYPES.REQUEST_DONE, "r1") === "/sales/requests" && feedHref(REP_FEED_TYPES.REQUEST_DONE, null) === "/sales/requests");

@@ -248,6 +248,57 @@ export const ARRIVAL_HOUR = 10;
 /** Година ранкового пуша про подорожчання і межа його вікна. */
 export const PRICE_HOUR = 9;
 
+/** Година п'ятничного підсумку тижня. */
+export const WEEK_HOUR = 16;
+
+export function isKyivFriday(now: Date): boolean {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Kyiv", weekday: "short" }).format(now) === "Fri";
+}
+
+/** Понеділок тижня київського дня «YYYY-MM-DD». */
+export function weekStart(day: string): string {
+  const wd = weekdayOf(day);
+  return addDays(day, -(wd === 0 ? 6 : wd - 1));
+}
+
+/** Нижче цього минулий тиждень не база для відсотка: «+29988%» від 37 ₴ — шум. */
+export const WEEK_PCT_MIN_BASE = 5000;
+/** Більша зміна — майже завжди разова велика накладна чи повернення, а не тренд. */
+export const WEEK_PCT_MAX_ABS = 300;
+
+/**
+ * «Ваш тиждень: 312 400 ₴ продажів» / «+12% до минулого · накладних 41 ·
+ * клієнтів 23 · зібрано 280 100 ₴ · місце 3 з 9».
+ *
+ * Відсоток — лише від відчутної бази й у розумних межах. Від'ємний оборот
+ * (повернення більші за продажі) називаємо прямо, зі справжнім мінусом, і
+ * без відсотка: «−502%» нічого не пояснює.
+ */
+export function describeWeek(input: {
+  revenue: number;
+  prevRevenue: number;
+  docs: number;
+  collected: number;
+  clients: number;
+  place: number | null;
+  of: number;
+}): { title: string; body: string } {
+  const parts: string[] = [];
+  if (input.revenue > 0 && input.prevRevenue >= WEEK_PCT_MIN_BASE) {
+    const pct = Math.round(((input.revenue - input.prevRevenue) / input.prevRevenue) * 100);
+    if (Math.abs(pct) <= WEEK_PCT_MAX_ABS) parts.push(`${pct >= 0 ? "+" : "−"}${Math.abs(pct)}% до минулого`);
+  }
+  if (input.docs > 0) parts.push(`накладних ${input.docs}`);
+  if (input.clients > 0) parts.push(`клієнтів ${input.clients}`);
+  if (input.collected > 0) parts.push(`зібрано ${uah(input.collected)} ₴`);
+  if (input.place && input.of > 1) parts.push(`місце ${input.place} з ${input.of}`);
+  const title =
+    input.revenue < 0
+      ? `Ваш тиждень: −${uah(Math.abs(input.revenue))} ₴ чистого обороту з поверненнями`
+      : `Ваш тиждень: ${uah(input.revenue)} ₴ продажів`;
+  return { title, body: parts.join(" · ") };
+}
+
 /**
  * Скільки годин після призначеної ранкове зведення ще може прийти.
  *
@@ -406,4 +457,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_WATCH: "під запит",
   REP_PRICE_UP: "подорожчання",
   REP_REQUEST_DONE: "заявка",
+  REP_WEEK: "тиждень",
 };

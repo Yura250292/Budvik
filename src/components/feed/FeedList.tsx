@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Banknote, BellRing, ChevronRight, ClipboardCheck, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
+import { Banknote, BarChart3, BellRing, ChevronRight, ClipboardCheck, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
 import { REP_FEED_TYPES } from "@/lib/rep-feed/types";
 
 /**
@@ -38,6 +38,7 @@ export const FEED_ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.WATCH]: BellRing,
   [REP_FEED_TYPES.PRICE_UP]: TrendingUp,
   [REP_FEED_TYPES.REQUEST_DONE]: ClipboardCheck,
+  [REP_FEED_TYPES.WEEK]: BarChart3,
 };
 
 /** Оплата — зелена, повернення — червоне, підказки й прихід — жовті, документи — нейтральні. */

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getSession, useSession } from "next-auth/react";
 import type { Session } from "next-auth";
+import { useNativeReady } from "@/lib/useIsNativeApp";
 
 /**
  * Сесія для роль-гейтів кабінетів — з перепиткою замість миттєвого «вас вигнало».
@@ -78,8 +79,20 @@ export function useGateSession(): { session: Session | null; status: GateStatus 
   }, [status, attempt, rescued]);
 
   const session = data ?? rescued;
-  if (session) return { session, status: "authenticated" };
-  // Поки спроби не вичерпані — це ще не «не увійшов», а «не дізнались».
-  if (status === "loading" || attempt < RETRY_MS.length) return { session: null, status: "loading" };
-  return { session: null, status: "unauthenticated" };
+  const result: { session: Session | null; status: GateStatus } = session
+    ? { session, status: "authenticated" }
+    : // Поки спроби не вичерпані — це ще не «не увійшов», а «не дізнались».
+      status === "loading" || attempt < RETRY_MS.length
+      ? { session: null, status: "loading" }
+      : { session: null, status: "unauthenticated" };
+
+  /*
+    Гейт вирішив, що малювати, — отже, заставку в застосунку можна знімати.
+
+    Саме тут, а не в кожному гейті: цим хуком користуються всі три кабінети
+    (торговий, водій, склад), і сигнал не може розійтися між ними. «Потрібен
+    вхід» — теж справжній вміст: людина має його побачити, а не логотип.
+  */
+  useNativeReady(result.status !== "loading");
+  return result;
 }

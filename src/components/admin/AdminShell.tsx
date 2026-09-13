@@ -13,6 +13,7 @@ import TabsBar from "./tabs/TabsBar";
 import TabsViewport from "./tabs/TabsViewport";
 import LinkInterceptor from "./tabs/LinkInterceptor";
 import { isAdminRole, type AdminRole } from "@/lib/admin-nav";
+import { useNativeReady } from "@/lib/useIsNativeApp";
 
 const RAIL_KEY = "budvik:admin:sidebar:rail-collapsed:v1";
 
@@ -58,6 +59,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
   }, [drawerOpen]);
+
+  /*
+    Панель керівника теж відкривається в робочому застосунку, але гейта, який
+    подав би сигнал «вміст на екрані», у неї немає — тож подає оболонка, щойно
+    сесія відома. Без цього заставка в застосунку чекала б запасного таймера.
+  */
+  useNativeReady(status !== "loading");
 
   const toggleRail = () => {
     setRailCollapsed((v) => {

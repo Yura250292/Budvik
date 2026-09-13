@@ -34,7 +34,12 @@ export function nameKey(name: string): string {
     .join(" ");
 }
 
-const MARKERS = ["(співробітник)", "(торговий)", "(водій)", "(склад)"];
+/**
+ * Позначки в дужках, якими 1С підписує своїх. «(системний адмін)» знайшовся
+ * прогоном приходу 13.09: «Рудько Роман (системний адмін)» стояв серед
+ * покупців піни.
+ */
+const MARKERS = ["(співробітник)", "(торговий)", "(водій)", "(склад)", "(системний адмін)", "(адмін)"];
 
 /** Чиста перевірка: staffKeys — ключі nameKey повних імен персоналу. */
 export function isInternalCounterparty(name: string, staffKeys: ReadonlySet<string>): boolean {

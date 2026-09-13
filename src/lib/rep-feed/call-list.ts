@@ -46,7 +46,7 @@ export function isWeekend(now: Date): boolean {
 }
 
 /** Працює сьогодні: відкрита зміна або хоч одна точка треку за день. */
-async function worksToday(repId: string, day: string): Promise<boolean> {
+export async function worksToday(repId: string, day: string): Promise<boolean> {
   const open = await prisma.shift.count({ where: { userId: repId, status: "OPEN" } });
   if (open > 0) return true;
   const points = await prisma.trackPoint.count({

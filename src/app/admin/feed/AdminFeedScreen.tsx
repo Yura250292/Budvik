@@ -28,7 +28,9 @@ function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
   if (row.type === REP_FEED_TYPES.PAYMENT || row.type === REP_FEED_TYPES.VISIT) {
     return isAdmin ? `/sales/clients/${row.relatedId}` : null;
   }
-  if (row.type === REP_FEED_TYPES.CALL_LIST) return null;
+  // Список дзвінків і сторінка приходу рахуються для конкретного торгового —
+  // керівник відкрив би їх для себе й побачив порожнечу.
+  if (row.type === REP_FEED_TYPES.CALL_LIST || row.type === REP_FEED_TYPES.ARRIVAL) return null;
   return `/admin/erp/sales/${row.relatedId}`;
 }
 

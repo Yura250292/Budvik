@@ -32,6 +32,8 @@ export const REP_FEED_TYPES = {
   VISIT: "REP_VISIT",
   /** Щоденний список «кому подзвонити» об 11:00. */
   CALL_LIST: "REP_CALL_LIST",
+  /** Прихід товару, який беруть клієнти торгового (раз на день о 10:00). */
+  ARRIVAL: "REP_ARRIVAL",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -77,6 +79,9 @@ export type FeedEvent = {
 export function feedHref(type: string, relatedId: string | null | undefined): string | null {
   if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/clients";
   if (!relatedId) return null;
+  // День у шляху, а не в ?day=: білий список тапів застосунку
+  // (notification-taps.ts, CABINET_TARGET) параметрів запиту не пропускає.
+  if (type === REP_FEED_TYPES.ARRIVAL) return `/sales/arrivals/${relatedId}`;
   if (type === REP_FEED_TYPES.PAYMENT || type === REP_FEED_TYPES.VISIT) {
     return `/sales/clients/${relatedId}`;
   }
@@ -96,6 +101,7 @@ export const FEED_FILTERS = [
     types: [REP_FEED_TYPES.DOC_POSTED, REP_FEED_TYPES.DOC_PICKED, REP_FEED_TYPES.DOC_DELIVERED],
   },
   { key: "returns", label: "Повернення", types: [REP_FEED_TYPES.RETURN] },
+  { key: "arrivals", label: "Прихід", types: [REP_FEED_TYPES.ARRIVAL] },
   { key: "tips", label: "Підказки", types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST] },
 ] as const satisfies readonly { key: string; label: string; types: readonly RepFeedType[] | null }[];
 

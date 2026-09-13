@@ -26,6 +26,7 @@ export const PUSH_CATEGORIES: readonly PushCategory[] = [
   { type: REP_FEED_TYPES.RETURN, label: "Повернення", hint: "проведено повернення від вашого клієнта" },
   { type: REP_FEED_TYPES.VISIT, label: "Картка перед візитом", hint: "коли машина зупинилась біля клієнта: борг і що поповнити" },
   { type: REP_FEED_TYPES.CALL_LIST, label: "Кому подзвонити", hint: "щодня об 11:00, до п'яти клієнтів" },
+  { type: REP_FEED_TYPES.ARRIVAL, label: "Прихід товару", hint: "о 10:00, лише те, що беруть ваші клієнти" },
 ];
 
 const KNOWN = new Set<string>(PUSH_CATEGORIES.map((c) => c.type));

@@ -197,6 +197,70 @@ export function describeCallList(items: CallListItem[]): { title: string; body: 
   };
 }
 
+export type ArrivalItemText = { name: string; clients: string[] };
+
+/** Скільки товарів перелічуємо в тілі пуша про прихід. */
+const ARRIVAL_HEAD = 3;
+
+/**
+ * «Приїхало: 7 позицій для ваших клієнтів» / «SOMA FIX Піна-клей PROFIT 750
+ * (37 кл.) · … і ще 4». Товари вже впорядковані за тим, скільки клієнтів
+ * торгового їх беруть.
+ *
+ * Кількість, а не імена: перший прогін з іменами в дужках давав
+ * «(Городецька Св. ма…, ФОП Городецький І…)» — у пуші це не читається.
+ * Хто саме бере — на сторінці приходу.
+ */
+export function describeArrival(items: ArrivalItemText[]): { title: string; body: string } {
+  const n = items.length;
+  const head = items.slice(0, ARRIVAL_HEAD).map((i) => {
+    const k = i.clients.length;
+    return k > 0 ? `${shortName(i.name, 30)} (${k} кл.)` : shortName(i.name, 30);
+  });
+  const rest = n - head.length;
+  return {
+    title: `Приїхало: ${n} ${plural(n, "позиція", "позиції", "позицій")} для ваших клієнтів`,
+    body: rest > 0 ? `${head.join(" · ")} і ще ${rest}` : head.join(" · "),
+  };
+}
+
+/** День тижня київського дня «YYYY-MM-DD»: 0 — неділя. */
+function weekdayOf(day: string): number {
+  return new Date(`${day}T12:00:00Z`).getUTCDay();
+}
+
+function addDays(day: string, delta: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Попередній робочий день (пн–пт) перед `day`. */
+export function previousWorkday(day: string): string {
+  let d = addDays(day, -1);
+  while (weekdayOf(d) === 0 || weekdayOf(d) === 6) d = addDays(d, -1);
+  return d;
+}
+
+/** Година, о якій іде пуш про прихід, і межа вікна. */
+export const ARRIVAL_HOUR = 10;
+
+/**
+ * Вікно приходу для дня: від ARRIVAL_HOUR попереднього робочого дня до
+ * ARRIVAL_HOUR цього. У понеділок воно охоплює п'ятницю після десятої й
+ * вихідні, тож нічого не губиться і нічого не приходить двічі.
+ *
+ * Межі — у «стінному» київському часі, записаному як UTC: так лежать дати
+ * документів 1С (див. docDayFloor).
+ */
+export function arrivalWindow(day: string): { from: Date; to: Date } {
+  const hh = String(ARRIVAL_HOUR).padStart(2, "0");
+  return {
+    from: new Date(`${previousWorkday(day)}T${hh}:00:00.000Z`),
+    to: new Date(`${day}T${hh}:00:00.000Z`),
+  };
+}
+
 export type GroupedPush = { title: string; body: string; target: string };
 
 /** Скільки заголовків перелічуємо у зведеному пуші, далі — «і ще N». */
@@ -236,4 +300,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_DOC_DELIVERED: "доставлено",
   REP_VISIT: "візит",
   REP_CALL_LIST: "дзвінки",
+  REP_ARRIVAL: "прихід",
 };

@@ -10,8 +10,9 @@
  * Три джерела подій:
  *   - events.ts — оплати, документи, склад, доставка: читаються «з курсора»;
  *   - visit-card.ts — зупинка біля клієнта: читається «зараз» із треку;
- *   - call-list.ts — список дзвінків: раз на день об 11:00.
- * Два останні мають власний ключ дедуплікації по дню і не залежать від
+ *   - call-list.ts — список дзвінків: раз на день об 11:00;
+ *   - arrivals.ts — прихід товару для клієнтів торгового: раз на день о 10:00.
+ * Три останні мають власний ключ дедуплікації по дню і не залежать від
  * курсора; їхні помилки не зупиняють головну стрічку.
  *
  * Чому не гак в обробнику обміну, як у складських сповіщень
@@ -31,6 +32,7 @@ import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { sendPushToUser } from "@/lib/push/send";
 import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
+import { collectArrivals } from "./arrivals";
 import { collectCallLists } from "./call-list";
 import { collectEvents } from "./events";
 import {
@@ -123,6 +125,7 @@ export async function notifyRepFeed(
     ...(await collectEvents(since, docDayFloor(now))),
     ...(await safely("картка перед візитом", () => collectVisitCards(now))),
     ...(await safely("список дзвінків", () => collectCallLists(now))),
+    ...(await safely("прихід товару", () => collectArrivals(now))),
   ];
 
   // ---- запис: нові проти відомих ----

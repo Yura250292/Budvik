@@ -7,8 +7,11 @@
  * scripts/rep-feed-notify.mts.
  */
 import {
+  arrivalWindow,
   daysAgo,
   describe,
+  describeArrival,
+  previousWorkday,
   describeCallList,
   describeVisit,
   docDayBounds,
@@ -141,6 +144,27 @@ check("будень: понеділок 14.09", !isWeekend(new Date("2026-09-14T
 // 21:30Z неділі = 00:30 понеділка за Києвом: день тижня рахується за Києвом, не за UTC
 check("понеділок 00:30 Києва (21:30Z неділі) — будень", !isWeekend(new Date("2026-09-13T21:30:00Z")));
 
+// ---- прихід ----
+check("прихід → сторінка дня шляхом", feedHref(REP_FEED_TYPES.ARRIVAL, "2026-09-14") === "/sales/arrivals/2026-09-14");
+check("шлях приходу проходить білий список тапів", /^\/(sales|driver|warehouse)(\/[\w\-/]*)?$/.test("/sales/arrivals/2026-09-14"));
+const arr = describeArrival([
+  { name: "SOMA FIX Піна-клей монтажна 750 мл", clients: ["Химич", "Кунанець", "Галан"] },
+  { name: "Круг відрізний ATAMAN 125", clients: ["Галан"] },
+  { name: "Дріт в'язальний", clients: [] },
+  { name: "Четвертий", clients: ["А"] },
+  { name: "П'ятий", clients: ["Б"] },
+]);
+check("прихід: заголовок з множиною", arr.title === "Приїхало: 5 позицій для ваших клієнтів", arr);
+check("прихід: кількість клієнтів у дужках, «і ще»", arr.body === "SOMA FIX Піна-клей монтажна 7… (3 кл.) · Круг відрізний ATAMAN 125 (1 кл.) · Дріт в'язальний і ще 2", arr);
+check("прихід: довга назва обрізається", describeArrival([{ name: "SOMA FIX Піна-клей монтажна зимова 750 мл", clients: [] }]).body.endsWith("…"));
+check("прихід: одна позиція", describeArrival([{ name: "Піна", clients: ["Химич"] }]).title === "Приїхало: 1 позиція для ваших клієнтів");
+check("прихід: дві позиції", describeArrival([{ name: "А", clients: [] }, { name: "Б", clients: [] }]).title === "Приїхало: 2 позиції для ваших клієнтів");
+check("попередній робочий: пн → пт", previousWorkday("2026-09-14") === "2026-09-11");
+check("попередній робочий: ср → вт", previousWorkday("2026-09-16") === "2026-09-15");
+const win = arrivalWindow("2026-09-14");
+check("вікно понеділка: з пт 10:00 до пн 10:00 (стінний час як UTC)", win.from.toISOString() === "2026-09-11T10:00:00.000Z" && win.to.toISOString() === "2026-09-14T10:00:00.000Z", win);
+check("prefs: прихід серед категорій", PUSH_CATEGORIES.some((c) => c.type === REP_FEED_TYPES.ARRIVAL));
+
 // ---- внутрішні контрагенти ----
 const staff = new Set(["Кулик Дмитро", "Передрій Дмитро", "Юрій Скуратов"].map(nameKey));
 check("внутрішній: (співробітник)", isInternalCounterparty("Джумага Ігор (співробітник)", staff));
@@ -153,6 +177,7 @@ check("внутрішній: слова переставлені, місто в 
 check("не внутрішній: три слова проти двох", !isInternalCounterparty("Кавецький Віктор Васильович(Львів)", new Set([nameKey("Кавецький Віктор")])));
 check("не внутрішній: Складські системи ТОВ", !isInternalCounterparty("Складські системи ТОВ", staff));
 check("не внутрішній: звичайний ФОП", !isInternalCounterparty("ФОП Химич Іван (м.Стрий)", staff));
+check("внутрішній: (системний адмін)", isInternalCounterparty("Рудько Роман (системний адмін)", staff));
 
 // ---- налаштування ----
 check("prefs: null → нічого не вимкнено", parsePushPrefs(null).mutedTypes.length === 0);

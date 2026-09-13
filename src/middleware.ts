@@ -74,6 +74,9 @@ export default withAuth(
          // Стрічка подій — оплати, накладні й клієнти всієї команди разом;
          // свою стрічку торговий має в кабінеті (/sales/feed).
          pathname.startsWith("/admin/feed") ||
+         // Заявки всіх торгових з відповідями офісу; свої торговий бачить
+         // у кабінеті (/sales/requests).
+         pathname.startsWith("/admin/requests") ||
          // Замовлення торговий бачить, а список отримувачів сповіщень — ні:
          // це роздача доступу до контактів усіх покупців у чужий Telegram.
          pathname.startsWith("/admin/orders/alerts") ||

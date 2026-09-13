@@ -40,6 +40,8 @@ export const REP_FEED_TYPES = {
   WATCH: "REP_WATCH",
   /** Подорожчали позиції, які беруть клієнти торгового (раз на ранок). */
   PRICE_UP: "REP_PRICE_UP",
+  /** Офіс закрив заявку торгового: виконано чи відхилено. */
+  REQUEST_DONE: "REP_REQUEST_DONE",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -85,6 +87,7 @@ export type FeedEvent = {
 export function feedHref(type: string, relatedId: string | null | undefined): string | null {
   if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/clients";
   if (type === REP_FEED_TYPES.WATCH) return "/sales/watches";
+  if (type === REP_FEED_TYPES.REQUEST_DONE) return "/sales/requests";
   if (!relatedId) return null;
   // День у шляху, а не в ?day=: білий список тапів застосунку
   // (notification-taps.ts, CABINET_TARGET) параметрів запиту не пропускає.
@@ -115,7 +118,11 @@ export const FEED_FILTERS = [
   },
   { key: "returns", label: "Повернення", types: [REP_FEED_TYPES.RETURN] },
   { key: "arrivals", label: "Товар", types: [REP_FEED_TYPES.ARRIVAL, REP_FEED_TYPES.WATCH, REP_FEED_TYPES.PRICE_UP] },
-  { key: "tips", label: "Підказки", types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST] },
+  {
+    key: "tips",
+    label: "Підказки",
+    types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST, REP_FEED_TYPES.REQUEST_DONE],
+  },
 ] as const satisfies readonly { key: string; label: string; types: readonly RepFeedType[] | null }[];
 
 export type FeedFilterKey = (typeof FEED_FILTERS)[number]["key"];

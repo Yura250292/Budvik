@@ -43,6 +43,13 @@ export default function SalesFeedScreen() {
           Мої запити «Коли буде»
           <span className="text-cab-t3">→</span>
         </Link>
+        <Link
+          href="/sales/requests"
+          className="flex items-center justify-between rounded-2xl border border-cab-line bg-white px-3.5 py-3 text-[14px] font-semibold text-bk active:opacity-80"
+        >
+          Мої заявки в офіс
+          <span className="text-cab-t3">→</span>
+        </Link>
         {today && hasTodayNumbers(today) && (
           <Card padded={false}>
             <div className="px-4 pt-3.5 pb-1 sm:px-5">

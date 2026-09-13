@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Banknote, BellRing, ChevronRight, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
+import { Banknote, BellRing, ChevronRight, ClipboardCheck, FileCheck, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
 import { REP_FEED_TYPES } from "@/lib/rep-feed/types";
 
 /**
@@ -37,11 +37,12 @@ export const FEED_ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.ROUTE]: Route,
   [REP_FEED_TYPES.WATCH]: BellRing,
   [REP_FEED_TYPES.PRICE_UP]: TrendingUp,
+  [REP_FEED_TYPES.REQUEST_DONE]: ClipboardCheck,
 };
 
 /** Оплата — зелена, повернення — червоне, підказки й прихід — жовті, документи — нейтральні. */
 export function feedTone(type: string): string {
-  if (type === REP_FEED_TYPES.PAYMENT) return "text-ok";
+  if (type === REP_FEED_TYPES.PAYMENT || type === REP_FEED_TYPES.REQUEST_DONE) return "text-ok";
   if (type === REP_FEED_TYPES.RETURN) return "text-bad";
   if (
     type === REP_FEED_TYPES.VISIT ||

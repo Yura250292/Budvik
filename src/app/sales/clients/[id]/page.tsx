@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Banknote, ChevronRight, CircleDollarSign, ImageIcon, MapPin, Package, Phone, Star, User, FileText } from "lucide-react";
+import { Banknote, ChevronRight, CircleDollarSign, ImageIcon, MapPin, Package, Phone, Star, User, FileText, ClipboardList } from "lucide-react";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Body, Card, Note, Page } from "@/components/cabinet/ui";
@@ -199,6 +199,22 @@ export default function ClientDetailPage() {
           <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-medium text-bk">Виписка по клієнту</span>
             <span className="block text-xs text-cab-t2">Відвантаження, повернення й оплати — переслати клієнту</span>
+          </span>
+          <ChevronRight size={18} className="shrink-0 text-cab-t3" />
+        </Link>
+
+        {/* Заявка в офіс по цьому клієнту: змінити дані, відстрочка. Замість
+            дзвінка, після якого прохання живе лише в пам'яті менеджера. */}
+        <Link
+          href={`/sales/requests?client=${id}&name=${encodeURIComponent(cp.name)}`}
+          className="flex items-center gap-3 rounded-2xl border border-cab-line bg-white px-4 py-3 active:opacity-80"
+        >
+          <Tile bg="#F1F1EF">
+            <ClipboardList size={18} className="text-cab-t2" />
+          </Tile>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium text-bk">Заявка в офіс</span>
+            <span className="block text-xs text-cab-t2">Змінити дані, відстрочка, інше — зі статусом і відповіддю</span>
           </span>
           <ChevronRight size={18} className="shrink-0 text-cab-t3" />
         </Link>

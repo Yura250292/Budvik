@@ -405,4 +405,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_ROUTE: "у маршруті",
   REP_WATCH: "під запит",
   REP_PRICE_UP: "подорожчання",
+  REP_REQUEST_DONE: "заявка",
 };

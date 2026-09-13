@@ -25,6 +25,7 @@ type Rep = { id: string; name: string };
 
 function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
   if (!row.relatedId) return null;
+  if (row.type === REP_FEED_TYPES.REQUEST_DONE) return "/admin/requests";
   if (row.type === REP_FEED_TYPES.PAYMENT || row.type === REP_FEED_TYPES.VISIT) {
     return isAdmin ? `/sales/clients/${row.relatedId}` : null;
   }

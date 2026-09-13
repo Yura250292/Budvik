@@ -32,6 +32,7 @@ import {
 import { isPushMuted, parsePushPrefs, PUSH_CATEGORIES } from "../src/lib/rep-feed/prefs";
 import { isWeekend } from "../src/lib/rep-feed/call-list";
 import { isInternalCounterparty, nameKey } from "../src/lib/rep-feed/internal";
+import { REQUEST_KINDS, RequestError, validateRequestInput } from "../src/lib/office-requests";
 import { feedHref, isRepFeedType, REP_FEED_TYPES } from "../src/lib/rep-feed/types";
 
 let failed = 0;
@@ -201,6 +202,18 @@ const pw = priceWindow("2026-09-14");
 check("вікно цін понеділка: пт 09:00 — пн 09:00 за Києвом", pw.from.toISOString() === "2026-09-11T06:00:00.000Z" && pw.to.toISOString() === "2026-09-14T06:00:00.000Z", pw);
 const k = (hhmm: string) => new Date(`2026-09-14T${hhmm}:00+03:00`);
 check("зведення: 10:59 для 10 — так, 12:59 — так, 13:00 — ні, 09:59 — ні", inDigestWindow(k("10:59"), 10) && inDigestWindow(k("12:59"), 10) && !inDigestWindow(k("13:00"), 10) && !inDigestWindow(k("09:59"), 10));
+
+// ---- заявки в офіс ----
+check("заявка → сторінка заявок", feedHref(REP_FEED_TYPES.REQUEST_DONE, "r1") === "/sales/requests" && feedHref(REP_FEED_TYPES.REQUEST_DONE, null) === "/sales/requests");
+check("види заявок унікальні", new Set(REQUEST_KINDS.map((k) => k.key)).size === REQUEST_KINDS.length);
+const tryV = (x: unknown) => { try { return validateRequestInput(x); } catch (e) { return e instanceof RequestError ? e.message : "інша помилка"; } };
+check("заявка: без виду — помилка", typeof tryV({ text: "завести клієнта" }) === "string");
+check("заявка: закороткий текст — помилка", typeof tryV({ kind: "OTHER", text: "ok" }) === "string");
+check("заявка: відстрочка без клієнта — помилка", typeof tryV({ kind: "CREDIT", text: "дайте 14 днів" }) === "string");
+const okNew = tryV({ kind: "NEW_CLIENT", text: "  ФОП Химич, ЄДРПОУ 123  " });
+check("заявка: новий клієнт без картки — так, текст обрізано", typeof okNew === "object" && okNew.text === "ФОП Химич, ЄДРПОУ 123" && okNew.counterpartyId === null, okNew);
+const okCredit = tryV({ kind: "CREDIT", text: "дайте 14 днів", counterpartyId: "c1" });
+check("заявка: відстрочка з клієнтом — так", typeof okCredit === "object" && okCredit.counterpartyId === "c1", okCredit);
 
 // ---- внутрішні контрагенти ----
 const staff = new Set(["Кулик Дмитро", "Передрій Дмитро", "Юрій Скуратов"].map(nameKey));

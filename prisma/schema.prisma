@@ -229,6 +229,8 @@ model User {
   notificationPrefs Json?
   /// Запити торгового «повідомити, коли приїде» (src/lib/rep-feed/watches.ts).
   productWatches ProductWatch[] @relation("productWatchUser")
+  /// Заявки торгового в офіс (src/lib/office-requests).
+  officeRequests OfficeRequest[] @relation("officeRequestAuthor")
 
   /// Торговий, чий QR привів цього клієнта. Ставиться один раз (перший виграє)
   /// і далі не перезаписується — інакше чужий QR «перехоплював» би клієнта.
@@ -3069,6 +3071,34 @@ model PushToken {
 /// Застосунок обіцяє показувати обране офлайн, тож воно мусить переживати
 /// перевстановлення — а заразом підтягується й на сайті, коли людина заходить
 /// із того самого акаунта.
+/// Заявка торгового в офіс: завести клієнта, змінити дані, відстрочка…
+///
+/// Сайт у 1С не пише, тож заявка — не дія, а прохання до людини, яка зробить
+/// це в 1С руками. Цінність у тому, що прохання не губиться в дзвінку: офіс
+/// бачить відкриті в адмінці, торговий — статус і відповідь, а про закриття
+/// отримує подію в стрічку й пуш (src/lib/office-requests).
+model OfficeRequest {
+  id             String    @id @default(cuid())
+  authorId       String
+  /// Клієнт, якого стосується заявка; порожньо — «завести нового».
+  counterpartyId String?
+  /// NEW_CLIENT | REQUISITES | CREDIT | OTHER — перелік у office-requests.
+  kind           String
+  text           String
+  /// OPEN | DONE | REJECTED
+  status         String    @default("OPEN")
+  answer         String?
+  doneById       String?
+  doneAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  author User @relation("officeRequestAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([authorId, createdAt])
+}
+
 /// Остання бачена ціна товару — база, від якої рахується подорожчання.
 ///
 /// Історії цін у базі досі не було: обмін переписує Product.price на місці,

@@ -30,6 +30,7 @@ export const PUSH_CATEGORIES: readonly PushCategory[] = [
   { type: REP_FEED_TYPES.ARRIVAL, label: "Прихід товару", hint: "о 10:00, лише те, що беруть ваші клієнти" },
   { type: REP_FEED_TYPES.WATCH, label: "Товар під запит", hint: "приїхало те, на що ви натиснули «Коли буде»" },
   { type: REP_FEED_TYPES.PRICE_UP, label: "Подорожчання", hint: "зранку, від 3%, лише те, що беруть ваші клієнти" },
+  { type: REP_FEED_TYPES.REQUEST_DONE, label: "Відповідь на заявку", hint: "офіс виконав або відхилив вашу заявку" },
 ];
 
 const KNOWN = new Set<string>(PUSH_CATEGORIES.map((c) => c.type));

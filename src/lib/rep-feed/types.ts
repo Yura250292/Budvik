@@ -82,3 +82,27 @@ export function feedHref(type: string, relatedId: string | null | undefined): st
   }
   return `/sales/orders/${relatedId}`;
 }
+
+/**
+ * Фільтри сторінки стрічки: одна таблетка — кілька типів. Спільні для
+ * кабінету торгового й адмінки, тож і назви однакові.
+ */
+export const FEED_FILTERS = [
+  { key: "all", label: "Усі", types: null },
+  { key: "money", label: "Оплати", types: [REP_FEED_TYPES.PAYMENT] },
+  {
+    key: "docs",
+    label: "Накладні",
+    types: [REP_FEED_TYPES.DOC_POSTED, REP_FEED_TYPES.DOC_PICKED, REP_FEED_TYPES.DOC_DELIVERED],
+  },
+  { key: "returns", label: "Повернення", types: [REP_FEED_TYPES.RETURN] },
+  { key: "tips", label: "Підказки", types: [REP_FEED_TYPES.VISIT, REP_FEED_TYPES.CALL_LIST] },
+] as const satisfies readonly { key: string; label: string; types: readonly RepFeedType[] | null }[];
+
+export type FeedFilterKey = (typeof FEED_FILTERS)[number]["key"];
+
+/** Типи для фільтра; null — усі типи стрічки. Невідомий ключ = «усі». */
+export function filterTypes(key: string | null | undefined): RepFeedType[] | null {
+  const f = FEED_FILTERS.find((x) => x.key === key);
+  return f?.types ? [...f.types] : null;
+}

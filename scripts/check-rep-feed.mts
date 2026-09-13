@@ -70,7 +70,7 @@ const mixed = groupPush([
   { title: "A", body: "a", target: "/sales/orders/1" },
   { title: "B", body: "b", target: "/sales/clients/9" },
 ]);
-check("різні цілі → головна", mixed.target === "/sales", mixed);
+check("різні цілі → сторінка стрічки", mixed.target === "/sales/feed", mixed);
 const five = groupPush(
   ["A", "B", "C", "D", "E"].map((t) => ({ title: t, body: "", target: "/sales/orders/1" }))
 );

@@ -206,8 +206,8 @@ const GROUP_HEAD = 3;
  * Кілька подій одного торгового за один тік — один пуш.
  *
  * Одна подія йде як є. Кілька — «3 події у клієнтів» із першими
- * заголовками; ціль спільна, якщо всі про одне й те саме, інакше головна
- * кабінету, де стрічка й лежить.
+ * заголовками; ціль спільна, якщо всі про одне й те саме, інакше сторінка
+ * стрічки /sales/feed, де вони всі й лежать.
  */
 export function groupPush(events: Pick<FeedEvent, "title" | "body" | "target">[]): GroupedPush {
   if (events.length === 0) throw new Error("groupPush: порожній список");
@@ -223,7 +223,7 @@ export function groupPush(events: Pick<FeedEvent, "title" | "body" | "target">[]
   return {
     title: `${n} ${eventsWord(n)} у клієнтів`,
     body,
-    target: targets.size === 1 ? events[0].target : "/sales",
+    target: targets.size === 1 ? events[0].target : "/sales/feed",
   };
 }
 

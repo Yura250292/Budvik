@@ -18,7 +18,7 @@
  * завжди «не застосунок», а різницю домальовуємо після монтування.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** Міст, який нативний застосунок інжектить у кожну сторінку кабінету. */
 export type BudvikAppBridge = {
@@ -226,19 +226,89 @@ function isNewer(server: string, installed: string): boolean {
  */
 const FIRST_PERMANENT_KEY_BUILD = 3;
 
-export function useAppUpdate(): {
+export type AppUpdate = {
+  /** На сервері збірка новіша за встановлену. */
   available: boolean;
+  /** Новіша збірка є, і застосунок поставить її сам (старі збірки — ні). */
   viaBridge: boolean;
   /**
    * Встановлена збірка старша за перехід на постійний ключ — оновлення
    * впреться в «пакет конфліктує», і його треба ставити з нуля.
    */
   signatureChange: boolean;
+  /** Перевірка версії вже відповіла — вдало чи ні. */
+  checked: boolean;
+  /**
+   * Застосунок уміє сам завантажити й поставити збірку — байдуже, чи є новіша.
+   *
+   * Окремо від `viaBridge`, бо пункт у меню аватарки з 13.09.2026 видно
+   * завжди: людина може поставити ту саму збірку наново, і знати, чи вміє це
+   * застосунок, треба ще до відповіді сервера.
+   */
+  canSelfUpdate: boolean;
+  /** Версія в сховищі, коли її вдалося дізнатися: «1.6.4». */
+  latestName: string | null;
+  /** Розмір файла збірки — щоб людина знала, скільки качатиме. */
+  sizeBytes: number | null;
   start: () => void;
-} {
-  const [available, setAvailable] = useState(false);
-  const [viaBridge, setViaBridge] = useState(false);
-  const [signatureChange, setSignatureChange] = useState(false);
+};
+
+type VersionInfo = { versionCode?: number | string; versionName?: string; sizeBytes?: number };
+
+/**
+ * Перевірка версії — одна на кілька хвилин, а не на кожен екран.
+ *
+ * Меню аватарки стоїть у шапці кожної сторінки кабінету, а з 13.09.2026 ще й
+ * у водія та складу. Без спільного запиту кожен перехід між екранами питав би
+ * сервер заново, а роут версії на кожне питання ще й пише відмітку в базу.
+ * Невдалу відповідь не пам'ятаємо: на наступному екрані спробуємо знову.
+ */
+const VERSION_TTL_MS = 10 * 60_000;
+const versionRequests = new Map<string, { at: number; promise: Promise<VersionInfo | null> }>();
+
+function fetchVersion(endpoint: string): Promise<VersionInfo | null> {
+  const cached = versionRequests.get(endpoint);
+  if (cached && Date.now() - cached.at < VERSION_TTL_MS) return cached.promise;
+  const promise = fetch(endpoint, { cache: "no-store" }).then((r) =>
+    r.ok ? (r.json() as Promise<VersionInfo>) : null
+  );
+  versionRequests.set(endpoint, { at: Date.now(), promise });
+  promise.then(
+    (d) => {
+      if (!d) versionRequests.delete(endpoint);
+    },
+    () => versionRequests.delete(endpoint)
+  );
+  return promise;
+}
+
+/** Міст не повідомляє про свою появу, тож підписки немає — лише читання. */
+const subscribeNothing = () => () => {};
+
+function readCanSelfUpdate(): boolean {
+  const bridge = window.BudvikApp;
+  return !!bridge?.appVersionCode && !!bridge?.downloadUpdate;
+}
+
+type UpdateState = Omit<AppUpdate, "canSelfUpdate" | "start">;
+
+const NOT_CHECKED: UpdateState = {
+  available: false,
+  viaBridge: false,
+  signatureChange: false,
+  checked: false,
+  latestName: null,
+  sizeBytes: null,
+};
+
+export function useAppUpdate(): AppUpdate {
+  const [state, setState] = useState<UpdateState>(NOT_CHECKED);
+  /*
+    Міст читаємо синхронно, а не в ефекті: на сервері його немає (false), а
+    на клієнті відповідь потрібна вже при першому відкритті меню — раніше,
+    ніж сервер скаже, яка версія в сховищі.
+  */
+  const canSelfUpdate = useSyncExternalStore(subscribeNothing, readCanSelfUpdate, () => false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -246,37 +316,41 @@ export function useAppUpdate(): {
     // Не застосунок — оновлювати нічого.
     if (!bridge) return;
 
-    const canSelfUpdate = !!bridge.appVersionCode && !!bridge.downloadUpdate;
-    const installedCode = canSelfUpdate ? bridge.appVersionCode!() : null;
+    const selfUpdate = !!bridge.appVersionCode && !!bridge.downloadUpdate;
+    const installedCode = selfUpdate ? bridge.appVersionCode!() : null;
     const installedName = versionNameFromUserAgent();
-
-    // Ні коду, ні мітки — порівнювати нема з чим.
-    if (installedCode === null && !installedName) return;
 
     let cancelled = false;
 
-    fetch(versionEndpoint(), { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
+    fetchVersion(versionEndpoint())
       .then((data) => {
-        if (cancelled || !data) return;
+        if (cancelled) return;
+        if (!data) {
+          setState((s) => ({ ...s, checked: true }));
+          return;
+        }
 
+        // Ні коду, ні мітки в User-Agent — порівнювати нема з чим, і «новішої» немає.
         const newer =
           installedCode !== null
-            ? Number.isFinite(Number(data.versionCode)) &&
-              Number(data.versionCode) > installedCode
+            ? Number.isFinite(Number(data.versionCode)) && Number(data.versionCode) > installedCode
             : typeof data.versionName === "string" &&
               !!installedName &&
               isNewer(data.versionName, installedName);
 
-        if (newer) {
-          setAvailable(true);
-          setViaBridge(canSelfUpdate);
-          setSignatureChange(
-            installedCode !== null && installedCode < FIRST_PERMANENT_KEY_BUILD
-          );
-        }
+        setState({
+          available: newer,
+          viaBridge: newer && selfUpdate,
+          signatureChange:
+            newer && installedCode !== null && installedCode < FIRST_PERMANENT_KEY_BUILD,
+          checked: true,
+          latestName: typeof data.versionName === "string" ? data.versionName : null,
+          sizeBytes: typeof data.sizeBytes === "number" ? data.sizeBytes : null,
+        });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setState((s) => ({ ...s, checked: true }));
+      });
 
     return () => {
       cancelled = true;
@@ -284,9 +358,8 @@ export function useAppUpdate(): {
   }, []);
 
   return {
-    available,
-    viaBridge,
-    signatureChange,
+    ...state,
+    canSelfUpdate,
     start: () => window.BudvikApp?.downloadUpdate?.(),
   };
 }

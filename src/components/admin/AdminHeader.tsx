@@ -10,6 +10,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/lib/useProfile";
 import { titleForPath, type AdminRole } from "@/lib/admin-nav";
 import { usePathname } from "next/navigation";
+import { useAppUpdate } from "@/lib/useIsNativeApp";
+import { AppUpdateMenuItem } from "@/components/app-install/AppUpdateMenuItem";
 
 const ROLE_LABEL: Record<AdminRole, string> = {
   ADMIN: "Адміністратор",
@@ -39,6 +41,12 @@ export default function AdminHeader({
   const { data: session } = useSession();
   const pathname = usePathname() ?? "/admin";
   const profile = useProfile();
+  /**
+   * Керівник теж працює в робочому застосунку (ADMIN і MANAGER відкривають
+   * /admin), але пункту оновлення в його меню не було зовсім — тож оновитися
+   * він міг лише з кабінету торгового. Тепер пункт той самий, що в кабінетах.
+   */
+  const update = useAppUpdate();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -125,8 +133,14 @@ export default function AdminHeader({
               onClick={() => setMenuOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              aria-label="Профіль і налаштування"
-              className="flex min-h-11 items-center gap-2 rounded-[var(--radius-btn)] py-1 pl-1 pr-1 transition-colors hover:bg-g50 active:bg-g100 xl:pr-2"
+              aria-label={
+                update.available
+                  ? "Профіль і налаштування — доступне оновлення застосунку"
+                  : "Профіль і налаштування"
+              }
+              className={`flex min-h-11 items-center gap-2 rounded-[var(--radius-btn)] py-1 pl-1 pr-1 transition-colors hover:bg-g50 active:bg-g100 xl:pr-2${
+                update.available ? " update-ring" : ""
+              }`}
             >
               <Avatar name={name} id={profile?.id} src={profile?.avatarUrl} color={profile?.color} size={34} />
               <span className="hidden xl:block min-w-0 max-w-[160px] text-left">
@@ -172,6 +186,14 @@ export default function AdminHeader({
                   </svg>
                   Змінити пароль
                 </Link>
+
+                {/* Сторінка встановлення живе в кабінеті торгового, куди MANAGER не пускають. */}
+                <AppUpdateMenuItem
+                  update={update}
+                  appPageHref={role === "MANAGER" ? undefined : "/sales/app"}
+                  onClose={() => setMenuOpen(false)}
+                  padX="px-3.5"
+                />
 
                 {(role === "ADMIN" || role === "MANAGER") && (
                   <Link

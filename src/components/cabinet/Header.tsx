@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { ChevronLeft, Sparkles } from "lucide-react";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { ChatHeaderButton } from "@/components/chat/ChatHeaderButton";
+import { CabinetProfileMenu } from "@/components/cabinet/ProfileMenu";
 
 /**
  * Темна шапка кабінету — спільна для торгового й водія.
@@ -98,6 +99,26 @@ export function CabinetHeader({
       : "/sales/chat";
   const showChat = !hideChat && !/\/chat(\/|$)/.test(pathname);
 
+  /**
+   * Аватарка з меню у водія й складу — її додає сама шапка.
+   *
+   * У торгового меню приходить через SalesHeader, а водій і склад малюють цю
+   * шапку напряму на десятку сторінок: копія меню в кожній розійшлася б на
+   * першій правці. Аватарки в них не було зовсім, і оновити застосунок з неї
+   * вони не могли (13.09.2026). Сторінка профілю аватарку не дублює.
+   */
+  const profileMenu =
+    pathname.startsWith("/driver") && !pathname.startsWith("/driver/profile") ? (
+      <CabinetProfileMenu
+        roleLabel="Водій"
+        profileHref="/driver/profile"
+        appPageHref="/driver/app"
+        signOutTo="/login"
+      />
+    ) : pathname.startsWith("/warehouse") && !pathname.startsWith("/warehouse/profile") ? (
+      <CabinetProfileMenu roleLabel="Складовщик" profileHref="/warehouse/profile" signOutTo="/login" />
+    ) : null;
+
   return (
     <header
       className={sticky ? "sticky top-0 z-40" : "relative"}
@@ -181,6 +202,7 @@ export function CabinetHeader({
             </Link>
           )}
           {right}
+          {profileMenu}
         </div>
       </div>
     </header>

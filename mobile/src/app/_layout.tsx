@@ -32,6 +32,12 @@ import { useNotificationTaps } from "@/track/notification-taps";
 import { useTrackHealth } from "@/track/use-track-health";
 import { useAutoUpdate } from "@/lib/use-auto-update";
 import { colors, space, radius } from "@/theme";
+import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
+import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { bootDone, bootReport } from "@/lib/boot";
+import { BootScreen } from "@/ui/BootScreen";
+import { c } from "@/ui/tokens";
 
 /**
  * Область токена читається наперед, поки замок питає про біометрію.
@@ -45,6 +51,19 @@ import { colors, space, radius } from "@/theme";
  * читання підняло б запит відбитка ще до замка — тобто двічі за один запуск.
  */
 void getScope();
+
+/**
+ * Нативний сплеш тримаємо, поки не намалюється заставка (ui/BootScreen.tsx).
+ *
+ * Без цього роутер ховає його на першому кадрі, а перший кадр ще порожній:
+ * між чорним сплешем і кабінетом блимав білий екран. Виклик мусить стояти
+ * тут, у глобальній області: з компонента чи ефекту він запізнюється, і
+ * сплеш уже встигає зникнути.
+ *
+ * Лише робоча збірка. У магазині заставки немає, і сплеш ховає роутер, як і
+ * раніше, — інакше його там не прибрав би ніхто.
+ */
+if (IS_STAFF_BUILD) SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -143,9 +162,18 @@ function LockGate({ children }: { children: React.ReactNode }) {
     setState("checking");
     if (!(await isBiometricEnabled())) {
       setState("open");
+      bootReport("unlock", 0.1);
       return;
     }
-    setState((await unlock()) ? "open" : "locked");
+    const ok = await unlock();
+    setState(ok ? "open" : "locked");
+    /*
+      Замок, що не відкрився, — це вже справжній екран із кнопками, і
+      заставка поверх нього сховала б єдиний шлях далі. Повторна спроба
+      веде в кабінет, а той увімкне заставку знову сам.
+    */
+    if (ok) bootReport("unlock", 0.1);
+    else bootDone();
   }
 
   useEffect(() => {
@@ -213,6 +241,31 @@ export default function RootLayout() {
    */
   useAutoUpdate();
 
+  useEffect(() => {
+    if (!IS_STAFF_BUILD) return;
+    /*
+      Фон вікна — чорний, як заставка.
+
+      У встановленому APK він білий (expo.backgroundColor), і саме його видно
+      в мить перезапуску після оновлення повітрям: React-корінь уже знесено, а
+      новий ще не намалювався. У app.config.ts фон уже чорний, але доїде лише
+      з наступним APK; до того фарбуємо тут.
+    */
+    SystemUI.setBackgroundColorAsync(c.bk).catch(() => {});
+    /*
+      Друга страховка сплешу — на випадок, коли шар заставки не змонтувався
+      зовсім: сплеш, що висить над застосунком, гірший за будь-яке блимання.
+    */
+    const t = setTimeout(() => {
+      try {
+        SplashScreen.hide();
+      } catch {
+        // Модуля сплешу немає — ховати нічого.
+      }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PersistQueryClientProvider
@@ -264,6 +317,8 @@ export default function RootLayout() {
           </Stack>
         </LockGate>
       </PersistQueryClientProvider>
+      {/* Поверх усього — замка, навігації й кабінету: заставка одна на весь шлях. */}
+      {IS_STAFF_BUILD && <BootScreen />}
     </GestureHandlerRootView>
   );
 }

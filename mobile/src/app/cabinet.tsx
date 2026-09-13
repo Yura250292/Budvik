@@ -33,6 +33,7 @@ import { bufferedCount, logEvent } from "@/track/db";
 import { getRole, isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { bootBegin, bootDone, bootReport } from "@/lib/boot";
 import { registerForPush } from "@/lib/push";
 import {
   askEnableLocationServices,
@@ -83,6 +84,9 @@ import { colors, space, radius } from "@/theme";
 function installedCode(): number {
   return installedVersionCode() || APP_VERSION_CODE;
 }
+
+/** Скільки чекати сигналу сторінки після кінця HTML, перш ніж зняти заставку самим. */
+const READY_FALLBACK_MS = 3000;
 
 export default function CabinetScreen() {
   const router = useRouter();
@@ -151,9 +155,52 @@ export default function CabinetScreen() {
     micPermission: "unknown",
   });
 
+  /**
+   * Заставка запуску — з монтажу кабінету, а не з фокуса.
+   *
+   * Після входу кабінет з'являється, коли заставка холодного старту вже
+   * пішла, і WebView знову вантажиться з нуля: без цього виклику людина
+   * дивилася б на порожній чорний екран. На холодному старті виклик нічого
+   * не міняє — заставка вже стоїть.
+   *
+   * Саме useEffect, а не useFocusEffect нижче: той спрацьовує й при
+   * поверненні зі «Зміни» чи «Мого дня», і логотип перекривав би вже
+   * відкритий кабінет щоразу.
+   */
+  useEffect(() => {
+    if (IS_STAFF_BUILD) bootBegin();
+  }, []);
+
+  /**
+   * Запасний вихід із заставки, коли сторінка сама не скаже «готово».
+   *
+   * Сигнал `ready` подає гейт кабінету на сайті. Старий сайт (до 13.09.2026)
+   * його не знає, а сторінка помилки без гейта не подасть ніколи. Тоді
+   * заставку знімаємо через кілька секунд після кінця HTML: гейт устигає
+   * дістати сесію, а людина не встигає вирішити, що застосунок завис.
+   *
+   * Таймер гаситься при виході з екрана: інакше після виходу й швидкого
+   * повторного входу старий таймер зняв би заставку нового кабінету.
+   */
+  const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const timers = readyTimer;
+    return () => {
+      if (timers.current) clearTimeout(timers.current);
+    };
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      getToken().then(setToken);
+      /*
+        Без токена кабінет не відкриється взагалі, і ховати таку поломку за
+        логотипом до стелі в 20 секунд гірше, ніж показати її одразу.
+      */
+      getToken().then((t) => {
+        setToken(t);
+        if (t) bootReport("token", 0.3);
+        else bootDone();
+      });
       if (IS_STAFF_BUILD) {
         within(currentPermissions(), PROBE_MS, null).then(setPerms);
         within(getRole(), PROBE_MS, null).then(setRole);
@@ -258,6 +305,18 @@ export default function CabinetScreen() {
     (raw: string) => {
       const msg = parseBridgeMessage(raw);
       if (!msg) return;
+      /*
+        Сторінка показала вміст — знімаємо заставку запуску.
+
+        Першою гілкою і з `return` обов'язково: у кінці цього ланцюжка все,
+        що не впізнано, трактується як вихід із акаунта. Пропущений return
+        тут означав би, що кабінет вилогінює людину на кожному запуску.
+      */
+      if (msg.type === "ready") {
+        if (readyTimer.current) clearTimeout(readyTimer.current);
+        bootDone();
+        return;
+      }
       if (msg.type === "openShift") {
         router.push("/shift");
         return;
@@ -333,6 +392,8 @@ export default function CabinetScreen() {
        * Саме тому міст перехоплює logout, а не лишає його сторінці.
        */
       setLeaving(true);
+      // Екран виходу має бути видно, навіть якщо вихід натиснули раніше за «готово».
+      bootDone();
       logoutAndStop()
         .catch(() => {})
         .finally(() => router.replace("/(tabs)/account"));
@@ -394,7 +455,18 @@ export default function CabinetScreen() {
     );
   }
 
-  if (!token) return <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />;
+  /*
+    Чорна оболонка, а не голий спінер на білому: зазвичай її накриває
+    заставка, а якщо та вже пішла — білого кадру перед кабінетом немає.
+  */
+  if (!token) {
+    return (
+      <View style={[styles.shell, styles.centerDark]}>
+        <Stack.Screen options={{ title: "Кабінет", headerShown: false }} />
+        <ActivityIndicator color={colors.brand} />
+      </View>
+    );
+  }
 
   if (failed) {
     return (
@@ -602,10 +674,17 @@ export default function CabinetScreen() {
         onNavigationStateChange={(nav) => {
           canGoBack.current = nav.canGoBack;
         }}
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed(true);
+          // «Кабінет не відкрився» мусить бути видно одразу, а не після стелі заставки.
+          bootDone();
+        }}
         onHttpError={({ nativeEvent }) => {
           // 401 означає, що токен відкликали — далі показувати кабінет нема сенсу.
-          if (nativeEvent.statusCode === 401) setFailed(true);
+          if (nativeEvent.statusCode === 401) {
+            setFailed(true);
+            bootDone();
+          }
         }}
         /**
          * Дві перевірки в одному місці.
@@ -654,9 +733,26 @@ export default function CabinetScreen() {
           }
           return req.url.startsWith(API_BASE);
         }}
-        startInLoadingState
-        renderLoading={() => <ActivityIndicator style={{ marginTop: space.xl }} color={colors.ink} />}
-        style={{ flex: 1 }}
+        /*
+          Хід завантаження — у заставку запуску.
+
+          Власної заглушки WebView більше немає: у бібліотеці вона зашита
+          білою (loadingOrErrorView), і перефарбувати її нічим — лише прибрати.
+          Чорний фон самого WebView — на випадок, коли заставка вже пішла
+          (стеля), а сторінка ще не намалювалася.
+
+          Частка 0,30–0,85 під сторінку: нижче — те, що пройдено до неї
+          (замок, розвилка, токен), вище — запас на «майже готово», поки гейт
+          сторінки питає сесію. Після першого «готово» доповіді мовчать, тож
+          переходи по кабінету заставку не будять.
+        */
+        onLoadProgress={({ nativeEvent }) => bootReport("page", 0.3 + 0.55 * nativeEvent.progress)}
+        onLoadEnd={() => {
+          bootReport("page", 0.9);
+          if (readyTimer.current) clearTimeout(readyTimer.current);
+          readyTimer.current = setTimeout(bootDone, READY_FALLBACK_MS);
+        }}
+        style={{ flex: 1, backgroundColor: colors.ink }}
       />
     </View>
   );
@@ -664,6 +760,7 @@ export default function CabinetScreen() {
 
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: colors.ink },
+  centerDark: { alignItems: "center", justifyContent: "center" },
   dlStrip: { backgroundColor: "#0A0A0A", paddingVertical: 10, paddingHorizontal: space.lg, gap: 6 },
   dlText: { color: "#FFD600", fontSize: 14, fontWeight: "700" },
   dlTrack: { flexDirection: "row", height: 4, borderRadius: 2, overflow: "hidden", backgroundColor: "#1F2937" },

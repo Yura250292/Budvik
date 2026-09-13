@@ -105,7 +105,16 @@ const config: ExpoConfig = {
    */
   scheme: isStaff ? "budvik27staff" : "budvik27",
   userInterfaceStyle: "light",
-  backgroundColor: "#FFFFFF",
+  /**
+   * Фон вікна під усім застосунком.
+   *
+   * У робочій збірці чорний: саме його видно між нативним сплешем і першим
+   * кадром JS та під час перезапуску після оновлення повітрям, а білий там
+   * блимав перед чорною заставкою (ui/BootScreen.tsx). Це нативний ресурс —
+   * повітрям не їде, лише з новим APK; до того фон фарбує SystemUI у
+   * кореневому _layout.
+   */
+  backgroundColor: isStaff ? "#0A0A0A" : "#FFFFFF",
   primaryColor: "#FFD600",
   owner: "sdirols",
 

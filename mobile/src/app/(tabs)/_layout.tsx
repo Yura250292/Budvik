@@ -11,6 +11,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { getScope, onScopeChange } from "@/lib/auth-store";
 import { useCartCount } from "@/lib/useCartCount";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
+import { bootDone, bootReport } from "@/lib/boot";
 import { AppHeader } from "@/components/AppHeader";
 import { colors } from "@/theme";
 
@@ -41,6 +42,22 @@ export default function TabsLayout() {
      */
     return onScopeChange(setScope);
   }, []);
+
+  /**
+   * Заставка запуску: розвилка — перше місце, яке знає, чи буде кабінет.
+   *
+   * Кабінет — хід триває, заставка лишається до вмісту сторінки. Вітрина або
+   * екран входу — це вже справжній екран, і заставка йде.
+   *
+   * bootBegin тут свідомо НЕ кличемо: при вході область стає "track" ще до
+   * налаштування треку, і заставка накрила б форму входу з «Хвилинку…».
+   * Після входу заставку вмикає сам кабінет, коли монтується.
+   */
+  useEffect(() => {
+    if (scope === undefined) return;
+    if (scope === "track" && IS_STAFF_BUILD) bootReport("scope", 0.2);
+    else bootDone();
+  }, [scope]);
 
   if (scope === undefined) return null;
   if (scope === "track" && IS_STAFF_BUILD) return <Redirect href="/cabinet" />;

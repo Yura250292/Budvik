@@ -44,7 +44,8 @@ export type BridgeMessage =
   | { type: "openAppSettings" }
   | { type: "reportMic"; detail?: string }
   | { type: "logout" }
-  | { type: "downloadUpdate" };
+  | { type: "downloadUpdate" }
+  | { type: "ready" };
 
 export function bridgeScript(state: BridgeState): string {
   const json = JSON.stringify(state);
@@ -112,6 +113,14 @@ export function bridgeScript(state: BridgeState): string {
     reportMic: function (detail) { send("reportMic", { detail: String(detail || "") }); },
     logout: function () { send("logout"); },
     downloadUpdate: function () { send("downloadUpdate"); },
+    /**
+     * Сторінка показала вміст — застосунок знімає заставку запуску.
+     *
+     * Кінця завантаження тут мало: onLoadEnd приходить на HTML, а гейт кабінету
+     * після нього ще питає сесію, і заставка зникала б над спінером. Старий
+     * сайт методу не кличе — тоді заставку знімає запасний таймер у кабінеті.
+     */
+    ready: function () { send("ready"); },
     shiftStateJson: function () {
       return JSON.stringify({ open: s.shiftOpen, pending: s.pending });
     },
@@ -139,7 +148,8 @@ export function parseBridgeMessage(raw: string): BridgeMessage | null {
       data.type === "openAppSettings" ||
       data.type === "reportMic" ||
       data.type === "logout" ||
-      data.type === "downloadUpdate"
+      data.type === "downloadUpdate" ||
+      data.type === "ready"
     ) {
       // `route` несемо далі: без нього «Мій день» показав би не той
       // маршрутний лист, коли їх на добу два.

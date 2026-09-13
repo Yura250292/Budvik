@@ -114,13 +114,43 @@ function nativeDriftSince(version: string): string | null {
       encoding: "utf-8",
     });
     const pkg = JSON.parse(raw) as Record<string, unknown>;
-    return JSON.stringify({ d: pkg.dependencies ?? {}, dev: pkg.devDependencies ?? {} });
+    const dev = { ...((pkg.devDependencies as Record<string, string> | undefined) ?? {}) };
+    for (const name of BUILD_TOOLS) delete dev[name];
+    return JSON.stringify({ d: pkg.dependencies ?? {}, dev });
   };
 
-  return deps(built) === deps("HEAD")
+  if (deps(built) !== deps("HEAD")) {
+    return `залежності mobile/package.json змінювалися після ${version} (${built})`;
+  }
+
+  /**
+   * Патчі нативних модулів — окремо від залежностей.
+   *
+   * Патч міняє код УСЕРЕДИНІ модуля, і в старій оболонці його просто немає. Для
+   * JS це безпечно, доки патч не чіпає того, що JS бачить: оголошень функцій і
+   * властивостей модуля. Внутрішня логіка (як 19d1788 у expo-location) лише
+   * змінює поведінку служби — стара оболонка поводиться, як поводилася.
+   * Новий або змінений виклик — інша справа: свіжий JS кликав би функцію, якої
+   * там немає, і падав би на старті. Такий патч зупиняє публікацію.
+   */
+  const patchDiff = git(["diff", built, "HEAD", "--", "mobile/patches"]);
+  const apiLines = patchDiff
+    .split("\n")
+    .filter((l) => /^[+-]{2}[^+-]/.test(l) && /\b(AsyncFunction|Function|Property|Constants|Events)\s*\(/.test(l));
+  return apiLines.length === 0
     ? null
-    : `залежності mobile/package.json змінювалися після ${version} (${built})`;
+    : `патч нативного модуля після ${version} (${built}) змінює API для JS:\n     ${apiLines.join("\n     ")}`;
 }
+
+/**
+ * Інструменти збірки, які живуть у devDependencies, але модулем в APK не стають.
+ *
+ * `patch-package` лише накладає патчі на node_modules під час встановлення. Сам
+ * по собі він не додає оболонці жодного нативного модуля — а те, що накладають
+ * патчі, перевіряється нижче окремо. 13.09.2026 без цього списку запобіжник
+ * зупинив публікацію на 1.6.2, 1.6.1 і 1.5.1 через один рядок у devDependencies.
+ */
+const BUILD_TOOLS = ["patch-package"];
 
 async function main() {
   const since = new Date(Date.now() - ALIVE_DAYS * 24 * 3600_000);

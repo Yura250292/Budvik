@@ -30,40 +30,60 @@ export function PushPrefsCard() {
       .catch(() => setError("Не вдалося прочитати налаштування"));
   }, []);
 
-  const toggle = async (type: string) => {
+  const save = async (mutedTypes: string[]) => {
     if (!prefs || busy) return;
-    const muted = new Set(prefs.mutedTypes);
-    if (muted.has(type)) muted.delete(type);
-    else muted.add(type);
-    const next = { ...prefs, mutedTypes: [...muted] };
-    setPrefs(next);
+    const before = prefs;
+    setPrefs({ ...prefs, mutedTypes });
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/sales/push-prefs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mutedTypes: next.mutedTypes }),
+        body: JSON.stringify({ mutedTypes }),
       });
       if (!res.ok) throw new Error(String(res.status));
       setPrefs(await res.json());
     } catch {
       setError("Не збереглося — спробуйте ще раз");
-      setPrefs(prefs);
+      setPrefs(before);
     } finally {
       setBusy(false);
     }
   };
 
+  const toggle = (type: string) => {
+    if (!prefs) return;
+    const muted = new Set(prefs.mutedTypes);
+    if (muted.has(type)) muted.delete(type);
+    else muted.add(type);
+    void save([...muted]);
+  };
+
   if (!prefs) return null;
+
+  const anyOn = prefs.mutedTypes.length < prefs.categories.length;
 
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle big>Сповіщення вдень</CardTitle>
       <Note>
-        Оплати, накладні й підказки приходять пушем у робочі години. Вимкнене тут лишається в
-        стрічці «Сьогодні» на головній, лише без сповіщення.
+        Оплати, накладні й підказки приходять пушем у робочі години і лише про ваших клієнтів.
+        Вимкнене тут лишається в стрічці «Сьогодні» на головній, лише без сповіщення.
       </Note>
+      {/* Загальний вимикач — щоб не гасити сім перемикачів по одному. */}
+      <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-cab-line bg-cab-bg px-3 py-2.5">
+        <span className="min-w-0 flex-1 text-[15px] font-semibold text-bk">Усі сповіщення стрічки</span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-checked={anyOn}
+          checked={anyOn}
+          disabled={busy}
+          onChange={() => void save(anyOn ? prefs.categories.map((c) => c.type) : [])}
+          className="h-6 w-6 shrink-0 accent-[#FFD600]"
+        />
+      </label>
       <ul className="divide-y divide-cab-line">
         {prefs.categories.map((c) => {
           const on = !prefs.mutedTypes.includes(c.type);

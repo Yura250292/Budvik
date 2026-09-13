@@ -22,8 +22,50 @@ import { pickLines, pickProgress } from "@/lib/warehouse/picking";
 import { describe } from "./format";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
-/** Лише торгові: офісні імена з «Ответственный» 1С теж мають salesRepId. */
-const SALES_REP = { role: "SALES" as const };
+/**
+ * Чий це клієнт — а отже, кому пуш.
+ *
+ * Не «Ответственный» документа: у 1С його часто ставить на себе офіс, який
+ * набирає замовлення за польового торгового (див. field-sales-reps-vs-office).
+ * Тоді польовий не дізнався б про власного клієнта, а офісна обліковка
+ * отримувала б чуже. Драбина: закріплення клієнта (SalesRepClient, перше за
+ * id — так само, як у рознесенні оплат) → відповідальний документа. Обидва
+ * мусять бути торговими; інакше події немає.
+ */
+async function resolveReps(
+  rows: { counterpartyId: string | null; salesRepId: string | null }[]
+): Promise<(row: { counterpartyId: string | null; salesRepId: string | null }) => string | null> {
+  const cpIds = [...new Set(rows.map((r) => r.counterpartyId).filter((id): id is string => !!id))];
+  const assigned = cpIds.length
+    ? await prisma.salesRepClient.findMany({
+        where: { counterpartyId: { in: cpIds } },
+        select: { counterpartyId: true, salesRepId: true },
+        orderBy: { id: "asc" },
+      })
+    : [];
+  const firstByClient = new Map<string, string>();
+  for (const a of assigned) if (!firstByClient.has(a.counterpartyId)) firstByClient.set(a.counterpartyId, a.salesRepId);
+
+  const candidates = new Set<string>([...firstByClient.values()]);
+  for (const r of rows) if (r.salesRepId) candidates.add(r.salesRepId);
+  const sales = new Set(
+    candidates.size
+      ? (
+          await prisma.user.findMany({
+            where: { id: { in: [...candidates] }, role: "SALES" },
+            select: { id: true },
+          })
+        ).map((u) => u.id)
+      : []
+  );
+
+  return (row) => {
+    const byClient = row.counterpartyId ? firstByClient.get(row.counterpartyId) : undefined;
+    if (byClient && sales.has(byClient)) return byClient;
+    if (row.salesRepId && sales.has(row.salesRepId)) return row.salesRepId;
+    return null;
+  };
+}
 
 /**
  * Проведена накладна, яка вже могла піти далі. `liveOnSite && posted`
@@ -37,6 +79,7 @@ const docSelect = {
   number: true,
   totalAmount: true,
   salesRepId: true,
+  counterpartyId: true,
   counterparty: { select: { name: true } },
 } as const;
 
@@ -44,7 +87,6 @@ async function payments(since: Date, docFloor: Date): Promise<FeedEvent[]> {
   const rows = await prisma.paymentAllocation.findMany({
     where: {
       createdAt: { gt: since },
-      rep: SALES_REP,
       payment: {
         OR: [{ paidAt: { gte: docFloor } }, { paidAt: null, createdAt: { gte: docFloor } }],
       },
@@ -68,7 +110,14 @@ async function payments(since: Date, docFloor: Date): Promise<FeedEvent[]> {
     orderBy: { createdAt: "asc" },
   });
 
-  return rows.map((r) => {
+  const repFor = await resolveReps(
+    rows.map((r) => ({ counterpartyId: r.payment.invoice.counterpartyId, salesRepId: r.repId }))
+  );
+
+  const events: FeedEvent[] = [];
+  for (const r of rows) {
+    const repId = repFor({ counterpartyId: r.payment.invoice.counterpartyId, salesRepId: r.repId });
+    if (!repId) continue;
     const cp = r.payment.invoice.counterparty;
     const text = describe({
       type: REP_FEED_TYPES.PAYMENT,
@@ -76,9 +125,9 @@ async function payments(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       amount: r.payment.amount,
       balance: cp.receivableBalance ?? null,
     });
-    return {
+    events.push({
       type: REP_FEED_TYPES.PAYMENT,
-      repId: r.repId,
+      repId,
       // Ключ по рознесенню, не по платежу: один платіж може бути рознесений
       // на двох торгових, і кожен має отримати свій рядок.
       dedupKey: `${REP_FEED_TYPES.PAYMENT}:${r.id}`,
@@ -86,8 +135,9 @@ async function payments(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       target: `/sales/clients/${r.payment.invoice.counterpartyId}`,
       ...text,
       at: r.createdAt,
-    };
-  });
+    });
+  }
+  return events;
 }
 
 async function posted(since: Date, docFloor: Date): Promise<FeedEvent[]> {
@@ -100,16 +150,18 @@ async function posted(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       // Лише документи з 1С: створені на сайті мають свої сповіщення
       // (SALES_DOC_CONFIRMED керівникам) і на торгового не йдуть.
       externalId: { not: null },
-      salesRepId: { not: null },
-      salesRep: SALES_REP,
     },
     select: { ...docSelect, updatedAt: true },
     orderBy: { updatedAt: "asc" },
   });
+  const repFor = await resolveReps(docs);
 
-  return docs.map((d) => ({
+  return docs.flatMap((d) => {
+    const repId = repFor(d);
+    if (!repId) return [];
+    return [{
     type: REP_FEED_TYPES.DOC_POSTED,
-    repId: d.salesRepId as string,
+    repId,
     dedupKey: `${REP_FEED_TYPES.DOC_POSTED}:${d.id}`,
     relatedId: d.id,
     target: `/sales/orders/${d.id}`,
@@ -120,7 +172,8 @@ async function posted(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       amount: d.totalAmount,
     }),
     at: d.updatedAt,
-  }));
+    } satisfies FeedEvent];
+  });
 }
 
 async function picked(since: Date, docFloor: Date): Promise<FeedEvent[]> {
@@ -140,21 +193,22 @@ async function picked(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       docType: "REALIZATION",
       status: { not: "CANCELLED" },
       createdAt: { gte: docFloor },
-      salesRepId: { not: null },
-      salesRep: SALES_REP,
     },
     select: docSelect,
   });
+  const repFor = await resolveReps(docs);
 
   const events: FeedEvent[] = [];
   for (const d of docs) {
+    const repId = repFor(d);
+    if (!repId) continue;
     // Той самий підрахунок, що на екрані складу: зібрано = ні недобору, ні
     // зайвого. Інакше пуш казав би «зібрано» там, де екран ще показує рядки.
     const progress = pickProgress(await pickLines(d.id));
     if (!progress.готово || progress.позицій === 0) continue;
     events.push({
       type: REP_FEED_TYPES.DOC_PICKED,
-      repId: d.salesRepId as string,
+      repId,
       dedupKey: `${REP_FEED_TYPES.DOC_PICKED}:${d.id}`,
       relatedId: d.id,
       target: `/sales/orders/${d.id}`,
@@ -179,16 +233,18 @@ async function returns(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       updatedAt: { gt: since },
       createdAt: { gte: docFloor },
       externalId: { not: null },
-      salesRepId: { not: null },
-      salesRep: SALES_REP,
     },
     select: { ...docSelect, updatedAt: true },
     orderBy: { updatedAt: "asc" },
   });
+  const repFor = await resolveReps(docs);
 
-  return docs.map((d) => ({
+  return docs.flatMap((d) => {
+    const repId = repFor(d);
+    if (!repId) return [];
+    return [{
     type: REP_FEED_TYPES.RETURN,
-    repId: d.salesRepId as string,
+    repId,
     dedupKey: `${REP_FEED_TYPES.RETURN}:${d.id}`,
     relatedId: d.id,
     target: `/sales/orders/${d.id}`,
@@ -199,7 +255,8 @@ async function returns(since: Date, docFloor: Date): Promise<FeedEvent[]> {
       amount: d.totalAmount,
     }),
     at: d.updatedAt,
-  }));
+    } satisfies FeedEvent];
+  });
 }
 
 /**
@@ -211,19 +268,21 @@ async function delivered(since: Date): Promise<FeedEvent[]> {
     where: {
       deliveredAt: { gt: since },
       salesDocumentId: { not: null },
-      salesDocument: { salesRepId: { not: null }, salesRep: SALES_REP },
     },
     select: { deliveredAt: true, salesDocument: { select: docSelect } },
     orderBy: { deliveredAt: "asc" },
   });
+  const repFor = await resolveReps(stops.flatMap((s) => (s.salesDocument ? [s.salesDocument] : [])));
 
   const events: FeedEvent[] = [];
   for (const s of stops) {
     const d = s.salesDocument;
-    if (!d || !d.salesRepId || !s.deliveredAt) continue;
+    if (!d || !s.deliveredAt) continue;
+    const repId = repFor(d);
+    if (!repId) continue;
     events.push({
       type: REP_FEED_TYPES.DOC_DELIVERED,
-      repId: d.salesRepId,
+      repId,
       dedupKey: `${REP_FEED_TYPES.DOC_DELIVERED}:${d.id}`,
       relatedId: d.id,
       target: `/sales/orders/${d.id}`,

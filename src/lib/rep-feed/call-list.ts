@@ -14,8 +14,8 @@
 import { prisma } from "@/lib/prisma";
 import { repActionCandidates, ACTION_LABELS, type ActionKind } from "@/lib/analytics/company/rep-actions";
 import { shiftDay } from "@/lib/analytics/period";
-import { KYIV_TZ, kyivDate, kyivDayEnd, kyivDayStart, kyivHour } from "@/lib/date/kyiv";
-import { describeCallList } from "./format";
+import { KYIV_TZ, kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { describeCallList, inDigestWindow } from "./format";
 import { isInternalCounterparty, loadStaffNames } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
@@ -56,7 +56,8 @@ export async function worksToday(repId: string, day: string): Promise<boolean> {
 }
 
 export async function collectCallLists(now: Date): Promise<FeedEvent[]> {
-  if (kyivHour(now) !== CALL_LIST_HOUR || isWeekend(now)) return [];
+  // Вікно в кілька годин: хто почав день пізніше, теж отримає список.
+  if (!inDigestWindow(now, CALL_LIST_HOUR) || isWeekend(now)) return [];
 
   const day = kyivDate(now);
   const fromDay = shiftDay(day, -(WINDOW_DAYS - 1));

@@ -6,7 +6,7 @@
  * курсор, вимкнені категорії), живе в notify.ts.
  */
 
-import { kyivDate, kyivHour } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayStart, kyivHour } from "@/lib/date/kyiv";
 import { REP_FEED_TYPES, type FeedEvent, type RepFeedType } from "./types";
 
 /** Пуші лише в робочі години за Києвом: [від, до). Поза ними — лише рядок. */
@@ -245,6 +245,69 @@ export function previousWorkday(day: string): string {
 /** Година, о якій іде пуш про прихід, і межа вікна. */
 export const ARRIVAL_HOUR = 10;
 
+/** Година ранкового пуша про подорожчання і межа його вікна. */
+export const PRICE_HOUR = 9;
+
+/**
+ * Скільки годин після призначеної ранкове зведення ще може прийти.
+ *
+ * Зведення йде лише тому, хто сьогодні працює (відкрив зміну або має трек).
+ * Хто почав день на годину-дві пізніше, з вікном в одну годину не отримав би
+ * нічого. Раз на день гарантує ключ дедуплікації по дню, а не година.
+ */
+export const DIGEST_GRACE_HOURS = 3;
+
+export function inDigestWindow(now: Date, hour: number): boolean {
+  const h = kyivHour(now);
+  return h >= hour && h < hour + DIGEST_GRACE_HOURS;
+}
+
+/**
+ * Вікно подорожчання: від PRICE_HOUR попереднього робочого дня до PRICE_HOUR
+ * сьогодні. На відміну від приходу, межі — справжній час (UTC): changedAt
+ * ставить сам сайт, а не 1С.
+ */
+export function priceWindow(day: string): { from: Date; to: Date } {
+  const h = PRICE_HOUR * 60 * 60_000;
+  return {
+    from: new Date(kyivDayStart(previousWorkday(day)).getTime() + h),
+    to: new Date(kyivDayStart(day).getTime() + h),
+  };
+}
+
+/**
+ * База порівняння й відсоток. Опт — коли він є з обох боків, інакше
+ * роздріб. null — порівнювати нема з чим (стара ціна нуль).
+ */
+export function priceBasis(r: {
+  oldPrice: number;
+  newPrice: number;
+  oldWholesale: number | null;
+  newWholesale: number | null;
+}): { basis: "wholesale" | "retail"; oldValue: number; newValue: number; pct: number } | null {
+  const wholesale = (r.oldWholesale ?? 0) > 0 && (r.newWholesale ?? 0) > 0;
+  const oldValue = wholesale ? (r.oldWholesale as number) : r.oldPrice;
+  const newValue = wholesale ? (r.newWholesale as number) : r.newPrice;
+  if (!(oldValue > 0)) return null;
+  return {
+    basis: wholesale ? "wholesale" : "retail",
+    oldValue,
+    newValue,
+    pct: Math.round(((newValue - oldValue) / oldValue) * 1000) / 10,
+  };
+}
+
+/** «Подорожчало: 5 позицій для ваших клієнтів» / «Піна SOMA FIX +8% · …». */
+export function describePriceUp(items: { name: string; pct: number }[]): { title: string; body: string } {
+  const n = items.length;
+  const head = items.slice(0, 3).map((i) => `${shortName(i.name, 30)} +${Math.round(i.pct)}%`);
+  const rest = n - head.length;
+  return {
+    title: `Подорожчало: ${n} ${plural(n, "позиція", "позиції", "позицій")} для ваших клієнтів`,
+    body: rest > 0 ? `${head.join(" · ")} і ще ${rest}` : head.join(" · "),
+  };
+}
+
 /**
  * Вікно приходу для дня: від ARRIVAL_HOUR попереднього робочого дня до
  * ARRIVAL_HOUR цього. У понеділок воно охоплює п'ятницю після десятої й
@@ -341,4 +404,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_ARRIVAL: "прихід",
   REP_ROUTE: "у маршруті",
   REP_WATCH: "під запит",
+  REP_PRICE_UP: "подорожчання",
 };

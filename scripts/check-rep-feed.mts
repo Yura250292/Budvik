@@ -10,6 +10,10 @@ import {
   arrivalWindow,
   describeRoute,
   describeWatch,
+  describePriceUp,
+  inDigestWindow,
+  priceBasis,
+  priceWindow,
   routeDayLabel,
   daysAgo,
   describe,
@@ -183,6 +187,20 @@ check("сторінка запитів проходить білий списо�
 const wt = describeWatch({ name: "SOMA FIX Піна монтажна 750", sku: "12345", free: 24 });
 check("запит: текст", wt.title === "Приїхало під ваш запит: SOMA FIX Піна монтажна 750" && wt.body === "Вільно 24 шт · Арт. 12345", wt);
 check("запит: без артикула", describeWatch({ name: "Піна", sku: null, free: 1 }).body === "Вільно 1 шт");
+
+// ---- подорожчання ----
+check("подорожчання → сторінка дня", feedHref(REP_FEED_TYPES.PRICE_UP, "2026-09-14") === "/sales/price-changes/2026-09-14");
+const pbW = priceBasis({ oldPrice: 150, newPrice: 160, oldWholesale: 120, newWholesale: 130 });
+check("база: опт, коли є з обох боків", pbW?.basis === "wholesale" && pbW.pct === 8.3, pbW);
+const pbR = priceBasis({ oldPrice: 100, newPrice: 110, oldWholesale: null, newWholesale: 90 });
+check("база: роздріб, коли опту немає зі старого боку", pbR?.basis === "retail" && pbR.pct === 10, pbR);
+check("база: стара ціна нуль → нема з чим порівнювати", priceBasis({ oldPrice: 0, newPrice: 10, oldWholesale: null, newWholesale: null }) === null);
+const pu = describePriceUp([{ name: "SOMA FIX Піна 750", pct: 8.3 }, { name: "Диски 125", pct: 12 }]);
+check("подорожчання: текст", pu.title === "Подорожчало: 2 позиції для ваших клієнтів" && pu.body === "SOMA FIX Піна 750 +8% · Диски 125 +12%", pu);
+const pw = priceWindow("2026-09-14");
+check("вікно цін понеділка: пт 09:00 — пн 09:00 за Києвом", pw.from.toISOString() === "2026-09-11T06:00:00.000Z" && pw.to.toISOString() === "2026-09-14T06:00:00.000Z", pw);
+const k = (hhmm: string) => new Date(`2026-09-14T${hhmm}:00+03:00`);
+check("зведення: 10:59 для 10 — так, 12:59 — так, 13:00 — ні, 09:59 — ні", inDigestWindow(k("10:59"), 10) && inDigestWindow(k("12:59"), 10) && !inDigestWindow(k("13:00"), 10) && !inDigestWindow(k("09:59"), 10));
 
 // ---- внутрішні контрагенти ----
 const staff = new Set(["Кулик Дмитро", "Передрій Дмитро", "Юрій Скуратов"].map(nameKey));

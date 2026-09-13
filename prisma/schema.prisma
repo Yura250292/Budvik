@@ -3069,6 +3069,33 @@ model PushToken {
 /// Застосунок обіцяє показувати обране офлайн, тож воно мусить переживати
 /// перевстановлення — а заразом підтягується й на сайті, коли людина заходить
 /// із того самого акаунта.
+/// Остання бачена ціна товару — база, від якої рахується подорожчання.
+///
+/// Історії цін у базі досі не було: обмін переписує Product.price на місці,
+/// а SyncDiscrepancy пише лише підозрілі й похідні зміни. Воркер на кожному
+/// тіку одним запитом порівнює поточні ціни з цією таблицею, пише різницю в
+/// ProductPriceChange і оновлює базу (src/lib/rep-feed/price-changes.ts).
+model ProductPriceSeen {
+  productId      String   @id
+  price          Float
+  wholesalePrice Float?
+  seenAt         DateTime
+}
+
+/// Журнал змін ціни: що було, що стало й коли сайт це побачив.
+model ProductPriceChange {
+  id           String   @id
+  productId    String
+  oldPrice     Float
+  newPrice     Float
+  oldWholesale Float?
+  newWholesale Float?
+  changedAt    DateTime
+
+  @@index([changedAt])
+  @@index([productId, changedAt])
+}
+
 /// «Повідомити, коли приїде» — запит торгового на відсутній товар.
 ///
 /// Не WishlistItem: той — обране покупця на вітрині, без жодної дії. Тут

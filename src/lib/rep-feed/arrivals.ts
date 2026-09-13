@@ -20,9 +20,9 @@ import { FREE_STOCK } from "@/lib/analytics/clientOrder";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
 import { isHiddenCategory } from "@/lib/catalog/category-display";
-import { kyivDate, kyivHour } from "@/lib/date/kyiv";
+import { kyivDate } from "@/lib/date/kyiv";
 import { worksToday, isWeekend } from "./call-list";
-import { ARRIVAL_HOUR, arrivalWindow, describeArrival } from "./format";
+import { ARRIVAL_HOUR, arrivalWindow, describeArrival, inDigestWindow } from "./format";
 import { isInternalCounterparty, loadStaffNames } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
@@ -127,7 +127,8 @@ export function arrivalDedupKey(day: string, repId: string): string {
 }
 
 export async function collectArrivals(now: Date): Promise<FeedEvent[]> {
-  if (kyivHour(now) !== ARRIVAL_HOUR || isWeekend(now)) return [];
+  // Вікно в кілька годин, а не одна: хто почав день пізніше, теж отримає.
+  if (!inDigestWindow(now, ARRIVAL_HOUR) || isWeekend(now)) return [];
 
   const day = kyivDate(now);
   const window = arrivalWindow(day);

@@ -13,7 +13,8 @@
  *   - call-list.ts — список дзвінків: раз на день об 11:00;
  *   - arrivals.ts — прихід товару для клієнтів торгового: раз на день о 10:00;
  *   - route-sheets.ts — накладна потрапила в маршрутний лист 1С;
- *   - watches.ts — приїхав товар, на який торговий чекав.
+ *   - watches.ts — приїхав товар, на який торговий чекав;
+ *   - price-changes.ts — зранку: подорожчало те, що беруть клієнти торгового.
  * Вони мають власні ключі дедуплікації й не залежать від курсора; їхні
  * помилки не зупиняють головну стрічку.
  *
@@ -39,6 +40,7 @@ import { collectCallLists } from "./call-list";
 import { collectEvents } from "./events";
 import { collectRouteSheetEvents } from "./route-sheets";
 import { collectWatchEvents } from "./watches";
+import { collectPriceUps, recordPriceChanges } from "./price-changes";
 import {
   CURSOR_OVERLAP_MS,
   DAILY_PUSH_CAP,
@@ -124,6 +126,17 @@ export async function notifyRepFeed(
     since = new Date(cursor.getTime() - CURSOR_OVERLAP_MS);
   }
 
+  // Історія цін — до збору подій: ранкове подорожчання читає свіжий журнал.
+  // Лише в справжньому проході; dry нічого не пише.
+  if (!dry) {
+    try {
+      const recorded = await recordPriceChanges();
+      if (recorded.changes > 0) console.log(`[rep-feed] змін цін записано: ${recorded.changes}`);
+    } catch (e) {
+      console.error("[rep-feed] знімок цін впав:", e);
+    }
+  }
+
   // Головна стрічка кидає далі: без неї курсор рухати не можна.
   const events = [
     ...(await collectEvents(since, docDayFloor(now))),
@@ -132,6 +145,7 @@ export async function notifyRepFeed(
     ...(await safely("прихід товару", () => collectArrivals(now))),
     ...(await safely("маршрутні листи", () => collectRouteSheetEvents(now))),
     ...(await safely("товар під запит", () => collectWatchEvents(now))),
+    ...(await safely("подорожчання", () => collectPriceUps(now))),
   ];
 
   // ---- запис: нові проти відомих ----

@@ -134,6 +134,30 @@ export async function shiftTrackKm(
     },
   });
 
+  return trackKmFromPoints(points);
+}
+
+/** Що потрібно від точки, щоб порахувати пробіг. */
+export type TrackKmPoint = {
+  lat: number;
+  lng: number;
+  accuracyM: number | null;
+  recordedAt: Date;
+  roadMetersFromPrev: number | null;
+  speedKmh: number | null;
+};
+
+/**
+ * Пробіг за будь-яким набором точок — зміни торгового чи дня водія.
+ *
+ * Винесено з `shiftTrackKm`, коли в «Логістиці» з'явилися дні водіїв: водій
+ * зміну не відкриває, тож його точки вибираються за добою, а не за shiftId.
+ * Арифметика мусить бути ОДНА — інакше «за треком» у водія й торгового
+ * означало б різне, і порівнювати їх поруч було б нечесно.
+ *
+ * Точки — в порядку часу.
+ */
+export function trackKmFromPoints(points: TrackKmPoint[]): ShiftTrackKm | null {
   /**
    * Спершу довірені фікси, потім — геть вуса.
    *

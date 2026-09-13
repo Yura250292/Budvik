@@ -45,24 +45,16 @@ export const NAV_GROUPS: NavGroup[] = [
     // Лише сторінки з власним контентом. Колишні пункти-прокладки з меню
     // прибрані, але їхні URL живі як редіректи (закладки не ламаються):
     //   /admin/reports        → /admin/warehouse-reports (хаб із посилань)
-    //   /admin/sales-reports  → /admin/sales-analytics?tab=trips
     //   /admin/erp/stats      → /admin/analytics?tab=purchases
+    // «Аналітика водіїв» і «Чому не пишеться» переїхали в групу «Логістика».
     items: [
       { href: "/admin/analytics", title: "Аналітика", desc: "Замовлення, надходження, борги", iconKey: "chart", roles: AM },
       { href: "/admin/sales-analytics", title: "Аналітика продажів", desc: "Прибуток і знижки, асортимент, клієнти, КПІ торгових", iconKey: "chart", roles: ALL },
       // Друга половина картини: сусідні розділи рахують те, що вже
       // продано, а цей — тих, хто ще нічого не купив.
       { href: "/admin/site-analytics", title: "Відвідуваність сайту", desc: "Перегляди, пошук, кліки покупців", iconKey: "chart", roles: AM },
-      // Поруч із торговими: обидва розділи читають з тієї самої панелі,
-      // хоч люди й процеси різні — торгові возять замовлення, водії доставку.
-      { href: "/admin/drivers", title: "Аналітика водіїв", desc: "Зарплата, маршрутні листи, на маршруті", iconKey: "truck", roles: AM },
-      // Поруч із двома розділами вище навмисно: обидва показують РЕЗУЛЬТАТ
-      // роботи планшетів, а цей — чи планшети взагалі працюють. Місяць його
-      // роль виконував термінал, і поламку бачили ввечері, коли день уже
-      // проїхано.
-      { href: "/admin/track-health", title: "Чому не пишеться", desc: "Стан планшетів у полі просто зараз", iconKey: "chart", roles: AM },
-      // Стоїть після трьох розділів, які він зводить: аналіз читають, коли
-      // вже бачили цифри й хочуть почути, з чого починати.
+      // Стоїть після розділів, які він зводить: аналіз читають, коли вже
+      // бачили цифри й хочуть почути, з чого починати.
       { href: "/admin/ai-analysis", title: "AI аналіз фірми", desc: "Торгові, товари, логістика, стратегія", iconKey: "star", roles: AM },
       { href: "/admin/warehouse-reports", title: "Звіти складу", desc: "Зміни, накладні, продуктивність", iconKey: "report", roles: AM },
       { href: "/admin/erp/reports", title: "Бухгалтерські звіти", desc: "Рух коштів, дебіторка, аванси", iconKey: "report", roles: AM },
@@ -80,6 +72,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/procurement", title: "Закупівлі", desc: "Дефіцит на складі: що замовити", iconKey: "purchase", roles: AM },
       // Зворотний бік закупівель: там «чого бракує», тут «що лежить».
       { href: "/admin/procurement/turnover", title: "Оборотність складу", desc: "Неліквіди та надлишки: що не рухається", iconKey: "report", roles: AM },
+      // Склади поруч з оборотністю: обидва про те, що й де лежить. Жили в
+      // «Логістиці та складі», але логістика стала розділом про рух людей.
+      { href: "/admin/stock-locations", title: "Склади та залишки", desc: "Управління складами", iconKey: "warehouse", roles: AM },
       // Прихід — зворотний бік «Закупівель», і закритий тим самим правилом:
       // у накладних видно закупівельні ціни. Доти пункт світився всім, а
       // сторінка пускала ADMIN і SALES, блокуючи MANAGER, — тобто саме тих,
@@ -91,19 +86,35 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // id лишився старий: під ним у localStorage лежить стан згортання групи.
     id: "logistics",
-    title: "Логістика та склад",
+    title: "Логістика",
+    // Усе про рух торгових і водіїв: де вони зараз, куди їм їхати, скільки
+    // проїхали і скільки це коштувало. До 13.09.2026 це було розкидано по
+    // «Аналітиці продажів» (вкладка «Логістика»), «Аналітиці водіїв»,
+    // «Маршрутах» і пульту треку. Смужка вкладок усередині розділу
+    // (LogisticsNav) бере пункти саме звідси, тож назви не розходяться.
+    //
+    // Порядок — порядок роботи: що відбувається зараз → що сплановано →
+    // скільки проїхали й заплатили → службове.
+    //
+    // Старі адреси живі як редіректи:
+    //   /admin/sales-analytics?tab=logistics → /admin/logistics/{trips,shifts,directions,fuel}
+    //   /admin/drivers                        → /admin/logistics/drivers (?tab=live → /live)
+    //   /admin/erp/delivery-routes            → /admin/logistics/delivery
+    //   /admin/erp/route-planner              → /admin/logistics/delivery?tab=map
+    //   /manager/routes                       → /admin/logistics/delivery
+    //   /admin/track-health                   → /admin/logistics/devices
+    //   /admin/sales-reports                  → /admin/logistics/trips
     items: [
-      // Водії живуть в «Аналітиці та звітах» поруч із торговими — тут лишається
-      // сама логістика: куди їхати й чим возити.
-      // Один пункт замість трьох екранів: день (листи 1С і маршрути),
-      // журнал і карта — вкладки всередині. Старі адреси живі як редіректи:
-      //   /admin/erp/route-planner   → ?tab=map
-      //   /admin/drivers?tab=sheets  → ?tab=journal
-      //   /manager/routes            → сама сторінка
-      { href: "/admin/erp/delivery-routes", title: "Маршрути", desc: "Листи 1С, планування, передача водіям", iconKey: "truck", roles: AM },
-      { href: "/admin/stock-locations", title: "Склади та залишки", desc: "Управління складами", iconKey: "warehouse", roles: AM },
-      { href: "/admin/client-folders", title: "Папки клієнтів", desc: "Шаблони напрямків для торгових", iconKey: "folder", roles: AM },
+      { href: "/admin/logistics/live", title: "Рух на карті", desc: "Де зараз торгові й водії, трек за будь-який день", iconKey: "map", roles: AM },
+      { href: "/admin/logistics/delivery", title: "Доставка", desc: "Скласти маршрут водію, листи 1С, планувальник", iconKey: "truck", roles: AM },
+      { href: "/admin/logistics/directions", title: "Напрямки торгових", desc: "Шаблони напрямків, розклад, зони", iconKey: "pin", roles: AM },
+      { href: "/admin/logistics/shifts", title: "Зміни", desc: "Пробіг торгових за одометром і дні водіїв", iconKey: "clock", roles: AM },
+      { href: "/admin/logistics/fuel", title: "Паливо", desc: "Авто, норми витрати, гроші на пальне", iconKey: "fuel", roles: AM },
+      { href: "/admin/logistics/drivers", title: "Водії: зарплата і каса", desc: "Зарплата за листами, інкасація, прив'язка до 1С", iconKey: "money", roles: AM },
+      { href: "/admin/logistics/devices", title: "Стан планшетів", desc: "Чому не пишеться трек просто зараз", iconKey: "device", roles: AM },
+      { href: "/admin/logistics/trips", title: "Архів поїздок", desc: "Поїздки Telegram-бота до 14.08.2026", iconKey: "archive", roles: AM },
     ],
   },
   {
@@ -112,6 +123,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       // Робочий профіль торгового. Ролі й доступи — у «Користувачах».
       { href: "/admin/sales-reps", title: "Торгові представники", desc: "Регіони, клієнти, категорії, плани", iconKey: "team", roles: AM },
+      // Шаблони папок, з якими торговий працює з клієнтами, — про людей
+      // і їхню базу, а не про дорогу, тому поруч із профілем торгового.
+      { href: "/admin/client-folders", title: "Папки клієнтів", desc: "Шаблони напрямків для торгових", iconKey: "folder", roles: AM },
       { href: "/admin/erp/commissions", title: "Мотивація", desc: "Комісії менеджерів", iconKey: "star", roles: AM },
       { href: "/admin/erp/commissions/rates", title: "Ставки комісій", desc: "Налаштування відсотків", iconKey: "star", roles: AM },
     ],
@@ -160,6 +174,9 @@ export const BREADCRUMB_MAP: Record<string, string> = {
   "/admin": "Дашборд",
   ...Object.fromEntries(ALL_NAV_ITEMS.map((i) => [i.href, i.title])),
   "/admin/erp": "ERP",
+  // Корінь розділу сам лише редіректить на «Рух на карті», але в ланцюжку
+  // для сторінки поза меню він має читатися назвою, а не сирим сегментом.
+  "/admin/logistics": "Логістика",
   // Профіль доступний із меню в шапці, а не з сайдбару, тож у ALL_NAV_ITEMS
   // його немає — без цього рядка ланцюжок показав би сирий сегмент.
   "/admin/profile": "Мій профіль",
@@ -204,6 +221,9 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/erp/purchase-orders",
     "/admin/warehouse-reports",
     "/admin/integration",
+    "/admin/logistics",
+    "/admin/erp/delivery-routes",
+    "/admin/erp/route-planner",
     "/admin/drivers",
     "/admin/track-health",
     "/admin/ai-analysis",

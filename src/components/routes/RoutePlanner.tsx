@@ -679,7 +679,7 @@ export default function RoutePlanner({
             {linkedDeliveryRoute ? (
               <>
                 <Link
-                  href={`/admin/erp/delivery-routes?routeId=${linkedDeliveryRoute.id}`}
+                  href={`/admin/logistics/delivery?routeId=${linkedDeliveryRoute.id}`}
                   className="mb-0.5 inline-flex items-center gap-1 text-[13px] text-g500 transition-colors hover:text-bk"
                 >
                   ← До дня маршруту

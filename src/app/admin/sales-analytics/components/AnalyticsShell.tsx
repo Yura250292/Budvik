@@ -6,7 +6,7 @@
  * Розділ виріс зі «звіту по торгових»: спершу тут були лише продажі й КПІ, а
  * потім додались собівартість, знижки, ABC, клієнтські звіти. Половина вкладок
  * перестала бути про людей, тому і назва, і групування — за питаннями:
- * скільки заробили → що продаємо → кому → хто продає → як доїхало.
+ * скільки заробили → що продаємо → кому → хто продає.
  *
  * Тримає спільний для всіх вкладок стан — період, фільтр торгового, вкладку
  * з підвкладкою — і дзеркалить його в URL (?tab=&view=). Раніше фільтри жили
@@ -29,13 +29,9 @@ import { DiscountsTab } from "./DiscountsTab";
 import { ProfitTab } from "./ProfitTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
-import { RoutesTab } from "./RoutesTab";
 import { ClientMapTab } from "./ClientMapTab";
-import { FuelTab } from "./FuelTab";
-import { TripsTab } from "./TripsTab";
 import { MotivationTab } from "./MotivationTab";
 import { PayrollTab } from "./PayrollTab";
-import { ShiftsTab } from "./ShiftsTab";
 import { PayersTab } from "./PayersTab";
 import { CohortsTab } from "./CohortsTab";
 import { BasketTab } from "./BasketTab";
@@ -47,13 +43,14 @@ import { GeoTab } from "./GeoTab";
  * Розділ виріс із «звіту по торгових» у наскрізну аналітику продажів, і
  * половина вкладок уже не про людей: знижки, ABC, оборотність — це про
  * товар і гроші. Тому порядок такий: спершу СКІЛЬКИ ЗАРОБИЛИ (гроші), потім
- * ЩО продаємо (асортимент), КОМУ (клієнти), ХТО продає (торгові) і ЯК
- * доїхало (логістика).
+ * ЩО продаємо (асортимент), КОМУ (клієнти) і ХТО продає (торгові).
+ *
+ * «Як доїхало» — логістика — з 13.09.2026 окремий розділ /admin/logistics:
+ * рух торгових і водіїв не є продажами, і в одному ряду з КПІ він губився.
  *
  * Ключі свідомо лишені старі (`overview`, `reps`, `kpi`): вони живуть у
- * закладках, у віджетах дашборда (`?tab=overview`, `?tab=kpi`) і в редіректі
- * /admin/sales-reports. Перейменування ключів зламало б усе це заради
- * охайності в коді.
+ * закладках і у віджетах дашборда (`?tab=overview`, `?tab=kpi`).
+ * Перейменування ключів зламало б усе це заради охайності в коді.
  */
 const TABS = [
   { key: "summary", label: "Зведена" },
@@ -62,16 +59,11 @@ const TABS = [
   { key: "clients", label: "Клієнти" },
   { key: "reps", label: "Торгові" },
   { key: "kpi", label: "КПІ та мотивація" },
-  { key: "logistics", label: "Логістика" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
-/**
- * Підвкладки об'єднаних розділів; перша в списку — типова. «Логістика» зібрала
- * поїздки, маршрути й паливо: це один процес (виїхав → де був → скільки коштувало),
- * тримати його трьома верхніми вкладками означало губити зв'язок між ними.
- */
+/** Підвкладки об'єднаних розділів; перша в списку — типова. */
 const SUBTABS = {
   // ГРОШІ: скільки заробили і скільки віддали. Вал і знижки поруч навмисно —
   // це дві половини одного питання, і читати їх окремо означає не побачити,
@@ -111,26 +103,14 @@ const SUBTABS = {
     { key: "motivation", label: "Мотивація" },
     { key: "payroll", label: "Розрахунок" },
   ],
-  logistics: [
-    { key: "trips", label: "Поїздки" },
-    { key: "shifts", label: "Зміни" },
-    { key: "routes", label: "Маршрути" },
-    { key: "fuel", label: "Паливо" },
-  ],
 } as const;
 
 type ViewKey = (typeof SUBTABS)[keyof typeof SUBTABS][number]["key"];
 
-/**
- * Старі ключі вкладок → нове місце. Живуть у закладках користувачів,
- * редіректі /admin/sales-reports (?tab=trips) і посиланнях дашборда.
- */
+/** Старі ключі вкладок → нове місце. Живуть у закладках користувачів. */
 const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
   plans: { tab: "kpi", view: "plans" },
   motivation: { tab: "kpi", view: "motivation" },
-  trips: { tab: "logistics", view: "trips" },
-  routes: { tab: "logistics", view: "routes" },
-  fuel: { tab: "logistics", view: "fuel" },
 };
 
 /**
@@ -138,7 +118,8 @@ const LEGACY_TABS: Record<string, { tab: TabKey; view: ViewKey }> = {
  *
  * Ключ — старе `tab:view`, значення — нове місце. Без цього закладка на
  * знижки (вони жили в «Огляді») відкривала б «Продажі», і людина думала б,
- * що звіт зник. Карта клієнтів так само переїхала з логістики.
+ * що звіт зник. Карта клієнтів так само переїхала з логістики — і лишилася
+ * тут, коли решта логістики виїхала в окремий розділ.
  */
 const LEGACY_VIEWS: Record<string, { tab: TabKey; view: ViewKey }> = {
   "overview:discounts": { tab: "money", view: "discounts" },
@@ -146,15 +127,42 @@ const LEGACY_VIEWS: Record<string, { tab: TabKey; view: ViewKey }> = {
 };
 
 /**
- * Водії переїхали у власний розділ /admin/drivers — тут лишилися торгові.
- * Старі підвкладки мапимо на нові ключі, бо колишній «driver-settings»
- * там зветься просто «settings».
+ * Логістика виїхала в розділ /admin/logistics (13.09.2026): поїздки, зміни,
+ * напрямки й паливо стали сторінками, а не підвкладками аналітики.
+ *
+ * Ключ — старе значення ?view= у логістиці або ще старіший ?tab= часів до
+ * групування (?tab=trips жив у редіректі /admin/sales-reports). Значення —
+ * сторінка розділу. «Маршрути» там звуться «Напрямки торгових», щоб їх не
+ * плутали з маршрутами доставки водіїв.
+ */
+const LOGISTICS_MOVED: Record<string, string> = {
+  trips: "trips",
+  shifts: "shifts",
+  routes: "directions",
+  fuel: "fuel",
+};
+
+/** Куди вести стару закладку логістики; null — закладка не про логістику. */
+function logisticsPage(tabParam: string | null, viewParam: string | null): string | null {
+  if (tabParam === "logistics") {
+    // Карта клієнтів лишилася в аналітиці — її веде LEGACY_VIEWS.
+    if (viewParam === "clients") return null;
+    // Без ?view= логістика відкривалася на поїздках.
+    return LOGISTICS_MOVED[viewParam ?? ""] ?? "trips";
+  }
+  return tabParam ? (LOGISTICS_MOVED[tabParam] ?? null) : null;
+}
+
+/**
+ * Водії переїхали спершу у власний розділ /admin/drivers, а потім — у
+ * «Логістику». Ведемо старі підвкладки одразу в кінцеве місце, без
+ * подвійного стрибка через /admin/drivers.
  */
 const DRIVER_VIEW_MOVED: Record<string, string> = {
-  payroll: "payroll",
-  live: "live",
-  sheets: "sheets",
-  "driver-settings": "settings",
+  payroll: "/admin/logistics/drivers?tab=payroll",
+  live: "/admin/logistics/live",
+  sheets: "/admin/logistics/delivery?tab=journal",
+  "driver-settings": "/admin/logistics/drivers?tab=settings",
 };
 
 /**
@@ -163,7 +171,7 @@ const DRIVER_VIEW_MOVED: Record<string, string> = {
  * «Клієнти» теж сюди: кредитні ліміти й відтік — рішення керівника по всій
  * базі, і роути цих звітів торговому й так віддають 403.
  */
-const MANAGER_ONLY: TabKey[] = ["money", "clients", "kpi", "logistics"];
+const MANAGER_ONLY: TabKey[] = ["money", "clients", "kpi"];
 
 /**
  * Підвкладки лише для керівництва. «Порівняння» — рейтинг колег: API його
@@ -222,9 +230,6 @@ export function AnalyticsShell() {
         ? { tab: target.tab, view: subtabsOf(target.tab)?.[0].key ?? null }
         : target
     : target;
-  // Фокус мапи дня: виставляється кліком «поза маршрутом» у поїздках,
-  // щоб «Маршрути» відкрилися одразу на потрібному торговому й дні.
-  const [dayFocus, setDayFocus] = useState<{ repId: string; date: string } | null>(null);
   const [period, setPeriod] = useState<Period>(() => {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
@@ -236,11 +241,6 @@ export function AnalyticsShell() {
     () => TABS.filter((t) => isManager || !MANAGER_ONLY.includes(t.key)),
     [isManager]
   );
-
-  const openDayMap = useCallback((repId: string, date: string) => {
-    setDayFocus({ repId, date });
-    setTarget({ tab: "logistics", view: "routes" });
-  }, []);
 
   // Торговий за старим посиланням потрапляє у власний кабінет: зведена на
   // 1180px не читається з телефона, а показники там ті самі. Період
@@ -254,7 +254,11 @@ export function AnalyticsShell() {
   // а кабінет — правильніша адреса, ніж зайвий стрибок.
   const leavingToDrivers = searchParams.get("tab") === "drivers" && !leavingToCabinet;
 
-  const leaving = leavingToCabinet || leavingToDrivers;
+  // Закладка на колишню вкладку «Логістика» — те саме правило.
+  const logisticsTarget = logisticsPage(searchParams.get("tab"), searchParams.get("view"));
+  const leavingToLogistics = logisticsTarget != null && !leavingToCabinet;
+
+  const leaving = leavingToCabinet || leavingToDrivers || leavingToLogistics;
 
   useEffect(() => {
     if (leavingToCabinet) {
@@ -262,10 +266,27 @@ export function AnalyticsShell() {
       return;
     }
     if (leavingToDrivers) {
-      const v = DRIVER_VIEW_MOVED[searchParams.get("view") ?? ""] ?? "payroll";
-      router.replace(`/admin/drivers?tab=${v}&from=${period.from}&to=${period.to}`);
+      const target = DRIVER_VIEW_MOVED[searchParams.get("view") ?? ""] ?? DRIVER_VIEW_MOVED.payroll;
+      const glue = target.includes("?") ? "&" : "?";
+      router.replace(`${target}${glue}from=${period.from}&to=${period.to}`);
+      return;
     }
-  }, [leavingToCabinet, leavingToDrivers, searchParams, period.from, period.to, router]);
+    if (leavingToLogistics) {
+      const q = new URLSearchParams({ from: period.from, to: period.to });
+      if (rep) q.set("rep", rep);
+      router.replace(`/admin/logistics/${logisticsTarget}?${q.toString()}`);
+    }
+  }, [
+    leavingToCabinet,
+    leavingToDrivers,
+    leavingToLogistics,
+    logisticsTarget,
+    searchParams,
+    period.from,
+    period.to,
+    rep,
+    router,
+  ]);
 
   // Стан у querystring: replace, а не push — інакше кожна зміна фільтра
   // додавала б запис в історію і «Назад» гортало б власні кліки.
@@ -348,12 +369,7 @@ export function AnalyticsShell() {
               <button
                 key={t.key}
                 type="button"
-                onClick={() => {
-                  // Ручна навігація скидає фокус мапи дня — інакше «Маршрути»
-                  // відкривалися б на давно переглянутій поїздці.
-                  setDayFocus(null);
-                  setTarget({ tab: t.key, view: subtabsOf(t.key)?.[0].key ?? null });
-                }}
+                onClick={() => setTarget({ tab: t.key, view: subtabsOf(t.key)?.[0].key ?? null })}
                 aria-current={tab === t.key ? "page" : undefined}
                 className={`relative shrink-0 cursor-pointer rounded-[var(--radius-btn)] px-3.5 py-2 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
                   tab === t.key ? "bg-bk text-white" : "text-g600 hover:bg-g100 hover:text-bk"
@@ -378,10 +394,7 @@ export function AnalyticsShell() {
                 <button
                   key={v.key}
                   type="button"
-                  onClick={() => {
-                    setDayFocus(null);
-                    setTarget((prev) => ({ ...prev, view: v.key }));
-                  }}
+                  onClick={() => setTarget((prev) => ({ ...prev, view: v.key }))}
                   aria-current={view === v.key ? "page" : undefined}
                   className={`-mb-px shrink-0 cursor-pointer border-b-2 px-0.5 pb-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
                     view === v.key ? "border-bk text-bk" : "border-transparent text-g500 hover:text-bk"
@@ -394,8 +407,7 @@ export function AnalyticsShell() {
         )}
 
         {/* Період не потрібен розділу КПІ — у планів свій вибір місяця, у схем
-            мотивації дат немає. На «Маршрутах» він задає діапазон разових
-            призначень, які потрапляють на карту.
+            мотивації дат немає.
 
             «Платники» і «Утримання» теж без нього: борг і стан клієнта — це
             залишок «на зараз», а не потік за період. Показувати там вибір
@@ -425,14 +437,6 @@ export function AnalyticsShell() {
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "kpi" && view === "payroll" && <PayrollTab />}
-        {tab === "logistics" && view === "trips" && (
-          <TripsTab period={period} rep={rep} onRepChange={setRep} onShowDay={openDayMap} />
-        )}
-        {tab === "logistics" && view === "shifts" && (
-          <ShiftsTab period={period} onPeriodChange={setPeriod} />
-        )}
-        {tab === "logistics" && view === "routes" && <RoutesTab period={period} focus={dayFocus} />}
-        {tab === "logistics" && view === "fuel" && <FuelTab period={period} />}
       </div>
     </div>
   );

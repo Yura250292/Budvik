@@ -84,9 +84,15 @@ export function LivePersonDetail({
       ? (detail.route.plannedKm as number)
       : null;
   const basis = plannedKm ?? (sheet && sheet.distanceKm > 0 ? sheet.distanceKm : null);
-  const deviation =
-    basis != null ? Math.round(((detail.track.distanceKm - basis) / basis) * 100) : null;
   const move = detail.track.movement;
+  /**
+   * З планом порівнюємо їзду, а не весь трек: у сирому пробігу сидить
+   * тремтіння на стоянках (3–17 км за день), і «+12%» було б шумом приймача,
+   * а не зайвим гаком. Та сама цифра стоїть у «Змінах → Водії».
+   */
+  const driveKm = detail.track.driveKm ?? move?.DRIVE.km ?? null;
+  const deviation =
+    basis != null && driveKm != null ? Math.round(((driveKm - basis) / basis) * 100) : null;
 
   return (
     <div className="space-y-4">
@@ -114,7 +120,7 @@ export function LivePersonDetail({
             label="Трек (GPS)"
             value={`${detail.track.distanceKm} км`}
             hint={
-              move ? `їзда ${move.DRIVE.km} км · ${detail.track.pointsCount} точок` : `${detail.track.pointsCount} точок`
+              driveKm != null ? `їзда ${driveKm} км · ${detail.track.pointsCount} точок` : `${detail.track.pointsCount} точок`
             }
           />
           {/* Три різні відповіді на «скільки проїхав» стоять поруч
@@ -164,7 +170,7 @@ export function LivePersonDetail({
             це насправді ходьба по двору бази й ринку. */}
         {!!move && detail.track.pointsCount > 0 && (
           <p className="mt-3 text-[13px] text-g600">
-            їзда <b className="tabular-nums">{move.DRIVE.km} км</b> · {hm(move.DRIVE.minutes)}
+            їзда <b className="tabular-nums">{driveKm ?? move.DRIVE.km} км</b> · {hm(move.DRIVE.minutes)}
             {move.WALK.km > 0 && (
               <>
                 {" · пішки "}

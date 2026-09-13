@@ -62,9 +62,9 @@ export function brandHref(brandId: string, from: string, to: string): string {
     : `/admin/sales-analytics?tab=overview&brand=${brandId}&from=${from}&to=${to}`;
 }
 
-/** Зарплата й маршрутні листи водія. */
+/** Зарплата водія: «Логістика → Водії: зарплата і каса». */
 export function driverHref(driverId: string, from: string, to: string): string {
-  return `/admin/drivers?tab=payroll&driver=${driverId}&from=${from}&to=${to}`;
+  return `/admin/logistics/drivers?tab=payroll&driver=${driverId}&from=${from}&to=${to}`;
 }
 
 /** Плани й виконання по команді за місяць. */

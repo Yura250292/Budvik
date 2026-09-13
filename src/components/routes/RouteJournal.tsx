@@ -539,7 +539,7 @@ export function RouteJournal({ period }: { period: Period }) {
                               {r.convertedRoute ? (
                                 <>
                                   <Link
-                                    href={`/admin/erp/delivery-routes?day=${r.day}&routeId=${r.convertedRoute.id}`}
+                                    href={`/admin/logistics/delivery?day=${r.day}&routeId=${r.convertedRoute.id}`}
                                     className="cursor-pointer rounded-[var(--radius-badge)] bg-bk px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
                                   >
                                     Відкрити маршрут {r.convertedRoute.number}

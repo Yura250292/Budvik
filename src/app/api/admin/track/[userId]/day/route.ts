@@ -22,6 +22,7 @@ import { resolvePlanVsFact } from "@/lib/track/plan-vs-fact";
 import { onlyWorkingHours, WORK_HOURS_LABEL } from "@/lib/track/work-hours";
 import { matchDayPath } from "@/lib/track/road-match";
 import { kyivTime } from "@/lib/date/kyiv";
+import { trackKmFromPoints } from "@/lib/shift/service";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +141,12 @@ export async function GET(
    */
   const workPoints = onlyWorkingHours(points);
   const hiddenPoints = points.length - workPoints.length;
+  /**
+   * Пробіг лише за кермом — тією самою функцією, що рахує зміни торгових і
+   * «Зміни → Водії». Без цього картка дня показувала б одне число, а список
+   * днів водіїв — інше, і розмова з водієм почалася б із суперечки про км.
+   */
+  const trackKm = trackKmFromPoints(workPoints);
 
   const planVsFact = await resolvePlanVsFact(userId, day, workPoints);
 
@@ -213,6 +220,7 @@ export async function GET(
     user,
     track: {
       distanceKm: trackSession ? Math.round(trackSession.distanceKm * 10) / 10 : 0,
+      driveKm: trackKm?.driveKm ?? null,
       pointsCount: trackSession?.pointsCount ?? 0,
       startedAt: trackSession?.startedAt ?? null,
       lastPointAt: trackSession?.lastPointAt ?? null,

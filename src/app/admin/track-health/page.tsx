@@ -1,13 +1,9 @@
-import TrackHealthBoard from "./TrackHealthBoard";
+import { redirect } from "next/navigation";
 
 /**
- * Пульт треку — окрема сторінка, а не вкладка.
- *
- * Її відкривають у мить, коли щось не так, і тримають відкритою; вкладка
- * всередині іншого розділу означала б два кліки й чужий стан поруч.
+ * Пульт треку переїхав у «Логістика → Стан планшетів» (13.09.2026).
+ * Редірект, а не видалення: адресу тримають відкритою й пересилають у чаті.
  */
-export const metadata = { title: "Budvik — Чому не пишеться" };
-
-export default function TrackHealthPage() {
-  return <TrackHealthBoard />;
+export default function TrackHealthRedirect() {
+  redirect("/admin/logistics/devices");
 }

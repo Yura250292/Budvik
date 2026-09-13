@@ -1,22 +1,23 @@
-import { Suspense } from "react";
-import { DriversShell } from "./components/DriversShell";
+import { redirect } from "next/navigation";
+import { forwardQuery, type SearchParams } from "@/app/admin/logistics/forward-query";
 
 /**
- * Розділ «Аналітика водіїв»: зарплата за листами, позиція на маршруті, налаштування.
+ * «Аналітика водіїв» розчинилася в розділі «Логістика» (13.09.2026).
  *
- * Suspense обов'язковий: оболонка читає useSearchParams, а без межі
- * очікування Next вимагає рендерити всю сторінку динамічно.
+ * Карта «На маршруті» стала «Рухом на карті» — там і торгові, і водії;
+ * журнал листів ще раніше переїхав у маршрути доставки; зарплата, каса й
+ * налаштування — «Водії: зарплата і каса». Редірект, а не видалення: на
+ * ?tab=payroll&driver=… ведуть закладки й посилання AI-аналізу.
  */
-export default function DriversPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[50vh] items-center justify-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-g300 border-t-bk motion-reduce:animate-none" />
-        </div>
-      }
-    >
-      <DriversShell />
-    </Suspense>
-  );
+export default async function DriversRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const sp = await searchParams;
+  if (sp.tab === "live") redirect("/admin/logistics/live");
+  if (sp.tab === "sheets") {
+    redirect(forwardQuery("/admin/logistics/delivery", { ...sp, tab: "journal" }, ["tab", "from", "to"]));
+  }
+  redirect(forwardQuery("/admin/logistics/drivers", sp, ["tab", "driver", "from", "to"]));
 }

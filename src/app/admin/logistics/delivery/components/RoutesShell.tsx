@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * Сторінка «Маршрути»: День · Журнал · Карта.
+ * «Логістика → Доставка»: День · Журнал · Карта.
  *
  * Три екрани про одне й те саме жили в трьох місцях меню: маршрути доставки,
  * планувальник на карті й журнал листів у розділі водіїв. Логіст ходив між
  * ними й тримав у голові, де що. Тепер це вкладки одного екрана, а порядок
  * їх — порядок роботи: день (що їде сьогодні), журнал (що було), карта
  * (докладне планування).
+ *
+ * Заголовок і контейнер дає layout розділу «Логістика»; тут лише власні
+ * вкладки — пігулками, щоб не зливалися з підкресленою смужкою розділу.
  *
  * Стан у querystring, replace — щоб посилання на конкретний день чи маршрут
  * можна було переслати, і щоб «Назад» не гортало власні кліки.
@@ -76,35 +79,26 @@ export default function RoutesShell() {
       next.set("deliveryRouteId", plannerRouteId);
     }
     const qs = next.toString();
-    router.replace(`/admin/erp/delivery-routes${qs ? `?${qs}` : ""}`, { scroll: false });
+    router.replace(`/admin/logistics/delivery${qs ? `?${qs}` : ""}`, { scroll: false });
   }, [tab, day, driverId, openId, period, plannerRouteId, router]);
 
   const role = (session?.user as { role?: string } | undefined)?.role;
 
   if (status === "loading") {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
-        <CardSkeleton rows={3} title />
-      </div>
-    );
+    return <CardSkeleton rows={3} title />;
   }
 
   if (!role || !["ADMIN", "MANAGER"].includes(role)) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold">Доступ заборонено</h1>
+      <div className="py-16 text-center">
+        <h2 className="text-2xl font-bold">Доступ заборонено</h2>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
-      <div>
-        <h1 className="text-xl font-bold text-bk sm:text-2xl">Маршрути</h1>
-        <p className="mt-0.5 text-sm text-g500">Листи 1С, планування, передача водіям</p>
-      </div>
-
-      <nav className="-mx-4 mb-4 mt-3 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0" aria-label="Розділи маршрутів">
+    <div className="space-y-4">
+      <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0" aria-label="Розділи доставки">
         {TABS.map((t) => (
           <button
             key={t.key}

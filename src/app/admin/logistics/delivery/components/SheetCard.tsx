@@ -94,7 +94,7 @@ export default function SheetCard({
       {sheet.blocker === "NO_DRIVER" && (
         <div className="border-t border-g100 px-4 py-2.5 text-[12.5px] text-g600 sm:px-5">
           У 1С лист виписано на «{sheet.driverName1C ?? "—"}», але цього водія не привʼязано до акаунта.{" "}
-          <Link href="/admin/drivers?tab=settings" className="underline underline-offset-2 hover:text-bk">
+          <Link href="/admin/logistics/drivers?tab=settings" className="underline underline-offset-2 hover:text-bk">
             Привʼязати водія →
           </Link>
         </div>

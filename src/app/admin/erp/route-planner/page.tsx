@@ -1,21 +1,18 @@
 import { redirect } from "next/navigation";
+import { forwardQuery, type SearchParams } from "@/app/admin/logistics/forward-query";
 
 /**
- * Планувальник переїхав у вкладку «Карта» сторінки «Маршрути».
+ * Планувальник — вкладка «Карта» в «Логістика → Доставка».
  *
  * Редірект, а не видалення: на цю адресу є закладки, і з неї відкривали
- * конкретний маршрут (?deliveryRouteId=) — параметр переноситься, щоб таке
- * посилання й далі приводило на ту саму карту з тим самим маршрутом.
+ * конкретний маршрут (?deliveryRouteId=) — параметр переноситься. Ведемо
+ * одразу в кінцеве місце, без проміжного стрибка через /admin/erp/delivery-routes.
  */
 export default async function RoutePlannerRedirect({
   searchParams,
 }: {
-  searchParams: Promise<{ deliveryRouteId?: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
-  const { deliveryRouteId } = await searchParams;
-  redirect(
-    `/admin/erp/delivery-routes?tab=map${
-      deliveryRouteId ? `&deliveryRouteId=${encodeURIComponent(deliveryRouteId)}` : ""
-    }`
-  );
+  const sp = await searchParams;
+  redirect(forwardQuery("/admin/logistics/delivery", { tab: "map", ...sp, }, ["tab", "deliveryRouteId"]));
 }

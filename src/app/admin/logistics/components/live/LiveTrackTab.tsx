@@ -80,6 +80,11 @@ export type DayDetail = {
   user: { id: string; name: string; role: string };
   track: {
     distanceKm: number;
+    /**
+     * Пробіг лише за кермом — та сама арифметика, що в змінах торгових і в
+     * «Змінах → Водії». null — довірених точок замало.
+     */
+    driveKm: number | null;
     pointsCount: number;
     startedAt: string | null;
     lastPointAt: string | null;
@@ -228,12 +233,47 @@ function personFingerprint(p: Person | undefined): string {
   return [p.pointsCount, p.lastPointAt ?? "", p.ordersToday, p.shift?.status ?? ""].join("|");
 }
 
+/** Кого показувати: «Логістика» дивиться і на торгових, і на водіїв. */
+export type RoleFilter = "all" | "reps" | "drivers";
+
+/** Стан карти, який сторінка дзеркалить в адресу. */
+export type LiveState = { day: string; selected: string | null; role: RoleFilter };
+
+const ROLE_FILTERS: Array<{ key: RoleFilter; label: string }> = [
+  { key: "all", label: "Усі" },
+  { key: "reps", label: "Торгові" },
+  { key: "drivers", label: "Водії" },
+];
+
+function matchesRole(p: Person, role: RoleFilter): boolean {
+  if (role === "drivers") return p.role === "DRIVER";
+  if (role === "reps") return p.role === "SALES";
+  return true;
+}
+
+function emptyTitle(role: RoleFilter, isToday: boolean): string {
+  if (role === "drivers") return isToday ? "Сьогодні ще жоден водій не виїхав" : "Цього дня треків водіїв немає";
+  if (role === "reps") return isToday ? "Сьогодні ще жоден торговий не виїхав" : "Цього дня треків торгових немає";
+  return isToday ? "Сьогодні ще ніхто не виїхав" : "Цього дня треків немає";
+}
+
 function kyivToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Kyiv" }).format(new Date());
 }
 
-export function LiveTrackTab() {
-  const [day, setDay] = useState(kyivToday);
+export function LiveTrackTab({
+  initialDay,
+  initialPerson,
+  initialRole = "all",
+  onStateChange,
+}: {
+  /** День, людина й фільтр з адреси — щоб на день водія можна було послатися. */
+  initialDay?: string | null;
+  initialPerson?: string | null;
+  initialRole?: RoleFilter;
+  onStateChange?: (state: LiveState) => void;
+} = {}) {
+  const [day, setDay] = useState(() => initialDay || kyivToday());
   /** Малювати трек по вулицях, а не ламаною між фіксами. */
   const [onRoads, setOnRoads] = useState(true);
   /**
@@ -245,7 +285,8 @@ export function LiveTrackTab() {
    */
   const [onlyStops, setOnlyStops] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialPerson ?? null);
+  const [role, setRole] = useState<RoleFilter>(initialRole);
   const [detail, setDetail] = useState<DayDetail | null>(null);
   /**
    * Деталі показуємо лише тоді, коли вони про того, кого зараз обрано.
@@ -350,17 +391,27 @@ export function LiveTrackTab() {
     return () => window.clearInterval(id);
   }, [selected, day, loadDetail]);
 
+  // Стан — назовні, в адресу сторінки. Ефект, а не виклик у кожному
+  // обробнику: день і вибір міняються з кількох місць (календар, карта, список).
+  useEffect(() => {
+    onStateChange?.({ day, selected, role });
+  }, [day, selected, role, onStateChange]);
+
   const isToday = day === kyivToday();
 
+  /** Люди під обраним фільтром ролі — і для карти, і для списку. */
+  const visible = people.filter((p) => matchesRole(p, role));
+  const roleCount = (r: RoleFilter) => people.filter((p) => matchesRole(p, r)).length;
+
   /** Хто має координати — тільки їх можна намалювати. */
-  const onMap = people.filter(
+  const onMap = visible.filter(
     // minutesAgo звужуємо разом із координатами: якщо точка є, то є й час
     // її запису — карта підписує ним маркер.
     (p): p is Person & { lat: number; lng: number; minutesAgo: number } =>
       p.lat != null && p.lng != null && p.minutesAgo != null
   );
   /** Хто вимагає уваги: екран існує заради цього рядка. */
-  const troubled = people.filter((p) => p.problem);
+  const troubled = visible.filter((p) => p.problem);
 
   return (
     <div className="space-y-4">
@@ -374,6 +425,36 @@ export function LiveTrackTab() {
           }}
           className="cursor-pointer rounded-[var(--radius-btn)] border border-g200 px-3 py-2 text-sm text-bk focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark"
         />
+        {/* Фільтр ролі: торгові й водії їдуть тими самими дорогами, але
+            питання до них різні — «чи тримається напрямку» і «чи довіз». */}
+        <div
+          role="group"
+          aria-label="Кого показувати"
+          className="flex rounded-[var(--radius-btn)] border border-g200 bg-white p-0.5"
+        >
+          {ROLE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              aria-pressed={role === f.key}
+              onClick={() => {
+                setRole(f.key);
+                // Обрана людина, що не проходить фільтр, зникла б зі списку,
+                // а її трек лишився б на карті без підпису.
+                const person = people.find((p) => p.userId === selected);
+                if (person && !matchesRole(person, f.key)) setSelected(null);
+              }}
+              className={`min-h-[34px] cursor-pointer rounded-[calc(var(--radius-btn)-2px)] px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-dark ${
+                role === f.key ? "bg-bk text-white" : "text-g600 hover:bg-g100 hover:text-bk"
+              }`}
+            >
+              {f.label}
+              <span className={`ml-1.5 tabular-nums ${role === f.key ? "text-white/70" : "text-g400"}`}>
+                {roleCount(f.key)}
+              </span>
+            </button>
+          ))}
+        </div>
         {/*
           Прив'язка до доріг — за замовчуванням увімкнена, але вимикається.
           Сирий трек мусить лишатися під рукою: саме за ним видно, де приймач
@@ -404,11 +485,11 @@ export function LiveTrackTab() {
 
       {error && <ErrorBox message={error} />}
 
-      {people.length === 0 ? (
+      {visible.length === 0 ? (
         <Card>
           <EmptyState
-            title={isToday ? "Сьогодні ще ніхто не виїхав" : "Цього дня треків немає"}
-            hint="Трек пишеться, коли водій відкриває «Карту дня» на планшеті."
+            title={emptyTitle(role, isToday)}
+            hint="Трек пише робоча збірка застосунку: у торгового — з відкриття зміни, у водія — від входу в застосунок."
           />
         </Card>
       ) : (
@@ -455,7 +536,7 @@ export function LiveTrackTab() {
 
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-g200 bg-white lg:h-[clamp(340px,48vh,460px)] lg:overflow-y-auto lg:overscroll-contain">
               <LivePeopleList
-                people={people}
+                people={visible}
                 selectedId={selected}
                 onSelect={setSelected}
                 troubledCount={troubled.length}

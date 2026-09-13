@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 
 /**
- * Звіти торгових переїхали в «Логістика → Поїздки» центру аналітики торгових.
+ * Звіти торгових (поїздки Telegram-бота) — «Логістика → Архів поїздок».
  *
  * Редірект, а не видалення: посилання на /admin/sales-reports розійшлися по
  * закладках і чатах. API /api/admin/sales-reports лишається — саме він і
- * живить нову підвкладку.
+ * живить архів.
  */
 export default function SalesReportsRedirect() {
-  redirect("/admin/sales-analytics?tab=logistics");
+  redirect("/admin/logistics/trips");
 }

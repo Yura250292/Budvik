@@ -140,10 +140,11 @@ export default function TrackHealthBoard() {
   const onShift = board?.tablets.filter((t) => t.shift) ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6">
+    <div className="max-w-5xl">
       <header className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-bk">Чому не пишеться</h1>
+          {/* h2, а не h1: заголовок «Логістика» дає layout розділу. */}
+          <h2 className="text-lg font-semibold text-bk">Чому не пишеться</h2>
           <p className="mt-1 text-sm text-g600">
             {onShift.length
               ? `На зміні ${onShift.length} · не пишуть ${dead.length}`

@@ -1314,7 +1314,7 @@ function OfficeFix({
   );
 }
 
-function Metric({
+export function Metric({
   label,
   value,
   hint,
@@ -1584,7 +1584,7 @@ function PlanVerdict({
  * підписує, скільки днів показано, — інакше стрілка мовчки перетворила б
  * місяць на добу й це виглядало б як зникнення даних.
  */
-function DayNav({
+export function DayNav({
   period,
   onChange,
 }: {

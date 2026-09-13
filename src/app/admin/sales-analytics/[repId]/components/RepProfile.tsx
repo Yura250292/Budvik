@@ -595,7 +595,11 @@ export function RepProfile({
                 </dl>
                 {!data.fuel.hasVehicle && (
                   <p className="mt-3 text-xs text-g500">
-                    Заведіть авто на вкладці «Паливо», щоб розрахунок був точним.
+                    Заведіть авто в{" "}
+                    <Link href="/admin/logistics/fuel" className="underline underline-offset-2 hover:text-bk">
+                      «Логістика → Паливо»
+                    </Link>
+                    , щоб розрахунок був точним.
                   </p>
                 )}
               </Card>

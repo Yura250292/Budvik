@@ -5,17 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import {
-  Banknote,
-  ChevronRight,
-  CircleDollarSign,
-  ImageIcon,
-  MapPin,
-  Package,
-  Phone,
-  Star,
-  User,
-} from "lucide-react";
+import { Banknote, ChevronRight, CircleDollarSign, ImageIcon, MapPin, Package, Phone, Star, User, FileText } from "lucide-react";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Body, Card, Note, Page } from "@/components/cabinet/ui";
@@ -196,6 +186,22 @@ export default function ClientDetailPage() {
             {debt.syncedAt ? `За даними 1С, оновлено ${formatDate(debt.syncedAt)}` : "За даними 1С"}
           </Note>
         </div>
+
+        {/* Виписка — поруч із боргом: «скиньте акт звірки» питають саме про
+            борг, і відповідь має бути на відстані одного дотику. */}
+        <Link
+          href={`/sales/clients/${id}/statement`}
+          className="flex items-center gap-3 rounded-2xl border border-cab-line bg-white px-4 py-3 active:opacity-80"
+        >
+          <Tile bg="#F1F1EF">
+            <FileText size={18} className="text-cab-t2" />
+          </Tile>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium text-bk">Виписка по клієнту</span>
+            <span className="block text-xs text-cab-t2">Відвантаження, повернення й оплати — переслати клієнту</span>
+          </span>
+          <ChevronRight size={18} className="shrink-0 text-cab-t3" />
+        </Link>
 
         {/* Памʼять про клієнта — одразу під боргом: обидва блоки про те,
             як із цією точкою працювати, а не скільки вона купила. */}

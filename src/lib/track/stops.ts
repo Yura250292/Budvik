@@ -84,6 +84,14 @@ function centroid(points: MovePoint[], from: number, to: number): { lat: number;
  *
  * `candidates` — клієнти, у яких цього дня є документи. Порожній список — не
  * помилка: зупинки лишаються, просто без підписів.
+ *
+ * ЧИТАЮТЬ ЗЗОВНІ, і один із читачів мовчить, коли ламається. З 13.09.2026
+ * картку перед візитом у стрічці торгового (src/lib/rep-feed/visit-card.ts)
+ * будує воркер кожні п'ять хвилин саме звідси — і спирається на сигнатуру,
+ * на MIN_MINUTES і MATCH_M вище та на поля зупинки `to` і `counterpartyId`.
+ * Помилку там ловлять і лише пишуть у журнал, тож основна стрічка не впаде,
+ * а картка тихо зникне. Перш ніж міняти будь-що з цього — прогнати
+ * `npx tsx scripts/check-rep-feed.mts` (без бази).
  */
 export function findStops(points: MovePoint[], candidates: StopCandidate[] = []): TrackStop[] {
   const located = candidates.filter(

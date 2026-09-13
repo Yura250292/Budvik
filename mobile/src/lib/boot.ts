@@ -13,9 +13,10 @@
  * завантаження заново, і смуга, що відкочується назад, читається людиною як
  * поломка. Тому нове значення береться лише більше за попереднє.
  *
- * Стеля в 20 секунд — запобіжник. Заставка не має права замкнути людину:
+ * Стеля в 50 секунд — запобіжник. Заставка не має права замкнути людину:
  * краще показати недовантажений кабінет, ніж вічний логотип на планшеті в
- * машині без зв'язку.
+ * машині без зв'язку. Вона довша за всі повтори кабінету (3 × 15 с): інакше
+ * заставка йшла б посеред повтору, а під нею — чорний порожній WebView.
  *
  * Активний стан від самого завантаження модуля, а не з першого ефекту: на
  * Android нативний сплеш ховається БЕЗ переходу, і будь-який кадр між ним і
@@ -32,13 +33,20 @@ export type BootState = Readonly<{
   /** 0..1, ніколи не зменшується в межах одного запуску. */
   progress: number;
   stage: BootStage;
+  /**
+   * Що сказати замість звичайного підпису етапу: «пробую ще раз».
+   *
+   * Етап лишається тим самим — змінилося лише те, що людина має знати. Без
+   * цього повтор завантаження виглядав би як та сама застигла смуга.
+   */
+  hint: string | null;
 }>;
 
 /** Порядок етапів: доповідь про давніший етап не відкочує підпис назад. */
 const ORDER: readonly BootStage[] = ["start", "unlock", "scope", "token", "page", "ready"];
 
 /** Скільки заставка може висіти, що б не відбувалося під нею. */
-export const BOOT_CAP_MS = 20_000;
+export const BOOT_CAP_MS = 50_000;
 
 type Listener = (state: BootState) => void;
 const listeners = new Set<Listener>();
@@ -47,6 +55,7 @@ let state: BootState = Object.freeze({
   active: IS_STAFF_BUILD,
   progress: 0,
   stage: "start" as BootStage,
+  hint: null,
 });
 
 let capTimer: ReturnType<typeof setTimeout> | null = null;
@@ -78,7 +87,7 @@ export function bootBegin(): void {
   if (!IS_STAFF_BUILD) return;
   armCap();
   if (state.active) return;
-  commit({ active: true, progress: 0, stage: "start" });
+  commit({ active: true, progress: 0, stage: "start", hint: null });
 }
 
 /**
@@ -92,7 +101,7 @@ export function bootReport(stage: BootStage, fraction?: number): void {
   const nextProgress =
     fraction === undefined ? state.progress : Math.max(state.progress, Math.min(1, fraction));
   if (nextStage === state.stage && nextProgress === state.progress) return;
-  commit({ active: true, progress: nextProgress, stage: nextStage });
+  commit({ active: true, progress: nextProgress, stage: nextStage, hint: state.hint });
 }
 
 /**
@@ -106,7 +115,13 @@ export function bootDone(): void {
     clearTimeout(capTimer);
     capTimer = null;
   }
-  commit({ active: false, progress: 1, stage: "ready" });
+  commit({ active: false, progress: 1, stage: "ready", hint: null });
+}
+
+/** Підпис замість етапу, поки заставка стоїть; `null` повертає звичайний. */
+export function bootHint(hint: string | null): void {
+  if (!state.active || state.hint === hint) return;
+  commit({ ...state, hint });
 }
 
 export function onBoot(fn: Listener): () => void {

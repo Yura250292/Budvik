@@ -90,6 +90,7 @@ function handOffSplash(onFaded: () => void) {
 }
 
 function captionFor(s: BootState): string {
+  if (s.hint) return s.hint;
   switch (s.stage) {
     case "start":
     case "unlock":

@@ -33,7 +33,7 @@ import { bufferedCount, logEvent } from "@/track/db";
 import { getRole, isShiftOpen } from "@/track/state";
 import { logoutAndStop, syncTrackingWithServer } from "@/track/controller";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
-import { bootBegin, bootDone, bootReport } from "@/lib/boot";
+import { bootBegin, bootDone, bootHint, bootReport } from "@/lib/boot";
 import { registerForPush } from "@/lib/push";
 import {
   askEnableLocationServices,
@@ -87,6 +87,23 @@ function installedCode(): number {
 
 /** Скільки чекати сигналу сторінки після кінця HTML, перш ніж зняти заставку самим. */
 const READY_FALLBACK_MS = 3000;
+
+/**
+ * Скільки чекати, поки кабінет узагалі відкриється, перш ніж спробувати знову.
+ *
+ * 13.09.2026 на планшеті Кавецького після встановлення APK WebView відкрив
+ * /api/device/session, отримав переадресацію — і сторінку кабінету не
+ * запросив ЖОДНОГО разу за 85 секунд (у логах Vercel після 302 тиша). Жодної
+ * помилки, тож і екрана «Кабінет не відкрився» не було: людина бачила порожній
+ * екран — 12.09 білий, 13.09 чорний. Новий WebView у тому самому процесі
+ * відкрив кабінет за півтори секунди. Звичайний запуск на цьому планшеті — 1–2 с,
+ * тож 15 с — це вже не повільний зв'язок, а застрягання.
+ */
+const STALL_MS = 15_000;
+/** Скільки разів перестворювати WebView самим, перш ніж показати екран помилки. */
+const STALL_RETRIES = 2;
+/** Відповідь входу — ще не кабінет: після неї має відкритися справжня сторінка. */
+const SESSION_URL = /\/api\/device\/session/;
 
 export default function CabinetScreen() {
   const router = useRouter();
@@ -190,11 +207,50 @@ export default function CabinetScreen() {
     };
   }, []);
 
+  /**
+   * Сторож першого завантаження кабінету.
+   *
+   * Застряглий WebView не кидає помилки й не закінчує завантаження — він просто
+   * нічого не показує, і вихід із цього знала лише людина: закрити застосунок і
+   * відкрити знову. Тепер це робить застосунок сам: не відкрилося за STALL_MS —
+   * перестворюємо WebView (новий `key`), і він іде по сесію заново. Двічі; далі
+   * чесний екран «Кабінет не відкрився» з кнопкою, а не порожнеча.
+   *
+   * Кожне застрягання — у журнал пристрою, з адресою й поступом, на яких стало:
+   * причину ще не знайдено, і ці рядки мають її показати.
+   */
+  const [webKey, setWebKey] = useState(0);
+  const stallAttempts = useRef(0);
+  const pageLoaded = useRef(false);
+  const lastNav = useRef({ url: "", progress: 0 });
+
+  useEffect(() => {
+    if (!IS_STAFF_BUILD || !token || failed || leaving) return;
+    pageLoaded.current = false;
+    lastNav.current = { url: "", progress: 0 };
+    const timer = setTimeout(() => {
+      if (pageLoaded.current) return;
+      const where = `${lastNav.current.url.replace(API_BASE, "").slice(0, 80) || "—"} · ${Math.round(lastNav.current.progress * 100)}%`;
+      const attempt = stallAttempts.current + 1;
+      if (attempt <= STALL_RETRIES) {
+        stallAttempts.current = attempt;
+        void logEvent("cabinet_stall", `повтор ${attempt}: ${where}`);
+        bootHint("Відкривається довго — пробую ще раз");
+        setWebKey((k) => k + 1);
+        return;
+      }
+      void logEvent("cabinet_stall", `здався після ${STALL_RETRIES} повторів: ${where}`);
+      setFailed(true);
+      bootDone();
+    }, STALL_MS);
+    return () => clearTimeout(timer);
+  }, [token, failed, leaving, webKey]);
+
   useFocusEffect(
     useCallback(() => {
       /*
         Без токена кабінет не відкриється взагалі, і ховати таку поломку за
-        логотипом до стелі в 20 секунд гірше, ніж показати її одразу.
+        логотипом до стелі заставки гірше, ніж показати її одразу.
       */
       getToken().then((t) => {
         setToken(t);
@@ -313,6 +369,7 @@ export default function CabinetScreen() {
         тут означав би, що кабінет вилогінює людину на кожному запуску.
       */
       if (msg.type === "ready") {
+        pageLoaded.current = true;
         if (readyTimer.current) clearTimeout(readyTimer.current);
         bootDone();
         return;
@@ -476,7 +533,16 @@ export default function CabinetScreen() {
         <Text style={styles.text}>
           Схоже, немає звʼязку. Трек і зміна від цього не залежать — вони пишуться далі.
         </Text>
-        <Pressable style={styles.button} onPress={() => setFailed(false)}>
+        <Pressable
+          style={styles.button}
+          onPress={() => {
+            // Свіжий лік повторів і заставка на час нового завантаження —
+            // інакше під кнопкою знову була б порожнеча, поки вантажиться.
+            stallAttempts.current = 0;
+            bootBegin();
+            setFailed(false);
+          }}
+        >
           <Text style={styles.buttonText}>Спробувати ще раз</Text>
         </Pressable>
       </View>
@@ -610,6 +676,7 @@ export default function CabinetScreen() {
       )}
 
       <WebView
+        key={webKey}
         ref={webRef}
         source={{
           uri: redirect
@@ -673,6 +740,7 @@ export default function CabinetScreen() {
         applicationNameForUserAgent={`BudvikStaff/${NATIVE_VERSION}`}
         onNavigationStateChange={(nav) => {
           canGoBack.current = nav.canGoBack;
+          lastNav.current.url = nav.url;
         }}
         onError={() => {
           setFailed(true);
@@ -746,8 +814,18 @@ export default function CabinetScreen() {
           сторінки питає сесію. Після першого «готово» доповіді мовчать, тож
           переходи по кабінету заставку не будять.
         */
-        onLoadProgress={({ nativeEvent }) => bootReport("page", 0.3 + 0.55 * nativeEvent.progress)}
-        onLoadEnd={() => {
+        onLoadProgress={({ nativeEvent }) => {
+          lastNav.current.progress = nativeEvent.progress;
+          bootReport("page", 0.3 + 0.55 * nativeEvent.progress);
+        }}
+        onLoadEnd={({ nativeEvent }) => {
+          /*
+            Кінець відповіді входу — ще не кабінет. Якщо вважати його
+            завантаженням, заставка йшла б через три секунди над WebView, який
+            так і не пішов за переадресацією, — саме той чорний екран.
+          */
+          if (SESSION_URL.test(nativeEvent.url)) return;
+          pageLoaded.current = true;
           bootReport("page", 0.9);
           if (readyTimer.current) clearTimeout(readyTimer.current);
           readyTimer.current = setTimeout(bootDone, READY_FALLBACK_MS);

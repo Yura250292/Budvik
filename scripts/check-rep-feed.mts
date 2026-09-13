@@ -8,6 +8,8 @@
  */
 import {
   arrivalWindow,
+  describeRoute,
+  routeDayLabel,
   daysAgo,
   describe,
   describeArrival,
@@ -164,6 +166,15 @@ check("попередній робочий: ср → вт", previousWorkday("202
 const win = arrivalWindow("2026-09-14");
 check("вікно понеділка: з пт 10:00 до пн 10:00 (стінний час як UTC)", win.from.toISOString() === "2026-09-11T10:00:00.000Z" && win.to.toISOString() === "2026-09-14T10:00:00.000Z", win);
 check("prefs: прихід серед категорій", PUSH_CATEGORIES.some((c) => c.type === REP_FEED_TYPES.ARRIVAL));
+
+// ---- маршрутний лист ----
+check("день маршруту: сьогодні/завтра", routeDayLabel("2026-09-14", "2026-09-14") === "сьогодні" && routeDayLabel("2026-09-15", "2026-09-14") === "завтра");
+check("день маршруту: далі — день тижня й дата", /16\.09/.test(routeDayLabel("2026-09-16", "2026-09-14")), routeDayLabel("2026-09-16", "2026-09-14"));
+const rt = describeRoute({ name: "Химич", number: "6553", amount: 12400, day: "2026-09-15", today: "2026-09-14", driver: "Пайда Василь", sheetNumber: "1865" });
+check("маршрут: з водієм", rt.title === "Поїде завтра: Химич" && rt.body === "Накладна №6553 · 12 400 ₴ · лист №1865 · водій Пайда Василь", rt);
+const rtNo = describeRoute({ name: "Химич", number: "6553", amount: 100, day: "2026-09-15", today: "2026-09-14", driver: null, sheetNumber: "1865" });
+check("маршрут: без водія — без слова «водій»", !rtNo.body.includes("водій"), rtNo);
+check("маршрут → документ", feedHref(REP_FEED_TYPES.ROUTE, "d1") === "/sales/orders/d1");
 
 // ---- внутрішні контрагенти ----
 const staff = new Set(["Кулик Дмитро", "Передрій Дмитро", "Юрій Скуратов"].map(nameKey));

@@ -261,6 +261,36 @@ export function arrivalWindow(day: string): { from: Date; to: Date } {
   };
 }
 
+/** «сьогодні», «завтра», «ср, 16.09». `day` і `today` — київські дні. */
+export function routeDayLabel(day: string, today: string): string {
+  if (day === today) return "сьогодні";
+  if (day === addDays(today, 1)) return "завтра";
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("uk-UA", {
+    timeZone: "UTC",
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+/** «Поїде завтра: Химич» / «Накладна №6553 · 12 400 ₴ · лист №1865 · водій Пайда Василь». */
+export function describeRoute(input: {
+  name: string | null | undefined;
+  number: string;
+  amount: number;
+  day: string;
+  today: string;
+  driver: string | null;
+  sheetNumber: string;
+}): { title: string; body: string } {
+  return {
+    title: `Поїде ${routeDayLabel(input.day, input.today)}: ${shortName(input.name, 30)}`,
+    body: `Накладна №${input.number} · ${uah(input.amount)} ₴ · лист №${input.sheetNumber}${
+      input.driver ? ` · водій ${input.driver}` : ""
+    }`,
+  };
+}
+
 export type GroupedPush = { title: string; body: string; target: string };
 
 /** Скільки заголовків перелічуємо у зведеному пуші, далі — «і ще N». */
@@ -301,4 +331,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_VISIT: "візит",
   REP_CALL_LIST: "дзвінки",
   REP_ARRIVAL: "прихід",
+  REP_ROUTE: "у маршруті",
 };

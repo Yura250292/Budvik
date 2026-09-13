@@ -34,6 +34,8 @@ export const REP_FEED_TYPES = {
   CALL_LIST: "REP_CALL_LIST",
   /** Прихід товару, який беруть клієнти торгового (раз на день о 10:00). */
   ARRIVAL: "REP_ARRIVAL",
+  /** Накладна потрапила в маршрутний лист 1С. */
+  ROUTE: "REP_ROUTE",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -98,7 +100,12 @@ export const FEED_FILTERS = [
   {
     key: "docs",
     label: "Накладні",
-    types: [REP_FEED_TYPES.DOC_POSTED, REP_FEED_TYPES.DOC_PICKED, REP_FEED_TYPES.DOC_DELIVERED],
+    types: [
+      REP_FEED_TYPES.DOC_POSTED,
+      REP_FEED_TYPES.DOC_PICKED,
+      REP_FEED_TYPES.ROUTE,
+      REP_FEED_TYPES.DOC_DELIVERED,
+    ],
   },
   { key: "returns", label: "Повернення", types: [REP_FEED_TYPES.RETURN] },
   { key: "arrivals", label: "Прихід", types: [REP_FEED_TYPES.ARRIVAL] },

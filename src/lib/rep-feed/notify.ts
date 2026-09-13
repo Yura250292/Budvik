@@ -11,9 +11,10 @@
  *   - events.ts — оплати, документи, склад, доставка: читаються «з курсора»;
  *   - visit-card.ts — зупинка біля клієнта: читається «зараз» із треку;
  *   - call-list.ts — список дзвінків: раз на день об 11:00;
- *   - arrivals.ts — прихід товару для клієнтів торгового: раз на день о 10:00.
- * Три останні мають власний ключ дедуплікації по дню і не залежать від
- * курсора; їхні помилки не зупиняють головну стрічку.
+ *   - arrivals.ts — прихід товару для клієнтів торгового: раз на день о 10:00;
+ *   - route-sheets.ts — накладна потрапила в маршрутний лист 1С.
+ * Вони мають власні ключі дедуплікації й не залежать від курсора; їхні
+ * помилки не зупиняють головну стрічку.
  *
  * Чому не гак в обробнику обміну, як у складських сповіщень
  * (warehouse/pick-notify.ts). Джерела живуть у двох деплоях: оплати й
@@ -35,6 +36,7 @@ import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 import { collectArrivals } from "./arrivals";
 import { collectCallLists } from "./call-list";
 import { collectEvents } from "./events";
+import { collectRouteSheetEvents } from "./route-sheets";
 import {
   CURSOR_OVERLAP_MS,
   DAILY_PUSH_CAP,
@@ -126,6 +128,7 @@ export async function notifyRepFeed(
     ...(await safely("картка перед візитом", () => collectVisitCards(now))),
     ...(await safely("список дзвінків", () => collectCallLists(now))),
     ...(await safely("прихід товару", () => collectArrivals(now))),
+    ...(await safely("маршрутні листи", () => collectRouteSheetEvents(now))),
   ];
 
   // ---- запис: нові проти відомих ----

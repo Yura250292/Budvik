@@ -32,7 +32,7 @@ import { REP_FEED_TYPES, type FeedEvent } from "./types";
  * id — так само, як у рознесенні оплат) → відповідальний документа. Обидва
  * мусять бути торговими; інакше події немає.
  */
-async function resolveReps(
+export async function resolveReps(
   rows: { counterpartyId: string | null; salesRepId: string | null }[]
 ): Promise<(row: { counterpartyId: string | null; salesRepId: string | null }) => string | null> {
   const cpIds = [...new Set(rows.map((r) => r.counterpartyId).filter((id): id is string => !!id))];

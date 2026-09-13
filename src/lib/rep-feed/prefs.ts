@@ -22,6 +22,7 @@ export const PUSH_CATEGORIES: readonly PushCategory[] = [
   { type: REP_FEED_TYPES.PAYMENT, label: "Оплати клієнтів", hint: "«Химич заплатив 8 400 ₴»" },
   { type: REP_FEED_TYPES.DOC_POSTED, label: "Проведені накладні", hint: "офіс провів накладну за вашим замовленням" },
   { type: REP_FEED_TYPES.DOC_PICKED, label: "Зібрані накладні", hint: "склад зібрав накладну повністю" },
+  { type: REP_FEED_TYPES.ROUTE, label: "У маршруті", hint: "накладна потрапила в маршрутний лист: на який день і хто везе" },
   { type: REP_FEED_TYPES.DOC_DELIVERED, label: "Доставлено", hint: "водій відмітив доставку" },
   { type: REP_FEED_TYPES.RETURN, label: "Повернення", hint: "проведено повернення від вашого клієнта" },
   { type: REP_FEED_TYPES.VISIT, label: "Картка перед візитом", hint: "коли машина зупинилась біля клієнта: борг і що поповнити" },

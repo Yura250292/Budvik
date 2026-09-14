@@ -253,24 +253,60 @@ export async function getMeeting(id: string): Promise<MeetingDetail> {
 
 /* ---------- Запис ---------- */
 
+/** Ідентифікатор від браузера: uuid або подібне, без символів, небезпечних у шляху R2. */
+const CLIENT_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * Створити нараду.
+ *
+ * Браузер може передати власний id — тоді повторний виклик із тим самим id
+ * повертає вже створену нараду, а не другу. Потрібно, бо відповідь на
+ * створення буває втрачено дорогою (Safari й обірване з'єднання): сервер
+ * нараду записав, а сторінка про це не знає і натискає ще раз.
+ */
 export async function createMeeting(createdById: string, input: unknown): Promise<MeetingDetail> {
   const v = validateMeetingInput(input);
+  const rawId = obj(input).id;
+  const clientId = typeof rawId === "string" && CLIENT_ID.test(rawId) ? rawId : undefined;
+
+  const existingOf = async (id: string): Promise<MeetingDetail | null> => {
+    const found = await prisma.meeting.findUnique({ where: { id }, select: { createdById: true } });
+    if (!found) return null;
+    if (found.createdById !== createdById) throw new MeetingError("Нарада з таким ідентифікатором уже існує", 409);
+    return getMeeting(id);
+  };
+
+  if (clientId) {
+    const existing = await existingOf(clientId);
+    if (existing) return existing;
+  }
+
   const recordedAt = v.recordedAt ?? new Date();
   const isNote = !!v.noteText;
-  const row = await prisma.meeting.create({
-    data: {
-      title: v.title ?? defaultMeetingTitle(recordedAt),
-      description: v.description ?? null,
-      recordedAt,
-      createdById,
-      noteText: v.noteText ?? null,
-      // Нотатку розпізнавати нема чого — одразу в чергу на підсумок.
-      status: isNote ? "TRANSCRIBED" : "DRAFT",
-      transcribedAt: isNote ? new Date() : null,
-    },
-    select: { id: true },
-  });
-  return getMeeting(row.id);
+  try {
+    const row = await prisma.meeting.create({
+      data: {
+        ...(clientId ? { id: clientId } : {}),
+        title: v.title ?? defaultMeetingTitle(recordedAt),
+        description: v.description ?? null,
+        recordedAt,
+        createdById,
+        noteText: v.noteText ?? null,
+        // Нотатку розпізнавати нема чого — одразу в чергу на підсумок.
+        status: isNote ? "TRANSCRIBED" : "DRAFT",
+        transcribedAt: isNote ? new Date() : null,
+      },
+      select: { id: true },
+    });
+    return getMeeting(row.id);
+  } catch (e) {
+    // Два повтори одночасно: перший уже записав — віддаємо його.
+    if (clientId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const existing = await existingOf(clientId);
+      if (existing) return existing;
+    }
+    throw e;
+  }
 }
 
 export async function updateMeeting(id: string, input: unknown): Promise<MeetingDetail> {

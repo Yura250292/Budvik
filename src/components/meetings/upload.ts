@@ -1,5 +1,7 @@
 "use client";
 
+import { sendJson } from "./api";
+
 /**
  * Завантаження запису наради: посилання від сервера → PUT прямо в R2 → «готово».
  *
@@ -60,11 +62,12 @@ function put(url: string, blob: Blob, contentType: string, onProgress: (percent:
   });
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error || `Помилка ${res.status}`);
-  return data as T;
+/**
+ * Обидва службові виклики безпечні для повтору: upload-url просто видає нове
+ * посилання для чернетки, complete-upload на вже завершеному нічого не міняє.
+ */
+function postJson<T>(url: string, body: unknown): Promise<T> {
+  return sendJson<T>(url, "POST", body, { retry: true });
 }
 
 export async function uploadMeetingAudio(opts: {

@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Mic, Pause, Play, Square, Upload } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { MAX_RECORD_MS, useMeetingRecording } from "@/components/meetings/MeetingRecordingProvider";
-import { megabytes, sendJson } from "@/components/meetings/api";
+import { NetworkError, megabytes, newClientId, sendJson } from "@/components/meetings/api";
 import { uploadMeetingAudio, type UploadStage } from "@/components/meetings/upload";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { AUDIO_ACCEPT, MAX_AUDIO_BYTES } from "@/lib/meetings/keys";
@@ -68,6 +68,14 @@ export default function NewMeetingScreen() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
+  /**
+   * Id нової наради видає браузер і тримає між натисканнями: якщо сервер
+   * нараду створив, а відповідь загубилась, наступне «Зберегти» отримає ту
+   * саму нараду, а не другу. Для запису й нотатки — окремі, щоб нотатка не
+   * потрапила в чернетку аудіо.
+   */
+  const audioIdRef = useRef<string | null>(null);
+  const textIdRef = useRef<string | null>(null);
 
   const previewUrl = useMemo(() => (rec.recorded ? URL.createObjectURL(rec.recorded.blob) : null), [rec.recorded]);
   useEffect(
@@ -84,28 +92,43 @@ export default function NewMeetingScreen() {
     return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   };
 
-  const createMeeting = async (noteBody?: string): Promise<string> => {
+  const createMeeting = async (clientId: string, noteBody?: string): Promise<string> => {
     setStage("creating");
-    const { item } = await sendJson<{ item: MeetingDetail }>("/api/admin/meetings", "POST", {
-      ...(title.trim() ? { title: title.trim() } : {}),
-      description: description.trim() || null,
-      recordedAt: recordedAtIso(),
-      ...(noteBody ? { noteText: noteBody } : {}),
-    });
+    const { item } = await sendJson<{ item: MeetingDetail }>(
+      "/api/admin/meetings",
+      "POST",
+      {
+        id: clientId,
+        ...(title.trim() ? { title: title.trim() } : {}),
+        description: description.trim() || null,
+        recordedAt: recordedAtIso(),
+        ...(noteBody ? { noteText: noteBody } : {}),
+      },
+      { retry: true }
+    );
     return item.id;
   };
+
+  const failText = (e: unknown, kept: string): string =>
+    e instanceof NetworkError
+      ? `Зв'язок із сервером обірвався. ${kept} — натисніть ще раз, коли з'явиться інтернет.`
+      : e instanceof Error
+        ? e.message
+        : "Не вдалося зберегти";
 
   const submitAudio = async (blob: Blob, fileName: string, durationMs: number | null, fromRecording: boolean) => {
     setError(null);
     setProgress(0);
     try {
-      const id = draftId ?? (await createMeeting());
+      audioIdRef.current ??= newClientId();
+      const id = draftId ?? (await createMeeting(audioIdRef.current));
       setDraftId(id);
       await uploadMeetingAudio({ meetingId: id, blob, fileName, durationMs, onStage: setStage, onProgress: setProgress });
       if (fromRecording) rec.reset();
+      audioIdRef.current = null;
       router.push(`/admin/meetings/${id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося зберегти");
+      setError(failText(e, fromRecording ? "Запис нікуди не зник, він на цій сторінці" : "Файл лишився вибраним"));
       setStage("form");
     }
   };
@@ -113,10 +136,12 @@ export default function NewMeetingScreen() {
   const submitText = async () => {
     setError(null);
     try {
-      const id = await createMeeting(noteText.trim());
+      textIdRef.current ??= newClientId();
+      const id = await createMeeting(textIdRef.current, noteText.trim());
+      textIdRef.current = null;
       router.push(`/admin/meetings/${id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося зберегти");
+      setError(failText(e, "Текст лишився у полі"));
       setStage("form");
     }
   };

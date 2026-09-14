@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
@@ -14,8 +14,7 @@ import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { HeroPlan } from "./analytics/components/HeroPlan";
 import { OverdueAlert } from "./analytics/components/OverdueAlert";
-import { TodayFeed, useNotifications, useToday, type NotificationRow } from "./analytics/components/TodayFeed";
-import { feedHref } from "@/lib/rep-feed/types";
+import { TodayFeed, useNotifications, useToday } from "./analytics/components/TodayFeed";
 import { MetricGrid } from "./analytics/components/MetricGrid";
 import AssistantTile from "@/components/sales/assistant/AssistantTile";
 import {
@@ -55,30 +54,19 @@ function HomeSkeleton() {
 /**
  * Дзвіночок і «Вийти» — єдине, що лишилось від старої шапки.
  *
- * Список сповіщень приходить згори (useNotifications у Home): той самий
- * запит живить і стрічку «Сьогодні» під планом, тож окремого fetch тут
- * більше немає.
+ * Дзвіночок веде на сторінку стрічки, а не відкриває випадне меню. До
+ * 14.09.2026 вхід у стрічку був лише з меню дзвіночка й блоку «Сьогодні»,
+ * який ховається в день без подій, — і торговий на планшеті стрічки просто
+ * не знаходив. Лічильник — непрочитані рядки; сторінка стрічки їх гасить.
  */
-function HeaderActions({
-  notifications,
-  unreadCount,
-  markAllRead,
-}: {
-  notifications: NotificationRow[];
-  unreadCount: number;
-  markAllRead: () => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
+function HeaderActions({ unreadCount }: { unreadCount: number }) {
   const isApp = useIsNativeApp();
 
   return (
     <>
-      <button
-        onClick={() => {
-          setOpen((v) => !v);
-          if (unreadCount > 0) markAllRead();
-        }}
-        aria-label={unreadCount > 0 ? `Сповіщення, ${unreadCount} непрочитаних` : "Сповіщення"}
+      <Link
+        href="/sales/feed"
+        aria-label={unreadCount > 0 ? `Стрічка подій, ${unreadCount} нових` : "Стрічка подій"}
         style={{
           position: "relative",
           background: "rgba(255,255,255,0.08)",
@@ -103,7 +91,7 @@ function HeaderActions({
             {unreadCount}
           </span>
         )}
-      </button>
+      </Link>
 
       <button
         // У застосунку виходить натив: signOut стер би кукі, але лишив
@@ -123,68 +111,6 @@ function HeaderActions({
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
         </svg>
       </button>
-
-      {open && (
-        <div
-          style={{
-            position: "absolute", top: "calc(100% - 4px)", right: "16px", zIndex: 50,
-            background: "white", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-            width: "min(320px, calc(100vw - 32px))", maxHeight: "400px", overflowY: "auto",
-          }}
-        >
-          <div style={{ padding: "14px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontWeight: 700, fontSize: "14px", color: "#0A0A0A" }}>Сповіщення</span>
-            <span style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              {unreadCount > 0 && (
-                <button onClick={markAllRead} style={{ fontSize: "12px", color: "#6B7280" }}>
-                  Прочитати всі
-                </button>
-              )}
-              <Link href="/sales/feed" onClick={() => setOpen(false)} style={{ fontSize: "12px", fontWeight: 600, color: "#0A0A0A" }}>
-                Уся стрічка →
-              </Link>
-            </span>
-          </div>
-          {notifications.length === 0 ? (
-            <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: "13px" }}>
-              Немає сповіщень
-            </div>
-          ) : (
-            notifications.map((n) => {
-              const body = (
-                <>
-                  <p style={{ fontWeight: 600, fontSize: "13px", color: "#0A0A0A" }}>{n.title}</p>
-                  <p style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{n.body}</p>
-                  <p style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "4px" }}>
-                    {new Date(n.createdAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                  </p>
-                </>
-              );
-              // Оплата веде на картку клієнта, документи — на документ;
-              // старі типи без relatedId лишаються простим текстом.
-              const href = feedHref(n.type, n.relatedId);
-              return (
-                <div
-                  key={n.id}
-                  style={{
-                    padding: "12px 16px",
-                    borderBottom: "1px solid #F7F7F7",
-                    background: n.isRead ? "white" : "#FFF9E6",
-                  }}
-                >
-                  {href ? (
-                    <Link href={href} onClick={() => setOpen(false)}>
-                      {body}
-                    </Link>
-                  ) : (
-                    body
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
     </>
   );
 }
@@ -212,11 +138,7 @@ function Home() {
         title={name}
         subtitle="Мої показники"
         right={
-          <HeaderActions
-            notifications={feed.items}
-            unreadCount={feed.unreadCount}
-            markAllRead={feed.markAllRead}
-          />
+          <HeaderActions unreadCount={feed.unreadCount} />
         }
       />
 

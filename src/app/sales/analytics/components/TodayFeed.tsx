@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { ChevronRight, Newspaper } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { money } from "@/components/ui/Stat";
 import { FeedRow, kyivDay } from "@/components/feed/FeedList";
@@ -96,7 +97,25 @@ export function TodayFeed({ items, today }: { items: NotificationRow[]; today: R
   const rows = items.filter(
     (n) => n.type.startsWith(REP_FEED_PREFIX) && isRepFeedType(n.type) && kyivDay(n.createdAt) === day
   );
-  if (rows.length === 0 && !hasTodayNumbers(today)) return null;
+  // У день без подій — не зникаємо, а лишаємо вхід у стрічку: інакше її
+  // ніде не видно (так і сталося на планшеті 14.09.2026).
+  if (rows.length === 0 && !hasTodayNumbers(today)) {
+    return (
+      <Link
+        href="/sales/feed"
+        className="flex items-center gap-3 rounded-2xl border border-cab-line bg-white px-3.5 py-3 active:opacity-80"
+      >
+        <Newspaper size={22} className="shrink-0 text-cab-t2" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-bk">Стрічка подій</span>
+          <span className="block text-xs text-cab-t2">
+            Сьогодні подій ще немає · оплати, накладні, прихід, маршрути
+          </span>
+        </span>
+        <ChevronRight size={18} className="shrink-0 text-cab-t3" />
+      </Link>
+    );
+  }
 
   const shown = rows.slice(0, MAX_ROWS);
 

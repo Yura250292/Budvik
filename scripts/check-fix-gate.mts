@@ -76,6 +76,8 @@ function describe(label: string, written: GateFix[]) {
     recordedAt: new Date(w.at),
     accuracyM: w.accuracyM,
     speedKmh: w.kmh != null ? Math.round(w.kmh) : null,
+    // Домальованих доріг заслінка не знає: пробіг рахуємо лише за прямими.
+    roadMetersFromPrev: null,
   }));
   const clean = dropSpikes(collapseSimultaneous(rows));
   const spurs = collapseSimultaneous(rows).length - clean.length;

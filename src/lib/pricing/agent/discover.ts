@@ -1,136 +1,93 @@
 /**
  * Агент-дослідник: знаходить сторінки товару в інтернет-магазинах.
  *
- * Модель тут лише ШУКАЄ адреси — ціну вона не називає і на ціну не впливає.
- * Під час ручної звірки 13.09.2026 пошукові підсумки плутали моделі: пилу
- * Grösser GCS 601 без акумулятора видали за ціною комплекту, пальник POLAX
- * 32-043 змішали з 32-040. Тому кожну адресу рушій відкриває сам, читає ціну з
- * розмітки сторінки і приймає сторінку, лише якщо вона сама називає наш
- * артикул (verify.ts).
+ * Три кроки, і модель — лише в одному з них:
  *
- * Шукаємо для товарів у наявності, для яких свіжої ринкової ціни ще немає, —
- * найбільший залишок у гривнях першим. Знайдені адреси далі переперевіряє
- * звичайний нічний обхід (market/refresh.ts) уже без моделі. Товар, для якого
- * нічого не знайшлось, не шукаємо знову LOOKUP_AGAIN_DAYS днів.
+ *   1. Пошуковий API (search.ts) за артикулом і брендом дає до десяти
+ *      результатів; якщо придатних мало — ще запит за назвою.
+ *   2. DeepSeek вибирає з результатів сторінки саме цього товару: відкидає
+ *      категорії, іншу модифікацію, каркас замість комплекту. Без ключа
+ *      DeepSeek або коли він не відповів — беремо результати, у назві чи
+ *      адресі яких стоїть наш артикул.
+ *   3. Рушій відкриває кожну сторінку сам, читає ціну з розмітки і приймає
+ *      сторінку, лише якщо вона сама називає наш артикул (verify.ts).
  *
- * Потрібен ANTHROPIC_API_KEY. Без нього крок пропускається, а пропозиції
- * будуються з уже відомих джерел.
+ * Модель ціну не бачить і не називає: під час ручної звірки 13.09.2026
+ * пошукові підсумки плутали моделі (пила Grösser GCS 601 без акумулятора за
+ * ціною комплекту, пальник POLAX 32-043 з 32-040).
+ *
+ * Перша версія 14.09.2026 була на Claude з пошуком усередині моделі: $0,12 за
+ * знайдений товар і до $0,5 за відсутній. Власник назвав це дорого. Тепер
+ * пошук — близько $0,001 за запит, DeepSeek — частки цента: на пробі STIHL
+ * MS 180 він за 741 вхідний і 114 вихідних токенів вибрав рівно чотири
+ * правильні сторінки з семи результатів.
+ *
+ * Шукаємо для товарів у наявності без свіжої ринкової ціни — найбільший
+ * залишок у гривнях першим. Товар, для якого нічого не знайшлось, не шукаємо
+ * знову LOOKUP_AGAIN_DAYS днів.
  */
-import Anthropic from "@anthropic-ai/sdk";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fetchPage, HttpError } from "../market/http";
 import { hostOf, marketExtractorFor } from "../market/sources";
+import { agentCostUsd } from "./cost";
 import { LOOKUP_AGAIN_DAYS, MARKET_FRESH_DAYS } from "./constants";
-import { articlePattern, pageNamesArticle, pageTitle } from "./verify";
+import { searchProvider, type SearchProvider, type SearchResult } from "./search";
+import { articlePattern, pageNamesArticle, pageTitle, textNamesArticle } from "./verify";
 
-const MODEL = "claude-opus-5";
-/**
- * Пошуків на товар. На STIHL MS 180 модель знайшла чотири правильні сторінки
- * за три пошуки і один хід ($0,12). Товар, якого в мережі немає, з'їдав усі
- * дозволені пошуки — тому стеля низька.
- */
-const MAX_SEARCHES = 3;
-const MAX_TURNS = 4;
+const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_MODEL = "deepseek-flash";
 const MAX_PAGES = 5;
+const MAX_CANDIDATES = 15;
 const DAY_MS = 86_400_000;
-/** Для журналу витрат: пошук $10 за 1000, токени Claude Opus 5 — $5 / $25 за мільйон. */
-const USD = { search: 10 / 1000, input: 5 / 1_000_000, output: 25 / 1_000_000 };
 
 /**
- * Де шукати. Лише сайти, що віддають сторінку товару серверному запиту і
- * друкують на ній ціну; rozetka.com.ua відповідає 403, тож її тут немає.
- * Пошук на самих майданчиках robots.txt забороняє — сторінку знаходить
- * пошуковик, а ми відкриваємо лише сторінку товару.
+ * Сайти, які знаємо: для них перевірено читання ціни. Стоять першими серед
+ * кандидатів; решта українських магазинів проходить ту саму перевірку.
  */
-export const AGENT_DOMAINS: string[] = [
-  "hotline.ua",
-  "epicentrk.ua",
-  "prom.ua",
-  "avtotool.com.ua",
-  "lamaster.ua",
-  "maudau.com.ua",
-  "apro.ua",
-  "sigma.ua",
-  "polax.ua",
-  "dnipro-m.ua",
-  "mastertool.ua",
-  "gradient.ua",
-  "revolt-tools.com.ua",
-  "totaltools.com.ua",
-  "unifix.ua",
-  "motocentre.com.ua",
-  "rezon.ua",
+export const PREFERRED_DOMAINS: string[] = [
+  "hotline.ua", "epicentrk.ua", "prom.ua", "avtotool.com.ua", "lamaster.ua", "maudau.com.ua",
+  "apro.ua", "sigma.ua", "polax.ua", "dnipro-m.ua", "mastertool.ua", "gradient.ua",
+  "revolt-tools.com.ua", "totaltools.com.ua", "unifix.ua", "motocentre.com.ua", "rezon.ua",
 ];
 
+/** Звідси не беремо: rozetka віддає 403 серверним запитам, olx — вживане, решта — не магазини. */
+const BLOCKED_DOMAINS = ["rozetka.com.ua", "olx.ua", "youtube.com", "facebook.com", "instagram.com", "t.me", "tiktok.com", "wikipedia.org"];
+
+const onDomain = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
+
 const SYSTEM = [
-  "Ти шукаєш в українських інтернет-магазинах сторінки одного конкретного товару, щоб порівняти ціни.",
-  "Тобі дають бренд, артикул і назву з облікової системи. Знайди до п'яти сторінок, де продається саме цей товар.",
-  "Артикул або модель на сторінці мають збігатися точно. Комплект і каркас без акумулятора, набір і поштучний товар, інший розмір чи об'єм — різні товари.",
-  "Підходить лише сторінка одного товару: картка в магазині або сторінка товару на hotline.ua з цінами магазинів. Категорії, пошук і відгуки не підходять.",
-  "Ціну не називай і не оцінюй: її прочитає інша система.",
-  "Коли закінчиш, виклич report_product_pages. Якщо нічого не знайшов, передай порожній список.",
+  "Ти відбираєш із результатів пошуку сторінки одного конкретного товару в інтернет-магазинах.",
+  "Бери лише сторінку одного товару, де артикул або модель збігаються точно. Комплект і каркас без акумулятора, інша модифікація, набір, категорія, пошук, відгуки — не підходять.",
+  "Сторінка товару на hotline.ua з цінами магазинів підходить.",
+  'Відповідай лише json у форматі {"pages": [{"n": 2, "reason": "коротко"}]}, де n — номер результату. Якщо нічого не підходить — {"pages": []}.',
 ].join("\n");
 
-const REPORT_TOOL = {
-  name: "report_product_pages",
-  description:
-    "Передати знайдені сторінки цього товару. Викликати один раз наприкінці пошуку; порожній список, якщо сторінок немає.",
-  strict: true,
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      pages: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            url: { type: "string", description: "Повна адреса сторінки товару" },
-            evidence: { type: "string", description: "Де на сторінці видно артикул або модель" },
-          },
-          required: ["url", "evidence"],
-          additionalProperties: false,
-        },
-      },
-    },
-    required: ["pages"],
-    additionalProperties: false,
-  },
-} satisfies Anthropic.Beta.BetaTool;
-
-const WEB_SEARCH = {
-  type: "web_search_20260209",
-  name: "web_search",
-  max_uses: MAX_SEARCHES,
-  allowed_domains: AGENT_DOMAINS,
-  // Країну не вказуємо: код UA пошук не підтримує і відповідає 400.
-  user_location: { type: "approximate", timezone: "Europe/Kyiv" },
-} satisfies Anthropic.Beta.BetaWebSearchTool20260209;
-
 type Candidate = { id: string; sku: string; name: string; brand: string | null; wholesale: number };
-type AgentUsage = { searches: number; inputTokens: number; outputTokens: number };
 type Accepted = { host: string; url: string; price: number; inStock: boolean | null; title: string | null };
 
 export type DiscoveryResult = {
-  skipped: "no_api_key" | null;
+  skipped: "no_search_key" | null;
+  provider: SearchProvider["name"] | null;
   looked: number;
   pagesFound: number;
   pagesAccepted: number;
-  refused: number;
   searches: number;
+  inputTokens: number;
+  outputTokens: number;
   costUsd: number;
   errors: string[];
-  /** Що саме знайдено по кожному товару — для журналу воркера й перевірки руками. */
+  /** Що саме знайдено по кожному товару — для журналу й перевірки руками. */
   details: {
     sku: string;
-    urls: string[];
+    picked: string[];
+    pickedBy: "deepseek" | "article";
     accepted: { host: string; url: string; price: number; inStock: boolean | null }[];
     notes: string[];
-    refused: boolean;
   }[];
 };
 
-function isFetchableProductUrl(raw: string): boolean {
+function isShopUrl(raw: string): boolean {
   let u: URL;
   try {
     u = new URL(raw);
@@ -139,69 +96,99 @@ function isFetchableProductUrl(raw: string): boolean {
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") return false;
   const host = u.host.replace(/^www\./, "");
-  if (!AGENT_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))) return false;
+  if (BLOCKED_DOMAINS.some((d) => onDomain(host, d))) return false;
+  if (!host.endsWith(".ua") && !PREFERRED_DOMAINS.some((d) => onDomain(host, d))) return false;
   // Пошук і фільтри майданчиків robots.txt забороняє — туди не ходимо.
   if (/(^|\/)(search|sr)(\/|$)/i.test(u.pathname)) return false;
   if (/[?&](q|search_term|text|query)=/i.test(u.search)) return false;
   return true;
 }
 
-function reportedUrls(input: unknown): string[] {
-  const pages = (input as { pages?: { url?: unknown }[] } | null)?.pages;
-  if (!Array.isArray(pages)) return [];
-  const out = new Set<string>();
-  for (const page of pages) {
-    if (typeof page?.url === "string" && isFetchableProductUrl(page.url.trim())) out.add(page.url.trim());
-    if (out.size >= MAX_PAGES) break;
-  }
-  return [...out];
+function shortName(c: Candidate): string {
+  const brand = (c.brand ?? "").toLowerCase();
+  const words = c.name
+    .replace(/[«»"()]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && w.toLowerCase() !== brand);
+  return [c.brand, ...words.slice(0, 8)].filter(Boolean).join(" ");
 }
 
-async function askForPages(
-  client: Anthropic,
+async function searchCandidates(
+  provider: SearchProvider,
   c: Candidate
-): Promise<{ urls: string[]; usage: AgentUsage; refused: boolean }> {
-  const usage: AgentUsage = { searches: 0, inputTokens: 0, outputTokens: 0 };
-  const messages: Anthropic.Beta.BetaMessageParam[] = [
-    { role: "user", content: `Бренд: ${c.brand ?? "невідомий"}\nАртикул: ${c.sku}\nНазва в обліку: ${c.name}` },
-  ];
+): Promise<{ results: SearchResult[]; searches: number }> {
+  const byUrl = new Map<string, SearchResult>();
+  let searches = 0;
+  const add = (rows: SearchResult[]) => {
+    for (const r of rows) if (isShopUrl(r.url) && !byUrl.has(r.url)) byUrl.set(r.url, r);
+  };
 
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const res = await client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 8000,
-      // Відмова класифікатора безпеки переходить на рекомендовану модель на
-      // боці API, а не повертає порожню відповідь.
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "low" },
-      system: SYSTEM,
-      tools: [WEB_SEARCH, REPORT_TOOL],
-      messages,
-    });
-    usage.inputTokens +=
-      res.usage.input_tokens + (res.usage.cache_creation_input_tokens ?? 0) + (res.usage.cache_read_input_tokens ?? 0);
-    usage.outputTokens += res.usage.output_tokens;
-    usage.searches += res.usage.server_tool_use?.web_search_requests ?? 0;
-
-    if (res.stop_reason === "refusal") return { urls: [], usage, refused: true };
-
-    const report = res.content.find(
-      (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use" && b.name === REPORT_TOOL.name
-    );
-    if (report) return { urls: reportedUrls(report.input), usage, refused: false };
-
-    // Сервер зупинив довгий пошук — відправляємо ту саму відповідь, він продовжить.
-    if (res.stop_reason === "pause_turn") {
-      messages.push({ role: "assistant", content: res.content });
-      continue;
-    }
-    // Хід закінчився без report_product_pages — вважаємо, що сторінок немає.
-    // Не перепитуємо: повторний хід заново читає всі результати пошуку, і на
-    // пробі це подвоювало ціну товару, якого в мережі й так немає.
-    break;
+  add(await provider.search(`${c.sku} ${c.brand ?? ""}`.trim()));
+  searches++;
+  if (byUrl.size < 3) {
+    add(await provider.search(shortName(c)));
+    searches++;
   }
-  return { urls: [], usage, refused: false };
+
+  const preferred = (r: SearchResult) => PREFERRED_DOMAINS.some((d) => onDomain(hostOf(r.url), d));
+  const results = [...byUrl.values()].sort((a, b) => Number(preferred(b)) - Number(preferred(a))).slice(0, MAX_CANDIDATES);
+  return { results, searches };
+}
+
+async function pickPages(
+  c: Candidate,
+  results: SearchResult[]
+): Promise<{ urls: string[]; by: "deepseek" | "article"; inputTokens: number; outputTokens: number }> {
+  const byArticle = () => ({
+    urls: results.filter((r) => textNamesArticle(`${r.title} ${r.url}`, c.sku)).map((r) => r.url).slice(0, MAX_PAGES),
+    by: "article" as const,
+    inputTokens: 0,
+    outputTokens: 0,
+  });
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key || results.length === 0) return byArticle();
+
+  const user =
+    `Товар. Бренд: ${c.brand ?? "невідомий"}. Артикул: ${c.sku}. Назва: ${c.name}\n\nРезультати:\n` +
+    results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n");
+
+  try {
+    const res = await fetch(DEEPSEEK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_object" },
+        // Міркування тут не потрібні, а без явного вимкнення DeepSeek думає й відповідає довше.
+        thinking: { type: "disabled" },
+        temperature: 0,
+        max_tokens: 600,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return byArticle();
+    const body = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    const inputTokens = body.usage?.prompt_tokens ?? 0;
+    const outputTokens = body.usage?.completion_tokens ?? 0;
+    const content = body.choices?.[0]?.message?.content ?? "";
+    // Документація DeepSeek попереджає: у режимі JSON відповідь зрідка буває порожньою.
+    if (!content.trim()) return { ...byArticle(), inputTokens, outputTokens };
+    const parsed = JSON.parse(content) as { pages?: { n?: unknown }[] };
+    const urls = (parsed.pages ?? [])
+      .map((p) => Number(p?.n))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= results.length)
+      .map((n) => results[n - 1].url);
+    return { urls: [...new Set(urls)].slice(0, MAX_PAGES), by: "deepseek", inputTokens, outputTokens };
+  } catch {
+    return byArticle();
+  }
 }
 
 async function verifyPages(c: Candidate, urls: string[]): Promise<{ accepted: Accepted[]; notes: string[] }> {
@@ -252,23 +239,17 @@ async function recordLookup(
 }
 
 export async function discoverMarketPages(
-  opts: { limit?: number; budgetMs?: number; dry?: boolean; productIds?: string[] } = {}
+  opts: { limit?: number; budgetMs?: number; dry?: boolean; productIds?: string[]; provider?: SearchProvider } = {}
 ): Promise<DiscoveryResult> {
+  const provider = opts.provider ?? searchProvider();
   const out: DiscoveryResult = {
-    skipped: null,
-    looked: 0,
-    pagesFound: 0,
-    pagesAccepted: 0,
-    refused: 0,
-    searches: 0,
-    costUsd: 0,
-    errors: [],
-    details: [],
+    skipped: null, provider: provider?.name ?? null, looked: 0, pagesFound: 0, pagesAccepted: 0,
+    searches: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, errors: [], details: [],
   };
-  if (!process.env.ANTHROPIC_API_KEY) return { ...out, skipped: "no_api_key" };
+  if (!provider) return { ...out, skipped: "no_search_key" };
 
-  const limit = opts.limit ?? 12;
-  const deadline = Date.now() + (opts.budgetMs ?? 10 * 60_000);
+  const limit = opts.limit ?? 10;
+  const deadline = Date.now() + (opts.budgetMs ?? 5 * 60_000);
   const freshFrom = new Date(Date.now() - MARKET_FRESH_DAYS * DAY_MS);
   const againFrom = new Date(Date.now() - LOOKUP_AGAIN_DAYS * DAY_MS);
 
@@ -294,8 +275,6 @@ export async function discoverMarketPages(
     LIMIT ${limit * 4}
   `;
 
-  const client = new Anthropic({ timeout: 180_000, maxRetries: 2 });
-
   for (const c of candidates) {
     if (out.looked >= limit || Date.now() > deadline) break;
     if (!articlePattern(c.sku)) {
@@ -304,27 +283,29 @@ export async function discoverMarketPages(
     }
     out.looked++;
 
-    let asked: Awaited<ReturnType<typeof askForPages>>;
+    let found: Awaited<ReturnType<typeof searchCandidates>>;
     try {
-      asked = await askForPages(client, c);
+      found = await searchCandidates(provider, c);
     } catch (e) {
-      out.errors.push(`${c.sku}: ${e instanceof Anthropic.APIError ? `API ${e.status}` : (e as Error).message}`);
+      // Пошуковий сервіс недоступний — пошук не зараховуємо, товар спробуємо наступної ночі.
+      out.errors.push(`${c.sku}: ${(e as Error).message.slice(0, 120)}`);
       continue;
     }
-    out.searches += asked.usage.searches;
-    out.costUsd +=
-      asked.usage.searches * USD.search + asked.usage.inputTokens * USD.input + asked.usage.outputTokens * USD.output;
-    if (asked.refused) out.refused++;
-    out.pagesFound += asked.urls.length;
+    out.searches += found.searches;
 
-    const { accepted, notes } = await verifyPages(c, asked.urls);
+    const pick = await pickPages(c, found.results);
+    out.inputTokens += pick.inputTokens;
+    out.outputTokens += pick.outputTokens;
+    out.pagesFound += pick.urls.length;
+
+    const { accepted, notes } = await verifyPages(c, pick.urls);
     out.pagesAccepted += accepted.length;
     out.details.push({
       sku: c.sku,
-      urls: asked.urls,
+      picked: pick.urls,
+      pickedBy: pick.by,
       accepted: accepted.map((a) => ({ host: a.host, url: a.url, price: a.price, inStock: a.inStock })),
       notes,
-      refused: asked.refused,
     });
     if (opts.dry) continue;
 
@@ -344,15 +325,20 @@ export async function discoverMarketPages(
       });
     }
     await recordLookup(c.id, {
-      searches: asked.usage.searches,
-      pagesFound: asked.urls.length,
+      searches: found.searches,
+      pagesFound: pick.urls.length,
       pagesAccepted: accepted.length,
-      inputTokens: asked.usage.inputTokens,
-      outputTokens: asked.usage.outputTokens,
-      note: [asked.refused ? "модель відмовилась" : null, ...notes].filter(Boolean).join("; ").slice(0, 1000) || null,
+      inputTokens: pick.inputTokens,
+      outputTokens: pick.outputTokens,
+      note: [`${provider.name}, відбір: ${pick.by === "deepseek" ? "DeepSeek" : "за артикулом"}`, ...notes].join("; ").slice(0, 1000),
     });
   }
 
-  out.costUsd = Math.round(out.costUsd * 100) / 100;
+  out.costUsd = agentCostUsd({
+    searches: out.searches,
+    inputTokens: out.inputTokens,
+    outputTokens: out.outputTokens,
+    usdPerQuery: provider.usdPerQuery,
+  });
   return out;
 }

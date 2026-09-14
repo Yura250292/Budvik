@@ -109,3 +109,20 @@ export function pageNamesArticle(html: string, url: string, sku: string): boolea
   ];
   return parts.some((p) => typeof p === "string" && re.test(` ${normText(decode(p))} `));
 }
+
+/**
+ * Чи стоїть артикул у короткому тексті — назві чи адресі результату пошуку.
+ * Запасний відбір, коли DeepSeek недоступний: сторінку однаково перевіряє
+ * pageNamesArticle, це лише фільтр, які сторінки відкривати.
+ */
+export function textNamesArticle(text: string, sku: string): boolean {
+  const re = articlePattern(sku);
+  if (!re) return false;
+  let t = text;
+  try {
+    t = decodeURIComponent(text);
+  } catch {
+    /* не адреса або битий відсоток — перевіримо як є */
+  }
+  return re.test(` ${normText(decode(t))} `);
+}

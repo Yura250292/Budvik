@@ -2,8 +2,9 @@
  * Розклад агента цін для воркера (worker/index.ts).
  *
  *   - щоночі 01:00–06:00 за Києвом: переперевірка відомих сторінок (раз на
- *     тиждень на сторінку) і пошук сторінок для кількох товарів без ринкової
- *     ціни — не більше PRICE_AGENT_PER_NIGHT (типово 10) за ніч;
+ *     тиждень на сторінку) і пошук сторінок для товарів без ринкової ціни —
+ *     пошуковий API + DeepSeek, не більше PRICE_AGENT_PER_NIGHT (типово 40)
+ *     товарів за ніч;
  *   - щопонеділка з 08:00: пропозиції на тиждень і підсумок у Telegram.
  *
  * Ціну на вітрині тут не змінює ніщо: її ставить адмін, затверджуючи
@@ -19,19 +20,19 @@ import { buildProposals, isoWeek } from "./propose";
 const NIGHT = { from: 1, to: 6 };
 const PROPOSALS_HOUR = 8;
 const WEEK_STATE_KEY = "pricing:proposalsWeek";
-/** Товарів на один тік воркера (15 хв): кожен пошук — до хвилини роботи моделі. */
-const DISCOVERY_PER_TICK = 3;
+/** Товарів на один тік воркера (15 хв): товар — кілька секунд на пошук, DeepSeek і сторінки. */
+const DISCOVERY_PER_TICK = 10;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.budvik27.com";
 
 /**
- * Скільки товарів шукати за ніч. Проба 14.09.2026: знайдений товар коштує
- * близько $0,12, відсутній у мережі — до $0,3. Десять за ніч — це приблизно
- * $10–17 на тиждень і 70 товарів.
+ * Скільки товарів шукати за ніч. Товар — один-два пошукові запити (~$0,001
+ * кожен після безкоштовних 2500 у Serper) і частки цента DeepSeek, тож 40 за
+ * ніч — це близько $0,5 на тиждень.
  */
 const perNight = () => {
   const raw = process.env.PRICE_AGENT_PER_NIGHT;
   const v = raw === undefined || raw === "" ? NaN : Number(raw);
-  return Number.isFinite(v) && v >= 0 ? v : 10;
+  return Number.isFinite(v) && v >= 0 ? v : 40;
 };
 
 const kyivWeekday = (d: Date) =>
@@ -52,9 +53,9 @@ export async function runNightlyMarketWork(now = new Date()): Promise<string | n
   const discovery =
     quota > 0 ? await discoverMarketPages({ limit: Math.min(DISCOVERY_PER_TICK, quota), budgetMs: 5 * 60_000 }) : null;
 
-  if (discovery?.skipped === "no_api_key" && !warnedNoKey) {
+  if (discovery?.skipped === "no_search_key" && !warnedNoKey) {
     warnedNoKey = true;
-    console.warn("агент цін: ANTHROPIC_API_KEY не налаштовано — пошук нових сторінок вимкнено");
+    console.warn("агент цін: немає SERPER_API_KEY чи BRAVE_SEARCH_API_KEY — пошук нових сторінок вимкнено");
   }
 
   const parts: string[] = [];
@@ -63,7 +64,7 @@ export async function runNightlyMarketWork(now = new Date()): Promise<string | n
   }
   if (discovery && !discovery.skipped && discovery.looked > 0) {
     parts.push(
-      `пошук: товарів ${discovery.looked}, сторінок знайдено ${discovery.pagesFound}, прийнято ${discovery.pagesAccepted}, пошуків ${discovery.searches}, ≈$${discovery.costUsd}` +
+      `пошук (${discovery.provider}): товарів ${discovery.looked}, сторінок вибрано ${discovery.pagesFound}, прийнято ${discovery.pagesAccepted}, запитів ${discovery.searches}, ≈$${discovery.costUsd}` +
         (discovery.errors.length ? `, помилки: ${discovery.errors.slice(0, 3).join(" | ")}` : "")
     );
   }

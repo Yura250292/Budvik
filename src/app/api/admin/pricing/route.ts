@@ -15,6 +15,7 @@ import { bustStorefrontCache } from "@/lib/storefront-cache";
 import { repriceProducts } from "@/lib/pricing/engine";
 import { DEFAULT_POLICY_ID, loadPolicies, policyFromPercents } from "@/lib/pricing/policy";
 import type { PricePolicyValues } from "@/lib/pricing/compute";
+import { agentCostUsd } from "@/lib/pricing/agent/cost";
 
 export const maxDuration = 60;
 
@@ -115,7 +116,7 @@ export async function GET() {
     sources,
     agent: {
       ...a,
-      costUsd: Math.round((a.searches * 0.01 + a.inputTokens * 5e-6 + a.outputTokens * 25e-6) * 100) / 100,
+      costUsd: agentCostUsd({ searches: a.searches, inputTokens: a.inputTokens, outputTokens: a.outputTokens }),
     },
     brands: brands.map((b) => {
       const own = policies.byBrand.get(b.id);

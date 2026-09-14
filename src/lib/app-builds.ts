@@ -33,9 +33,9 @@ export const SHOP_APK_VERSION_NAME = "1.0.0";
  * сторінок разом із банером у кабінеті, тобто ставити стає нічого. Один раз
  * я вже підняв їх наперед і мало не викотив саме це.
  */
-export const STAFF_APK_KEY = "app/BudvikStaff-1.6.4.apk";
-export const STAFF_APK_VERSION_CODE = 10604;
-export const STAFF_APK_VERSION_NAME = "1.6.4";
+export const STAFF_APK_KEY = "app/BudvikStaff-1.6.5.apk";
+export const STAFF_APK_VERSION_CODE = 10605;
+export const STAFF_APK_VERSION_NAME = "1.6.5";
 
 /**
  * З чого зібрано те, що СПРАВДІ стоїть у полі.
@@ -54,7 +54,13 @@ export const STAFF_APK_VERSION_NAME = "1.6.4";
  * Оновлювати: STAFF_APK_COMMIT — коли залито новий APK, STAFF_OTA_COMMIT —
  * після кожного `npm run update:staff`.
  */
-export const STAFF_APK_COMMIT = "19d1788";
+/**
+ * 1.6.5 (1618810) — перша збірка, в якій патч expo-location справді є в коді:
+ * до неї EAS брав готовий AAR і правка сирців не потрапляла в APK (1.6.4 з
+ * 19d1788 патча НЕ містить). Перевіряти так: `unzip classes*.dex` і
+ * `grep -a -c 'Android відмовив у запуску служби'` — має бути ≥1.
+ */
+export const STAFF_APK_COMMIT = "1618810";
 /**
  * 14.09.2026 поле одне: 66ba4b1 на всіх живих оболонках — записувач більше не
  * ріже поїздки на Lenovo (mobile/src/track/fix-gate.ts), лічильники фіксів у

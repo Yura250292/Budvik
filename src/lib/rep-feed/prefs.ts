@@ -31,6 +31,7 @@ export const PUSH_CATEGORIES: readonly PushCategory[] = [
   { type: REP_FEED_TYPES.WATCH, label: "Товар під запит", hint: "приїхало те, на що ви натиснули «Коли буде»" },
   { type: REP_FEED_TYPES.PRICE_UP, label: "Подорожчання", hint: "зранку, від 3%, лише те, що беруть ваші клієнти" },
   { type: REP_FEED_TYPES.REQUEST_DONE, label: "Відповідь на заявку", hint: "офіс виконав або відхилив вашу заявку" },
+  { type: REP_FEED_TYPES.TASK, label: "Задачі від офісу", hint: "керівник доручив задачу — з наради або вручну" },
   { type: REP_FEED_TYPES.WEEK, label: "Підсумок тижня", hint: "у п'ятницю: продажі, зібране, місце в команді" },
 ];
 

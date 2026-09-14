@@ -97,3 +97,43 @@ export async function fileSize(key: string): Promise<number | null> {
     return null;
   }
 }
+
+/**
+ * Тимчасове посилання на ЗАПИС обʼєкта — браузер кладе файл у R2 сам.
+ *
+ * Запис наради важить десятки мегабайтів, а тіло запиту до функції Vercel
+ * обмежене 4,5 МБ: через роут такий файл не пройде взагалі. Роут лише
+ * перевіряє доступ і видає посилання, а байти йдуть напряму в Cloudflare.
+ *
+ * Content-Type входить у підпис: браузер мусить надіслати рівно той самий
+ * заголовок, інакше R2 відповість 403. Бакету потрібен CORS на PUT
+ * (scripts/setup-r2-cors.mts).
+ */
+export async function presignedPutUrl(
+  key: string,
+  contentType: string,
+  expiresInSeconds = 3600
+): Promise<string> {
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  return getSignedUrl(
+    r2,
+    new PutObjectCommand({ Bucket: process.env.R2_BUCKET_NAME!, Key: key, ContentType: contentType }),
+    { expiresIn: expiresInSeconds }
+  );
+}
+
+/**
+ * Чи задано доступ до сховища.
+ *
+ * Клієнт вище будується під час імпорту й без змінних мовчки дивиться на
+ * https://undefined.r2.cloudflarestorage.com — тож воркер, якому R2 не
+ * передали, мав би перевіряти це сам, а не ловити дивні помилки мережі.
+ */
+export function isR2Configured(): boolean {
+  return !!(
+    process.env.R2_ACCOUNT_ID &&
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_SECRET_ACCESS_KEY &&
+    process.env.R2_BUCKET_NAME
+  );
+}

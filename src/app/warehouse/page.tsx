@@ -20,6 +20,7 @@ import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, CardHead, Note, Page, StatCard, Tile, TileRow } from "@/components/cabinet/ui";
 import { useProfile } from "@/lib/useProfile";
 import { ScanButton } from "@/components/warehouse/ScanButton";
+import TasksEntry from "@/components/cabinet/TasksEntry";
 
 type Shift = {
   id: string;
@@ -193,6 +194,8 @@ export default function WarehouseHomePage() {
 
           {!!error && <Note tone="bad">{error}</Note>}
         </Card>
+
+        <TasksEntry href="/warehouse/tasks" />
 
         <div className="grid grid-cols-2 gap-2.5">
           <StatCard

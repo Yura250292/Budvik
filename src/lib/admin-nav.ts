@@ -127,6 +127,10 @@ export const NAV_GROUPS: NavGroup[] = [
       // Заявки торгових першими: це черга, яку офіс розбирає щодня, а не
       // довідник. Виконуються в 1С руками, тут — статус і відповідь.
       { href: "/admin/requests", title: "Заявки торгових", desc: "Завести клієнта, змінити дані, відстрочка", iconKey: "report", roles: AM },
+      // Наради — лише власникові: розмови керівництва про всю команду й борги.
+      // Задачі з них бачить і менеджер — у сусідньому пункті.
+      { href: "/admin/meetings", title: "Наради", desc: "Запис, підсумок, задачі команді", iconKey: "mic", roles: ["ADMIN"] },
+      { href: "/admin/tasks", title: "Задачі команді", desc: "Хто, що, до коли — з нарад і вручну", iconKey: "orders", roles: AM },
       // Робочий профіль торгового. Ролі й доступи — у «Користувачах».
       { href: "/admin/sales-reps", title: "Торгові представники", desc: "Регіони, клієнти, категорії, плани", iconKey: "team", roles: AM },
       // Шаблони папок, з якими торговий працює з клієнтами, — про людей
@@ -188,6 +192,7 @@ export const BREADCRUMB_MAP: Record<string, string> = {
   // Профіль доступний із меню в шапці, а не з сайдбару, тож у ALL_NAV_ITEMS
   // його немає — без цього рядка ланцюжок показав би сирий сегмент.
   "/admin/profile": "Мій профіль",
+  "/admin/meetings/new": "Нова нарада",
 };
 
 export function isAdminRole(role: unknown): role is AdminRole {
@@ -239,6 +244,9 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     "/admin/assistant",
     // Торговий має свій чат у кабінеті, з нижньою панеллю й гейтом секції.
     "/admin/chat",
+    // Наради керівництва й задачі всієї команди; свої задачі торговий бачить у /sales/tasks.
+    "/admin/meetings",
+    "/admin/tasks",
   ];
   if (pathname === "/admin/sales") return false;
   return !blocked.some((p) => pathname.startsWith(p));

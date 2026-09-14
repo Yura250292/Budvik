@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Chip, Page } from "@/components/cabinet/ui";
+import TasksEntry from "@/components/cabinet/TasksEntry";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { FeedRow, groupByDay, useFeedPages } from "@/components/feed/FeedList";
 import { FEED_FILTERS, feedHref } from "@/lib/rep-feed/types";
@@ -36,6 +37,7 @@ export default function SalesFeedScreen() {
     <>
       <SalesHeader title="Стрічка" subtitle="Події ваших клієнтів" backTo="/sales" />
       <Page>
+        <TasksEntry href="/sales/tasks" />
         <Link
           href="/sales/watches"
           className="flex items-center justify-between rounded-2xl border border-cab-line bg-white px-3.5 py-3 text-[14px] font-semibold text-bk active:opacity-80"

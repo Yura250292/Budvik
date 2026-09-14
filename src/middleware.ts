@@ -79,6 +79,11 @@ export default withAuth(
          // Заявки всіх торгових з відповідями офісу; свої торговий бачить
          // у кабінеті (/sales/requests).
          pathname.startsWith("/admin/requests") ||
+         // Наради — розмови керівництва про всю команду, борги й людей;
+         // задачі — доручення всім. Свої задачі торговий бачить у /sales/tasks.
+         // Самі наради ще й лише для ADMIN — це перевіряє API (MEETING_ROLES).
+         pathname.startsWith("/admin/meetings") ||
+         pathname.startsWith("/admin/tasks") ||
          // Замовлення торговий бачить, а список отримувачів сповіщень — ні:
          // це роздача доступу до контактів усіх покупців у чужий Telegram.
          pathname.startsWith("/admin/orders/alerts") ||

@@ -458,4 +458,6 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_PRICE_UP: "подорожчання",
   REP_REQUEST_DONE: "заявка",
   REP_WEEK: "тиждень",
+  REP_TASK: "задача",
+  REP_TASK_DONE: "виконано",
 };

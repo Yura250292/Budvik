@@ -37,6 +37,8 @@ import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
 import { notifyRepFeed } from "@/lib/rep-feed/notify";
 import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { runNightlyMarketWork, runWeeklyProposals } from "@/lib/pricing/agent/run";
+import { processMeetings } from "@/lib/meetings/process";
+import { deliverTaskNotifications } from "@/lib/tasks/notify";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
@@ -550,6 +552,37 @@ async function tickPriceAgent(): Promise<void> {
 
 const marketTimer = setInterval(() => void tickPriceAgent(), SILENCE_CHECK_INTERVAL_MS);
 
+// ========== Наради й задачі команді ==========
+
+/**
+ * Запис наради → розпізнавання (AssemblyAI) → підсумок (OpenAI) → пропозиції
+ * задач (src/lib/meetings/process.ts), і доставка підтверджених задач
+ * виконавцям (src/lib/tasks/notify.ts).
+ *
+ * Частіше за решту таймерів: людина щойно завантажила запис і дивиться на
+ * сторінку. Сам тік дешевий — кілька запитів за статусом по індексу, а важка
+ * робота (виклики служб) буває лише тоді, коли в черзі щось є.
+ */
+const MEETINGS_INTERVAL_MS = 20_000;
+let meetingsBusy = false;
+
+async function tickMeetings(): Promise<void> {
+  if (meetingsBusy) return;
+  meetingsBusy = true;
+  try {
+    for (const l of await processMeetings()) {
+      console.log(`наради: ${l.title} ${l.from}→${l.to}${l.note ? ` — ${l.note}` : ""}`);
+    }
+    for (const line of await deliverTaskNotifications()) console.log(`задачі: ${line}`);
+  } catch (e) {
+    console.error("наради:", e);
+  } finally {
+    meetingsBusy = false;
+  }
+}
+
+const meetingsTimer = setInterval(() => void tickMeetings(), MEETINGS_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -571,6 +604,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(repFeedTimer);
     clearInterval(pruneTimer);
     clearInterval(marketTimer);
+    clearInterval(meetingsTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

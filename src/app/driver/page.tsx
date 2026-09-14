@@ -11,6 +11,7 @@ import NotificationsBell from "@/components/admin/NotificationsBell";
 import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, Eyebrow, Note, Page, Pill } from "@/components/cabinet/ui";
+import TasksEntry from "@/components/cabinet/TasksEntry";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -169,6 +170,8 @@ export default function DriverPage() {
           </span>
           <ChevronRight size={20} className="shrink-0 text-white/60" />
         </Link>
+
+        <TasksEntry href="/driver/tasks" />
 
         <Eyebrow>Маршрути доставки</Eyebrow>
 

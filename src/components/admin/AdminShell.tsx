@@ -12,6 +12,8 @@ import TabsProvider from "./tabs/TabsProvider";
 import TabsBar from "./tabs/TabsBar";
 import TabsViewport from "./tabs/TabsViewport";
 import LinkInterceptor from "./tabs/LinkInterceptor";
+import { MeetingRecordingProvider } from "@/components/meetings/MeetingRecordingProvider";
+import MeetingMiniRecorder from "@/components/meetings/MeetingMiniRecorder";
 import { isAdminRole, type AdminRole } from "@/lib/admin-nav";
 import { useNativeReady } from "@/lib/useIsNativeApp";
 
@@ -110,6 +112,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   return (
     <TabsProvider userId={userId} role={adminRole}>
+      {/*
+        Запис наради живе над вкладками: TabsViewport сторінки не тримає, тож
+        стан запису мусить бути вище за них, інакше перехід на іншу сторінку
+        обривав би нараду.
+      */}
+      <MeetingRecordingProvider>
       <LinkInterceptor role={adminRole} />
       <div className="flex h-[100dvh] overflow-hidden bg-background">
         {/* Десктопний сайдбар */}
@@ -169,6 +177,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           />
         </div>
       </div>
+      <MeetingMiniRecorder />
+      </MeetingRecordingProvider>
     </TabsProvider>
   );
 }

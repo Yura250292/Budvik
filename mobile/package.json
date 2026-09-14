@@ -64,5 +64,14 @@
     "update:staff:one": "APP_FLAVOR=staff EXPO_PUBLIC_API_URL=https://www.budvik27.com eas update --channel staff --platform android --message",
     "postinstall": "patch-package"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-location"
+        ]
+      }
+    }
+  }
 }

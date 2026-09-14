@@ -136,7 +136,8 @@ export async function POST(req: NextRequest) {
        * Міграції не треба: колонка оголошена як String? без @db.VarChar,
        * тобто в Postgres це text без обмеження довжини. Ріже саме цей рядок.
        */
-      watchdogStatus: text(body.watchdogStatus, 200),
+      // 14.09 рядок доріс ще на лічильники фіксів (~60 символів у кінці): 300.
+      watchdogStatus: text(body.watchdogStatus, 300),
       contextStartedAt: date(body.contextStartedAt),
       fixBatches: int(body.fixBatches, 0, 1_000_000),
       contextPoints: int(body.contextPoints, 0, 1_000_000),

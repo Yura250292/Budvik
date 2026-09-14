@@ -9,6 +9,7 @@ import { staffApi, StaffApiError, APP_BUILD } from "@/api/staff";
 import { exactGuardStatus, systemProbe } from "@modules/track-guard";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
+import { contextGate, describeCounters } from "./fix-gate";
 import { notifyNow } from "./notify";
 import { cancelCloseReminders } from "./reminder";
 import {
@@ -405,8 +406,14 @@ function describeGuards(status: string | null, taskRegistered?: boolean | null):
    * питати про нього можна в будь-якій збірці, на відміну від проби системи.
    */
   const task = taskRegistered === false ? " · ЗАВДАННЯ ЛОКАЦІЇ ЗНЯТО" : "";
+  /**
+   * Куди поділися фікси — у кінці рядка, щоб обрізання на сервері забирало
+   * його, а не служби. 14.09 без цього причину розривів довелося виводити з
+   * інтервалів між точками (див. fix-gate.ts).
+   */
+  const gate = ` · ${describeCounters(contextGate.counters())}`;
   const alarm = exactGuardStatus();
-  if (!alarm.available) return (status ?? "UNKNOWN") + task;
+  if (!alarm.available) return (status ?? "UNKNOWN") + task + gate;
 
   const fired = alarm.lastFiredAt
     ? new Date(alarm.lastFiredAt).toLocaleTimeString("uk-UA", {

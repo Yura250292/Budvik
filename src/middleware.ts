@@ -41,6 +41,8 @@ export default withAuth(
          // Закупівлі — робоче місце закупівельника (ADMIN/MANAGER):
          // торговому нема чого бачити закупівельні ціни й дефіцит складу.
          pathname.startsWith("/admin/procurement") ||
+         // Ціни вітрини — опт і націнка по всьому асортименту.
+         pathname.startsWith("/admin/pricing") ||
          // Прихід — той самий закупівельний контур: накладні від
          // постачальників із цінами закупівлі.
          pathname.startsWith("/admin/erp/purchase-orders") ||

@@ -1,35 +1,30 @@
 /**
- * Застосування цін із зрізу 1С.
+ * Ціни з 1С → сирий ціновий шар (Price1C) → рушій цін вітрини.
  *
- * Промо-поля (isPromo/promoPrice/promoLabel) — власність сайту, синхронізація
- * їх не торкається: акція живе в маркетингу, а не в обліку.
+ * Обмін більше не пише ціну вітрини сам. Він зберігає, що назвала 1С, а
+ * скільки товар коштує на сайті, вирішує рушій (src/lib/pricing/engine.ts):
+ * опт × націнка з поправкою на сайти виробників. Див. docs/pricing.md.
  *
- * Захист від помилок в 1С: зміна ціни більш ніж у PRICE_SANITY_FACTOR разів
- * не застосовується одразу, а спершу реєструється як розбіжність. Типова
- * причина — зміна одиниці виміру (ціна за упаковку замість штуки) або помилка
- * оператора.
- *
- * Але «не застосовується» не означає «ніколи»: якщо 1С називає ту саму ціну і
- * наступної доби, це вже не одруківка, а рішення — і ми його приймаємо. Без
- * цього запобіжник перетворювався на замок: 22 товари стояли з цінами старого
- * імпорту, поки 1С щоночі просила їх виправити. Мастило продавалось по 35 ₴
- * замість 209 ₴, а розетка висіла з 20 199 ₴ замість 48 ₴ — тобто сторож,
- * поставлений берегти від помилкової ціни, сам тримав помилкову ціну.
+ * Промо-поля (isPromo/promoPrice/promoLabel) — власність сайту, обмін їх не
+ * торкається: акція живе в маркетингу, а не в обліку.
  *
  * ЗАПОБІЖНИК АСИМЕТРИЧНИЙ, і це головне тут. Дві помилки коштують по-різному:
  *
  *   - ціна на сайті НИЖЧА за облікову — продаємо собі в збиток, і дізнаємось
  *     про це з бухгалтерії за місяць;
- *   - ціна на сайті ВИЩА за облікову — втрачаємо покупця, але не гроші, і
- *     помилка сама лізе в очі.
+ *   - ціна ВИЩА — втрачаємо покупця, але не гроші, і помилка сама лізе в очі.
  *
- * Тому підвищення ціни застосовуємо ЗАВЖДИ й одразу, хай яке різке: правило
- * власника — на сайті не може бути дешевше, ніж в 1С. Витримку залишаємо лише
- * для здешевлення: там доба очікування нічим не загрожує.
+ * Тому підвищення ціни 1С приймаємо завжди й одразу, а здешевлення більш ніж
+ * у PRICE_SANITY_FACTOR разів — лише коли 1С повторила ту саму ціну через
+ * PRICE_CONFIRM_HOURS. Тепер це стосується насамперед опту: з нього рахується
+ * вітрина, і опт, помилково поділений на десять, виставив би товар на сайт у
+ * збиток. Без підтвердження запобіжник перетворювався на замок: 22 товари
+ * стояли з цінами старого імпорту, поки 1С щоночі просила їх виправити.
  */
 
+import type { PriceKind1C } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { deriveRetailPrice } from "@/lib/pricing/retail-markup";
+import { BASIS_LABELS, repriceProducts } from "@/lib/pricing/engine";
 import type { PriceRecord } from "./types";
 import { ApplyContext } from "./context";
 
@@ -39,23 +34,28 @@ const PRICE_SANITY_FACTOR = 5;
  * Скільки має «відлежатись» підозріла ціна, щоб її прийняти.
  *
  * 12 годин, бо повний зріз цін приходить раз на добу (нічний прогін): та сама
- * ціна на наступну ніч — це підтвердження, а не повтор одруківки. Менший поріг
- * нічого не дав би (інкрементальні прогони віддають лише змінені ціни), більший
- * розтягнув би виправлення на кілька днів.
+ * ціна на наступну ніч — це підтвердження, а не повтор одруківки.
  */
 const PRICE_CONFIRM_HOURS = 12;
+/** Скільки змін ціни вітрини за батч писати в журнал розбіжностей. */
+const SITE_PRICE_LOG_LIMIT = 100;
+
+/** Поля журналу розбіжностей. «price_*» — історичні назви для роздрібу, їх читає адмінка. */
+const FIELD: Record<PriceKind1C, { changed: string; rejected: string; confirmed: string }> = {
+  RETAIL: { changed: "price", rejected: "price_rejected", confirmed: "price_confirmed" },
+  WHOLESALE: { changed: "wholesale", rejected: "wholesale_rejected", confirmed: "wholesale_confirmed" },
+};
 
 /**
  * Чи називала 1С цю саму ціну раніше — достатньо давно, щоб вважати її свідомою.
  *
  * Питаємо журнал розбіжностей, а не окрему таблицю: відхилення там і так
- * пишуться, тож історія вже є, і другого джерела правди не заводимо. Запит
- * робиться лише для підозрілих цін — їх одиниці на добу.
+ * пишуться. Запит робиться лише для підозрілих цін — їх одиниці на добу.
  */
-async function confirmedEarlier(entityRef: string, value1C: string): Promise<boolean> {
+async function confirmedEarlier(field: string, entityRef: string, value1C: string): Promise<boolean> {
   const prior = await prisma.syncDiscrepancy.findFirst({
     where: {
-      field: "price_rejected",
+      field,
       entityRef,
       value1C,
       createdAt: { lt: new Date(Date.now() - PRICE_CONFIRM_HOURS * 3600_000) },
@@ -65,11 +65,8 @@ async function confirmedEarlier(entityRef: string, value1C: string): Promise<boo
   return prior !== null;
 }
 
-/** Чи виглядає нова ціна як помилка на тлі старої. */
-function isSuspicious(oldPrice: number, newPrice: number): boolean {
-  if (oldPrice <= 0 || newPrice <= 0) return false; // з/на нуль — легітимно
-  const ratio = newPrice > oldPrice ? newPrice / oldPrice : oldPrice / newPrice;
-  return ratio > PRICE_SANITY_FACTOR;
+function isSuspiciousDrop(oldPrice: number, newPrice: number): boolean {
+  return oldPrice > 0 && newPrice > 0 && newPrice < oldPrice && oldPrice / newPrice > PRICE_SANITY_FACTOR;
 }
 
 export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Promise<void> {
@@ -80,15 +77,14 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
   const products = await prisma.product.findMany({
     where: { externalId: { in: externalIds } },
     select: {
-      id: true, externalId: true, sku: true, name: true, price: true, wholesalePrice: true,
-      priceDerived: true, brand: { select: { retailMarkup: true } },
+      id: true, externalId: true, sku: true, name: true, wholesalePrice: true,
+      prices1C: { select: { kind: true, price: true } },
     },
   });
   const byExternalId = new Map(products.map((p) => [p.externalId!, p]));
 
   // «Ціну підтвердив зріз 1С» — до циклу, одним запитом, годинником бази.
-  // Та сама механіка, що для сальдо дебіторки, і з тих самих причин:
-  // зріз віддає лише ціни > 0, тож прибрана ціна не приходить нулем, а
+  // Зріз віддає лише ціни > 0, тож прибрана ціна не приходить нулем, а
   // позиція просто зникає з вивантаження. Див. reconcile-prices.ts.
   if (!ctx.isPreview) {
     await prisma.$executeRaw`
@@ -96,6 +92,11 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
       WHERE "externalId" = ANY(${externalIds}::text[])
     `;
   }
+
+  const upserts: { productId: string; kind: PriceKind1C; price: number }[] = [];
+  const removals: { productId: string; kind: PriceKind1C }[] = [];
+  const wholesaleCopies: { id: string; wholesale: number }[] = [];
+  const touched = new Set<string>();
 
   for (const rec of records) {
     const product = byExternalId.get(rec.externalId);
@@ -107,152 +108,120 @@ export async function applyPrices(records: PriceRecord[], ctx: ApplyContext): Pr
       continue;
     }
 
-    const updates: { price?: number; wholesalePrice?: number; priceDerived?: boolean } = {};
+    const entityRef = product.sku || rec.externalId;
+    const have = new Map(product.prices1C.map((p) => [p.kind, p.price]));
+    let moved = false;
 
-    const hasWholesale = rec.wholesale !== undefined && Number.isFinite(rec.wholesale);
+    const incoming: [PriceKind1C, number | undefined][] = [
+      ["RETAIL", rec.retail],
+      ["WHOLESALE", rec.wholesale],
+    ];
 
-    /**
-     * Роздріб, який не вищий за опт, роздрібом не вважаємо.
-     *
-     * Перевірка вітрини 08.09.2026 знайшла 973 показних товари (15% каталогу),
-     * де ціна на сайті менша або рівна закупівельній: APRO Гвинт-шуруп M10×100
-     * — 7,09 ₴ проти 7,36 ₴ опту, APRO Рулетка 5 м — 188,28 проти 195,50.
-     * Такий товар можна покласти в кошик і замовити, тобто магазин продає
-     * собі в збиток, і це не помилка показу, а справжня ціна.
-     *
-     * Причина не в обміні, а в тому, що ми брали «6.МАГАЗИНИ» як є: там, де
-     * роздріб не оновлювали роками, а опт зріс, він опинився нижче. Тепер
-     * такий випадок іде тим самим шляхом, що й «роздрібної ціни в 1С немає
-     * взагалі»: рахуємо з опту × коефіцієнт бренду (нижче в цьому ж циклі).
-     *
-     * Виправляємо на боці сайту навмисно — у 1С не пишемо нічого (CLAUDE.md).
-     */
-    const retailBelowCost =
-      rec.retail !== undefined &&
-      Number.isFinite(rec.retail) &&
-      hasWholesale &&
-      rec.retail! <= rec.wholesale!;
+    for (const [kind, raw] of incoming) {
+      const value = raw !== undefined && Number.isFinite(raw) && raw > 0 ? raw : undefined;
+      const old = have.get(kind);
+      const field = FIELD[kind];
 
-    if (retailBelowCost) {
-      ctx.discrepancy({
-        entityType: "product",
-        entityRef: product.sku || rec.externalId,
-        entityName: product.name,
-        field: "retail_below_cost",
-        value1C: `роздріб ${rec.retail} ≤ опт ${rec.wholesale}`,
-        valueBudvik: String(product.price),
-      });
-    }
-
-    if (!retailBelowCost && rec.retail !== undefined && Number.isFinite(rec.retail)) {
-      // Розрахункова ціна — не облікова: справжній роздріб із 1С приймаємо без
-      // запобіжника, бо порівнювати його з нашою ж оцінкою нема сенсу.
-      const oldPrice = product.priceDerived ? 0 : product.price || 0;
-      if (Math.abs((product.price || 0) - rec.retail) > PRICE_EPSILON) {
-        const entityRef = product.sku || rec.externalId;
-        // Підвищення не тримаємо ніколи: поки ми його тримаємо, сайт продає
-        // дешевше за облік.
-        const isIncrease = rec.retail > oldPrice;
-        const suspicious = !isIncrease && isSuspicious(oldPrice, rec.retail);
-        // Підозріле здешевлення приймаємо з другого разу: 1С повторила ту саму
-        // ціну наступної доби — отже, це не промах оператора.
-        const confirmed = suspicious && (await confirmedEarlier(entityRef, String(rec.retail)));
-
-        if (suspicious && !confirmed) {
+      if (value === undefined) {
+        if (old === undefined) continue;
+        // Агент шле товар з усіма його цінами разом (extract.ps1), тож тип,
+        // якого немає в записі, в 1С для товару немає — сирий шар мусить це
+        // відбити. «А раптом це збій курсу на агенті» тут не підстава тримати
+        // стару ціну: курси беруться зрізом останніх і є завжди, а ціни в
+        // валюті без коду (335 рядків EUR) не приходять ніколи, тож не
+        // зникають раптово. Натомість застарілий рядок тримав би на вітрині
+        // опт старого імпорту, якого 1С не називала жодного разу.
+        removals.push({ productId: product.id, kind });
+        if (kind === "WHOLESALE") {
           ctx.discrepancy({
             entityType: "product",
             entityRef,
             entityName: product.name,
-            field: "price_rejected",
-            value1C: String(rec.retail),
-            valueBudvik: String(product.price),
+            field: "wholesale_removed",
+            value1C: "немає в записі цін",
+            valueBudvik: String(old),
           });
-        } else {
-          if (confirmed) {
-            // Окреме поле, щоб в адмінці було видно саме розблокування, а не
-            // звичайну зміну ціни: різниця тут велика і варта людського ока.
-            ctx.discrepancy({
-              entityType: "product",
-              entityRef,
-              entityName: product.name,
-              field: "price_confirmed",
-              value1C: String(rec.retail),
-              valueBudvik: String(product.price),
-            });
-          }
-          if (!confirmed) {
-            ctx.discrepancy({
-              entityType: "product",
-              entityRef,
-              entityName: product.name,
-              field: "price",
-              value1C: String(rec.retail),
-              valueBudvik: String(product.price),
-            });
-          }
-          updates.price = rec.retail;
         }
+        moved = true;
+        continue;
       }
-    }
 
-    const hasRetail =
-      rec.retail !== undefined && Number.isFinite(rec.retail) && !retailBelowCost;
+      if (old !== undefined && Math.abs(old - value) <= PRICE_EPSILON) continue;
 
-    if (hasRetail && product.priceDerived) {
-      // В 1С нарешті зʼявився справжній роздріб — він витісняє розрахунковий.
-      updates.priceDerived = false;
-    }
-
-    /**
-     * Роздріб з опту. Агент шле товар з усіма його цінами разом, тож «є опт,
-     * немає роздрібу» означає саме «в 1С немає 6.МАГАЗИНИ», а не «роздріб
-     * не змінювався». Рахуємо лише там, де ціни немає або вона вже
-     * розрахункова: ціну, яку хтось поставив руками, опт не перебиває.
-     */
-    if (!hasRetail && hasWholesale && (product.priceDerived || !(product.price > 0))) {
-      const derived = deriveRetailPrice(rec.wholesale!, product.brand?.retailMarkup);
-      if (derived > 0 && Math.abs((product.price || 0) - derived) > PRICE_EPSILON) {
+      if (old !== undefined && isSuspiciousDrop(old, value)) {
+        const confirmed = await confirmedEarlier(field.rejected, entityRef, String(value));
         ctx.discrepancy({
           entityType: "product",
-          entityRef: product.sku || rec.externalId,
+          entityRef,
           entityName: product.name,
-          field: "price_derived",
-          value1C: `опт ${rec.wholesale} → ${derived}`,
-          valueBudvik: String(product.price),
+          field: confirmed ? field.confirmed : field.rejected,
+          value1C: String(value),
+          valueBudvik: String(old),
         });
-        updates.price = derived;
-        updates.priceDerived = true;
+        if (!confirmed) continue;
+      } else if (old !== undefined) {
+        ctx.discrepancy({
+          entityType: "product",
+          entityRef,
+          entityName: product.name,
+          field: field.changed,
+          value1C: String(value),
+          valueBudvik: String(old),
+        });
       }
-    }
 
-    // Опт з 1С приймаємо як є: значення, що були в цьому полі досі, — залишки
-    // старого імпорту невідомого походження, тож «стрибок у 5 разів» проти
-    // них нічого не означає. На вітрину опт не йде (див. wholesale-price-calc.ts).
-    if (hasWholesale) {
-      const current = product.wholesalePrice ?? 0;
-      if (Math.abs(current - rec.wholesale!) > PRICE_EPSILON) {
-        updates.wholesalePrice = rec.wholesale!;
+      upserts.push({ productId: product.id, kind, price: value });
+      // Копія опту в товарі — для помічника й старих звітів.
+      if (kind === "WHOLESALE" && Math.abs((product.wholesalePrice ?? 0) - value) > PRICE_EPSILON) {
+        wholesaleCopies.push({ id: product.id, wholesale: value });
       }
+      moved = true;
     }
 
-    if (Object.keys(updates).length === 0) {
-      ctx.skipped++;
-      continue;
+    if (moved) touched.add(product.id);
+    else ctx.skipped++;
+  }
+
+  ctx.updated += touched.size;
+  if (ctx.isPreview || touched.size === 0) return;
+
+  try {
+    if (upserts.length > 0) {
+      await prisma.$executeRaw`
+        INSERT INTO "Price1C" ("productId", kind, price, "changedAt")
+        SELECT x."productId", x.kind::"PriceKind1C", x.price, now()
+        FROM jsonb_to_recordset(${JSON.stringify(upserts)}::jsonb) AS x("productId" text, kind text, price float8)
+        ON CONFLICT ("productId", kind) DO UPDATE SET price = EXCLUDED.price, "changedAt" = now()
+      `;
+    }
+    if (removals.length > 0) {
+      await prisma.$executeRaw`
+        DELETE FROM "Price1C" c
+        USING jsonb_to_recordset(${JSON.stringify(removals)}::jsonb) AS x("productId" text, kind text)
+        WHERE c."productId" = x."productId" AND c.kind = x.kind::"PriceKind1C"
+      `;
+    }
+    if (wholesaleCopies.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE "Product" p
+        SET "wholesalePrice" = x.wholesale, "syncedAt" = now(), "syncSource" = '1C'
+        FROM jsonb_to_recordset(${JSON.stringify(wholesaleCopies)}::jsonb) AS x(id text, wholesale float8)
+        WHERE p.id = x.id
+      `;
     }
 
-    if (ctx.isPreview) {
-      ctx.updated++;
-      continue;
-    }
-
-    try {
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { ...updates, syncedAt: new Date(), syncSource: "1C" },
+    const repriced = await repriceProducts({ productIds: [...touched] });
+    for (const c of repriced.changes.slice(0, SITE_PRICE_LOG_LIMIT)) {
+      ctx.discrepancy({
+        entityType: "product",
+        entityRef: c.sku || c.productId,
+        entityName: c.name,
+        field: "site_price",
+        value1C: `${c.newPrice} (${BASIS_LABELS[c.basis]})`,
+        valueBudvik: String(c.oldPrice),
       });
-      ctx.updated++;
-    } catch (e) {
-      ctx.fail(product.name, e);
     }
+  } catch (e) {
+    ctx.fail(`ціни (${touched.size} товарів)`, e);
   }
 }

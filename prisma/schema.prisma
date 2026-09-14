@@ -454,6 +454,11 @@ model Product {
   orderItems OrderItem[]
   embedding  ProductEmbedding?
 
+  /// Ціновий шар (docs/pricing.md): що назвала 1С, що на ринку, що на вітрині.
+  prices1C     Price1C[]
+  marketPrices MarketPrice[]
+  sitePrice    SitePrice?
+
   // Бренд для планів і мотивації. Окреме поле, а не евристика по назві:
   // «перше слово» дає хибні збіги на 41 тис. товарів.
   brandId String?
@@ -1872,9 +1877,9 @@ model Brand {
 
   externalId String? @unique // Ref_Key з 1С, якщо бренд там ведеться
 
-  /// Коефіцієнт «роздріб = опт × k» для товарів, у яких в 1С немає
-  /// роздрібної ціни (TOTAL, POLAX заведені лише як «4.ОПТ»). null —
-  /// загальний DEFAULT_RETAIL_MARKUP (src/lib/pricing/retail-markup.ts).
+  /// ЗАСТАРІЛО з 14.09.2026: правило ціни вітрини тепер у PricePolicy, колонку
+  /// не читає ніхто. Лишена, щоб міграція не ламала воркер до його передеплою;
+  /// прибрати окремою міграцією.
   retailMarkup Float?
 
   createdAt DateTime @default(now())
@@ -1883,6 +1888,9 @@ model Brand {
   products Product[]
   plans    SalesPlan[]
   rules    MotivationRule[]
+
+  /// Правило ціни вітрини бренду; немає — діє загальне.
+  pricePolicy PricePolicy?
 
   @@index([isActive, priority])
 }
@@ -3792,4 +3800,109 @@ model StaffChatRead {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, conversation])
+}
+
+// ============================================================
+// ЦІНОВИЙ ШАР ВІТРИНИ (docs/pricing.md)
+// ============================================================
+//
+// Ціни 1С, ціни сайтів виробників, правила й результат живуть окремо від
+// каталогу. Рахує їх один рушій (src/lib/pricing/engine.ts); Product.price —
+// лише копія SitePrice.price для читачів каталогу.
+
+/// Тип цін 1С, який приходить обміном.
+enum PriceKind1C {
+  /// «6.МАГАЗИНИ»
+  RETAIL
+  /// «4.ОПТ (від 10-50 тис.)» — за ним купують клієнти в 1С
+  WHOLESALE
+}
+
+/// Звідки взялася ціна вітрини.
+enum SitePriceBasis {
+  /// опт × націнка
+  MARKUP
+  /// опущена до ціни на сайті виробника
+  MARKET
+  /// ринок дешевший за підлогу — стоїмо на підлозі
+  FLOOR
+  /// опту немає або одиниці не збігаються — ціна «6.МАГАЗИНИ» як є
+  RETAIL_1C
+  /// з 1С цін немає — ціну не чіпаємо
+  NONE
+}
+
+/// Що назвала 1С: одна ціна одного типу, у гривнях, як її переслав обмін.
+/// Сирий шар — сайт тут нічого не рахує й не виправляє.
+model Price1C {
+  productId String
+  kind      PriceKind1C
+  price     Float
+  /// Коли значення востаннє змінилось (не коли приходило).
+  changedAt DateTime    @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, kind])
+}
+
+/// Ціна того самого товару на чужому сайті.
+model MarketPrice {
+  id        String   @id @default(cuid())
+  productId String
+  /// Хост джерела («apro.ua»). Реєстр — src/lib/pricing/market/sources.ts.
+  source    String
+  url       String
+  price     Float
+  inStock   Boolean?
+  /// Коли ціну востаннє вдалося прочитати.
+  seenAt    DateTime @default(now())
+  /// Коли сторінку востаннє пробували читати — черга нічної переперевірки.
+  checkedAt DateTime @default(now())
+  changedAt DateTime @default(now())
+  /// Скільки спроб поспіль ціну не прочитано.
+  failCount Int      @default(0)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, source])
+  @@index([checkedAt])
+}
+
+/// Правило ціни вітрини: загальне (id «default») або бренду.
+model PricePolicy {
+  id           String   @id @default(cuid())
+  brandId      String?  @unique
+  /// Ціль: опт × markup (1,30 = +30 %).
+  markup       Float
+  /// Підлога: нижче опт × minMarkup не опускаємось навіть заради ринку.
+  minMarkup    Float
+  /// Чи опускати ціну до ринкової, коли на сайті виробника дешевше.
+  followMarket Boolean  @default(true)
+  updatedById  String?
+  updatedAt    DateTime @updatedAt
+
+  brand Brand? @relation(fields: [brandId], references: [id], onDelete: Cascade)
+}
+
+/// Ціна вітрини — результат рушія цін і те, з чого вона вийшла.
+/// Product.price — її копія; писати туди в обхід рушія не можна.
+model SitePrice {
+  productId    String         @id
+  price        Float
+  basis        SitePriceBasis
+  wholesale    Float?
+  retail1C     Float?
+  /// Ринкова ціна, взята до уваги.
+  market       Float?
+  marketSource String?
+  markup       Float?
+  minMarkup    Float?
+  /// above_market | market_room | unit_mismatch | market_ignored
+  flags        String[]       @default([])
+  changedAt    DateTime       @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([basis])
 }

@@ -36,6 +36,7 @@ import { notifyOutdatedApps } from "@/lib/app/update-nudge";
 import { deliverDueReminders } from "@/lib/assistant/facts/reminders";
 import { notifyRepFeed } from "@/lib/rep-feed/notify";
 import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
+import { refreshMarketPrices } from "@/lib/pricing/market/refresh";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
@@ -521,6 +522,40 @@ async function pruneJournals(): Promise<void> {
 
 const pruneTimer = setInterval(() => void pruneJournals(), SILENCE_CHECK_INTERVAL_MS);
 
+// ========== Ринкові ціни ==========
+
+/**
+ * Нічна переперевірка цін на сайтах виробників (src/lib/pricing/market/refresh.ts).
+ *
+ * Уночі — бо чужі сервери вдень обслуговують своїх покупців, а нам точність до
+ * години не потрібна: сторінку переперевіряємо раз на тиждень. Змінилась ціна
+ * на ринку → рушій перераховує вітрину → просимо сайт скинути кеш.
+ */
+const MARKET_HOURS = { from: 1, to: 6 };
+let marketBusy = false;
+
+async function refreshMarket(): Promise<void> {
+  if (marketBusy) return;
+  const hour = kyivHour(new Date());
+  if (hour < MARKET_HOURS.from || hour >= MARKET_HOURS.to) return;
+  marketBusy = true;
+  try {
+    const r = await refreshMarketPrices({ limit: 250, budgetMs: 12 * 60_000 });
+    if (r.checked > 0) {
+      console.log(
+        `ринкові ціни: перевірено ${r.checked}, прочитано ${r.updated}, невдач ${r.failed}, прибрано ${r.removed}, змінено цін вітрини ${r.priceChanged}`
+      );
+    }
+    if (r.priceChanged > 0) await bustCacheRemotely();
+  } catch (e) {
+    console.error("ринкові ціни:", e);
+  } finally {
+    marketBusy = false;
+  }
+}
+
+const marketTimer = setInterval(() => void refreshMarket(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -541,6 +576,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(remindersTimer);
     clearInterval(repFeedTimer);
     clearInterval(pruneTimer);
+    clearInterval(marketTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

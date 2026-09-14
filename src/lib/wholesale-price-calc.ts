@@ -32,7 +32,7 @@ export function extractBrand(productName: string): string | null {
  * Поле Product.wholesalePrice тут не використовується. З 26.08.2026 у нього
  * приходить «4.ОПТ» з 1С (агент тягне два типи цін), але це облікова оптова
  * ціна для розрахунку роздрібу там, де роздрібу в 1С немає (див.
- * lib/pricing/retail-markup.ts), а не те, що бачить оптовик на сайті: для
+ * lib/pricing/compute.ts), а не те, що бачить оптовик на сайті: для
  * нього знижка по бренду — свідоме рішення, записане в адмінці.
  */
 export function getWholesalePrice(

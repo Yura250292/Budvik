@@ -1,14 +1,19 @@
 # Воркер обміну не потребує ні збірки сайту, ні його статики.
 # Що менше вивантажуємо — то швидший деплой.
+#
+# Теки прив'язані до кореня (/agent, а не agent): правило без скісної риски
+# ловить теку з такою назвою на будь-якій глибині. 14.09.2026 «agent» (агент
+# 1С) викинуло з вивантаження src/lib/pricing/agent — і збірка воркера впала
+# на «Could not resolve @/lib/pricing/agent/run».
 .next
 .vercel
 node_modules
-output
-design
-public
-assets
-scripts
-agent
-docs
+/output
+/design
+/public
+/assets
+/scripts
+/agent
+/docs
 *.md
-mobile
+/mobile

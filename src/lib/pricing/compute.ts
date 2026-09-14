@@ -1,41 +1,39 @@
 /**
  * Ціна вітрини — чиста математика, без бази й без мережі.
  *
- * Правило власника (14.09.2026): роздріб на сайті = опт 1С + 25–30 %, і ціна
- * має бути конкурентною з сайтами виробників. Звідси дві межі:
+ * Правило власника, редакція 14.09.2026:
  *
- *   - ціль — опт × markup (типово +30 %): так стоїть товар, поки ринок не
- *     дешевший;
- *   - підлога — опт × minMarkup (типово +25 %): нижче не опускаємось навіть
- *     заради ринку.
+ *   - роздріб ЗАВЖДИ строго дорожчий за опт 1С — дешевше опту товар не
+ *     продається, хай що показує ринок і хай що затвердили;
+ *   - базова ціна — опт × націнка (типово +30 %);
+ *   - конкурентну ціну пропонує агент (src/lib/pricing/agent/), а ставить її
+ *     на вітрину лише адмін: затверджена ціна (ApprovedPrice) витісняє базову.
  *
- * Якщо на сайті виробника товар дешевший за ціль, ціна опускається до
- * ринкової, але не нижче підлоги. Дорожчий ринок ціну не піднімає: ціль —
- * стеля, а запас лише позначається (market_room), щоб рішення прийняла людина.
+ * Ринок сам ціну більше не рухає. Сайти бувають порожні, з ціною без
+ * наявності чи з набором замість штуки — таке рішення має бачити людина
+ * разом із джерелом, звідки взято оцінку.
  *
- * Чому «6.МАГАЗИНИ» більше не ціна вітрини: клієнти в 1С купують рівно за
- * «4.ОПТ» (96–99 % рядків реалізацій за 60 днів), а роздрібний тип ведуть
- * нерегулярно — у STIHL він на 4 % вищий за опт, у Grösser на 11 %, у STREND
- * PRO на 46 %. Він лишається у двох ролях: ціна, коли опту в 1С немає, і
- * сторож одиниць виміру (див. UNIT_RATIO_*).
+ * «6.МАГАЗИНИ» лишився у двох ролях: ціна, коли опту в 1С немає, і сторож
+ * одиниць виміру (див. UNIT_RATIO_*).
  */
 import type { SitePriceBasis } from "@prisma/client";
 
 export type PricePolicyValues = {
-  /** Ціль: опт × markup. 1,30 = +30 %. */
+  /** Базова ціна: опт × markup. 1,30 = +30 %. */
   markup: number;
-  /** Підлога: нижче опт × minMarkup не опускаємось. 1,25 = +25 %. */
+  /** Підлога: не нижче опт × minMarkup, і в будь-якому разі строго дорожче опту. */
   minMarkup: number;
-  /** Чи опускати ціну до ринкової, коли на сайті виробника дешевше. */
-  followMarket: boolean;
+  /** На скільки агент пропонує стати дешевше за ринок. 0,01 = на 1 %. */
+  undercut: number;
 };
 
 /** Типове правило, поки в базі немає рядка PricePolicy «default». */
-export const DEFAULT_POLICY: PricePolicyValues = { markup: 1.3, minMarkup: 1.25, followMarket: true };
+export const DEFAULT_POLICY: PricePolicyValues = { markup: 1.3, minMarkup: 1.01, undercut: 0.01 };
 
-/** Межі націнки в адмінці: нижче опту не продаємо, утричі — вже одруківка. */
-export const MARKUP_MIN = 1;
+/** Утричі від опту — вже одруківка, а не націнка. */
 export const MARKUP_MAX = 3;
+/** Стати дешевше ринку більш ніж на 30 % — не конкуренція, а демпінг. */
+export const UNDERCUT_MAX = 0.3;
 
 /**
  * Сторож одиниць виміру.
@@ -43,38 +41,34 @@ export const MARKUP_MAX = 3;
  * Коли «6.МАГАЗИНИ» і «4.ОПТ» різняться в рази, це не націнка, а різні
  * одиниці: ліска FORESTA — 5,75 ₴ за метр проти 1064,62 ₴ за бухту. Рахувати
  * з опту тут означає поставити ціну бухти на метр або навпаки, тож такий
- * товар лишається на ціні 1С і йде в список «перевірити одиниці».
+ * товар лишається на ціні 1С, і агент для нього нічого не пропонує.
  */
 export const UNIT_RATIO_LOW = 0.5;
 export const UNIT_RATIO_HIGH = 2.5;
 
 /**
  * Ринкова ціна, яка відрізняється від опту в рази, — не той товар: набір
- * замість штуки, упаковка замість одиниці. Таку не беремо до уваги.
+ * замість штуки, упаковка замість одиниці. Агент показує її як доказ, але
+ * пропозицію з неї не складає.
  */
 export const MARKET_RATIO_LOW = 0.5;
 export const MARKET_RATIO_HIGH = 5;
-
-/** Ринок дорожчий за ціль більш ніж на 10 % — позначаємо запас. */
-export const MARKET_ROOM = 1.1;
 
 /** Нижче цього порогу ціну тримаємо з копійками (кліпси по 0,42 ₴). */
 export const WHOLE_HRYVNIA_FROM = 10;
 
 export type SitePriceFlag =
-  /** Ринок дешевший навіть за підлогу: ми дорожчі за сайт виробника. */
-  | "above_market"
-  /** Ринок дорожчий за ціль більш ніж на 10 %: є куди підняти. */
-  | "market_room"
   /** «6.МАГАЗИНИ» і опт різняться в рази — схоже на різні одиниці. */
   | "unit_mismatch"
-  /** Ринкова ціна не схожа на цей товар (див. MARKET_RATIO_*). */
-  | "market_ignored";
+  /** Опт зріс, і затверджена ціна опинилась нижче підлоги — стоїмо на підлозі. */
+  | "approved_below_floor";
+
+export type ApprovedInput = { price: number; market: number | null; marketSource: string | null };
 
 export type PriceInputs = {
   wholesale: number | null;
   retail1C: number | null;
-  market: { price: number; source: string } | null;
+  approved: ApprovedInput | null;
   policy: PricePolicyValues;
 };
 
@@ -85,13 +79,15 @@ export type SitePriceResult = {
   flags: SitePriceFlag[];
   markup: number | null;
   minMarkup: number | null;
-  /** Ринкова ціна, яку взято до уваги (не та, що відкинута). */
+  /** Ринкова ціна, з якої вийшла затверджена (для показу, не для розрахунку). */
   market: number | null;
   marketSource: string | null;
 };
 
 const positive = (v: number | null | undefined): number | null =>
   typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+
+const kop = (x: number) => Math.round(x * 100) / 100;
 
 /**
  * Гривня: ціла від 10 ₴, дрібниця — з копійками.
@@ -105,14 +101,34 @@ export function roundUah(x: number, mode: "round" | "floor" | "ceil" = "round"):
   return Math[mode](x + nudge);
 }
 
-export function clampMarkup(k: number): number {
-  return Math.min(MARKUP_MAX, Math.max(MARKUP_MIN, k));
+export function normalizePolicy(p: PricePolicyValues): PricePolicyValues {
+  const markup = Math.min(MARKUP_MAX, Math.max(1, p.markup));
+  return {
+    markup,
+    minMarkup: Math.min(markup, Math.max(1, p.minMarkup)),
+    undercut: Math.min(UNDERCUT_MAX, Math.max(0, p.undercut)),
+  };
+}
+
+/**
+ * Найнижча дозволена ціна: не нижче опт × minMarkup і строго дорожче опту.
+ *
+ * Друга умова не зайва: при крихітній підлозі округлення до гривні могло б
+ * з'їсти націнку, і 300 × 1,001 дало б рівно 300 ₴ — ціну опту.
+ */
+export function floorPrice(wholesale: number, minMarkup: number): number {
+  const byMarkup = roundUah(wholesale * Math.max(1, minMarkup), "ceil");
+  const aboveOpt =
+    wholesale < WHOLE_HRYVNIA_FROM
+      ? kop(Math.floor(wholesale * 100 + 1e-6) / 100 + 0.01)
+      : Math.floor(wholesale + 1e-9) + 1;
+  return kop(Math.max(byMarkup, aboveOpt));
 }
 
 export function computeSitePrice(input: PriceInputs): SitePriceResult {
   const wholesale = positive(input.wholesale);
   const retail1C = positive(input.retail1C);
-  const none = { flags: [], markup: null, minMarkup: null, market: null, marketSource: null };
+  const none = { flags: [] as SitePriceFlag[], markup: null, minMarkup: null, market: null, marketSource: null };
 
   if (wholesale === null) {
     if (retail1C === null) return { price: null, basis: "NONE", ...none };
@@ -126,37 +142,38 @@ export function computeSitePrice(input: PriceInputs): SitePriceResult {
     }
   }
 
-  const markup = clampMarkup(input.policy.markup);
-  const minMarkup = Math.min(clampMarkup(input.policy.minMarkup), markup);
-  const target = roundUah(wholesale * markup);
-  const floor = Math.min(roundUah(wholesale * minMarkup, "ceil"), target);
-  const flags: SitePriceFlag[] = [];
+  const { markup, minMarkup } = normalizePolicy(input.policy);
+  const floor = floorPrice(wholesale, minMarkup);
 
-  let market: number | null = null;
-  let marketSource: string | null = null;
-  if (input.market) {
-    const ratio = input.market.price / wholesale;
-    if (ratio < MARKET_RATIO_LOW || ratio > MARKET_RATIO_HIGH) {
-      flags.push("market_ignored");
-    } else {
-      market = input.market.price;
-      marketSource = input.market.source;
-    }
+  const approvedPrice = positive(input.approved?.price);
+  if (input.approved && approvedPrice !== null) {
+    const base = { markup, minMarkup, market: input.approved.market, marketSource: input.approved.marketSource };
+    if (approvedPrice >= floor) return { price: kop(approvedPrice), basis: "APPROVED", flags: [], ...base };
+    return { price: floor, basis: "FLOOR", flags: ["approved_below_floor"], ...base };
   }
 
-  const base = { markup, minMarkup, market, marketSource };
+  return {
+    price: Math.max(roundUah(wholesale * markup), floor),
+    basis: "MARKUP",
+    flags: [],
+    markup,
+    minMarkup,
+    market: null,
+    marketSource: null,
+  };
+}
 
-  if (market !== null && market < target) {
-    if (!input.policy.followMarket) {
-      if (market < floor) flags.push("above_market");
-      return { price: target, basis: "MARKUP", flags, ...base };
-    }
-    const matched = roundUah(market, "floor");
-    if (matched >= floor) return { price: matched, basis: "MARKET", flags, ...base };
-    flags.push("above_market");
-    return { price: floor, basis: "FLOOR", flags, ...base };
-  }
-
-  if (market !== null && market > target * MARKET_ROOM) flags.push("market_room");
-  return { price: target, basis: "MARKUP", flags, ...base };
+/**
+ * Ціна, яку агент пропонує з ринкової: на undercut дешевше, округлено вниз,
+ * але не нижче підлоги. clamped — ринок дешевший за нашу підлогу.
+ */
+export function proposePrice(
+  wholesale: number,
+  market: number,
+  policy: PricePolicyValues
+): { price: number; floor: number; clamped: boolean } {
+  const { minMarkup, undercut } = normalizePolicy(policy);
+  const floor = floorPrice(wholesale, minMarkup);
+  const raw = roundUah(market * (1 - undercut), "floor");
+  return raw >= floor ? { price: raw, floor, clamped: false } : { price: floor, floor, clamped: true };
 }

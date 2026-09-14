@@ -1,9 +1,9 @@
 /**
  * Ціни вітрини: правила й стан (див. docs/pricing.md).
  *
- * GET   — загальне правило, бренди з розкладом цін за походженням, покриття
- *         ринковими цінами по сайтах.
- * PATCH — { brandId: string | null, markupPct, minMarkupPct, followMarket }
+ * GET   — загальне правило, розклад цін за походженням, джерела ринкових цін,
+ *         робота агента-дослідника, бренди.
+ * PATCH — { brandId: string | null, markupPct, minMarkupPct, undercutPct }
  *         або { brandId, reset: true } — записати правило й одразу
  *         перерахувати ціни: чекати нічного обміну не треба, опт уже в базі.
  */
@@ -12,7 +12,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { bustStorefrontCache } from "@/lib/storefront-cache";
-import { MARKET_FRESH_DAYS, repriceProducts } from "@/lib/pricing/engine";
+import { repriceProducts } from "@/lib/pricing/engine";
 import { DEFAULT_POLICY_ID, loadPolicies, policyFromPercents } from "@/lib/pricing/policy";
 import type { PricePolicyValues } from "@/lib/pricing/compute";
 
@@ -22,18 +22,19 @@ type Counts = {
   inStock: number;
   priced: number;
   markup: number;
-  market: number;
+  approved: number;
   floor: number;
   retail1C: number;
-  withMarket: number;
   unitMismatch: number;
-  marketRoom: number;
+  withMarket: number;
+  pending: number;
 };
 
+const pct = (x: number) => Math.round(x * 1000) / 10;
 const toPct = (p: PricePolicyValues) => ({
-  markupPct: Math.round((p.markup - 1) * 1000) / 10,
-  minMarkupPct: Math.round((p.minMarkup - 1) * 1000) / 10,
-  followMarket: p.followMarket,
+  markupPct: pct(p.markup - 1),
+  minMarkupPct: pct(p.minMarkup - 1),
+  undercutPct: pct(p.undercut),
 });
 
 async function staff(roles: string[]) {
@@ -41,55 +42,81 @@ async function staff(roles: string[]) {
   return session && roles.includes(session.user.role) ? session : null;
 }
 
+const IN_STOCK = `p."isActive" AND p.stock > 0`;
+const COUNTS = `
+  COUNT(*) FILTER (WHERE ${IN_STOCK})::int AS "inStock",
+  COUNT(s."productId") FILTER (WHERE ${IN_STOCK})::int AS "priced",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND s.basis = 'MARKUP')::int AS "markup",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND s.basis = 'APPROVED')::int AS "approved",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND s.basis = 'FLOOR')::int AS "floor",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND s.basis = 'RETAIL_1C')::int AS "retail1C",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND 'unit_mismatch' = ANY(s.flags))::int AS "unitMismatch",
+  COUNT(*) FILTER (WHERE ${IN_STOCK} AND m."productId" IS NOT NULL)::int AS "withMarket",
+  COALESCE(SUM(pp.pending) FILTER (WHERE ${IN_STOCK}), 0)::int AS "pending"`;
+const JOINS = `
+  LEFT JOIN "SitePrice" s ON s."productId" = p.id
+  LEFT JOIN (
+    SELECT DISTINCT "productId" FROM "MarketPrice"
+    WHERE COALESCE("lastStatus", 'ok') IN ('ok', 'out_of_stock')
+  ) m ON m."productId" = p.id
+  LEFT JOIN (
+    SELECT "productId", COUNT(*) AS pending FROM "PriceProposal" WHERE status = 'PENDING' GROUP BY 1
+  ) pp ON pp."productId" = p.id`;
+
 export async function GET() {
   if (!(await staff(["ADMIN", "MANAGER"]))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const freshFrom = new Date(Date.now() - MARKET_FRESH_DAYS * 86_400_000);
-  const inStock = `p."isActive" AND p.stock > 0`;
-  const counts = `
-    COUNT(*) FILTER (WHERE ${inStock})::int AS "inStock",
-    COUNT(s."productId") FILTER (WHERE ${inStock})::int AS "priced",
-    COUNT(*) FILTER (WHERE ${inStock} AND s.basis = 'MARKUP')::int AS "markup",
-    COUNT(*) FILTER (WHERE ${inStock} AND s.basis = 'MARKET')::int AS "market",
-    COUNT(*) FILTER (WHERE ${inStock} AND s.basis = 'FLOOR')::int AS "floor",
-    COUNT(*) FILTER (WHERE ${inStock} AND s.basis = 'RETAIL_1C')::int AS "retail1C",
-    COUNT(*) FILTER (WHERE ${inStock} AND s.market IS NOT NULL)::int AS "withMarket",
-    COUNT(*) FILTER (WHERE ${inStock} AND 'unit_mismatch' = ANY(s.flags))::int AS "unitMismatch",
-    COUNT(*) FILTER (WHERE ${inStock} AND 'market_room' = ANY(s.flags))::int AS "marketRoom"`;
-
-  const [policies, brands, totals, sources] = await Promise.all([
+  const [policies, brands, totals, sources, agent] = await Promise.all([
     loadPolicies(),
     prisma.$queryRawUnsafe<(Counts & { id: string; name: string })[]>(`
-      SELECT b.id, b.name, ${counts}
+      SELECT b.id, b.name, ${COUNTS}
       FROM "Brand" b
       JOIN "Product" p ON p."brandId" = b.id
-      LEFT JOIN "SitePrice" s ON s."productId" = p.id
+      ${JOINS}
       GROUP BY b.id, b.name
-      HAVING COUNT(*) FILTER (WHERE ${inStock}) > 0
+      HAVING COUNT(*) FILTER (WHERE ${IN_STOCK}) > 0
       ORDER BY "inStock" DESC, b.name
     `),
-    prisma.$queryRawUnsafe<Counts[]>(`
-      SELECT ${counts}
-      FROM "Product" p
-      LEFT JOIN "SitePrice" s ON s."productId" = p.id
-    `),
-    prisma.$queryRaw<{ source: string; rows: number; fresh: number; lastSeen: Date | null }[]>`
-      SELECT source, COUNT(*)::int AS rows,
-             COUNT(*) FILTER (WHERE "seenAt" >= ${freshFrom})::int AS fresh,
+    prisma.$queryRawUnsafe<Counts[]>(`SELECT ${COUNTS} FROM "Product" p ${JOINS}`),
+    prisma.$queryRaw<
+      { source: string; rows: number; ok: number; outOfStock: number; failing: number; agent: number; lastSeen: Date | null }[]
+    >`
+      SELECT source,
+             COUNT(*)::int AS rows,
+             COUNT(*) FILTER (WHERE COALESCE("lastStatus", 'ok') = 'ok')::int AS ok,
+             COUNT(*) FILTER (WHERE "lastStatus" = 'out_of_stock')::int AS "outOfStock",
+             COUNT(*) FILTER (WHERE COALESCE("lastStatus", 'ok') NOT IN ('ok', 'out_of_stock'))::int AS failing,
+             COUNT(*) FILTER (WHERE "foundBy" = 'agent')::int AS agent,
              MAX("seenAt") AS "lastSeen"
       FROM "MarketPrice"
       GROUP BY source
       ORDER BY rows DESC
     `,
+    prisma.$queryRaw<
+      { looked: number; withPages: number; searches: number; accepted: number; inputTokens: number; outputTokens: number; lastLooked: Date | null }[]
+    >`
+      SELECT COUNT(*)::int AS looked,
+             COUNT(*) FILTER (WHERE "pagesAccepted" > 0)::int AS "withPages",
+             COALESCE(SUM(searches), 0)::int AS searches,
+             COALESCE(SUM("pagesAccepted"), 0)::int AS accepted,
+             COALESCE(SUM("inputTokens"), 0)::float8 AS "inputTokens",
+             COALESCE(SUM("outputTokens"), 0)::float8 AS "outputTokens",
+             MAX("lookedAt") AS "lastLooked"
+      FROM "MarketLookup"
+    `,
   ]);
 
+  const a = agent[0];
   return NextResponse.json({
     policy: toPct(policies.fallback),
-    freshDays: MARKET_FRESH_DAYS,
     totals: totals[0],
     sources,
+    agent: {
+      ...a,
+      costUsd: Math.round((a.searches * 0.01 + a.inputTokens * 5e-6 + a.outputTokens * 25e-6) * 100) / 100,
+    },
     brands: brands.map((b) => {
       const own = policies.byBrand.get(b.id);
       return { ...b, policy: own ? toPct(own) : null };

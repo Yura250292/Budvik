@@ -218,9 +218,13 @@ async function seed(source: MarketSource) {
         where: { productId_source: { productId: f.product.id, source: source.id } },
         create: {
           productId: f.product.id, source: source.id, url: f.page.url, price: f.offer.price,
-          inStock: f.offer.inStock, seenAt: now, checkedAt: now, changedAt: now,
+          inStock: f.offer.inStock, title: f.page.title || null, foundBy: "vendor_crawl",
+          lastStatus: f.offer.inStock === false ? "out_of_stock" : "ok", seenAt: now, checkedAt: now, changedAt: now,
         },
-        update: { url: f.page.url, price: f.offer.price, inStock: f.offer.inStock, seenAt: now, checkedAt: now, failCount: 0 },
+        update: {
+          url: f.page.url, price: f.offer.price, inStock: f.offer.inStock, title: f.page.title || null, foundBy: "vendor_crawl",
+          lastStatus: f.offer.inStock === false ? "out_of_stock" : "ok", seenAt: now, checkedAt: now, failCount: 0,
+        },
       }));
     }
   }

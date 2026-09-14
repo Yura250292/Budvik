@@ -1,29 +1,29 @@
 /**
  * Рушій цін вітрини — ЄДИНИЙ, хто пише Product.price.
  *
- * Ціновий шар (docs/pricing.md) складається з окремих таблиць:
+ * Ціновий шар (docs/pricing.md):
  *
- *   Price1C      — що назвала 1С («6.МАГАЗИНИ», «4.ОПТ»), як є;
- *   MarketPrice  — скільки той самий товар коштує на сайтах виробників;
- *   PricePolicy  — націнка й підлога, загальні та по брендах;
- *   SitePrice    — результат: ціна вітрини, з чого вона вийшла і що з нею не так.
+ *   Price1C        — що назвала 1С («6.МАГАЗИНИ», «4.ОПТ»), як є;
+ *   PricePolicy    — націнка, підлога і знижка агента від ринку;
+ *   ApprovedPrice  — ціна, яку адмін затвердив із пропозиції агента;
+ *   SitePrice      — результат: ціна вітрини, з чого вона вийшла і що з нею не так.
+ *
+ * Ринкові ціни (MarketPrice) сюди не входять: з них агент складає пропозиції
+ * (PriceProposal), а на вітрину вони потрапляють лише через затвердження.
  *
  * Product.price — копія SitePrice.price для читачів каталогу, кошика, застосунку
  * й SEO. Копія, а не заміна, свідомо: ціну читають десятки запитів (фільтри,
  * сортування, фасети, ISR-сторінки), і перевести їх усі на JOIN означало б
  * переписати каталог заради того самого числа.
  *
- * Хто кличе рушій: обмін з 1С (змінились ціни 1С), воркер (змінились ринкові),
- * адмінка (змінилось правило) і scripts/pricing/reprice.mts. Рушій ідемпотентний:
+ * Хто кличе рушій: обмін з 1С (змінились ціни 1С), адмінка (змінилось правило,
+ * затверджено пропозицію) і scripts/pricing/reprice.mts. Рушій ідемпотентний:
  * повторний прогін без зміни вхідних даних нічого не пише.
  */
 import { Prisma, type SitePriceBasis } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeSitePrice, type SitePriceFlag } from "./compute";
 import { loadPolicies, policyFor } from "./policy";
-
-/** Ринкова ціна, старша за це, — вже не ринок. Воркер переперевіряє раз на тиждень. */
-export const MARKET_FRESH_DAYS = 21;
 
 const CHUNK = 1000;
 const EPS = 0.005;
@@ -62,8 +62,9 @@ type Row = {
   priceDerived: boolean;
   wholesale: number | null;
   retail1C: number | null;
-  market: number | null;
-  marketSource: string | null;
+  approvedPrice: number | null;
+  approvedMarket: number | null;
+  approvedSource: string | null;
   spPrice: number | null;
   spBasis: SitePriceBasis | null;
   spFlags: string[] | null;
@@ -105,12 +106,11 @@ export async function repriceProducts(
   if ("productIds" in scope && scope.productIds.length === 0) return result;
 
   const policies = await loadPolicies();
-  const freshFrom = new Date(Date.now() - MARKET_FRESH_DAYS * 86_400_000);
 
   const rows = await prisma.$queryRaw<Row[]>`
     SELECT p.id, p.sku, p.name, p."brandId", p.price, p."priceDerived",
            w.price AS "wholesale", r.price AS "retail1C",
-           m.price AS "market", m.source AS "marketSource",
+           a.price AS "approvedPrice", a.market AS "approvedMarket", a."marketSource" AS "approvedSource",
            s.price AS "spPrice", s.basis::text AS "spBasis", s.flags AS "spFlags",
            s.wholesale AS "spWholesale", s."retail1C" AS "spRetail1C",
            s.market AS "spMarket", s."marketSource" AS "spMarketSource",
@@ -118,13 +118,7 @@ export async function repriceProducts(
     FROM "Product" p
     LEFT JOIN "Price1C" w ON w."productId" = p.id AND w.kind = 'WHOLESALE'
     LEFT JOIN "Price1C" r ON r."productId" = p.id AND r.kind = 'RETAIL'
-    LEFT JOIN LATERAL (
-      SELECT mp.price, mp.source
-      FROM "MarketPrice" mp
-      WHERE mp."productId" = p.id AND mp."seenAt" >= ${freshFrom}
-      ORDER BY mp.price ASC
-      LIMIT 1
-    ) m ON TRUE
+    LEFT JOIN "ApprovedPrice" a ON a."productId" = p.id
     LEFT JOIN "SitePrice" s ON s."productId" = p.id
     WHERE ${scopeSql(scope)} AND (w.price IS NOT NULL OR r.price IS NOT NULL)
   `;
@@ -137,7 +131,10 @@ export async function repriceProducts(
     const res = computeSitePrice({
       wholesale: row.wholesale,
       retail1C: row.retail1C,
-      market: row.market !== null && row.marketSource ? { price: row.market, source: row.marketSource } : null,
+      approved:
+        row.approvedPrice !== null
+          ? { price: row.approvedPrice, market: row.approvedMarket, marketSource: row.approvedSource }
+          : null,
       policy: policyFor(policies, row.brandId),
     });
     result.byBasis[res.basis] = (result.byBasis[res.basis] ?? 0) + 1;
@@ -229,8 +226,9 @@ export async function repriceProducts(
 
 export const BASIS_LABELS: Record<SitePriceBasis, string> = {
   MARKUP: "опт + націнка",
-  MARKET: "до ціни ринку",
-  FLOOR: "на підлозі, ринок дешевший",
+  APPROVED: "затверджена адміном",
+  FLOOR: "підлога: затверджена стала нижчою за опт",
+  MARKET: "до ринку (застаріле)",
   RETAIL_1C: "ціна 1С",
   NONE: "без цін 1С",
 };

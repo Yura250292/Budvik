@@ -136,3 +136,10 @@ export const firstOffer =
     }
     return null;
   };
+
+/**
+ * Сайт без свого способу — магазин, який знайшов агент: JSON-LD, мікророзмітка,
+ * Open Graph. На hotline.ua JSON-LD несе AggregateOffer з lowPrice — мінімум
+ * серед магазинів, і offerFromJsonLd бере саме його.
+ */
+export const genericOffer = firstOffer(offerFromJsonLd, offerFromItemprop, offerFromOpenGraph);

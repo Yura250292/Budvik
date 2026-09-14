@@ -148,8 +148,8 @@ export const NAV_GROUPS: NavGroup[] = [
       // виникає саме на тому екрані.
       { href: "/admin/orders/alerts", title: "Сповіщення про замовлення", desc: "Кому бот шле нові замовлення", iconKey: "orders", roles: AM },
       { href: "/admin/wholesale", title: "Оптовики", desc: "Заявки та акаунти", iconKey: "wholesale", roles: AM },
-      // Ціни вітрини рахує рушій (docs/pricing.md); тут правила й звірка з ринком.
-      { href: "/admin/pricing", title: "Ціни вітрини", desc: "Опт + націнка, звірка з сайтами виробників", iconKey: "price", roles: AM },
+      // Ціни вітрини рахує рушій (docs/pricing.md); тут правила й пропозиції агента.
+      { href: "/admin/pricing", title: "Ціни вітрини", desc: "Опт + націнка, пропозиції агента на затвердження", iconKey: "price", roles: AM },
     ],
   },
   {

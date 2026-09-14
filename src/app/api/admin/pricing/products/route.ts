@@ -1,8 +1,9 @@
 /**
- * Товари, на які варто подивитись людині: дорожчі за ринок, з підозрою на
- * різні одиниці, опущені до ринку, із запасом до ринку. Лише в наявності.
+ * Товари, на які варто подивитись людині: затверджена ціна стала нижчою за
+ * опт (стоїть на підлозі) або «6.МАГАЗИНИ» й опт схожі на різні одиниці.
+ * Лише в наявності.
  *
- * GET ?view=above_market|unit_mismatch|market|market_room&brandId=
+ * GET ?view=approved_below_floor|unit_mismatch&brandId=
  */
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -11,10 +12,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const VIEWS: Record<string, Prisma.Sql> = {
-  above_market: Prisma.sql`'above_market' = ANY(s.flags)`,
+  approved_below_floor: Prisma.sql`'approved_below_floor' = ANY(s.flags)`,
   unit_mismatch: Prisma.sql`'unit_mismatch' = ANY(s.flags)`,
-  market: Prisma.sql`s.basis = 'MARKET'`,
-  market_room: Prisma.sql`'market_room' = ANY(s.flags)`,
 };
 
 const LIMIT = 300;
@@ -26,7 +25,7 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const view = url.searchParams.get("view") ?? "above_market";
+  const view = url.searchParams.get("view") ?? "unit_mismatch";
   const where = VIEWS[view];
   if (!where) return NextResponse.json({ error: "Невідомий розріз" }, { status: 400 });
   const brandId = url.searchParams.get("brandId");
@@ -34,21 +33,15 @@ export async function GET(req: Request) {
   const rows = await prisma.$queryRaw<
     {
       id: string; name: string; sku: string | null; slug: string; stock: number; brand: string | null;
-      price: number; basis: string; wholesale: number | null; retail1C: number | null;
-      market: number | null; marketSource: string | null; marketUrl: string | null; flags: string[];
+      price: number; basis: string; wholesale: number | null; retail1C: number | null; approved: number | null;
     }[]
   >`
     SELECT p.id, p.name, p.sku, p.slug, p.stock, b.name AS brand,
-           s.price, s.basis::text AS basis, s.wholesale, s."retail1C", s.flags,
-           COALESCE(s.market, mp.price) AS market, COALESCE(s."marketSource", mp.source) AS "marketSource", mp.url AS "marketUrl"
+           s.price, s.basis::text AS basis, s.wholesale, s."retail1C", a.price AS approved
     FROM "SitePrice" s
     JOIN "Product" p ON p.id = s."productId"
     LEFT JOIN "Brand" b ON b.id = p."brandId"
-    LEFT JOIN LATERAL (
-      SELECT x.price, x.source, x.url FROM "MarketPrice" x
-      WHERE x."productId" = p.id AND (s."marketSource" IS NULL OR x.source = s."marketSource")
-      ORDER BY x.price ASC LIMIT 1
-    ) mp ON TRUE
+    LEFT JOIN "ApprovedPrice" a ON a."productId" = p.id
     WHERE p."isActive" AND p.stock > 0 AND ${where}
       ${brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty}
     ORDER BY p.stock * s.price DESC

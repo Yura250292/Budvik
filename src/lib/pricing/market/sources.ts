@@ -1,17 +1,18 @@
 /**
  * Реєстр сайтів, з якими звіряємо ціни вітрини.
  *
- * Поки це офіційні сайти виробників та імпортерів: там артикул збігається з
- * нашим із 1С, і сторінку можна прив'язати до товару без здогадок за назвою.
- * Адресу сторінки під кожен товар знаходить обхід сайту виробника
- * (scripts/vendor-catalog/fetch.mts) — поле vendorCache каже, чий обхід брати.
+ * Тут — сайти, для яких відомо, як саме сторінка друкує ціну. Адресу сторінки
+ * під кожен товар знаходить обхід сайту виробника (scripts/vendor-catalog/
+ * fetch.mts, поле vendorCache каже, чий обхід брати) або агент-дослідник
+ * (src/lib/pricing/agent/discover.ts). Для сайтів поза реєстром, які знайшов
+ * агент, ціна читається загальним способом (genericOffer).
  *
  * Без ціни на сторінці (перевірено 14.09.2026): sila.com.ua (оптовий сайт),
- * somafix.com.ua, makita.ua. Для СИЛА, SOMA FIX і Makita потрібні інші
- * джерела — магазини, а не виробник.
+ * somafix.com.ua, makita.ua. Rozetka відповідає серверним запитам 403.
  */
 import {
   firstOffer,
+  genericOffer,
   offerFromItemprop,
   offerFromJsonLd,
   offerFromOpenGraph,
@@ -81,4 +82,15 @@ export const MARKET_SOURCES: MarketSource[] = [
 
 export function marketSourceById(id: string): MarketSource | undefined {
   return MARKET_SOURCES.find((s) => s.id === id);
+}
+
+/** Хост без www — ключ джерела в MarketPrice.source. */
+export function hostOf(url: string): string {
+  return new URL(url).host.replace(/^www\./, "");
+}
+
+/** Як читати ціну з сайту: свій спосіб із реєстру або загальний. */
+export function marketExtractorFor(host: string): { extract: (html: string) => MarketOffer | null; challenge: boolean } {
+  const known = marketSourceById(host);
+  return known ? { extract: known.extract, challenge: Boolean(known.challenge) } : { extract: genericOffer, challenge: false };
 }

@@ -455,9 +455,12 @@ model Product {
   embedding  ProductEmbedding?
 
   /// Ціновий шар (docs/pricing.md): що назвала 1С, що на ринку, що на вітрині.
-  prices1C     Price1C[]
-  marketPrices MarketPrice[]
-  sitePrice    SitePrice?
+  prices1C       Price1C[]
+  marketPrices   MarketPrice[]
+  sitePrice      SitePrice?
+  priceProposals PriceProposal[]
+  approvedPrice  ApprovedPrice?
+  marketLookup   MarketLookup?
 
   // Бренд для планів і мотивації. Окреме поле, а не евристика по назві:
   // «перше слово» дає хибні збіги на 41 тис. товарів.
@@ -3822,14 +3825,86 @@ enum PriceKind1C {
 enum SitePriceBasis {
   /// опт × націнка
   MARKUP
-  /// опущена до ціни на сайті виробника
+  /// затверджена адміном із пропозиції агента
+  APPROVED
+  /// ЗАСТАРІЛО: ринок більше не рухає ціну сам. Не пишеться.
   MARKET
-  /// ринок дешевший за підлогу — стоїмо на підлозі
+  /// затверджена ціна стала нижчою за підлогу (зріс опт) — стоїмо на підлозі
   FLOOR
   /// опту немає або одиниці не збігаються — ціна «6.МАГАЗИНИ» як є
   RETAIL_1C
   /// з 1С цін немає — ціну не чіпаємо
   NONE
+}
+
+/// Стан пропозиції ціни від агента.
+enum PriceProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  /// замінена новішою або вже непотрібна
+  SUPERSEDED
+}
+
+/// Пропозиція ціни від агента — на затвердження адміну (src/lib/pricing/agent/).
+model PriceProposal {
+  id            String              @id @default(cuid())
+  productId     String
+  status        PriceProposalStatus @default(PENDING)
+  /// Ціна на вітрині, коли агент складав пропозицію.
+  currentPrice  Float
+  proposedPrice Float
+  wholesale     Float
+  /// Ринкова ціна, з якої вийшла пропозиція, і звідки вона.
+  market        Float
+  marketSource  String
+  marketUrl     String
+  undercut      Float
+  /// market_below_floor | only_out_of_stock | single_source | big_change | price_up
+  flags         String[]            @default([])
+  /// Стан усіх джерел на момент пропозиції (agent/propose.ts, EvidenceRow[]).
+  evidence      Json
+  /// ISO-тиждень прогону, «2026-W38».
+  week          String
+  createdAt     DateTime            @default(now())
+  decidedAt     DateTime?
+  decidedById   String?
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([productId, status])
+}
+
+/// Ціна, яку адмін затвердив із пропозиції агента. Рушій ставить її замість
+/// базової, якщо вона строго дорожча за опт.
+model ApprovedPrice {
+  productId    String   @id
+  price        Float
+  proposalId   String?
+  market       Float?
+  marketSource String?
+  approvedById String?
+  approvedAt   DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+/// Коли агент востаннє шукав сторінки товару і що знайшов — щоб не шукати
+/// щотижня те, чого немає.
+model MarketLookup {
+  productId     String   @id
+  lookedAt      DateTime @default(now())
+  searches      Int      @default(0)
+  pagesFound    Int      @default(0)
+  pagesAccepted Int      @default(0)
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  note          String?
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([lookedAt])
 }
 
 /// Що назвала 1С: одна ціна одного типу, у гривнях, як її переслав обмін.
@@ -3855,6 +3930,12 @@ model MarketPrice {
   url       String
   price     Float
   inStock   Boolean?
+  /// Заголовок сторінки — щоб адмін бачив, що саме знайдено.
+  title      String?
+  /// Як пройшла остання перевірка: ok | out_of_stock | no_price | http_404 | error.
+  lastStatus String?
+  /// Хто знайшов сторінку: vendor_crawl (обхід сайту виробника) | agent.
+  foundBy    String?
   /// Коли ціну востаннє вдалося прочитати.
   seenAt    DateTime @default(now())
   /// Коли сторінку востаннє пробували читати — черга нічної переперевірки.
@@ -3873,11 +3954,14 @@ model MarketPrice {
 model PricePolicy {
   id           String   @id @default(cuid())
   brandId      String?  @unique
-  /// Ціль: опт × markup (1,30 = +30 %).
+  /// Базова ціна: опт × markup (1,30 = +30 %).
   markup       Float
-  /// Підлога: нижче опт × minMarkup не опускаємось навіть заради ринку.
+  /// Підлога: не нижче опт × minMarkup. Строго більше 1 — роздріб дешевше
+  /// опту не продається.
   minMarkup    Float
-  /// Чи опускати ціну до ринкової, коли на сайті виробника дешевше.
+  /// На скільки агент пропонує стати дешевше за ринок (0,01 = на 1 %).
+  undercut     Float    @default(0.01)
+  /// ЗАСТАРІЛО: ринок більше не рухає ціну сам, її затверджує адмін. Не читається.
   followMarket Boolean  @default(true)
   updatedById  String?
   updatedAt    DateTime @updatedAt
@@ -3893,12 +3977,12 @@ model SitePrice {
   basis        SitePriceBasis
   wholesale    Float?
   retail1C     Float?
-  /// Ринкова ціна, взята до уваги.
+  /// Ринкова ціна, з якої вийшла затверджена ціна (для показу).
   market       Float?
   marketSource String?
   markup       Float?
   minMarkup    Float?
-  /// above_market | market_room | unit_mismatch | market_ignored
+  /// unit_mismatch | approved_below_floor
   flags        String[]       @default([])
   changedAt    DateTime       @default(now())
 

@@ -316,6 +316,7 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
         </select>
         <select value={flag} onChange={(e) => setFlag(e.target.value)} className="border border-g300 rounded-lg px-3 py-1.5 text-sm max-w-full">
           <option value="">Усі позначки</option>
+          <option value="clean">Без застережень: є наявність, зміна до 20 %</option>
           {Object.entries(FLAG_LABELS).map(([id, label]) => (
             <option key={id} value={id}>{label}</option>
           ))}

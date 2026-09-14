@@ -2,6 +2,8 @@
  * Пропозиції цін від агента: список і рішення адміна (docs/pricing.md).
  *
  * GET  ?status=PENDING|APPROVED|REJECTED&brandId=&flag=&relevance=30|90|year|dead
+ *      flag=clean — «без застережень»: ціна з сайту, де товар є в наявності, і
+ *      зміна до 20 % (без only_out_of_stock і big_change).
  *      Нові — спершу актуальні (relevance.ts): що продавалось за 30 днів,
  *      за 90, решта; у межах рівня — за кількістю продажів і переглядів.
  * POST { action: "approve" | "reject", ids: string[] }
@@ -50,7 +52,12 @@ export async function GET(req: Request) {
   const relevance = RELEVANCE[url.searchParams.get("relevance") ?? ""];
 
   const brandSql = brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty;
-  const flagSql = flag && FLAGS.includes(flag) ? Prisma.sql`AND ${flag} = ANY(pp.flags)` : Prisma.empty;
+  const flagSql =
+    flag === "clean"
+      ? Prisma.sql`AND NOT ('only_out_of_stock' = ANY(pp.flags) OR 'big_change' = ANY(pp.flags))`
+      : flag && FLAGS.includes(flag)
+        ? Prisma.sql`AND ${flag} = ANY(pp.flags)`
+        : Prisma.empty;
 
   const [rows, counts, brands, tiers] = await Promise.all([
     prisma.$queryRaw<Record<string, unknown>[]>`

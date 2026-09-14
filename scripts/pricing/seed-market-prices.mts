@@ -71,6 +71,22 @@ function latestPages(vendorCache: string): { pages: Page[]; from: string | null 
   return { pages, from: path.join(dir, last) };
 }
 
+/**
+ * Запис із повтором. Публічний проксі Railway з офісної машини час від часу
+ * не пускає з'єднання («Can't reach database server»), і без повтору губилися
+ * б усі ціни, прочитані з сайту за пів години обходу.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= attempts) throw e;
+      await new Promise((r) => setTimeout(r, 3000 * i));
+    }
+  }
+}
+
 const median = (xs: number[]) => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
@@ -129,17 +145,26 @@ async function seed(source: MarketSource) {
   // Модель — артикул без хвоста-коду імпортера: «GB 208PL EXPERT g0346» → «GB 208PL EXPERT».
   // Шукаємо лише серед сторінок, що самі називають марку, і лише цілим словом:
   // «GCD 520» не повинна знайти сторінку «GCD 520T».
-  const norm = (s: string) => s.toUpperCase().replace(/Ö/g, "O").replace(/[^A-Z0-9]+/g, " ").trim();
+  // normArticle спершу: у 1С модель місцями набрана кирилицею («GCD 600Т»), і без
+  // заміни «Т» просто зникала — картка шукала «GCD 600» і знаходила іншу модель.
+  const norm = (s: string) => normArticle(s).replace(/Ö/g, "O").replace(/[^A-Z0-9]+/g, " ").trim();
+  // Каркас і комплект — різні товари під однією моделлю: «GCS 601» з акумулятором
+  // знаходив сторінку «GCS 601 (каркас)» за 394 ₴ при опті 776 ₴.
+  const bare = (s: string) => /каркас|karkas|без\s*(акб|акум)|bez-akb/i.test(s);
   const pairs: [string, P][] = [...ours];
   const candidatesFor = new Map<P, Page[]>();
   for (const product of byModel) {
-    const model = norm((product.sku ?? "").replace(/\bg\d{4}\b/i, ""));
+    const model = norm((product.sku ?? "").replace(/\bg\d{4}\b/i, "").replace(/каркас|karkas/gi, ""));
     if (model.length < 4 || !/\d/.test(model)) continue;
     const re = new RegExp(`(^| )${model.replace(/ /g, " ?")}( |$)`);
     const brandWord = norm(product.brand?.name ?? "");
     const found = pages.filter((pg) => {
       const t = norm(pg.title);
-      return (!brandWord || t.includes(brandWord)) && re.test(t);
+      return (
+        (!brandWord || t.includes(brandWord)) &&
+        re.test(t) &&
+        bare(`${pg.title} ${pg.url}`) === bare(`${product.name} ${product.sku}`)
+      );
     });
     if (found.length) {
       pairs.push([`model:${model}`, product]);
@@ -189,14 +214,14 @@ async function seed(source: MarketSource) {
   if (APPLY) {
     const now = new Date();
     for (const f of found) {
-      await prisma.marketPrice.upsert({
+      await withRetry(() => prisma.marketPrice.upsert({
         where: { productId_source: { productId: f.product.id, source: source.id } },
         create: {
           productId: f.product.id, source: source.id, url: f.page.url, price: f.offer.price,
           inStock: f.offer.inStock, seenAt: now, checkedAt: now, changedAt: now,
         },
         update: { url: f.page.url, price: f.offer.price, inStock: f.offer.inStock, seenAt: now, checkedAt: now, failCount: 0 },
-      });
+      }));
     }
   }
 

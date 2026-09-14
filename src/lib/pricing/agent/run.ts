@@ -1,10 +1,10 @@
 /**
  * Розклад агента цін для воркера (worker/index.ts).
  *
- *   - щоночі 01:00–06:00 за Києвом: переперевірка відомих сторінок (раз на
- *     тиждень на сторінку) і пошук сторінок для товарів без ринкової ціни —
- *     пошуковий API + DeepSeek, не більше PRICE_AGENT_PER_NIGHT (типово 40)
- *     товарів за ніч;
+ *   - щоночі 01:00–06:00 за Києвом: переперевірка відомих сторінок (що
+ *     продається — кожні 3 дні, решта — раз на 7–12 днів) і пошук сторінок
+ *     для товарів без ринкової ціни, спершу актуальних — пошуковий API +
+ *     DeepSeek, не більше PRICE_AGENT_PER_NIGHT (типово 100) товарів за ніч;
  *   - щопонеділка з 08:00: пропозиції на тиждень і підсумок у Telegram.
  *
  * Ціну на вітрині тут не змінює ніщо: її ставить адмін, затверджуючи
@@ -26,13 +26,14 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://www.budvik27.com";
 
 /**
  * Скільки товарів шукати за ніч. Товар — один-два пошукові запити (~$0,001
- * кожен після безкоштовних 2500 у Serper) і частки цента DeepSeek, тож 40 за
- * ніч — це близько $0,5 на тиждень.
+ * кожен після безкоштовних 2500 у Serper) і частки цента DeepSeek, тож 100 за
+ * ніч — близько долара на тиждень. Товари без ринкової ціни, що продавались за
+ * 30 днів (676 на 14.09.2026), при такій нормі закриваються приблизно за тиждень.
  */
 const perNight = () => {
   const raw = process.env.PRICE_AGENT_PER_NIGHT;
   const v = raw === undefined || raw === "" ? NaN : Number(raw);
-  return Number.isFinite(v) && v >= 0 ? v : 40;
+  return Number.isFinite(v) && v >= 0 ? v : 100;
 };
 
 const kyivWeekday = (d: Date) =>
@@ -60,11 +61,13 @@ export async function runNightlyMarketWork(now = new Date()): Promise<string | n
 
   const parts: string[] = [];
   if (refresh.checked > 0) {
-    parts.push(`перевірено сторінок ${refresh.checked}, ціну прочитано ${refresh.updated}, невдач ${refresh.failed}, прибрано ${refresh.removed}`);
+    parts.push(
+      `перевірено сторінок ${refresh.checked} (актуальних ${refresh.checkedHot}), ціну прочитано ${refresh.updated}, невдач ${refresh.failed}, прибрано ${refresh.removed}`
+    );
   }
   if (discovery && !discovery.skipped && discovery.looked > 0) {
     parts.push(
-      `пошук (${discovery.provider}): товарів ${discovery.looked}, сторінок вибрано ${discovery.pagesFound}, прийнято ${discovery.pagesAccepted}, запитів ${discovery.searches}, ≈$${discovery.costUsd}` +
+      `пошук (${discovery.provider}): товарів ${discovery.looked} (актуальних ${discovery.lookedHot}), сторінок вибрано ${discovery.pagesFound}, прийнято ${discovery.pagesAccepted}, запитів ${discovery.searches}, ≈$${discovery.costUsd}` +
         (discovery.errors.length ? `, помилки: ${discovery.errors.slice(0, 3).join(" | ")}` : "")
     );
   }
@@ -87,7 +90,7 @@ export async function runWeeklyProposals(now = new Date(), opts: { force?: boole
     update: { value: week },
   });
 
-  const summary = `пропозиції ${week}: нових ${r.created} (дешевше ${r.cheaper}, дорожче ${r.dearer}, на підлозі ${r.belowFloor}), без змін ${r.kept + r.unchanged}, чекають рішення ${r.pendingTotal}`;
+  const summary = `пропозиції ${week}: нових ${r.created} (актуальних ${r.hot}, дешевше ${r.cheaper}, дорожче ${r.dearer}, на підлозі ${r.belowFloor}), без змін ${r.kept + r.unchanged}, чекають рішення ${r.pendingTotal}`;
 
   const chatId = process.env.DIGEST_CHAT_ID || process.env.SYNC_ALERT_CHAT_ID;
   if (chatId && r.created > 0) {
@@ -96,6 +99,7 @@ export async function runWeeklyProposals(now = new Date(), opts: { force?: boole
       [
         `<b>Ціни: пропозиції агента, тиждень ${week}</b>`,
         `Нових: ${r.created} — дешевше ${r.cheaper}, дорожче ${r.dearer}.`,
+        `По товарах, що продавались за 30 днів: ${r.hot} — з них варто почати.`,
         r.belowFloor ? `Ринок дешевший за нашу підлогу: ${r.belowFloor}.` : null,
         `Чекають рішення: ${r.pendingTotal}.`,
         `Затвердити: ${SITE_URL}/admin/pricing`,

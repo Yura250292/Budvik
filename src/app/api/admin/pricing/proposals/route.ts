@@ -1,7 +1,9 @@
 /**
  * Пропозиції цін від агента: список і рішення адміна (docs/pricing.md).
  *
- * GET  ?status=PENDING|APPROVED|REJECTED&brandId=&flag=
+ * GET  ?status=PENDING|APPROVED|REJECTED&brandId=&flag=&relevance=30|90|year|dead
+ *      Нові — спершу актуальні (relevance.ts): що продавалось за 30 днів,
+ *      за 90, решта; у межах рівня — за кількістю продажів і переглядів.
  * POST { action: "approve" | "reject", ids: string[] }
  *      { action: "approve" | "reject", brandId: string }  — усі нові пропозиції бренду
  *      { action: "revert", productIds: string[] }          — зняти затверджену ціну
@@ -17,11 +19,18 @@ import { prisma } from "@/lib/prisma";
 import { bustStorefrontCache } from "@/lib/storefront-cache";
 import { approveProposals, rejectProposals, revertApproved } from "@/lib/pricing/agent/decide";
 import { buildProposals } from "@/lib/pricing/agent/propose";
+import { RELEVANCE_CTE, RELEVANCE_ORDER } from "@/lib/pricing/relevance";
 
 export const maxDuration = 60;
 
 const STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 const FLAGS = ["market_below_floor", "only_out_of_stock", "single_source", "big_change", "price_up"];
+const RELEVANCE: Record<string, Prisma.Sql> = {
+  "30": Prisma.sql`COALESCE(rel.tier, 4) = 1`,
+  "90": Prisma.sql`COALESCE(rel.tier, 4) <= 2`,
+  year: Prisma.sql`COALESCE(rel.tier, 4) <= 3`,
+  dead: Prisma.sql`COALESCE(rel.tier, 4) = 4`,
+};
 const LIMIT = 500;
 
 const strings = (v: unknown): string[] =>
@@ -38,26 +47,35 @@ export async function GET(req: Request) {
   const status = (STATUSES as readonly string[]).includes(statusParam) ? statusParam : "PENDING";
   const brandId = url.searchParams.get("brandId");
   const flag = url.searchParams.get("flag");
+  const relevance = RELEVANCE[url.searchParams.get("relevance") ?? ""];
 
-  const [rows, counts, brands] = await Promise.all([
+  const brandSql = brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty;
+  const flagSql = flag && FLAGS.includes(flag) ? Prisma.sql`AND ${flag} = ANY(pp.flags)` : Prisma.empty;
+
+  const [rows, counts, brands, tiers] = await Promise.all([
     prisma.$queryRaw<Record<string, unknown>[]>`
+      WITH ${RELEVANCE_CTE}
       SELECT pp.id, pp.status::text AS status, pp."currentPrice", pp."proposedPrice", pp.wholesale,
              pp.market, pp."marketSource", pp."marketUrl", pp.undercut, pp.flags, pp.evidence, pp.week,
              pp."createdAt", pp."decidedAt",
              p.id AS "productId", p.name, p.sku, p.slug, p.stock, b.name AS brand,
              COALESCE(s.price, p.price) AS "livePrice",
              u.name AS "decidedBy",
-             (a."proposalId" = pp.id) AS active
+             (a."proposalId" = pp.id) AS active,
+             COALESCE(rel.tier, 4)::int AS tier, COALESCE(rel.sales90, 0)::int AS sales90,
+             COALESCE(rel.views30, 0)::int AS views30
       FROM "PriceProposal" pp
       JOIN "Product" p ON p.id = pp."productId"
       LEFT JOIN "Brand" b ON b.id = p."brandId"
       LEFT JOIN "SitePrice" s ON s."productId" = p.id
       LEFT JOIN "ApprovedPrice" a ON a."productId" = p.id
       LEFT JOIN "User" u ON u.id = pp."decidedById"
+      LEFT JOIN rel ON rel."productId" = p.id
       WHERE pp.status = ${status}::"PriceProposalStatus"
-        ${brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty}
-        ${flag && FLAGS.includes(flag) ? Prisma.sql`AND ${flag} = ANY(pp.flags)` : Prisma.empty}
-      ORDER BY ${status === "PENDING" ? Prisma.sql`p.stock * pp.wholesale DESC` : Prisma.sql`pp."decidedAt" DESC NULLS LAST`}
+        ${brandSql}
+        ${flagSql}
+        ${relevance ? Prisma.sql`AND ${relevance}` : Prisma.empty}
+      ORDER BY ${status === "PENDING" ? Prisma.sql`${RELEVANCE_ORDER}, p.stock * pp.wholesale DESC` : Prisma.sql`pp."decidedAt" DESC NULLS LAST`}
       LIMIT ${LIMIT}
     `,
     prisma.$queryRaw<{ status: string; n: number }[]>`
@@ -73,6 +91,17 @@ export async function GET(req: Request) {
       GROUP BY b.id, b.name
       ORDER BY pending DESC, b.name
     `,
+    prisma.$queryRaw<{ tier: number; n: number }[]>`
+      WITH ${RELEVANCE_CTE}
+      SELECT COALESCE(rel.tier, 4)::int AS tier, COUNT(*)::int AS n
+      FROM "PriceProposal" pp
+      JOIN "Product" p ON p.id = pp."productId"
+      LEFT JOIN rel ON rel."productId" = p.id
+      WHERE pp.status = ${status}::"PriceProposalStatus"
+        ${brandSql}
+        ${flagSql}
+      GROUP BY 1
+    `,
   ]);
 
   return NextResponse.json({
@@ -80,6 +109,7 @@ export async function GET(req: Request) {
     limit: LIMIT,
     rows,
     counts: Object.fromEntries(counts.map((c) => [c.status, c.n])),
+    tiers: Object.fromEntries(tiers.map((t) => [String(t.tier), t.n])),
     brands,
   });
 }
@@ -94,7 +124,8 @@ export async function POST(req: Request) {
   const action = body.action;
 
   if (action === "rebuild") {
-    const result = await buildProposals();
+    const { preview: _preview, ...result } = await buildProposals();
+    void _preview;
     return NextResponse.json({ ok: true, ...result });
   }
 

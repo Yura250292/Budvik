@@ -3,9 +3,13 @@
  *
  * Адреси вже відомі: їх знайшов обхід сайтів виробників
  * (scripts/pricing/seed-market-prices.mts) або агент-дослідник
- * (src/lib/pricing/agent/discover.ts). Тут лише читаємо ціну за адресою, раз
- * на тиждень на сторінку. Вітрину це не змінює: ринок іде в пропозиції агента,
- * а на вітрину — лише після затвердження адміном.
+ * (src/lib/pricing/agent/discover.ts). Тут лише читаємо ціну за адресою.
+ * Вітрину це не змінює: ринок іде в пропозиції агента, а на вітрину — лише
+ * після затвердження адміном.
+ *
+ * Частота — за актуальністю товару (relevance.ts): що продається, перевіряємо
+ * кожні три дні, решту — раз на 7–12 днів. Черга теж починається з
+ * актуальних: якщо ніч коротка, недоперевіреним лишиться мертвий залишок.
  *
  * Невдала перевірка не стирає рядок одразу: адмін має бачити, що сторінка
  * порожня чи зникла, — саме тому в пропозиції показуємо стан кожного джерела.
@@ -14,41 +18,47 @@
  * Ходимо стримано: один запит за раз на хост із паузою, різні хости — паралельно.
  */
 import { prisma } from "@/lib/prisma";
+import { RELEVANCE_CTE, REFRESH_DAYS_BY_TIER, tierCutoff } from "../relevance";
 import { fetchPage, HttpError } from "./http";
 import { marketExtractorFor } from "./sources";
 
-/** Як часто переперевіряти сторінку. */
-export const MARKET_REFRESH_DAYS = 7;
 /** Після стількох невдач поспіль сторінку забуваємо — наступний пошук знайде нову. */
 const MAX_FAILS = 4;
 const HOST_PAUSE_MS = 1200;
 
 export type MarketRefreshResult = {
   checked: number;
+  /** З них — сторінки товарів, що продавались за 30 днів. */
+  checkedHot: number;
   updated: number;
   failed: number;
   removed: number;
 };
+
+type DueRow = { id: string; source: string; url: string; price: number; failCount: number; tier: number };
 
 export async function refreshMarketPrices(
   opts: { limit?: number; budgetMs?: number; dry?: boolean } = {}
 ): Promise<MarketRefreshResult> {
   const limit = opts.limit ?? 250;
   const deadline = Date.now() + (opts.budgetMs ?? 10 * 60_000);
-  const out: MarketRefreshResult = { checked: 0, updated: 0, failed: 0, removed: 0 };
+  const out: MarketRefreshResult = { checked: 0, checkedHot: 0, updated: 0, failed: 0, removed: 0 };
 
-  const due = await prisma.marketPrice.findMany({
-    where: { checkedAt: { lt: new Date(Date.now() - MARKET_REFRESH_DAYS * 86_400_000) } },
-    orderBy: { checkedAt: "asc" },
-    take: limit,
-    select: { id: true, source: true, url: true, price: true, failCount: true },
-  });
+  const due = await prisma.$queryRaw<DueRow[]>`
+    WITH ${RELEVANCE_CTE}
+    SELECT m.id, m.source, m.url, m.price, m."failCount", COALESCE(rel.tier, 4)::int AS tier
+    FROM "MarketPrice" m
+    LEFT JOIN rel ON rel."productId" = m."productId"
+    WHERE m."checkedAt" < ${tierCutoff(REFRESH_DAYS_BY_TIER)}
+    ORDER BY COALESCE(rel.tier, 4), m."checkedAt"
+    LIMIT ${limit}
+  `;
   if (due.length === 0) return out;
 
-  const bySource = new Map<string, typeof due>();
+  const bySource = new Map<string, DueRow[]>();
   for (const row of due) bySource.set(row.source, [...(bySource.get(row.source) ?? []), row]);
 
-  const failOne = async (row: (typeof due)[number], status: string) => {
+  const failOne = async (row: DueRow, status: string) => {
     out.failed++;
     if (opts.dry) return;
     if (row.failCount + 1 >= MAX_FAILS) {
@@ -68,6 +78,7 @@ export async function refreshMarketPrices(
       for (const row of rows) {
         if (Date.now() > deadline) break;
         out.checked++;
+        if (row.tier === 1) out.checkedHot++;
         try {
           const offer = extract(await fetchPage(row.url, { challenge }));
           if (!offer) {

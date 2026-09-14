@@ -22,7 +22,10 @@ type Counts = {
 type BrandRow = Counts & { id: string; name: string; policy: PolicyPct | null };
 type SourceRow = { source: string; rows: number; ok: number; outOfStock: number; failing: number; agent: number; lastSeen: string | null };
 type AgentStats = { looked: number; withPages: number; searches: number; accepted: number; costUsd: number; lastLooked: string | null };
-type Overview = { policy: PolicyPct; totals: Counts; sources: SourceRow[]; agent: AgentStats; brands: BrandRow[] };
+type CoverageRow = { tier: number; inStock: number; withMarket: number };
+type Overview = {
+  policy: PolicyPct; totals: Counts; sources: SourceRow[]; agent: AgentStats; brands: BrandRow[]; coverage: CoverageRow[];
+};
 
 type Evidence = {
   source: string; url: string; title: string | null; price: number; inStock: boolean | null; status: string;
@@ -33,9 +36,11 @@ type Proposal = {
   marketSource: string; marketUrl: string; undercut: number; flags: string[]; evidence: Evidence[]; week: string;
   createdAt: string; decidedAt: string | null; productId: string; name: string; sku: string | null; slug: string;
   stock: number; brand: string | null; livePrice: number; decidedBy: string | null; active: boolean | null;
+  /** Актуальність: 1 — продавався за 30 днів, 2 — за 90, 3 — за рік, 4 — не продавався. */
+  tier: number; sales90: number; views30: number;
 };
 type ProposalsPayload = {
-  status: string; limit: number; rows: Proposal[]; counts: Record<string, number>;
+  status: string; limit: number; rows: Proposal[]; counts: Record<string, number>; tiers: Record<string, number>;
   brands: { id: string; name: string; pending: number }[];
 };
 type ReviewRow = {
@@ -56,6 +61,20 @@ const FLAG_LABELS: Record<string, string> = {
   big_change: "зміна понад 20 %",
   price_up: "дорожчання",
 };
+
+const TIER_SHORT: Record<number, string> = { 1: "продається", 2: "за 90 днів", 3: "за рік", 4: "не продавався" };
+const TIER_STYLE: Record<number, string> = {
+  1: "bg-green-50 text-green-700",
+  2: "bg-amber-50 text-amber-700",
+  3: "bg-g100 text-g600",
+  4: "bg-g100 text-g400",
+};
+const RELEVANCE_FILTERS = [
+  { id: "30", title: "Продавались за 30 днів", tiers: [1] },
+  { id: "90", title: "Продавались за 90 днів", tiers: [1, 2] },
+  { id: "year", title: "Продавались за рік", tiers: [1, 2, 3] },
+  { id: "dead", title: "Не продавались рік", tiers: [4] },
+] as const;
 
 const SOURCE_STATUS: Record<string, string> = {
   ok: "ціна є",
@@ -207,16 +226,22 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]["id"]>("PENDING");
   const [brandId, setBrandId] = useState("");
   const [flag, setFlag] = useState("");
+  const [relevance, setRelevance] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const qs = new URLSearchParams({ status, ...(brandId ? { brandId } : {}), ...(flag ? { flag } : {}) }).toString();
+  const qs = new URLSearchParams({
+    status,
+    ...(brandId ? { brandId } : {}),
+    ...(flag ? { flag } : {}),
+    ...(relevance ? { relevance } : {}),
+  }).toString();
   const { data, error, mutate } = useSWR<ProposalsPayload>(`/api/admin/pricing/proposals?${qs}`, fetcher);
   const rows = data?.rows ?? [];
   const pendingTab = status === "PENDING";
-  const brandName = data?.brands.find((b) => b.id === brandId)?.name;
+  const filtered = Boolean(brandId || flag || relevance);
 
   const toggle = (set: Set<string>, id: string) => {
     const next = new Set(set);
@@ -278,6 +303,17 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
             </option>
           ))}
         </select>
+        <select value={relevance} onChange={(e) => setRelevance(e.target.value)} className="border border-g300 rounded-lg px-3 py-1.5 text-sm max-w-full">
+          <option value="">Будь-яка актуальність</option>
+          {RELEVANCE_FILTERS.map((f) => {
+            const n = f.tiers.reduce((sum, t) => sum + (data?.tiers[String(t)] ?? 0), 0);
+            return (
+              <option key={f.id} value={f.id}>
+                {f.title} ({num(n)})
+              </option>
+            );
+          })}
+        </select>
         <select value={flag} onChange={(e) => setFlag(e.target.value)} className="border border-g300 rounded-lg px-3 py-1.5 text-sm max-w-full">
           <option value="">Усі позначки</option>
           {Object.entries(FLAG_LABELS).map(([id, label]) => (
@@ -287,7 +323,8 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
       </div>
 
       <p className="px-5 pb-3 text-xs text-g400">
-        Пропозиція — найнижча придатна ринкова ціна мінус знижка, але не дешевше підлоги. «Джерела» показують усі сайти:
+        Спершу — товари, що продаються зараз: за 30 днів, потім за 90, потім решта. Пропозиція — найнижча придатна
+        ринкова ціна мінус знижка, але не дешевше підлоги. «Джерела» показують усі сайти:
         звідки взято оцінку, де товару немає в наявності, де сторінка порожня чи зникла.
       </p>
 
@@ -309,13 +346,13 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
               >
                 Відхилити вибрані
               </button>
-              {brandId && brandName && (
+              {filtered && rows.length > 0 && (
                 <button
                   disabled={busy}
-                  onClick={() => act({ action: "approve", brandId }, `Затверджено всі нові ${brandName}`)}
+                  onClick={() => act({ action: "approve", ids: rows.map((r) => r.id) }, `Затверджено показані`)}
                   className="px-3 py-1.5 text-sm text-primary-dark border border-primary/40 rounded-lg hover:bg-primary/5 disabled:opacity-40"
                 >
-                  Затвердити всі нові {brandName}
+                  Затвердити всі показані ({num(rows.length)})
                 </button>
               )}
             </>
@@ -357,6 +394,7 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
                   </th>
                 )}
                 <th className="text-left px-3 py-2 font-medium text-g600">Товар</th>
+                <th className="text-right px-3 py-2 font-medium text-g600">Продажі</th>
                 <th className="text-right px-3 py-2 font-medium text-g600">Залишок</th>
                 <th className="text-right px-3 py-2 font-medium text-g600">Опт</th>
                 <th className="text-right px-3 py-2 font-medium text-g600">На сайті</th>
@@ -369,7 +407,7 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
             <tbody>
               {rows.map((r) => {
                 const diff = r.livePrice > 0 ? Math.round(((r.proposedPrice - r.livePrice) / r.livePrice) * 1000) / 10 : null;
-                const cols = (canEdit && pendingTab ? 1 : 0) + 8;
+                const cols = (canEdit && pendingTab ? 1 : 0) + 9;
                 return (
                   <Fragment key={r.id}>
                     <tr className="border-b hover:bg-g50 align-top">
@@ -383,6 +421,15 @@ function ProposalsSection({ canEdit, onChanged }: { canEdit: boolean; onChanged:
                           {r.name}
                         </a>
                         <div className="text-xs text-g400">{[r.brand, r.sku, r.week].filter(Boolean).join(" · ")}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${TIER_STYLE[r.tier] ?? TIER_STYLE[4]}`}>
+                          {TIER_SHORT[r.tier] ?? TIER_SHORT[4]}
+                        </span>
+                        <div className="text-xs text-g400 mt-0.5">
+                          {r.sales90 ? `${num(r.sales90)} за 90 дн` : "—"}
+                          {r.views30 ? ` · ${num(r.views30)} перегл.` : ""}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right">{num(r.stock)}</td>
                       <td className="px-3 py-2 text-right">{uah(r.wholesale)}</td>
@@ -588,6 +635,15 @@ export default function PricingPage() {
           знайшов для {num(a.withPages)}; пошуків {num(a.searches)}, орієнтовно ${a.costUsd}
           {a.lastLooked ? `, востаннє ${day(a.lastLooked)}` : ""}.
         </p>
+        {data.coverage.length > 0 && (
+          <p className="px-5 pb-3 text-xs text-g500">
+            Покриття за актуальністю:{" "}
+            {data.coverage
+              .map((c) => `${TIER_SHORT[c.tier] ?? TIER_SHORT[4]} — ${num(c.withMarket)} з ${num(c.inStock)}`)
+              .join("; ")}
+            . Агент шукає спершу ті, що продаються.
+          </p>
+        )}
         {data.sources.length === 0 ? (
           <p className="px-5 pb-4 text-sm text-g400">Ринкових цін ще немає.</p>
         ) : (

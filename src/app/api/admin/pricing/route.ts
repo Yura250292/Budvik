@@ -16,6 +16,7 @@ import { repriceProducts } from "@/lib/pricing/engine";
 import { DEFAULT_POLICY_ID, loadPolicies, policyFromPercents } from "@/lib/pricing/policy";
 import type { PricePolicyValues } from "@/lib/pricing/compute";
 import { agentCostUsd } from "@/lib/pricing/agent/cost";
+import { RELEVANCE_CTE } from "@/lib/pricing/relevance";
 
 export const maxDuration = 60;
 
@@ -69,7 +70,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [policies, brands, totals, sources, agent] = await Promise.all([
+  const [policies, brands, totals, sources, agent, coverage] = await Promise.all([
     loadPolicies(),
     prisma.$queryRawUnsafe<(Counts & { id: string; name: string })[]>(`
       SELECT b.id, b.name, ${COUNTS}
@@ -107,6 +108,21 @@ export async function GET() {
              MAX("lookedAt") AS "lastLooked"
       FROM "MarketLookup"
     `,
+    // Покриття за актуальністю: для скількох товарів, що продаються, ринкова ціна вже є.
+    prisma.$queryRaw<{ tier: number; inStock: number; withMarket: number }[]>`
+      WITH ${RELEVANCE_CTE}
+      SELECT COALESCE(rel.tier, 4)::int AS tier,
+             COUNT(*)::int AS "inStock",
+             COUNT(*) FILTER (WHERE EXISTS (
+               SELECT 1 FROM "MarketPrice" m
+               WHERE m."productId" = p.id AND COALESCE(m."lastStatus", 'ok') IN ('ok', 'out_of_stock')
+             ))::int AS "withMarket"
+      FROM "Product" p
+      LEFT JOIN rel ON rel."productId" = p.id
+      WHERE p."isActive" AND p.stock > 0
+      GROUP BY 1
+      ORDER BY 1
+    `,
   ]);
 
   const a = agent[0];
@@ -114,6 +130,7 @@ export async function GET() {
     policy: toPct(policies.fallback),
     totals: totals[0],
     sources,
+    coverage,
     agent: {
       ...a,
       costUsd: agentCostUsd({ searches: a.searches, inputTokens: a.inputTokens, outputTokens: a.outputTokens }),

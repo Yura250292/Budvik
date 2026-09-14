@@ -18,6 +18,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MARKET_RATIO_HIGH, MARKET_RATIO_LOW, UNIT_RATIO_HIGH, UNIT_RATIO_LOW, proposePrice } from "../compute";
 import { loadPolicies, policyFor } from "../policy";
+import { RELEVANCE_CTE } from "../relevance";
 import { MARKET_FRESH_DAYS } from "./constants";
 
 const DAY_MS = 86_400_000;
@@ -57,6 +58,8 @@ export type BuildProposalsResult = {
   cheaper: number;
   dearer: number;
   belowFloor: number;
+  /** Нових пропозицій по товарах, що продавались за 30 днів. */
+  hot: number;
   pendingTotal: number;
   /** Лише в пробі: що було б створено. */
   preview?: Prisma.PriceProposalCreateManyInput[];
@@ -89,14 +92,17 @@ export async function buildProposals(opts: { now?: Date; dry?: boolean } = {}): 
   const policies = await loadPolicies();
   const out: BuildProposalsResult = {
     week, candidates: 0, created: 0, kept: 0, superseded: 0, unchanged: 0, noUsableMarket: 0,
-    unitMismatch: 0, cheaper: 0, dearer: 0, belowFloor: 0, pendingTotal: 0,
+    unitMismatch: 0, cheaper: 0, dearer: 0, belowFloor: 0, hot: 0, pendingTotal: 0,
   };
 
   const products = await prisma.$queryRaw<
-    { id: string; brandId: string | null; wholesale: number; retail1C: number | null; current: number }[]
+    { id: string; brandId: string | null; wholesale: number; retail1C: number | null; current: number; tier: number }[]
   >`
-    SELECT p.id, p."brandId", w.price AS wholesale, r.price AS "retail1C", COALESCE(s.price, p.price) AS current
+    WITH ${RELEVANCE_CTE}
+    SELECT p.id, p."brandId", w.price AS wholesale, r.price AS "retail1C", COALESCE(s.price, p.price) AS current,
+           COALESCE(rel.tier, 4)::int AS tier
     FROM "Product" p
+    LEFT JOIN rel ON rel."productId" = p.id
     JOIN "Price1C" w ON w."productId" = p.id AND w.kind = 'WHOLESALE'
     LEFT JOIN "Price1C" r ON r."productId" = p.id AND r.kind = 'RETAIL'
     LEFT JOIN "SitePrice" s ON s."productId" = p.id
@@ -206,6 +212,7 @@ export async function buildProposals(opts: { now?: Date; dry?: boolean } = {}): 
     if (diff > 0) out.dearer++;
     else out.cheaper++;
     if (proposal.clamped) out.belowFloor++;
+    if (p.tier === 1) out.hot++;
 
     toCreate.push({
       productId: p.id,

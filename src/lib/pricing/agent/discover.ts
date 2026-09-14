@@ -22,16 +22,19 @@
  * MS 180 він за 741 вхідний і 114 вихідних токенів вибрав рівно чотири
  * правильні сторінки з семи результатів.
  *
- * Шукаємо для товарів у наявності без свіжої ринкової ціни — найбільший
- * залишок у гривнях першим. Товар, для якого нічого не знайшлось, не шукаємо
- * знову LOOKUP_AGAIN_DAYS днів.
+ * Шукаємо для товарів у наявності без свіжої ринкової ціни — спершу
+ * актуальні (relevance.ts): що продавалось за 30 днів, потім за 90, потім
+ * решта; у межах рівня — за кількістю продажів і переглядів. Товар, для
+ * якого нічого не знайшлось, шукаємо знову через 30 днів, якщо він
+ * продається, і через 90, якщо ні.
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fetchPage, HttpError } from "../market/http";
 import { hostOf, marketExtractorFor } from "../market/sources";
 import { agentCostUsd } from "./cost";
-import { LOOKUP_AGAIN_DAYS, MARKET_FRESH_DAYS } from "./constants";
+import { MARKET_FRESH_DAYS } from "./constants";
+import { LOOKUP_AGAIN_DAYS_BY_TIER, RELEVANCE_CTE, RELEVANCE_ORDER, tierCutoff } from "../relevance";
 import { searchProvider, type SearchProvider, type SearchResult } from "./search";
 import { articlePattern, pageNamesArticle, pageTitle, textNamesArticle } from "./verify";
 
@@ -63,13 +66,24 @@ const SYSTEM = [
   'Відповідай лише json у форматі {"pages": [{"n": 2, "reason": "коротко"}]}, де n — номер результату. Якщо нічого не підходить — {"pages": []}.',
 ].join("\n");
 
-type Candidate = { id: string; sku: string; name: string; brand: string | null; wholesale: number };
+type Candidate = {
+  id: string;
+  sku: string;
+  name: string;
+  brand: string | null;
+  wholesale: number;
+  /** Рівень актуальності (relevance.ts): 1 — продавався за 30 днів. */
+  tier: number;
+  sales90: number;
+};
 type Accepted = { host: string; url: string; price: number; inStock: boolean | null; title: string | null };
 
 export type DiscoveryResult = {
   skipped: "no_search_key" | null;
   provider: SearchProvider["name"] | null;
   looked: number;
+  /** З них — товари, що продавались за 30 днів. */
+  lookedHot: number;
   pagesFound: number;
   pagesAccepted: number;
   searches: number;
@@ -80,6 +94,7 @@ export type DiscoveryResult = {
   /** Що саме знайдено по кожному товару — для журналу й перевірки руками. */
   details: {
     sku: string;
+    tier: number;
     picked: string[];
     pickedBy: "deepseek" | "article";
     accepted: { host: string; url: string; price: number; inStock: boolean | null }[];
@@ -243,7 +258,7 @@ export async function discoverMarketPages(
 ): Promise<DiscoveryResult> {
   const provider = opts.provider ?? searchProvider();
   const out: DiscoveryResult = {
-    skipped: null, provider: provider?.name ?? null, looked: 0, pagesFound: 0, pagesAccepted: 0,
+    skipped: null, provider: provider?.name ?? null, looked: 0, lookedHot: 0, pagesFound: 0, pagesAccepted: 0,
     searches: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, errors: [], details: [],
   };
   if (!provider) return { ...out, skipped: "no_search_key" };
@@ -251,12 +266,11 @@ export async function discoverMarketPages(
   const limit = opts.limit ?? 10;
   const deadline = Date.now() + (opts.budgetMs ?? 5 * 60_000);
   const freshFrom = new Date(Date.now() - MARKET_FRESH_DAYS * DAY_MS);
-  const againFrom = new Date(Date.now() - LOOKUP_AGAIN_DAYS * DAY_MS);
 
   const filter = opts.productIds
     ? Prisma.sql`AND p.id = ANY(${opts.productIds}::text[])`
     : Prisma.sql`
-        AND (l."productId" IS NULL OR l."lookedAt" < ${againFrom})
+        AND (l."productId" IS NULL OR l."lookedAt" < ${tierCutoff(LOOKUP_AGAIN_DAYS_BY_TIER)})
         AND NOT EXISTS (
           SELECT 1 FROM "MarketPrice" m
           WHERE m."productId" = p.id AND m."seenAt" >= ${freshFrom}
@@ -264,14 +278,17 @@ export async function discoverMarketPages(
         )`;
 
   const candidates = await prisma.$queryRaw<Candidate[]>`
-    SELECT p.id, p.sku, p.name, b.name AS brand, w.price AS wholesale
+    WITH ${RELEVANCE_CTE}
+    SELECT p.id, p.sku, p.name, b.name AS brand, w.price AS wholesale,
+           COALESCE(rel.tier, 4)::int AS tier, COALESCE(rel.sales90, 0)::int AS sales90
     FROM "Product" p
     JOIN "Price1C" w ON w."productId" = p.id AND w.kind = 'WHOLESALE'
     LEFT JOIN "Brand" b ON b.id = p."brandId"
     LEFT JOIN "MarketLookup" l ON l."productId" = p.id
+    LEFT JOIN rel ON rel."productId" = p.id
     WHERE p."isActive" AND p.stock > 0 AND p.sku IS NOT NULL AND p.sku NOT ILIKE '1C-%'
       ${filter}
-    ORDER BY p.stock * w.price DESC
+    ORDER BY ${RELEVANCE_ORDER}, p.stock * w.price DESC
     LIMIT ${limit * 4}
   `;
 
@@ -282,6 +299,7 @@ export async function discoverMarketPages(
       continue;
     }
     out.looked++;
+    if (c.tier === 1) out.lookedHot++;
 
     let found: Awaited<ReturnType<typeof searchCandidates>>;
     try {
@@ -302,6 +320,7 @@ export async function discoverMarketPages(
     out.pagesAccepted += accepted.length;
     out.details.push({
       sku: c.sku,
+      tier: c.tier,
       picked: pick.urls,
       pickedBy: pick.by,
       accepted: accepted.map((a) => ({ host: a.host, url: a.url, price: a.price, inStock: a.inStock })),

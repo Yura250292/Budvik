@@ -1,4 +1,5 @@
 import { SITE_URL, SITE_NAME, SITE_CONTACTS, absoluteUrl, stripHtml } from "@/lib/seo/site";
+import { DELIVERY_TERMS, deliveryFee } from "@/lib/delivery-terms";
 
 /**
  * Будівники JSON-LD. Кожен повертає простий об'єкт — на сторінку він
@@ -26,8 +27,8 @@ interface ProductForJsonLd {
  * або «Новою поштою», по Україні. Змінились умови там — міняти й тут: Merchant
  * Center звіряє розмітку зі сторінкою.
  *
- * Хто платить за зворотну пересилку, сторінка не каже, тому returnFees немає:
- * поле лише рекомендоване, а вигадане значення гірше за відсутнє.
+ * Зворотну пересилку товару належної якості оплачує покупець. Брак за законом
+ * везе продавець, але розмітка описує звичайне повернення, а не гарантійне.
  */
 function returnPolicy() {
   return {
@@ -36,6 +37,30 @@ function returnPolicy() {
     returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
     merchantReturnDays: 14,
     returnMethod: ["https://schema.org/ReturnInStore", "https://schema.org/ReturnByMail"],
+    returnFees: "https://schema.org/ReturnFeesCustomerResponsibility",
+  };
+}
+
+/**
+ * Доставка одного товару. Ціну рахуємо від ціни самого товару: Google
+ * показує доставку біля ціни як для замовлення з одного примірника.
+ */
+function shippingDetails(price: number) {
+  const days = (d: { min: number; max: number }) => ({
+    "@type": "QuantitativeValue",
+    minValue: d.min,
+    maxValue: d.max,
+    unitCode: "DAY",
+  });
+  return {
+    "@type": "OfferShippingDetails",
+    shippingDestination: { "@type": "DefinedRegion", addressCountry: SITE_CONTACTS.country },
+    shippingRate: { "@type": "MonetaryAmount", value: deliveryFee(price), currency: "UAH" },
+    deliveryTime: {
+      "@type": "ShippingDeliveryTime",
+      handlingTime: days(DELIVERY_TERMS.handlingDays),
+      transitTime: days(DELIVERY_TERMS.transitDays),
+    },
   };
 }
 
@@ -62,9 +87,7 @@ export function productJsonLd(p: ProductForJsonLd) {
       // Пошукова консоль шукає політику саме у вузлі offers, розмітки
       // магазину на головній їй для товару не досить.
       hasMerchantReturnPolicy: returnPolicy(),
-      // shippingDetails навмисно немає: ціну й день доставки менеджер
-      // називає в дзвінку (див. /dostavka-i-oplata), а вигадана сума у
-      // видачі стала б обіцянкою. З'являться тарифи — дописати сюди.
+      shippingDetails: shippingDetails(price),
     },
   };
 }

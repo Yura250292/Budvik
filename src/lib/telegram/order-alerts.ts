@@ -30,6 +30,11 @@ export interface NewOrderAlert {
   deliveryMethod: "DELIVERY" | "PICKUP";
   comment: string | null;
   totalAmount: number;
+  /**
+   * Доставка за умовами сайту (lib/delivery-terms); null — самовивіз. У
+   * totalAmount її немає, а менеджеру треба додати її до накладеного платежу.
+   */
+  shippingFee?: number | null;
   isGuest: boolean;
   items: { name: string; quantity: number }[];
 }
@@ -56,7 +61,11 @@ function buildText(order: NewOrderAlert): string {
     (order.comment ? `Коментар: ${escapeHtml(order.comment)}\n` : "") +
     `Оплата при отриманні\n\n` +
     `${lines}${more}\n\n` +
-    `<b>Разом: ${formatPrice(order.totalAmount)}</b>` +
+    (order.shippingFee != null
+      ? `Товари: ${formatPrice(order.totalAmount)}\n` +
+        `Доставка: ${order.shippingFee === 0 ? "безкоштовна" : formatPrice(order.shippingFee)}\n` +
+        `<b>До сплати: ${formatPrice(order.totalAmount + order.shippingFee)}</b>`
+      : `<b>Разом: ${formatPrice(order.totalAmount)}</b>`) +
     (base ? `\n${base}/admin/orders` : "")
   );
 }

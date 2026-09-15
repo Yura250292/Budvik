@@ -20,6 +20,7 @@ import { findSalesRepByRefCode } from "@/lib/ref-code";
 import { packQtyOf, roundUpToPack } from "@/lib/pack-qty";
 import { normalizePhone } from "@/lib/phone";
 import { notifyStaffNewOrder } from "@/lib/telegram/order-alerts";
+import { deliveryFee } from "@/lib/delivery-terms";
 
 /** Один кошик — не оптова заявка: стільки різних позицій роздріб не набирає. */
 const MAX_ITEMS = 100;
@@ -241,6 +242,9 @@ export async function createOrder(
   // її відкритою на час відповіді Telegram.
   await notifyStaffNewOrder({
     id: order.id,
+    // Умови доставки сайту — лише для роздробу: опт везуть своєю логістикою
+    // за домовленістю. Поріг рахуємо від товарів, до списання Болтів.
+    shippingFee: deliveryMethod === "DELIVERY" && !isWholesale ? deliveryFee(totalAmount) : null,
     orderNumber: order.orderNumber,
     contactName: order.contactName,
     phone: order.phone,

@@ -1,4 +1,6 @@
 import type { Spec } from "@/lib/catalog/description-sections";
+import { formatUAH } from "@/lib/seo/site";
+import { DELIVERY_TERMS, DELIVERY_DAYS_LABEL } from "@/lib/delivery-terms";
 
 /**
  * Факти товару під фото: характеристики й комплектація.
@@ -63,7 +65,7 @@ function KitCard({ kit }: { kit: string[] }) {
 const TERMS = [
   {
     title: "Доставка",
-    text: "Привеземо за вашою адресою",
+    text: `Новою поштою, ${DELIVERY_DAYS_LABEL}. ${DELIVERY_TERMS.fee} грн, від ${formatUAH(DELIVERY_TERMS.freeFrom)} грн — безкоштовно`,
     path: "M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1",
   },
   {

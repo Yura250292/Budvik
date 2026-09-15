@@ -7,6 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { getCart, clearCart, getCartTotal, CartItem } from "@/lib/cart";
 import { formatPrice } from "@/lib/utils";
+import { DELIVERY_TERMS, DELIVERY_DAYS_LABEL, deliveryFee } from "@/lib/delivery-terms";
 import { formatPhoneInput, isValidUaPhone } from "@/lib/phone";
 import { track, flush } from "@/lib/webstats/client";
 
@@ -110,6 +111,12 @@ export default function CheckoutPage() {
 
   const total = cart ? getCartTotal(cart) : 0;
   const needsAddress = form.deliveryMethod === "DELIVERY";
+  // Те саме правило, що в розмітці Google і на сторінці доставки: різна ціна
+  // доставки у видачі й на оформленні — порушення для Merchant Center.
+  // Опт везуть своєю логістикою за домовленістю — роздрібний тариф йому не
+  // показуємо, як і в сповіщенні менеджеру (lib/orders/create-order).
+  const isWholesale = session?.user?.role === "WHOLESALE";
+  const shipping = needsAddress && !isWholesale ? deliveryFee(total) : 0;
 
   /**
    * Перевірка кожного поля окремо, а не одним написом угорі: у формі з пʼяти
@@ -293,7 +300,7 @@ export default function CheckoutPage() {
                     </span>
                     <span className="block text-xs text-g400 mt-0.5">
                       {m === "DELIVERY"
-                        ? "Привеземо за вашою адресою"
+                        ? `Новою поштою по Україні, ${DELIVERY_DAYS_LABEL}`
                         : "Заберете зі складу — адресу підкажемо в дзвінку"}
                     </span>
                   </span>
@@ -384,9 +391,27 @@ export default function CheckoutPage() {
             ))}
           </div>
 
-          <div className="border-t border-g200 pt-4 mb-4 flex justify-between text-lg font-bold">
+          <div className="border-t border-g200 pt-4 space-y-1.5 text-sm text-g600">
+            <div className="flex justify-between">
+              <span>Товари</span>
+              <span>{formatPrice(total)}</span>
+            </div>
+            {!isWholesale && (
+              <div className="flex justify-between">
+                <span>{needsAddress ? "Доставка Новою поштою" : "Самовивіз"}</span>
+                <span>{shipping === 0 ? "Безкоштовно" : formatPrice(shipping)}</span>
+              </div>
+            )}
+            {shipping > 0 && (
+              <p className="text-xs text-g400">
+                До безкоштовної доставки бракує {formatPrice(DELIVERY_TERMS.freeFrom - total)}
+              </p>
+            )}
+          </div>
+
+          <div className="border-t border-g200 mt-3 pt-3 mb-4 flex justify-between text-lg font-bold">
             <span>Разом</span>
-            <span className="text-bk">{formatPrice(total)}</span>
+            <span className="text-bk">{formatPrice(total + shipping)}</span>
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-sm disabled:opacity-50">

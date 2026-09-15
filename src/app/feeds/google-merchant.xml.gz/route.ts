@@ -1,7 +1,8 @@
 import { gzipSync } from "zlib";
 import { prisma } from "@/lib/prisma";
 import { indexableProductWhere } from "@/lib/seo/indexable";
-import { absoluteUrl, escapeXml, stripHtml, SITE_URL, SITE_NAME } from "@/lib/seo/site";
+import { absoluteUrl, escapeXml, stripHtml, SITE_URL, SITE_NAME, SITE_CONTACTS } from "@/lib/seo/site";
+import { DELIVERY_TERMS, deliveryFee } from "@/lib/delivery-terms";
 import { isRealSku } from "@/lib/catalog/sku-search";
 
 export const revalidate = 3600;
@@ -40,6 +41,13 @@ export async function GET() {
     const description = stripHtml(p.description).slice(0, 1000) || p.name;
     const hasSalePrice = p.isPromo && p.promoPrice && p.promoPrice < p.price;
 
+    // Доставка за тим самим правилом, що в розмітці й на сторінці доставки:
+    // Merchant Center звіряє ціну доставки з оформленням замовлення.
+    const t = DELIVERY_TERMS;
+    const shipping = `<g:shipping><g:country>${SITE_CONTACTS.country}</g:country><g:price>${deliveryFee(
+      hasSalePrice ? p.promoPrice! : p.price
+    ).toFixed(2)} UAH</g:price><g:min_handling_time>${t.handlingDays.min}</g:min_handling_time><g:max_handling_time>${t.handlingDays.max}</g:max_handling_time><g:min_transit_time>${t.transitDays.min}</g:min_transit_time><g:max_transit_time>${t.transitDays.max}</g:max_transit_time></g:shipping>`;
+
     // Без GTIN у базі ідентифікація — бренд + артикул; коли немає і їх,
     // чесно кажемо identifier_exists=no, інакше Merchant бракує позицію.
     const identifiers =
@@ -57,6 +65,7 @@ export async function GET() {
 <g:price>${p.price.toFixed(2)} UAH</g:price>
 ${hasSalePrice ? `<g:sale_price>${p.promoPrice!.toFixed(2)} UAH</g:sale_price>\n` : ""}<g:condition>new</g:condition>
 ${identifiers}
+${shipping}
 </item>`;
   });
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import OrderStatusProgress from "@/components/OrderStatusProgress";
+import { DELIVERY_TERMS_SINCE, deliveryFee } from "@/lib/delivery-terms";
 import {
   formatDate,
   formatPrice,
@@ -61,6 +62,13 @@ export default async function GuestOrderPage({
 
   if (!order) notFound();
 
+  // Та сама сума, що покупець бачив на оформленні: товари + доставка.
+  const goods = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const shipping =
+    order.deliveryMethod === "DELIVERY" && order.createdAt >= DELIVERY_TERMS_SINCE
+      ? deliveryFee(goods)
+      : null;
+
   const where =
     order.deliveryMethod === "PICKUP"
       ? DELIVERY_METHOD_LABELS.PICKUP
@@ -117,9 +125,19 @@ export default async function GuestOrderPage({
             </div>
           ))}
         </div>
-        <div className="p-4 bg-g50 border-t border-g200 flex justify-between text-lg font-bold">
+        {shipping !== null && (
+          <div className="px-4 pt-3 bg-g50 border-t border-g200 flex justify-between text-sm text-g600">
+            <span>Доставка Новою поштою</span>
+            <span>{shipping === 0 ? "Безкоштовно" : formatPrice(shipping)}</span>
+          </div>
+        )}
+        <div
+          className={`p-4 bg-g50 flex justify-between text-lg font-bold ${
+            shipping === null ? "border-t border-g200" : ""
+          }`}
+        >
           <span>Всього</span>
-          <span className="text-bk">{formatPrice(order.totalAmount)}</span>
+          <span className="text-bk">{formatPrice(order.totalAmount + (shipping ?? 0))}</span>
         </div>
       </div>
 

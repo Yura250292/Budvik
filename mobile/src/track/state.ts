@@ -254,3 +254,34 @@ export function countFixBatch(written: number): void {
 export function contextStats(): { startedAt: number; batches: number; points: number } {
   return { startedAt: CONTEXT_STARTED_AT, batches: fixBatches, points: pointsWritten };
 }
+
+/**
+ * Хто будив ЦЕЙ контекст — по кожному каналу окремо.
+ *
+ * `fixBatches` рахує лише координати, і 15.09 цього забракло: у замороженому
+ * контексті нуль мали всі канали разом (координати, сторож, пуш), тоді як
+ * мертва служба дає нуль лише координатам. Один погляд на ці чотири числа
+ * розводить «диспетчер не бачить контексту» і «система не дає координат».
+ */
+export type TaskChannel = "location" | "geofence" | "wake" | "watchdog";
+
+const taskEvents: Record<TaskChannel, { n: number; lastAt: number }> = {
+  location: { n: 0, lastAt: 0 },
+  geofence: { n: 0, lastAt: 0 },
+  wake: { n: 0, lastAt: 0 },
+  watchdog: { n: 0, lastAt: 0 },
+};
+
+export function noteTaskEvent(channel: TaskChannel): void {
+  taskEvents[channel].n++;
+  taskEvents[channel].lastAt = Date.now();
+}
+
+export function contextTaskEvents(): Record<TaskChannel, { n: number; lastAt: number }> {
+  return {
+    location: { ...taskEvents.location },
+    geofence: { ...taskEvents.geofence },
+    wake: { ...taskEvents.wake },
+    watchdog: { ...taskEvents.watchdog },
+  };
+}

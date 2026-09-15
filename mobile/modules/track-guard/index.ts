@@ -49,6 +49,10 @@ type TrackGuardModule = {
   cancelExactGuard(): boolean;
   exactGuardStatus(): ExactGuardStatus;
   systemProbe(): SystemProbe;
+  /** З 1.6.6. У старших збірках функцій немає — обгортки нижче це перевіряють. */
+  diagSnapshot?(): string;
+  configureBeacon?(url: string, token: string, build: string): boolean;
+  sendBeaconNow?(reason: string): boolean;
 };
 
 /**
@@ -130,5 +134,39 @@ export function exactGuardStatus(): ExactGuardStatus {
     return native.exactGuardStatus();
   } catch {
     return { available: false };
+  }
+}
+
+/**
+ * Повний нативний знімок (Diag.kt): процес і причини смерті попередніх, служби,
+ * кошик, мережа, JobScheduler, лічильники expo-location і диспетчера завдань.
+ * null — збірка старша за 1.6.6 або проба впала.
+ */
+export function diagSnapshot(): Record<string, unknown> | null {
+  if (!hasOfflineGuard || typeof native?.diagSnapshot !== "function") return null;
+  try {
+    return JSON.parse(native.diagSnapshot()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Адреса й токен для нативного маяка, який шле знімок без JS. */
+export function configureBeacon(url: string, token: string, build: string): boolean {
+  if (!hasOfflineGuard || typeof native?.configureBeacon !== "function") return false;
+  try {
+    return native.configureBeacon(url, token, build);
+  } catch {
+    return false;
+  }
+}
+
+/** Надіслати нативний знімок негайно (перевірка з екрана). */
+export function sendBeaconNow(reason = "manual"): boolean {
+  if (!hasOfflineGuard || typeof native?.sendBeaconNow !== "function") return false;
+  try {
+    return native.sendBeaconNow(reason);
+  } catch {
+    return false;
   }
 }

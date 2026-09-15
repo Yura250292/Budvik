@@ -117,10 +117,30 @@ export async function downloadAndInstallApk(
   if (!result?.uri) throw new Error("Не вдалося завантажити збірку");
 
   const contentUri = await FileSystem.getContentUriAsync(result.uri);
-  await IntentLauncher.startActivityAsync("android.intent.action.INSTALL_PACKAGE", {
-    data: contentUri,
-    flags: 1, // FLAG_GRANT_READ_URI_PERMISSION — без нього встановлювач не прочитає файл
-  });
+  try {
+    await IntentLauncher.startActivityAsync("android.intent.action.INSTALL_PACKAGE", {
+      data: contentUri,
+      flags: 1, // FLAG_GRANT_READ_URI_PERMISSION — без нього встановлювач не прочитає файл
+    });
+  } catch (e) {
+    /**
+     * Встановлювач уже відкривали, і він не повернув результату.
+     *
+     * expo-intent-launcher пам'ятає незакритий виклик до кінця життя модуля й
+     * кожну наступну спробу відхиляє англійським «activity is already started».
+     * 15.09.2026 Валентин побачив саме цей текст і вирішив, що оновлення
+     * зламане. Насправді встановлювач чекав у «недавніх», а новий виклик стане
+     * можливим лише після повного перезапуску застосунку.
+     */
+    const message = e instanceof Error ? e.message : String(e);
+    if (/already started/i.test(message)) {
+      throw new Error(
+        "Встановлювач уже відкрито. Поверніться до нього кнопкою «недавні» й натисніть «Встановити». " +
+          "Якщо його там немає — закрийте застосунок повністю (змахніть у «недавніх») і натисніть «Оновити» знову."
+      );
+    }
+    throw e;
+  }
 }
 
 /**

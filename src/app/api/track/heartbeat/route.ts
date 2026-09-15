@@ -47,6 +47,8 @@ type Body = {
   fixBatches?: number;
   contextPoints?: number;
   events?: Array<{ at?: string; kind?: string; note?: string }>;
+  /** Повна діагностика пристрою (mobile/src/track/diag.ts), з 15.09.2026. */
+  diag?: unknown;
 };
 
 /** Дата з тіла запиту або null: сміття в полі не має валити весь пульс. */
@@ -143,6 +145,24 @@ export async function POST(req: NextRequest) {
       contextPoints: int(body.contextPoints, 0, 1_000_000),
     },
   });
+
+  /**
+   * Повна діагностика — лише останній знімок, без історії.
+   *
+   * Пульс іде раз на три хвилини, і знімок у кілька кілобайтів на кожному
+   * роздув би базу без жодної користі: історію дають журнал подій і нативний
+   * маяк (/api/track/native-beacon), а «що з планшетом зараз» — ось тут.
+   * SyncState, а не нова колонка: діагностика не варта міграції на проді.
+   */
+  if (body.diag && typeof body.diag === "object") {
+    const key = `app:staff:diag:${device.userId}`;
+    const receivedAt = new Date().toISOString();
+    const raw = JSON.stringify({ receivedAt, diag: body.diag });
+    const value = raw.length <= 100_000 ? raw : JSON.stringify({ receivedAt, truncated: raw.length });
+    await prisma.syncState
+      .upsert({ where: { key }, create: { key, value }, update: { value } })
+      .catch(() => {});
+  }
 
   /**
    * Журнал подій — окремим записом і НЕ разом із пульсом.

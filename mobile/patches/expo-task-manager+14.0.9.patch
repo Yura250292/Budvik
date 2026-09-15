@@ -32,8 +32,444 @@ index 0000000..a180ab8
 diff --git a/node_modules/expo-task-manager/android/.gradle/vcs-1/gc.properties b/node_modules/expo-task-manager/android/.gradle/vcs-1/gc.properties
 new file mode 100644
 index 0000000..e69de29
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java
+new file mode 100644
+index 0000000..9a35917
+--- /dev/null
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java
+@@ -0,0 +1,187 @@
++package expo.modules.taskManager;
++
++import android.content.Context;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++import java.util.ArrayDeque;
++import java.util.concurrent.atomic.AtomicLong;
++
++/**
++ * ПАТЧ Budvik: чорна скринька диспетчера фонових завдань.
++ *
++ * 15.09.2026 трек трьох торгових стояв годинами, бо TaskService «забув» живий
++ * контекст JS і складав координати в чергу без читача. Встановити це вдалося
++ * лише статистикою по пульсах за 12 днів: сам диспетчер не лишає жодного сліду.
++ * Тут він його лишає — скільки подій доставлено напряму, скільки лягло в чергу,
++ * хто і коли реєстрував і знімав завдання, коли стерто реєстрацію контексту.
++ *
++ * Лічильники живуть у пам'яті процесу навмисно: вони описують саме той процес,
++ * який розбираємо. Журнал рідкісних подій переживає смерть процесу
++ * (SharedPreferences) — інакше «хто зняв завдання о 09:06» зникало б разом із
++ * процесом, що його зняв.
++ *
++ * Читає track-guard рефлексією (`snapshot`). На поведінку диспетчера це не
++ * впливає: кожен виклик загороджено, і падіння діагностики лишається тут.
++ */
++public final class BudvikTaskDiag {
++  private static final String PREFS = "budvik-task-diag";
++  private static final String KEY_LOG = "log";
++  /** Реєстрація завдання йде з кожним стартом запису, тож стеля з запасом на день. */
++  private static final int LOG_CAP = 150;
++
++  static final AtomicLong execDirect = new AtomicLong();
++  static final AtomicLong execQueued = new AtomicLong();
++  static final AtomicLong finished = new AtomicLong();
++  static final AtomicLong loadAppCalls = new AtomicLong();
++  static final AtomicLong invalidations = new AtomicLong();
++  static volatile long lastDirectAt = 0;
++  static volatile long lastQueuedAt = 0;
++  static volatile long lastFinishedAt = 0;
++  static volatile String lastDirectTask = "";
++  static volatile String lastQueuedTask = "";
++  private static volatile boolean sQueuedMode = false;
++  private static final long PROCESS_SEEN_AT = System.currentTimeMillis();
++
++  private static final ArrayDeque<String> sLog = new ArrayDeque<>();
++  private static boolean sLoaded = false;
++
++  private BudvikTaskDiag() {
++  }
++
++  /** Подію віддано живому контексту JS. У журнал — лише перехід із черги назад. */
++  static void direct(Context context, String taskName) {
++    execDirect.incrementAndGet();
++    lastDirectAt = System.currentTimeMillis();
++    lastDirectTask = String.valueOf(taskName);
++    if (sQueuedMode) {
++      sQueuedMode = false;
++      note(context, "dispatch", "знову напряму: " + taskName);
++    }
++  }
++
++  /** Контексту немає — подія лягла в чергу. У журнал — лише перша з серії. */
++  static void queued(Context context, String taskName, int queueSize) {
++    execQueued.incrementAndGet();
++    lastQueuedAt = System.currentTimeMillis();
++    lastQueuedTask = String.valueOf(taskName);
++    if (!sQueuedMode) {
++      sQueuedMode = true;
++      note(context, "dispatch", "у чергу, контексту немає: " + taskName + ", у черзі " + queueSize);
++    }
++  }
++
++  static void finished() {
++    finished.incrementAndGet();
++    lastFinishedAt = System.currentTimeMillis();
++  }
++
++  /** Рядок журналу: «мс|вид|подробиці». Нічого не кидає. */
++  static synchronized void note(Context context, String kind, String detail) {
++    try {
++      load(context);
++      String line = System.currentTimeMillis() + "|" + kind + "|" + (detail == null ? "" : detail);
++      if (line.length() > 300) {
++        line = line.substring(0, 300);
++      }
++      sLog.addLast(line);
++      while (sLog.size() > LOG_CAP) {
++        sLog.removeFirst();
++      }
++      if (context != null) {
++        JSONArray arr = new JSONArray();
++        for (String s : sLog) {
++          arr.put(s);
++        }
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_LOG, arr.toString()).apply();
++      }
++    } catch (Throwable ignored) {
++    }
++  }
++
++  /** Попередні процеси — спершу, потім позначка нового процесу. */
++  private static void load(Context context) {
++    if (sLoaded || context == null) {
++      return;
++    }
++    sLoaded = true;
++    try {
++      String raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_LOG, null);
++      ArrayDeque<String> merged = new ArrayDeque<>();
++      if (raw != null) {
++        JSONArray arr = new JSONArray(raw);
++        for (int i = 0; i < arr.length(); i++) {
++          merged.addLast(arr.optString(i));
++        }
++      }
++      merged.addLast(PROCESS_SEEN_AT + "|process|новий процес " + android.os.Process.myPid());
++      merged.addAll(sLog);
++      sLog.clear();
++      sLog.addAll(merged);
++      while (sLog.size() > LOG_CAP) {
++        sLog.removeFirst();
++      }
++    } catch (Throwable ignored) {
++    }
++  }
++
++  /** Хто кличе: кілька кадрів стеку поза системою й самим журналом. */
++  static String caller() {
++    try {
++      StringBuilder sb = new StringBuilder();
++      int n = 0;
++      for (StackTraceElement e : Thread.currentThread().getStackTrace()) {
++        String c = e.getClassName();
++        if (c.startsWith("java.") || c.startsWith("dalvik.") || c.startsWith("android.os.")
++          || c.startsWith("kotlin.") || c.equals(BudvikTaskDiag.class.getName())) {
++          continue;
++        }
++        if (sb.length() > 0) {
++          sb.append(" < ");
++        }
++        sb.append(c.substring(c.lastIndexOf('.') + 1)).append('.').append(e.getMethodName());
++        if (++n >= 5) {
++          break;
++        }
++      }
++      return sb.toString();
++    } catch (Throwable ignored) {
++      return "";
++    }
++  }
++
++  /** Повний знімок у JSON-рядку. Викликає track-guard рефлексією. */
++  public static String snapshot(Context context) {
++    JSONObject out = new JSONObject();
++    try {
++      JSONArray log = new JSONArray();
++      synchronized (BudvikTaskDiag.class) {
++        load(context);
++        for (String s : sLog) {
++          log.put(s);
++        }
++      }
++      out.put("processSeenAt", PROCESS_SEEN_AT);
++      out.put("execDirect", execDirect.get());
++      out.put("execQueued", execQueued.get());
++      out.put("finished", finished.get());
++      out.put("loadAppCalls", loadAppCalls.get());
++      out.put("invalidations", invalidations.get());
++      out.put("lastDirectAt", lastDirectAt);
++      out.put("lastDirectTask", lastDirectTask);
++      out.put("lastQueuedAt", lastQueuedAt);
++      out.put("lastQueuedTask", lastQueuedTask);
++      out.put("lastFinishedAt", lastFinishedAt);
++      out.put("queuedMode", sQueuedMode);
++      out.put("state", TaskService.budvikState(context));
++      out.put("log", log);
++    } catch (Throwable e) {
++      try {
++        out.put("error", String.valueOf(e));
++      } catch (Throwable ignored) {
++      }
++    }
++    return out.toString();
++  }
++}
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+index 2b6c2fa..80fcfe8 100644
+--- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
+@@ -11,6 +11,7 @@ import android.os.Handler;
+ import android.os.PersistableBundle;
+ import android.util.Log;
+ 
++import org.json.JSONArray;
+ import org.json.JSONObject;
+ import expo.modules.apploader.AppLoaderProvider;
+ import expo.modules.apploader.HeadlessAppLoader;
+@@ -100,8 +101,11 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+       // Task already exists. Let's just update its options.
+       task.setOptions(options);
+       task.getConsumer().setOptions(options);
++      // ПАТЧ Budvik: слід у чорній скриньці диспетчера (BudvikTaskDiag).
++      BudvikTaskDiag.note(mContextRef.get(), "register", taskName + ": нові опції ← " + BudvikTaskDiag.caller());
+     } else {
+       internalRegisterTask(taskName, appScopeKey, appUrl, consumerClass, options);
++      BudvikTaskDiag.note(mContextRef.get(), "register", taskName + ": нове ← " + BudvikTaskDiag.caller());
+     }
+     mTasksAndEventsRepository.persistTasksForAppScopeKey(getSharedPreferences(), appScopeKey);
+   }
+@@ -121,6 +125,8 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+       throw new InvalidConsumerClassException(taskName);
+     }
+ 
++    // ПАТЧ Budvik: хто знімає завдання — головне питання розбору «task_gone».
++    BudvikTaskDiag.note(mContextRef.get(), "unregister", taskName + " ← " + BudvikTaskDiag.caller());
+     mTasksAndEventsRepository.removeTask(appScopeKey, taskName);
+ 
+     Log.i(TAG, "Unregistering task '" + taskName + "' for app with scoping identifier '" + appScopeKey + "'.");
+@@ -135,6 +141,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+     if (appTasks != null) {
+       Log.i(TAG, "Unregistering all tasks for app with scoping identifier '" + appScopeKey + "'.");
++      BudvikTaskDiag.note(mContextRef.get(), "unregisterAll", appTasks.keySet() + " ← " + BudvikTaskDiag.caller());
+ 
+       for (TaskInterface task : appTasks.values()) {
+         task.getConsumer().didUnregister();
+@@ -196,6 +203,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+   @Override
+   public void notifyTaskFinished(String taskName, final String appScopeKey, Map<String, Object> response) {
+     String eventId = (String) response.get("eventId");
++    BudvikTaskDiag.finished();
+     List<String> appEvents = sEvents.get(appScopeKey);
+ 
+     Log.i(TAG, "Finished task '" + taskName + "' with eventId '" + eventId + "'.");
+@@ -231,7 +239,8 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+   public void setTaskManager(TaskManagerInterface taskManager, String appScopeKey, String appUrl) {
+     // It may be called with null when the host activity is destroyed.
+     if (taskManager == null) {
+-      sTaskManagers.remove(appScopeKey);
++      WeakReference<TaskManagerInterface> removedForDiag = sTaskManagers.remove(appScopeKey);
++      BudvikTaskDiag.note(mContextRef.get(), "manager", "знято: " + (removedForDiag != null ? "звичайну реєстрацію" : "реєстрації не було") + " ← " + BudvikTaskDiag.caller());
+       return;
+     }
+ 
+@@ -243,6 +252,8 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+     // Set task manager in appropriate map.
+     taskManagers.put(appScopeKey, new WeakReference<>(taskManager));
++    List<Bundle> pendingForDiag = mTasksAndEventsRepository.getEvents(appScopeKey);
++    BudvikTaskDiag.note(mContextRef.get(), "manager", (isHeadless ? "безінтерфейсна" : "звичайна") + " реєстрація, у черзі " + (pendingForDiag == null ? 0 : pendingForDiag.size()));
+ 
+     // Execute events waiting for the task manager.
+     List<Bundle> eventsQueue = mTasksAndEventsRepository.getEvents(appScopeKey);
+@@ -305,6 +316,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+     if (consumer == null) {
+       Log.w(TAG, "Task or consumer not found.");
++      BudvikTaskDiag.note(mContextRef.get(), "intent", "немає завдання: " + taskName);
+ 
+       // Cancel pending intent.
+       getTaskManagerUtils().cancelTaskIntent(mContextRef.get(), appScopeKey, taskName);
+@@ -325,6 +337,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+     if (consumer == null) {
+       Log.w(TAG, "Task or consumer not found.");
++      BudvikTaskDiag.note(mContextRef.get(), "job", "немає завдання: " + taskName);
+       return false;
+     }
+ 
+@@ -397,6 +410,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+     }
+ 
+     if (taskManager != null) {
++      BudvikTaskDiag.direct(mContextRef.get(), task.getName());
+       taskManager.executeTaskWithBody(body);
+       return;
+     }
+@@ -407,11 +421,15 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+       mTasksAndEventsRepository.putEvents(appScopeKey, new ArrayList<>());
+     }
+     mTasksAndEventsRepository.putEventForAppScopeKey(appScopeKey, body);
++    List<Bundle> queuedForDiag = mTasksAndEventsRepository.getEvents(appScopeKey);
++    BudvikTaskDiag.queued(mContextRef.get(), task.getName(), queuedForDiag == null ? -1 : queuedForDiag.size());
++    BudvikTaskDiag.loadAppCalls.incrementAndGet();
+ 
+     try {
+       getAppLoader().loadApp(mContextRef.get(), new HeadlessAppLoader.Params(appScopeKey, task.getAppUrl()), () -> {
+       }, success -> {
+         if (!success) {
++          BudvikTaskDiag.note(mContextRef.get(), "loadApp", "невдача: знімаємо всі завдання");
+           sEvents.remove(appScopeKey);
+           mTasksAndEventsRepository.removeEvents(appScopeKey);
+ 
+@@ -420,6 +438,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+         }
+       });
+     } catch (HeadlessAppLoader.AppConfigurationError ignored) {
++      BudvikTaskDiag.note(mContextRef.get(), "loadApp", "AppConfigurationError: знімаємо " + task.getName());
+       try {
+         unregisterTask(task.getName(), appScopeKey, null);
+       } catch (Exception e) {
+@@ -540,6 +559,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+   @SuppressWarnings("unchecked")
+   private void restoreTasks() {
+     Map<String, TasksAndEventsRepository.AppConfig> apps = mTasksAndEventsRepository.readPersistedTasks(getSharedPreferences());
++    StringBuilder restoredForDiag = new StringBuilder();
+ 
+     for (Map.Entry<String, TasksAndEventsRepository.AppConfig> entry : apps.entrySet()) {
+       String appScopeKey = entry.getKey();
+@@ -563,11 +583,13 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+               try {
+                 // register the task using internal method which doesn't change shared preferences.
+                 internalRegisterTask(taskName, appScopeKey, appUrl, consumerClass, options);
++                restoredForDiag.append(taskName).append(' ');
+               } catch (TaskRegisteringFailedException e) {
+                 Log.e(TAG, e.getMessage());
+               }
+             } else {
+               Log.w(TAG, "Task consumer '" + consumerClassString + "' has version '" + currentConsumerVersion + "' that is not compatible with the saved version '" + previousConsumerVersion + "'.");
++              restoredForDiag.append(taskName).append("(інша версія, скинуто) ");
+             }
+           } catch (ClassNotFoundException | NullPointerException e) {
+             Log.e(TAG, e.getMessage());
+@@ -580,6 +602,7 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+       // Update tasks for the app to unregister tasks that couldn't be restored.
+       mTasksAndEventsRepository.persistTasksForAppScopeKey(getSharedPreferences(), entry.getKey());
+     }
++    BudvikTaskDiag.note(mContextRef.get(), "restore", "відновлено з налаштувань: " + restoredForDiag.toString().trim());
+   }
+ 
+   private void removeAppFromConfig(String appScopeKey) {
+@@ -602,13 +625,95 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+ 
+   private void invalidateAppRecord(String appScopeKey) {
+     HeadlessAppLoader appLoader = getAppLoader();
++    BudvikTaskDiag.invalidations.incrementAndGet();
+     if (appLoader != null) {
+       if (getAppLoader().invalidateApp(appScopeKey)) {
+-        sHeadlessTaskManagers.remove(appScopeKey);
++        WeakReference<TaskManagerInterface> removedForDiag = sHeadlessTaskManagers.remove(appScopeKey);
++        // ПАТЧ Budvik: саме це стирання заморожувало трек 15.09 — лишаємо слід.
++        BudvikTaskDiag.note(mContextRef.get(), "invalidate", removedForDiag != null ? "стерто безінтерфейсну реєстрацію контексту" : "стерто запис завантажувача");
+       }
+     }
+   }
+ 
++  // ПАТЧ Budvik: знімок стану диспетчера для BudvikTaskDiag.snapshot. Лише читання:
++  // TaskService тут не створюється (його конструктор відновлює завдання й реєструє
++  // споживачів), а все, що може впасти, загороджено.
++  static JSONObject budvikState(Context context) {
++    JSONObject out = new JSONObject();
++    if (context == null) {
++      return out;
++    }
++    try {
++      TasksAndEventsRepository repo = TasksAndEventsRepository.create(context);
++      java.util.Set<String> keys = new java.util.HashSet<>();
++      keys.addAll(sTaskManagers.keySet());
++      keys.addAll(sHeadlessTaskManagers.keySet());
++      keys.addAll(sEvents.keySet());
++      if (repo.tasksExist()) {
++        keys.addAll(repo.allAppScopeKeysWithTasks());
++      }
++      HeadlessAppLoader loader = AppLoaderProvider.getLoader("react-native-headless", context);
++      JSONObject apps = new JSONObject();
++      for (String key : keys) {
++        JSONObject app = new JSONObject();
++        app.put("fg", budvikRef(sTaskManagers.get(key)));
++        app.put("headless", budvikRef(sHeadlessTaskManagers.get(key)));
++        List<String> open = sEvents.get(key);
++        app.put("openEvents", open == null ? 0 : open.size());
++        List<Bundle> queued = repo.hasEvents(key) ? repo.getEvents(key) : null;
++        app.put("queued", queued == null ? 0 : queued.size());
++        JSONArray tasks = new JSONArray();
++        if (repo.tasksExist()) {
++          Map<String, TaskInterface> appTasks = repo.getTasks(key);
++          if (appTasks != null) {
++            for (String name : appTasks.keySet()) {
++              tasks.put(name);
++            }
++          }
++        }
++        app.put("tasks", tasks);
++        app.put("headlessRecord", loader != null && loader.isRunning(key));
++        apps.put(key, app);
++      }
++      out.put("apps", apps);
++      out.put("callbacks", sTaskCallbacks.size());
++      JSONObject persisted = new JSONObject();
++      Map<String, ?> all = context.getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE).getAll();
++      for (Map.Entry<String, ?> entry : all.entrySet()) {
++        if (!(entry.getValue() instanceof String)) {
++          continue;
++        }
++        try {
++          JSONObject config = new JSONObject((String) entry.getValue());
++          JSONObject taskConfigs = config.optJSONObject("tasks");
++          JSONArray names = new JSONArray();
++          if (taskConfigs != null) {
++            java.util.Iterator<String> it = taskConfigs.keys();
++            while (it.hasNext()) {
++              names.put(it.next());
++            }
++          }
++          persisted.put(entry.getKey(), names);
++        } catch (Exception ignored) {
++        }
++      }
++      out.put("persisted", persisted);
++    } catch (Throwable e) {
++      try {
++        out.put("error", String.valueOf(e));
++      } catch (Exception ignored) {
++      }
++    }
++    return out;
++  }
++
++  private static String budvikRef(WeakReference<TaskManagerInterface> ref) {
++    if (ref == null) {
++      return "none";
++    }
++    return ref.get() == null ? "collected" : "live";
++  }
++
+   private void finishJobAfterTimeout(final JobService jobService, final JobParameters params, long timeout) {
+     Handler handler = new Handler();
+     handler.postDelayed(new Runnable() {
 diff --git a/node_modules/expo-task-manager/build/TaskManager.js b/node_modules/expo-task-manager/build/TaskManager.js
-index 63f2fb6..402c150 100644
+index 63f2fb6..c85e75b 100644
 --- a/node_modules/expo-task-manager/build/TaskManager.js
 +++ b/node_modules/expo-task-manager/build/TaskManager.js
 @@ -1,4 +1,4 @@
@@ -42,7 +478,7 @@ index 63f2fb6..402c150 100644
  import ExpoTaskManager from './ExpoTaskManager';
  const tasks = new Map();
  function _validate(taskName) {
-@@ -130,7 +130,29 @@ export async function unregisterAllTasksAsync() {
+@@ -130,7 +130,32 @@ export async function unregisterAllTasksAsync() {
  }
  if (ExpoTaskManager) {
      const eventEmitter = new LegacyEventEmitter(ExpoTaskManager);
@@ -67,12 +503,15 @@ index 63f2fb6..402c150 100644
      eventEmitter.addListener(ExpoTaskManager.EVENT_NAME, async ({ data, error, executionInfo }) => {
 +        // Синхронно, до першого await: тримати треба саме першу подію.
 +        const hold = Platform.OS === 'android' && !heldFirstEvent;
-+        if (hold)
++        if (hold) {
 +            heldFirstEvent = true;
++            // Слід для пульсу (mobile/src/track/diag.ts): яке завдання тримаємо відкритим.
++            globalThis.__budvikTaskHold = { taskName: executionInfo.taskName, at: Date.now() };
++        }
          const { eventId, taskName } = executionInfo;
          const taskExecutor = tasks.get(taskName);
          let result = null;
-@@ -144,13 +166,15 @@ if (ExpoTaskManager) {
+@@ -144,13 +169,15 @@ if (ExpoTaskManager) {
              }
              finally {
                  // Notify manager the task is finished.
@@ -91,7 +530,7 @@ index 63f2fb6..402c150 100644
              // from the app or just renamed - in that case it needs to be registered again (with the new name).
              await ExpoTaskManager.unregisterTaskAsync(taskName);
 diff --git a/node_modules/expo-task-manager/src/TaskManager.ts b/node_modules/expo-task-manager/src/TaskManager.ts
-index 88aa2d9..85bd15d 100644
+index 88aa2d9..237cc34 100644
 --- a/node_modules/expo-task-manager/src/TaskManager.ts
 +++ b/node_modules/expo-task-manager/src/TaskManager.ts
 @@ -1,4 +1,4 @@
@@ -100,7 +539,7 @@ index 88aa2d9..85bd15d 100644
  
  import ExpoTaskManager from './ExpoTaskManager';
  
-@@ -236,9 +236,13 @@ export async function unregisterAllTasksAsync(): Promise<void> {
+@@ -236,9 +236,16 @@ export async function unregisterAllTasksAsync(): Promise<void> {
  
  if (ExpoTaskManager) {
    const eventEmitter = new LegacyEventEmitter(ExpoTaskManager);
@@ -110,11 +549,14 @@ index 88aa2d9..85bd15d 100644
      ExpoTaskManager.EVENT_NAME,
      async ({ data, error, executionInfo }) => {
 +      const hold = Platform.OS === 'android' && !heldFirstEvent;
-+      if (hold) heldFirstEvent = true;
++      if (hold) {
++        heldFirstEvent = true;
++        (globalThis as any).__budvikTaskHold = { taskName: executionInfo.taskName, at: Date.now() };
++      }
        const { eventId, taskName } = executionInfo;
        const taskExecutor = tasks.get(taskName);
        let result: any = null;
-@@ -251,14 +255,14 @@ if (ExpoTaskManager) {
+@@ -251,14 +258,14 @@ if (ExpoTaskManager) {
            console.error(`TaskManager: Task "${taskName}" failed:`, error);
          } finally {
            // Notify manager the task is finished.

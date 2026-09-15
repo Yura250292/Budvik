@@ -19,7 +19,7 @@ import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { AFTER_SHIFT_TASK, TRACK_TASK, WATCHDOG_TASK, WAKE_TASK } from "./task-name";
 import { onLocations } from "./recorder";
 import { runWatchdog } from "./watchdog";
-import { setLastError } from "./state";
+import { noteTaskEvent, setLastError } from "./state";
 import { logEvent } from "./db";
 import { APP_BUILD } from "@/lib/app-version";
 
@@ -73,6 +73,8 @@ if (IS_STAFF_BUILD) {
   TaskManager.defineTask<{ locations: LocationObject[] }>(
     TRACK_TASK,
     async ({ data, error }) => {
+      // Хто будив контекст — синхронно, до будь-якого await (див. diag.ts).
+      noteTaskEvent("location");
       /**
        * Помилку самої системи теж записуємо, а не ковтаємо.
        *
@@ -116,6 +118,7 @@ if (IS_STAFF_BUILD) {
   TaskManager.defineTask<{ eventType: Location.LocationGeofencingEventType }>(
     AFTER_SHIFT_TASK,
     async ({ data, error }) => {
+      noteTaskEvent("geofence");
       if (error) {
       void logEvent("task_error", String(error.message ?? error));
       return;
@@ -150,6 +153,7 @@ if (IS_STAFF_BUILD) {
    * не тягнув за собою пів застосунку в момент, коли той ще не піднявся.
    */
   TaskManager.defineTask(WAKE_TASK, async ({ data, error }) => {
+    noteTaskEvent("wake");
     if (error) {
       void logEvent("wake", `система віддала помилку: ${error.message ?? error}`);
       return;
@@ -165,6 +169,7 @@ if (IS_STAFF_BUILD) {
   });
 
   TaskManager.defineTask(WATCHDOG_TASK, async () => {
+    noteTaskEvent("watchdog");
     try {
       await runWatchdog();
       return BackgroundTask.BackgroundTaskResult.Success;

@@ -1,3 +1,37 @@
+diff --git a/node_modules/expo-location/android/.gradle/9.2.0/checksums/checksums.lock b/node_modules/expo-location/android/.gradle/9.2.0/checksums/checksums.lock
+new file mode 100644
+index 0000000..e6d1de5
+Binary files /dev/null and b/node_modules/expo-location/android/.gradle/9.2.0/checksums/checksums.lock differ
+diff --git a/node_modules/expo-location/android/.gradle/9.2.0/fileChanges/last-build.bin b/node_modules/expo-location/android/.gradle/9.2.0/fileChanges/last-build.bin
+new file mode 100644
+index 0000000..f76dd23
+Binary files /dev/null and b/node_modules/expo-location/android/.gradle/9.2.0/fileChanges/last-build.bin differ
+diff --git a/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.bin b/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.bin
+new file mode 100644
+index 0000000..e88d7ef
+Binary files /dev/null and b/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.bin differ
+diff --git a/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.lock b/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.lock
+new file mode 100644
+index 0000000..d521da1
+Binary files /dev/null and b/node_modules/expo-location/android/.gradle/9.2.0/fileHashes/fileHashes.lock differ
+diff --git a/node_modules/expo-location/android/.gradle/9.2.0/gc.properties b/node_modules/expo-location/android/.gradle/9.2.0/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/expo-location/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/expo-location/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
+new file mode 100644
+index 0000000..e58b847
+Binary files /dev/null and b/node_modules/expo-location/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
+diff --git a/node_modules/expo-location/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/expo-location/android/.gradle/buildOutputCleanup/cache.properties
+new file mode 100644
+index 0000000..da505a4
+--- /dev/null
++++ b/node_modules/expo-location/android/.gradle/buildOutputCleanup/cache.properties
+@@ -0,0 +1,2 @@
++#Tue Sep 01 10:48:55 EEST 2026
++gradle.version=9.2.0
+diff --git a/node_modules/expo-location/android/.gradle/vcs-1/gc.properties b/node_modules/expo-location/android/.gradle/vcs-1/gc.properties
+new file mode 100644
+index 0000000..e69de29
 diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
 index 46e2ec5..a389f69 100644
 --- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationModule.kt
@@ -25,10 +59,94 @@ index 46e2ec5..a389f69 100644
        if (!hasForegroundServicePermissions()) {
          throw ForegroundServicePermissionsException()
 diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
-index e659285..2794fa1 100644
+index e659285..8d4e33d 100644
 --- a/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
 +++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/taskConsumers/LocationTaskConsumer.kt
-@@ -165,10 +165,16 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+@@ -34,6 +34,8 @@ import expo.modules.location.records.LocationResponse
+ import expo.modules.location.services.LocationTaskService
+ import expo.modules.location.services.LocationTaskService.ServiceBinder
+ import kotlin.math.abs
++import java.util.concurrent.atomic.AtomicLong
++import org.json.JSONObject
+ 
+ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsInterface?) : TaskConsumer(context, taskManagerUtils), TaskConsumerInterface, LifecycleEventListener {
+   private var mTask: TaskInterface? = null
+@@ -54,12 +56,17 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+   }
+ 
+   override fun didRegister(task: TaskInterface) {
++    dRegistered.incrementAndGet()
++    dLastRegisterAt = System.currentTimeMillis()
+     mTask = task
+     startLocationUpdates()
+     maybeStartForegroundService()
+   }
+ 
+   override fun didUnregister() {
++    dUnregistered.incrementAndGet()
++    dLastUnregisterAt = System.currentTimeMillis()
++    dLastUnregisterBy = caller()
+     stopLocationUpdates()
+     stopForegroundService()
+     mTask = null
+@@ -69,6 +76,7 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+ 
+   override fun setOptions(options: Map<String, Any>) {
+     super.setOptions(options)
++    dOptionsChanged.incrementAndGet()
+ 
+     // Restart location updates
+     stopLocationUpdates()
+@@ -79,10 +87,17 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+   }
+ 
+   override fun didReceiveBroadcast(intent: Intent) {
+-    mTask ?: return
++    // ПАТЧ Budvik: лічильники доставки (budvikDiag) — від системи до JS.
++    mTask ?: run {
++      dBroadcastsNoTask.incrementAndGet()
++      return
++    }
++    dBroadcasts.incrementAndGet()
++    dLastBroadcastAt = System.currentTimeMillis()
+     val result = LocationResult.extractResult(intent)
+     if (result != null) {
+       val locations = result.locations
++      dLocationsIn.addAndGet(locations.size.toLong())
+       deferLocations(locations)
+       maybeReportDeferredLocations()
+     } else {
+@@ -100,6 +115,8 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+   }
+ 
+   override fun didExecuteJob(jobService: JobService, params: JobParameters): Boolean {
++    dJobsExecuted.incrementAndGet()
++    dLastJobAt = System.currentTimeMillis()
+     val data = taskManagerUtils.extractDataFromJobParams(params)
+     val locationBundles = ArrayList<Bundle>()
+     for (persistableLocationBundle in data) {
+@@ -128,6 +145,7 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+ 
+     if (!LocationHelpers.isAnyProviderAvailable(context)) {
+       Log.w(TAG, "There is no location provider available")
++      dNoProvider.incrementAndGet()
+       return
+     }
+     val task = mTask ?: run {
+@@ -148,8 +166,12 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+ 
+     try {
+       mLocationClient.requestLocationUpdates(locationRequest, intent)
++      dRequests.incrementAndGet()
++      dLastRequestAt = System.currentTimeMillis()
+     } catch (e: SecurityException) {
+       Log.w(TAG, "Location request has been rejected.", e)
++      dRequestRejected.incrementAndGet()
++      dLastError = "запит координат: ${e.message}"
+     }
+   }
+ 
+@@ -165,10 +187,16 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
        return
      }
@@ -49,23 +167,32 @@ index e659285..2794fa1 100644
      val task = mTask ?: run {
        Log.w(TAG, "Location task is null")
        return
-@@ -198,7 +204,14 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+@@ -198,12 +226,23 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
        extras.putString("taskName", task.name)
        extras.putBoolean("killService", serviceOptions.getBoolean("killServiceOnDestroy", false))
        serviceIntent.putExtras(extras)
 -      context.startForegroundService(serviceIntent)
 +      // ПАТЧ Budvik: з Android 12 система може відмовити своїм винятком, і
 +      // неспійманий він убив би процес просто у фоновому завданні.
++      dFgsStarts.incrementAndGet()
 +      try {
 +        context.startForegroundService(serviceIntent)
 +      } catch (e: Exception) {
 +        Log.w(TAG, "Android відмовив у запуску служби з фону: ${e.message}")
++        dFgsRefused.incrementAndGet()
++        dLastError = "служба: ${e.message}"
 +        return
 +      }
        context.bindService(
          serviceIntent,
          object : ServiceConnection {
-@@ -219,7 +232,12 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+           override fun onServiceConnected(name: ComponentName, service: IBinder) {
+             mService = (service as? ServiceBinder)?.service
++            dFgsConnected.incrementAndGet()
+             mService?.let {
+               it.setParentContext(context)
+               it.startForeground(serviceOptions)
+@@ -219,11 +258,19 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
        )
      } else {
        // Restart the service with new service options.
@@ -75,7 +202,162 @@ index e659285..2794fa1 100644
 +        mService?.startForeground(options.getArguments(FOREGROUND_SERVICE_KEY).toBundle())
 +      } catch (e: Exception) {
 +        Log.w(TAG, "Android відмовив у поверненні служби в передній план: ${e.message}")
++        dFgsRefused.incrementAndGet()
++        dLastError = "служба (повтор): ${e.message}"
 +      }
      }
    }
  
+   private fun stopForegroundService() {
++    if (mService != null) dFgsStops.incrementAndGet()
+     mService?.stop()
+   }
+ 
+@@ -241,6 +288,7 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+ 
+   private fun maybeReportDeferredLocations() {
+     if (!shouldReportDeferredLocations()) {
++      if (mDeferredLocations.isNotEmpty()) dDeferredHeld.incrementAndGet()
+       return
+     }
+     val context = context.applicationContext
+@@ -254,6 +302,8 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+         val bundle = LocationResponse(location).toBundle(PersistableBundle::class.java)
+         data.add(bundle)
+         sLastTimestamp = timestamp
++      } else {
++        dStale.incrementAndGet()
+       }
+     }
+     if (data.size > 0) {
+@@ -263,7 +313,12 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+       mDeferredLocations.clear()
+ 
+       // Schedule new job.
++      dJobsScheduled.incrementAndGet()
++      dLastScheduledAt = System.currentTimeMillis()
++      dLocationsScheduled.addAndGet(data.size.toLong())
+       taskManagerUtils.scheduleJob(context, mTask, data)
++    } else {
++      dAllStaleBatches.incrementAndGet()
+     }
+   }
+ 
+@@ -294,17 +349,20 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+       data.putParcelableArrayList("locations", locationBundles)
+       mTask?.execute(data, null, callback)
+     } else {
++      dJobsDropped.incrementAndGet()
+       callback.onFinished(null)
+     }
+   }
+ 
+   override fun onHostResume() {
+     mIsHostPaused = false
++    dHostPaused = false
+     maybeReportDeferredLocations()
+   }
+ 
+   override fun onHostPause() {
+     mIsHostPaused = true
++    dHostPaused = true
+   }
+ 
+   override fun onHostDestroy() {
+@@ -315,6 +373,96 @@ class LocationTaskConsumer(context: Context, taskManagerUtils: TaskManagerUtilsI
+     private const val TAG = "LocationTaskConsumer"
+     private const val FOREGROUND_SERVICE_KEY = "foregroundService"
+     private var sLastTimestamp: Long = 0
++
++    // ПАТЧ Budvik: лічильники доставки координат від системи до JS.
++    //
++    // Відповідають на питання, яке місяць лишалося без відповіді: де саме
++    // губляться координати, коли служба жива, а точок немає. Система не дала
++    // сигналу (broadcasts стоїть), бібліотека не віддала далі (jobsScheduled),
++    // планувальник не запустив доставку (jobsExecuted) — чи все дійшло до
++    // диспетчера і губиться вже там (BudvikTaskDiag у expo-task-manager).
++    // Читає track-guard рефлексією через budvikDiag().
++    private val dRegistered = AtomicLong()
++    private val dUnregistered = AtomicLong()
++    private val dOptionsChanged = AtomicLong()
++    private val dBroadcasts = AtomicLong()
++    private val dBroadcastsNoTask = AtomicLong()
++    private val dLocationsIn = AtomicLong()
++    private val dDeferredHeld = AtomicLong()
++    private val dStale = AtomicLong()
++    private val dAllStaleBatches = AtomicLong()
++    private val dJobsScheduled = AtomicLong()
++    private val dLocationsScheduled = AtomicLong()
++    private val dJobsExecuted = AtomicLong()
++    private val dJobsDropped = AtomicLong()
++    private val dNoProvider = AtomicLong()
++    private val dRequests = AtomicLong()
++    private val dRequestRejected = AtomicLong()
++    private val dFgsStarts = AtomicLong()
++    private val dFgsRefused = AtomicLong()
++    private val dFgsConnected = AtomicLong()
++    private val dFgsStops = AtomicLong()
++    @Volatile private var dLastRegisterAt = 0L
++    @Volatile private var dLastUnregisterAt = 0L
++    @Volatile private var dLastUnregisterBy = ""
++    @Volatile private var dLastBroadcastAt = 0L
++    @Volatile private var dLastScheduledAt = 0L
++    @Volatile private var dLastJobAt = 0L
++    @Volatile private var dLastRequestAt = 0L
++    @Volatile private var dLastError = ""
++    @Volatile private var dHostPaused = true
++
++    private fun caller(): String = try {
++      Thread.currentThread().stackTrace
++        .filter {
++          val c = it.className
++          !c.startsWith("java.") && !c.startsWith("dalvik.") && !c.startsWith("android.os.") &&
++            !c.startsWith("kotlin.") && !c.contains("LocationTaskConsumer")
++        }
++        .take(5)
++        .joinToString(" < ") { it.className.substringAfterLast('.') + "." + it.methodName }
++    } catch (e: Throwable) {
++      ""
++    }
++
++    @JvmStatic
++    fun budvikDiag(): String = try {
++      JSONObject()
++        .put("registered", dRegistered.get())
++        .put("unregistered", dUnregistered.get())
++        .put("optionsChanged", dOptionsChanged.get())
++        .put("broadcasts", dBroadcasts.get())
++        .put("broadcastsNoTask", dBroadcastsNoTask.get())
++        .put("locationsIn", dLocationsIn.get())
++        .put("deferredHeld", dDeferredHeld.get())
++        .put("stale", dStale.get())
++        .put("allStaleBatches", dAllStaleBatches.get())
++        .put("jobsScheduled", dJobsScheduled.get())
++        .put("locationsScheduled", dLocationsScheduled.get())
++        .put("jobsExecuted", dJobsExecuted.get())
++        .put("jobsDropped", dJobsDropped.get())
++        .put("noProvider", dNoProvider.get())
++        .put("requests", dRequests.get())
++        .put("requestRejected", dRequestRejected.get())
++        .put("fgsStarts", dFgsStarts.get())
++        .put("fgsRefused", dFgsRefused.get())
++        .put("fgsConnected", dFgsConnected.get())
++        .put("fgsStops", dFgsStops.get())
++        .put("lastRegisterAt", dLastRegisterAt)
++        .put("lastUnregisterAt", dLastUnregisterAt)
++        .put("lastUnregisterBy", dLastUnregisterBy)
++        .put("lastBroadcastAt", dLastBroadcastAt)
++        .put("lastScheduledAt", dLastScheduledAt)
++        .put("lastJobAt", dLastJobAt)
++        .put("lastRequestAt", dLastRequestAt)
++        .put("lastError", dLastError)
++        .put("lastTimestamp", sLastTimestamp)
++        .put("hostPaused", dHostPaused)
++        .toString()
++    } catch (e: Throwable) {
++      "{}"
++    }
++
+     fun shouldUseForegroundService(options: Map<String?, Any?>): Boolean {
+       return options.containsKey(FOREGROUND_SERVICE_KEY)
+     }

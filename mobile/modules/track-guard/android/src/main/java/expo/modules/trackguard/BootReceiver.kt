@@ -28,6 +28,12 @@ class BootReceiver : BroadcastReceiver() {
         Log.i("TrackGuard", "після ${intent.action} ставимо будильник")
         AlarmScheduler.arm(context)
         AlarmScheduler.kickJs(context)
+        // Перезавантаження й оновлення — теж у журнал: після них процес новий.
+        NativeBeacon.sendAsync(
+          this,
+          context,
+          if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) "updated" else "boot"
+        )
       }
     }
   }

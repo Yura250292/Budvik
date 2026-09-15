@@ -20,5 +20,11 @@ class TrackAlarmReceiver : BroadcastReceiver() {
     AlarmScheduler.markFired(context)
     AlarmScheduler.arm(context)
     AlarmScheduler.kickJs(context)
+    /**
+     * Маяк — незалежно від JS. Саме в тому стані, заради якого він існує
+     * (контекст JS заморожений), kickJs вище не робить нічого, і без маяка
+     * сервер знову бачив би лише тишу.
+     */
+    NativeBeacon.sendAsync(this, context, "alarm")
   }
 }

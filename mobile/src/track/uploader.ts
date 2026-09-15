@@ -10,6 +10,7 @@ import { exactGuardStatus, systemProbe } from "@modules/track-guard";
 import { readDeviceState } from "./device-state";
 import { getRole } from "./state";
 import { contextGate, describeCounters } from "./fix-gate";
+import { armNativeBeacon, collectDiag } from "./diag";
 import { notifyNow } from "./notify";
 import { cancelCloseReminders } from "./reminder";
 import {
@@ -433,9 +434,10 @@ function describeGuards(status: string | null, taskRegistered?: boolean | null):
    * насправді, чи лише позначка про неї.
    */
   const probe = systemProbe();
-  if (!probe.available) return line;
+  // Лічильники фіксів і тут: до 15.09 вони губилися саме в збірках із нативним модулем.
+  if (!probe.available) return line + gate;
   const services = probe.services?.length ? probe.services.join("+") : "жодної";
-  return `${line} · кошик ${probe.standbyBucket ?? "?"} · служби ${services}`;
+  return `${line} · кошик ${probe.standbyBucket ?? "?"} · служби ${services}${gate}`;
 }
 
 /**
@@ -496,6 +498,18 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
    */
   const events = await eventsAfter(sentEventId, 30).catch(() => []);
   const stats = contextStats();
+  /**
+   * Повна діагностика — окремим полем, а не в рядок статусу (див. diag.ts).
+   * Маяку токен даємо тут же: успішний пульс і доводить, що токен живий.
+   */
+  const diag = (() => {
+    try {
+      return collectDiag(taskRegistered ?? null);
+    } catch {
+      return null;
+    }
+  })();
+  void armNativeBeacon().catch(() => {});
 
   /**
    * Коли запис не піднявся — це головніше за будь-яку скаргу буфера: там даних
@@ -608,6 +622,7 @@ export async function heartbeat(force = false): Promise<{ shouldTrack: boolean }
       contextStartedAt: new Date(stats.startedAt).toISOString(),
       fixBatches: stats.batches,
       contextPoints: stats.points,
+      diag: diag ?? undefined,
       events: events.map((e) => ({
         at: new Date(e.at).toISOString(),
         kind: e.kind,

@@ -111,6 +111,8 @@ export async function startTracking(
      */
     if (AppState.currentState !== "active") return true;
 
+    // Зупинка посеред старту — теж подія: без неї в журналі видно лише «start_ok».
+    void logEvent("restart", `${current ?? "—"} → ${mode}`);
     await Location.stopLocationUpdatesAsync(TRACK_TASK).catch(() => {});
   }
 

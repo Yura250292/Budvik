@@ -132,8 +132,8 @@ class TrackGuardModule : Module() {
         ?: return@Function mapOf("available" to false)
       mapOf(
         "available" to true,
-        "standbyBucket" to standbyBucket(context),
-        "services" to ownServices(context)
+        "standbyBucket" to Diag.standbyBucket(context),
+        "services" to Diag.ownServices(context)
       )
     }
 
@@ -147,41 +147,32 @@ class TrackGuardModule : Module() {
         "armedFor" to AlarmScheduler.armedFor(context)
       )
     }
-  }
 
-  /**
-   * Кошик застосунку словом. Про СЕБЕ питати можна без жодного дозволу —
-   * PACKAGE_USAGE_STATS потрібен лише щоб питати про чужі застосунки.
-   */
-  private fun standbyBucket(context: Context): String = runCatching {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@runCatching "не питали"
-    val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-      ?: return@runCatching "немає служби"
-    when (val bucket = usm.appStandbyBucket) {
-      UsageStatsManager.STANDBY_BUCKET_ACTIVE -> "ACTIVE"
-      UsageStatsManager.STANDBY_BUCKET_WORKING_SET -> "WORKING_SET"
-      UsageStatsManager.STANDBY_BUCKET_FREQUENT -> "FREQUENT"
-      UsageStatsManager.STANDBY_BUCKET_RARE -> "RARE"
-      // 45; константа є лише з API 30, тож числом — інакше стара збірка не злізе.
-      45 -> "RESTRICTED"
-      else -> "код $bucket"
+    /**
+     * Повний знімок стану (Diag.kt) — рядком JSON.
+     *
+     * Рядком, а не мапою: знімок вкладений на кілька рівнів, і перетворення
+     * мостом нічого не додало б, крім шансу загубити поле.
+     */
+    Function("diagSnapshot") {
+      val context = appContext.reactContext ?: return@Function "{}"
+      runCatching { Diag.snapshot(context).toString() }
+        .getOrElse { org.json.JSONObject().put("error", it.message ?: "проба впала").toString() }
     }
-  }.getOrElse { "проба впала: ${it.message}" }
 
-  /**
-   * Власні служби, які система тримає ЗАРАЗ. Зірочка — у передньому плані.
-   *
-   * Імена короткі навмисно: рядок їде в пульс поруч із рештою діагностики й
-   * читається очима, а повне ім'я класу з'їло б його цілком.
-   */
-  @Suppress("DEPRECATION")
-  private fun ownServices(context: Context): List<String> = runCatching {
-    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-      ?: return@runCatching emptyList()
-    am.getRunningServices(Int.MAX_VALUE)
-      .filter { it.service.packageName == context.packageName }
-      .map { it.service.className.substringAfterLast('.') + if (it.foreground) "*" else "" }
-  }.getOrElse { listOf("проба впала: ${it.message}") }
+    /** Адреса й токен для нативного маяка — див. NativeBeacon.kt. */
+    Function("configureBeacon") { url: String, token: String, build: String ->
+      val context = appContext.reactContext ?: return@Function false
+      NativeBeacon.configure(context, url, token, build)
+    }
+
+    /** Надіслати знімок зараз — для перевірки з екрана, у фоновому потоці. */
+    Function("sendBeaconNow") { reason: String ->
+      val context = appContext.reactContext?.applicationContext ?: return@Function false
+      Thread { runCatching { NativeBeacon.send(context, reason) } }.start()
+      true
+    }
+  }
 
   private fun schedule(context: Context, minutes: Long): Boolean = runCatching {
     /**

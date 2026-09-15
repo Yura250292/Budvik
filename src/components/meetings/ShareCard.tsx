@@ -139,7 +139,7 @@ export default function ShareCard({ meetingId, proposed }: { meetingId: string; 
         {proposed > 0 && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
             Задач без підтвердження: {proposed}. У кабінетах їх не буде, доки не надішлете — спершу розберіться із
-            задачами вище.
+            задачами нижче.
           </p>
         )}
 

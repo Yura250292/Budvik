@@ -132,7 +132,20 @@ async function taskCounts(ids: string[]): Promise<Map<string, Counts>> {
   return out;
 }
 
-function shapeRow(m: RowDb, counts: Counts | undefined): MeetingRow {
+/** Скільком людям надіслано підсумок кожної наради (рядки REP_MEETING, див. ./share.ts). */
+async function shareCounts(ids: string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map();
+  const groups = await prisma.notification.groupBy({
+    by: ["relatedId"],
+    where: { type: REP_FEED_TYPES.MEETING, relatedId: { in: ids } },
+    _count: { _all: true },
+  });
+  const out = new Map<string, number>();
+  for (const g of groups) if (g.relatedId) out.set(g.relatedId, g._count._all);
+  return out;
+}
+
+function shapeRow(m: RowDb, counts: Counts | undefined, sharedCount = 0): MeetingRow {
   const status = asMeetingStatus(m.status);
   // Текстова нарада не має аудіо й ніколи не буває чернеткою; аудіо в
   // чернетці — це ще не завершене завантаження.
@@ -154,6 +167,7 @@ function shapeRow(m: RowDb, counts: Counts | undefined): MeetingRow {
     processingError: m.processingError,
     tasksProposed: counts?.proposed ?? 0,
     tasksSent: counts?.sent ?? 0,
+    sharedCount,
   };
 }
 
@@ -181,8 +195,9 @@ export async function listMeetings(limit = 100): Promise<{ items: MeetingRow[]; 
     orderBy: { recordedAt: "desc" },
     take: Math.min(limit, 300),
   });
-  const [counts, worker] = await Promise.all([taskCounts(rows.map((r) => r.id)), workerState()]);
-  return { items: rows.map((r) => shapeRow(r, counts.get(r.id))), worker };
+  const ids = rows.map((r) => r.id);
+  const [counts, shared, worker] = await Promise.all([taskCounts(ids), shareCounts(ids), workerState()]);
+  return { items: rows.map((r) => shapeRow(r, counts.get(r.id), shared.get(r.id))), worker };
 }
 
 function parseUtterances(raw: unknown): Utterance[] {
@@ -232,9 +247,14 @@ export async function getMeeting(id: string): Promise<MeetingDetail> {
     },
   });
   if (!m) throw new MeetingError("Нараду не знайдено", 404);
-  const [counts, tasks, worker] = await Promise.all([taskCounts([id]), listTasks({ meetingId: id }), workerState()]);
+  const [counts, shared, tasks, worker] = await Promise.all([
+    taskCounts([id]),
+    shareCounts([id]),
+    listTasks({ meetingId: id }),
+    workerState(),
+  ]);
   return {
-    ...shapeRow(m, counts.get(id)),
+    ...shapeRow(m, counts.get(id), shared.get(id)),
     noteText: m.noteText,
     transcript: m.transcript,
     utterances: parseUtterances(m.utterances),

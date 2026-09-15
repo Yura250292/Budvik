@@ -92,6 +92,13 @@ export default function MeetingsScreen() {
                 {m.tasksSent > 0 && `${m.tasksSent} надіслано`}
               </p>
             )}
+            {m.status === "READY" && (
+              <p className={`mt-1 text-[12px] ${m.sharedCount > 0 ? "text-g600" : "font-semibold text-amber-700"}`}>
+                {m.sharedCount > 0
+                  ? `Підсумок у кабінетах: ${m.sharedCount}`
+                  : "Команді ще не надіслано — відкрийте нараду й натисніть «Надіслати команді»"}
+              </p>
+            )}
             {m.status === "FAILED" && m.processingError && (
               <p className="mt-2 line-clamp-2 text-[12px] text-red-700">{m.processingError}</p>
             )}

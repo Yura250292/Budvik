@@ -201,6 +201,9 @@ export default function MeetingScreen({ id }: { id: string }) {
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">{m.processingError}</p>
       )}
 
+      {/* Нагорі: після наради керівник приходить сюди саме щоб розіслати підсумок. */}
+      {m.status === "READY" && m.structured && <ShareCard meetingId={id} proposed={proposed.length} />}
+
       {m.status === "DRAFT" && <UploadPanel meetingId={id} onDone={() => void mutate()} />}
 
       {m.hasAudio && <audio controls preload="none" src={`/api/admin/meetings/${id}/audio`} className="w-full" />}
@@ -243,8 +246,6 @@ export default function MeetingScreen({ id }: { id: string }) {
           </div>
         </Card>
       )}
-      {m.status === "READY" && m.structured && <ShareCard meetingId={id} proposed={proposed.length} />}
-
       {m.status === "READY" && m.tasks.length === 0 && (
         <Card>
           <p className="text-[13px] text-g600">Задач на нараді не прозвучало.</p>

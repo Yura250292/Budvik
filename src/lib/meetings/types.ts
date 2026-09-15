@@ -231,6 +231,8 @@ export type MeetingRow = {
   processingError: string | null;
   tasksProposed: number;
   tasksSent: number;
+  /** Скільком людям надіслано підсумок (./share.ts). */
+  sharedCount: number;
 };
 
 export type MeetingDetail = MeetingRow & {

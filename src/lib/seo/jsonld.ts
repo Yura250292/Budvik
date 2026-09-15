@@ -21,6 +21,24 @@ interface ProductForJsonLd {
   brand: { name: string } | null;
 }
 
+/**
+ * Умови повернення — ті самі, що на сторінці /povernennya: 14 днів, у магазині
+ * або «Новою поштою», по Україні. Змінились умови там — міняти й тут: Merchant
+ * Center звіряє розмітку зі сторінкою.
+ *
+ * Хто платить за зворотну пересилку, сторінка не каже, тому returnFees немає:
+ * поле лише рекомендоване, а вигадане значення гірше за відсутнє.
+ */
+function returnPolicy() {
+  return {
+    "@type": "MerchantReturnPolicy",
+    applicableCountry: SITE_CONTACTS.country,
+    returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
+    merchantReturnDays: 14,
+    returnMethod: ["https://schema.org/ReturnInStore", "https://schema.org/ReturnByMail"],
+  };
+}
+
 export function productJsonLd(p: ProductForJsonLd) {
   const price = p.isPromo && p.promoPrice ? p.promoPrice : p.price;
   return {
@@ -41,6 +59,12 @@ export function productJsonLd(p: ProductForJsonLd) {
       availability:
         p.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
       seller: { "@type": "Organization", name: SITE_NAME },
+      // Пошукова консоль шукає політику саме у вузлі offers, розмітки
+      // магазину на головній їй для товару не досить.
+      hasMerchantReturnPolicy: returnPolicy(),
+      // shippingDetails навмисно немає: ціну й день доставки менеджер
+      // називає в дзвінку (див. /dostavka-i-oplata), а вигадана сума у
+      // видачі стала б обіцянкою. З'являться тарифи — дописати сюди.
     },
   };
 }
@@ -75,6 +99,15 @@ export function localBusinessJsonLd() {
       addressCountry: SITE_CONTACTS.country,
     },
     priceRange: "₴",
+    // Google радить тримати політику повернення на рівні магазину, а на
+    // рівні товару лише відхилення від неї.
+    hasMerchantReturnPolicy: {
+      ...returnPolicy(),
+      returnPolicyCountry: SITE_CONTACTS.country,
+      refundType: "https://schema.org/FullRefund",
+      itemCondition: "https://schema.org/NewCondition",
+      merchantReturnLink: absoluteUrl("/povernennya"),
+    },
     // Зв'язує сайт із профілями в соцмережах і майбутнім Google Business
     // Profile — Google склеює їх в одну сутність бізнесу.
     sameAs: [

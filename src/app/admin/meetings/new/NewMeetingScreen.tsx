@@ -248,6 +248,12 @@ export default function NewMeetingScreen() {
             </>
           ) : rec.recorded && previewUrl ? (
             <>
+              {rec.recorded.recovered && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  Цей запис лишився незбереженим — сторінку перезавантажили чи закрили, і його підхопила страховка
+                  браузера. Останні кілька секунд могли не встигнути. Послухайте й збережіть.
+                </p>
+              )}
               <audio controls src={previewUrl} className="w-full" />
               <p className="text-[12px] text-g500">
                 {formatClock(rec.recorded.durationMs)} · {megabytes(rec.recorded.blob.size)}

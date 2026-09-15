@@ -16,7 +16,10 @@
  * - fix-webm-duration лише до 40 МБ: він копіює весь запис у пам'ять, і на
  *   телефоні довга нарада вбила б вкладку;
  * - мікрофон замовк на 10 с (згас екран, дзвінок) — запис на паузі й чесний
- *   текст, а не година тиші у файлі.
+ *   текст, а не година тиші у файлі;
+ * - кожен шматок одразу копіюється в IndexedDB (recording-backup.ts): запис
+ *   переживає перезавантаження, повне завантаження після деплою й вихід з
+ *   адмінки, а незбережений підхоплюється при наступному відкритті.
  *
  * На телефоні це все одно запасний шлях: коли екран гасне, система забирає
  * мікрофон у сторінки. Головний шлях з телефона — диктофон і завантаження файлу.
@@ -33,6 +36,15 @@ import {
   type ReactNode,
 } from "react";
 import { micErrorText, openMic, recorderSupported } from "@/components/sales/assistant/mic";
+import { newClientId } from "./api";
+import {
+  backupChunk,
+  backupClear,
+  backupLoad,
+  backupStart,
+  claimRecording,
+  releaseRecording,
+} from "./recording-backup";
 
 export type RecState = "idle" | "recording" | "paused" | "stopped";
 
@@ -43,6 +55,8 @@ export type RecordedAudio = {
   /** Коли натиснули «Почати» — стане датою наради. */
   startedAt: number;
   fileName: string;
+  /** Підхоплено зі страховки після перезавантаження: останні секунди могли не встигнути. */
+  recovered?: boolean;
 };
 
 export const MAX_RECORD_MS = 90 * 60 * 1000;
@@ -50,6 +64,7 @@ const DESKTOP_BPS = 96_000;
 const MOBILE_BPS = 64_000;
 const FIX_DURATION_MAX_BYTES = 40 * 1024 * 1024;
 const MUTED_PAUSE_MS = 10_000;
+const MIN_BYTES = 1024;
 
 type ContextValue = {
   supported: boolean;
@@ -88,6 +103,24 @@ function fileNameFor(startedAt: number, mime: string): string {
   return `narada-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
 }
 
+/**
+ * MediaRecorder не пише тривалість у WebM, і плеєр не вміє перемотувати.
+ * Лагодимо лише помірні файли: бібліотека тримає весь запис у пам'яті.
+ */
+async function withDuration(raw: Blob, type: string, durationMs: number): Promise<Blob> {
+  const canFix =
+    type.includes("webm") && raw.size <= FIX_DURATION_MAX_BYTES && durationMs >= 1000 && durationMs <= 6 * 3600_000;
+  if (!canFix) return raw;
+  try {
+    const mod = (await import("fix-webm-duration")) as unknown as { default?: unknown };
+    const fix = (mod.default ?? mod) as (b: Blob, d: number, o?: { logger?: false }) => Promise<Blob>;
+    return await fix(raw, durationMs, { logger: false });
+  } catch (e) {
+    console.warn("[meetings] fix-webm-duration не вдався — лишаю сирий запис:", e);
+    return raw;
+  }
+}
+
 export function MeetingRecordingProvider({ children }: { children: ReactNode }) {
   const [supported, setSupported] = useState(false);
   const [state, setState] = useState<RecState>("idle");
@@ -109,8 +142,17 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
   const wakeRef = useRef<WakeLockSentinel | null>(null);
   /** «Записати заново» посеред запису — зупинити без збереження. */
   const discardRef = useRef(false);
+  /** Id запису в страховці; null — шматки не копіюються (іншу вкладку не чіпаємо). */
+  const backupIdRef = useRef<string | null>(null);
+  const seqRef = useRef(0);
+  /** Стан для асинхронного підхоплення страховки: замикання бачило б застарілий. */
+  const stateRef = useRef<RecState>("idle");
+  const adoptingRef = useRef(false);
 
   useEffect(() => setSupported(recorderSupported()), []);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const elapsedNow = useCallback(
     () => accumulatedRef.current + (segmentStartRef.current ? Date.now() - segmentStartRef.current : 0),
@@ -177,6 +219,13 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     }
   }, []);
 
+  /** Викинути страховку й відпустити запис для інших вкладок. */
+  const dropBackup = useCallback(() => {
+    backupIdRef.current = null;
+    void backupClear();
+    releaseRecording();
+  }, []);
+
   const finish = useCallback(async () => {
     pauseClock();
     const durationMs = accumulatedRef.current;
@@ -184,37 +233,26 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     const raw = new Blob(chunksRef.current, { type });
     chunksRef.current = [];
     recorderRef.current = null;
+    // Страховка лишається, доки запис не збережуть на сервері, — але нових шматків уже не буде.
+    backupIdRef.current = null;
     releaseMic();
     void releaseWakeLock();
 
     if (discardRef.current) {
       discardRef.current = false;
+      dropBackup();
       setState("idle");
       setElapsedMs(0);
       return;
     }
-    if (raw.size < 1024) {
+    if (raw.size < MIN_BYTES) {
+      dropBackup();
       setState("idle");
       setError("Запис порожній — мікрофон нічого не передав");
       return;
     }
 
-    // MediaRecorder не пише тривалість у WebM, і плеєр не вміє перемотувати.
-    // Лагодимо лише помірні файли: бібліотека тримає весь запис у пам'яті.
-    let blob = raw;
-    const canFix =
-      type.includes("webm") && raw.size <= FIX_DURATION_MAX_BYTES && durationMs >= 1000 && durationMs <= 6 * 3600_000;
-    if (canFix) {
-      try {
-        const mod = (await import("fix-webm-duration")) as unknown as { default?: unknown };
-        const fix = (mod.default ?? mod) as (b: Blob, d: number, o?: { logger?: false }) => Promise<Blob>;
-        blob = await fix(raw, durationMs, { logger: false });
-      } catch (e) {
-        console.warn("[meetings] fix-webm-duration не вдався — лишаю сирий запис:", e);
-        blob = raw;
-      }
-    }
-
+    const blob = await withDuration(raw, type, durationMs);
     setRecorded({
       blob,
       mimeType: type,
@@ -223,7 +261,7 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
       fileName: fileNameFor(startedAtRef.current, type),
     });
     setState("stopped");
-  }, [pauseClock, releaseMic, releaseWakeLock]);
+  }, [dropBackup, pauseClock, releaseMic, releaseWakeLock]);
 
   const start = useCallback(async () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") return;
@@ -274,9 +312,29 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     }
 
     mimeRef.current = recorder.mimeType || mime || "audio/webm";
+    startedAtRef.current = Date.now();
+    seqRef.current = 0;
+    backupIdRef.current = null;
+    // Страховка — лише якщо запис не тримає інша вкладка: інакше стерли б її
+    // незбережену нараду. Тоді пишемо як раніше, без копії.
+    if (await claimRecording()) {
+      const id = newClientId();
+      backupIdRef.current = id;
+      void backupStart({ id, startedAt: startedAtRef.current, mimeType: mimeRef.current });
+    }
+
     recorderRef.current = recorder;
     recorder.ondataavailable = (ev) => {
-      if (ev.data.size > 0) chunksRef.current.push(ev.data);
+      if (ev.data.size === 0) return;
+      chunksRef.current.push(ev.data);
+      const id = backupIdRef.current;
+      if (id) {
+        void backupChunk(
+          { id, startedAt: startedAtRef.current, mimeType: mimeRef.current, elapsedMs: elapsedNow(), updatedAt: Date.now() },
+          seqRef.current++,
+          ev.data
+        );
+      }
     };
     recorder.onstop = () => void finish();
     recorder.onerror = () => {
@@ -315,13 +373,12 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
       };
     }
 
-    startedAtRef.current = Date.now();
-    // Шматок кожні 3 с — при падінні вкладки губиться не весь запис.
+    // Шматок кожні 3 с — при падінні вкладки губляться лише останні секунди.
     recorder.start(3000);
     startTimer();
     setState("recording");
     void acquireWakeLock();
-  }, [acquireWakeLock, finish, pauseClock, releaseMic, startTimer]);
+  }, [acquireWakeLock, elapsedNow, finish, pauseClock, releaseMic, startTimer]);
 
   const pause = useCallback(() => {
     const r = recorderRef.current;
@@ -345,7 +402,9 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     if (r && (r.state === "recording" || r.state === "paused")) r.stop();
   }, []);
 
+  /** Запис збережено на сервері або свідомо викинуто. */
   const reset = useCallback(() => {
+    dropBackup();
     const r = recorderRef.current;
     if (r && r.state !== "inactive") {
       discardRef.current = true;
@@ -357,6 +416,50 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     setRecorded(null);
     setError(null);
     accumulatedRef.current = 0;
+  }, [dropBackup]);
+
+  // Незбережений запис з попереднього відкриття (перезавантаження, деплой,
+  // закрита вкладка) — підхоплюємо як звичайний зупинений. Ще раз пробуємо,
+  // коли вкладка стає видимою: сусідня, що тримала запис, могла закритися.
+  useEffect(() => {
+    let alive = true;
+    const adopt = async () => {
+      if (adoptingRef.current || stateRef.current !== "idle" || recorderRef.current) return;
+      adoptingRef.current = true;
+      try {
+        if (!(await claimRecording())) return;
+        const saved = await backupLoad();
+        const stillIdle = () => alive && stateRef.current === "idle" && !recorderRef.current;
+        if (!saved || saved.blob.size < MIN_BYTES) {
+          if (stillIdle()) releaseRecording();
+          return;
+        }
+        const blob = await withDuration(saved.blob, saved.meta.mimeType, saved.meta.elapsedMs);
+        if (!stillIdle()) return;
+        setRecorded({
+          blob,
+          mimeType: saved.meta.mimeType,
+          durationMs: saved.meta.elapsedMs,
+          startedAt: saved.meta.startedAt,
+          fileName: fileNameFor(saved.meta.startedAt, saved.meta.mimeType),
+          recovered: true,
+        });
+        setElapsedMs(saved.meta.elapsedMs);
+        stateRef.current = "stopped";
+        setState("stopped");
+      } finally {
+        adoptingRef.current = false;
+      }
+    };
+    void adopt();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void adopt();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   // Система відпускає блокування екрана, коли вкладку сховали; повертаємо його.
@@ -370,10 +473,11 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [state, acquireWakeLock]);
 
-  // Закрити вкладку посеред наради — втратити запис; питаємо.
+  // Закрити вкладку посеред наради або з незбереженим записом — питаємо.
+  // Страховка запис підхопить, але людина має знати, що він ще не на сервері.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (state === "recording" || state === "paused") {
+      if (state === "recording" || state === "paused" || state === "stopped") {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -386,6 +490,9 @@ export function MeetingRecordingProvider({ children }: { children: ReactNode }) 
     () => () => {
       stopTimer();
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      // Вихід з адмінки: запис лишається в страховці, а замок — іншим вкладкам
+      // і наступному відкриттю адмінки.
+      releaseRecording();
     },
     [stopTimer]
   );

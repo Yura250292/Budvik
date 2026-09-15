@@ -62,6 +62,16 @@ export const STAFF_APK_VERSION_NAME = "1.6.5";
  */
 export const STAFF_APK_COMMIT = "1618810";
 /**
+ * 15.09.2026 поле одне: 6330fdc на всіх живих оболонках — патч expo-task-manager
+ * (mobile/patches/expo-task-manager+14.0.9.patch): перше фонове завдання кожного
+ * контексту JS не закривається, тож TaskService не стирає реєстрацію живого
+ * контексту («служба жива, пачок 0» у Джумаги, Кулика й Валентина 15.09).
+ * Групи: 1.6.5 0f5ded40, 1.6.4 83450a5d, 1.6.2 44640dc9, 1.6.1 4cb0df79,
+ * 1.5.1 d33fad6b. Опубліковано без незакоміченої чужої правки cabinet.tsx.
+ *
+ * Відкат на 66ba4b1 (mobile/, `npx eas update:republish --group <id>`):
+ * 1.6.5 e1579582, 1.6.4 c7fcde22, 1.6.2 244b0ac9, 1.6.1 95c67a97, 1.5.1 2bfd09a3.
+ *
  * 14.09.2026 поле одне: 66ba4b1 на всіх живих оболонках — записувач більше не
  * ріже поїздки на Lenovo (mobile/src/track/fix-gate.ts), лічильники фіксів у
  * пульсі. Групи: 1.6.4 c7fcde22, 1.6.2 244b0ac9, 1.6.1 95c67a97, 1.5.1 2bfd09a3
@@ -86,7 +96,7 @@ export const STAFF_APK_COMMIT = "1618810";
  *  • до заставки (ef21543/19d1788): 1.6.4 a4fd175e, 1.6.2 d54eee5d,
  *    1.6.1 0b5c6643, 1.5.1 d6074ace.
  */
-export const STAFF_OTA_COMMIT = "66ba4b1";
+export const STAFF_OTA_COMMIT = "6330fdc";
 
 /**
  * Нижче цього номера застосунок не пускає до роботи, а вимагає оновитися.

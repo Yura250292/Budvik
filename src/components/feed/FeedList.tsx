@@ -41,6 +41,7 @@ export const FEED_ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.WEEK]: BarChart3,
   [REP_FEED_TYPES.TASK]: ClipboardList,
   [REP_FEED_TYPES.TASK_DONE]: ListChecks,
+  [REP_FEED_TYPES.MEETING]: ClipboardList,
 };
 
 /** Оплата — зелена, повернення — червоне, підказки й прихід — жовті, документи — нейтральні. */

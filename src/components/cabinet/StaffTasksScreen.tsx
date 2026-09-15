@@ -73,7 +73,8 @@ export default function StaffTasksScreen({
   );
 }
 
-function TaskItem({
+/** Картка задачі з «Виконано» — її ж показує сторінка наради в кабінеті. */
+export function TaskItem({
   t,
   clientBase,
   back,

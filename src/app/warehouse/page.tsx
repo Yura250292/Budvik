@@ -21,6 +21,7 @@ import { Body, Button, Card, CardHead, Note, Page, StatCard, Tile, TileRow } fro
 import { useProfile } from "@/lib/useProfile";
 import { ScanButton } from "@/components/warehouse/ScanButton";
 import TasksEntry from "@/components/cabinet/TasksEntry";
+import MeetingsEntry from "@/components/cabinet/MeetingsEntry";
 
 type Shift = {
   id: string;
@@ -196,6 +197,7 @@ export default function WarehouseHomePage() {
         </Card>
 
         <TasksEntry href="/warehouse/tasks" />
+        <MeetingsEntry href="/warehouse/meetings" />
 
         <div className="grid grid-cols-2 gap-2.5">
           <StatCard

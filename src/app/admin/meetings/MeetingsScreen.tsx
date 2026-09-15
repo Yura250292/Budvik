@@ -7,6 +7,7 @@ import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { MeetingStatusChip, WorkerBanner } from "@/components/meetings/bits";
 import { getJson, kyivDateTime } from "@/components/meetings/api";
+import { useMeetingRecording } from "@/components/meetings/MeetingRecordingProvider";
 import { POLLING_STATES, formatClock, type MeetingRow, type WorkerState } from "@/lib/meetings/types";
 
 /**
@@ -24,6 +25,7 @@ export default function MeetingsScreen() {
   });
   const items = data?.items ?? [];
   const waiting = items.some((m) => POLLING_STATES.includes(m.status));
+  const rec = useMeetingRecording();
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -42,6 +44,20 @@ export default function MeetingsScreen() {
           Нова нарада
         </Link>
       </div>
+
+      {/* Зупинений запис живе лише в пам'яті вкладки — тут його шукають першим ділом. */}
+      {rec.state === "stopped" && rec.recorded && (
+        <Link
+          href="/admin/meetings/new"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900"
+        >
+          <span>
+            <b>Є незбережений запис наради</b> · {formatClock(rec.recorded.durationMs)}. Він лише в цій вкладці — не
+            закривайте й не перезавантажуйте її.
+          </span>
+          <span className="whitespace-nowrap font-semibold">Зберегти →</span>
+        </Link>
+      )}
 
       {data && <WorkerBanner worker={data.worker} waiting={waiting} />}
       {error && <ErrorBox message={error.message} onRetry={() => void mutate()} />}

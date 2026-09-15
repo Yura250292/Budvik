@@ -254,6 +254,84 @@ export type MeetingDetail = MeetingRow & {
 /** Стан обробника: коли востаннє тікав, чи не завмер і яких ключів йому бракує. */
 export type WorkerState = { lastTickAt: string | null; stale: boolean; missing: string[] };
 
+/* ---------- Підсумок для команди ---------- */
+
+/**
+ * Кому керівник надсилає підсумок: тим, у кого є кабінет із розділом «Наради».
+ * Менеджер і адмін працюють в адмінці — кабінетна сторінка їм ні до чого.
+ */
+export const SHARE_ROLE_LIST = ["SALES", "DRIVER", "WAREHOUSE"] as const;
+
+/** Стільки після надсилання підсумок «новий»: мітка в списку й лічильник на вході. */
+export const SHARE_NEW_MS = 3 * 86_400_000;
+
+export type ShareRecipient = {
+  id: string;
+  name: string;
+  role: string;
+  roleLabel: string;
+  /** Коли надіслано; null — цій людині ще не надсилали. */
+  sharedAt: string | null;
+  /** Коли пішов пуш; null — лише в кабінеті (надіслали поза робочими годинами). */
+  pushedAt: string | null;
+};
+
+export type ShareState = {
+  people: ShareRecipient[];
+  /** Кого відмітити в списку одразу: усіх торгових і виконавців надісланих задач. */
+  suggested: string[];
+  /** Зараз робочі години — пуш піде одразу. */
+  pushHours: boolean;
+};
+
+/** Чужа задача наради в кабінеті: хто, що, для кого й до коли — без службових полів. */
+export type TeamTask = {
+  id: string;
+  title: string;
+  done: boolean;
+  priority: TaskPriority;
+  dueAt: string | null;
+  overdue: boolean;
+  assigneeName: string | null;
+  assigneeRoleLabel: string | null;
+  clientName: string | null;
+};
+
+export type SharedMeetingRow = {
+  id: string;
+  title: string;
+  recordedAt: string;
+  audioDurationMs: number | null;
+  createdByName: string;
+  sharedAt: string;
+  isNew: boolean;
+  /** Перше речення підсумку. */
+  teaser: string;
+  decisions: number;
+  /** Відкриті задачі цієї людини з наради. */
+  myOpenTasks: number;
+};
+
+export type SharedProgress = {
+  taskTitle: string;
+  assigneeName: string | null;
+  status: ProgressStatus;
+  note: string;
+};
+
+export type SharedMeetingView = Omit<SharedMeetingRow, "teaser" | "decisions" | "myOpenTasks"> & {
+  /** Підсумок перескладають просто зараз — показано попередню версію. */
+  updating: boolean;
+  summary: string | null;
+  decisions: string[];
+  keyPoints: string[];
+  openQuestions: string[];
+  progress: SharedProgress[];
+  /** Задачі цієї людини — з кнопкою «Виконано», як у «Задачах від офісу». */
+  mine: TaskRow[];
+  team: TeamTask[];
+};
+
 /* ---------- Дрібниці ---------- */
 
 /** 754000 → «12:34», 3 723 000 → «01:02:03». */

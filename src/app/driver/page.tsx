@@ -12,6 +12,7 @@ import { UpgradeBanner } from "@/components/app-install/UpgradeBanner";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, Eyebrow, Note, Page, Pill } from "@/components/cabinet/ui";
 import TasksEntry from "@/components/cabinet/TasksEntry";
+import MeetingsEntry from "@/components/cabinet/MeetingsEntry";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -172,6 +173,7 @@ export default function DriverPage() {
         </Link>
 
         <TasksEntry href="/driver/tasks" />
+        <MeetingsEntry href="/driver/meetings" />
 
         <Eyebrow>Маршрути доставки</Eyebrow>
 

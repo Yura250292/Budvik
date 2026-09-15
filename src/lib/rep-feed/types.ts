@@ -48,6 +48,8 @@ export const REP_FEED_TYPES = {
   TASK: "REP_TASK",
   /** Виконавець закрив задачу — рядок тому, хто доручив. */
   TASK_DONE: "REP_TASK_DONE",
+  /** Керівник надіслав підсумок наради (src/lib/meetings/share.ts). Цей рядок і є доступом до наради в кабінеті. */
+  MEETING: "REP_MEETING",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -95,6 +97,7 @@ export function feedHref(type: string, relatedId: string | null | undefined): st
   if (type === REP_FEED_TYPES.WATCH) return "/sales/watches";
   if (type === REP_FEED_TYPES.REQUEST_DONE) return "/sales/requests";
   if (type === REP_FEED_TYPES.TASK || type === REP_FEED_TYPES.TASK_DONE) return "/sales/tasks";
+  if (type === REP_FEED_TYPES.MEETING) return relatedId ? `/sales/meetings/${relatedId}` : "/sales/meetings";
   if (type === REP_FEED_TYPES.WEEK) return "/sales";
   if (!relatedId) return null;
   // День у шляху, а не в ?day=: білий список тапів застосунку
@@ -135,6 +138,7 @@ export const FEED_FILTERS = [
       REP_FEED_TYPES.REQUEST_DONE,
       REP_FEED_TYPES.TASK,
       REP_FEED_TYPES.TASK_DONE,
+      REP_FEED_TYPES.MEETING,
       REP_FEED_TYPES.WEEK,
     ],
   },

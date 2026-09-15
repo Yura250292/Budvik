@@ -12,6 +12,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { deleteFile, fileSize, presignedPutUrl, signedUrl } from "@/lib/r2";
+import { REP_FEED_TYPES } from "@/lib/rep-feed/types";
 import { listTasks } from "@/lib/tasks";
 import { deleteTranscript } from "./assemblyai";
 import { MAX_AUDIO_BYTES, audioKey, isAcceptableAudio, isMeetingKey, normalizeContentType } from "./keys";
@@ -34,7 +35,8 @@ import {
 
 /**
  * Хто бачить наради. Лише власник: це розмови керівництва про всю команду,
- * борги й людей. Задачі з нарад менеджер бачить у /admin/tasks.
+ * борги й людей. Задачі з нарад менеджер бачить у /admin/tasks, а підсумок
+ * без запису й транскрипту керівник надсилає команді (./share.ts).
  */
 export const MEETING_ROLES = ["ADMIN"] as const;
 
@@ -193,7 +195,7 @@ function parseUtterances(raw: unknown): Utterance[] {
   });
 }
 
-function parseStructured(raw: unknown): MeetingStructured | null {
+export function parseStructured(raw: unknown): MeetingStructured | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Partial<MeetingStructured>;
   if (typeof o.summary !== "string") return null;
@@ -505,7 +507,8 @@ export async function renameSpeaker(id: string, input: unknown): Promise<Speaker
  * Видалити нараду разом із записом у R2 і транскриптом в AssemblyAI.
  *
  * Непідтверджені задачі йдуть разом із нарадою; надіслані лишаються
- * (meetingId стає null) — людина могла вже їх виконувати.
+ * (meetingId стає null) — людина могла вже їх виконувати. Розсилку підсумку
+ * прибираємо: інакше в кабінетах висіло б посилання на порожнечу.
  */
 export async function deleteMeeting(id: string): Promise<void> {
   const m = await prisma.meeting.findUnique({ where: { id }, select: { audioR2Key: true, assemblyTranscriptId: true } });
@@ -513,6 +516,7 @@ export async function deleteMeeting(id: string): Promise<void> {
 
   await prisma.$transaction([
     prisma.staffTask.deleteMany({ where: { meetingId: id, status: "PROPOSED" } }),
+    prisma.notification.deleteMany({ where: { type: REP_FEED_TYPES.MEETING, relatedId: id } }),
     prisma.meeting.delete({ where: { id } }),
   ]);
 

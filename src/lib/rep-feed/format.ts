@@ -460,4 +460,5 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_WEEK: "тиждень",
   REP_TASK: "задача",
   REP_TASK_DONE: "виконано",
+  REP_MEETING: "нарада",
 };

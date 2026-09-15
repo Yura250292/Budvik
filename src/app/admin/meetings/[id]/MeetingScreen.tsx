@@ -9,6 +9,7 @@ import { ErrorBox } from "@/components/ui/ErrorBox";
 import { MeetingStatusChip, WorkerBanner } from "@/components/meetings/bits";
 import TaskCard, { type TaskEditMode } from "@/components/meetings/TaskCard";
 import TaskEditModal from "@/components/meetings/TaskEditModal";
+import ShareCard from "@/components/meetings/ShareCard";
 import { getJson, kyivDateTime, megabytes, sendJson } from "@/components/meetings/api";
 import { uploadMeetingAudio, type UploadStage } from "@/components/meetings/upload";
 import { AUDIO_ACCEPT } from "@/lib/meetings/keys";
@@ -242,6 +243,8 @@ export default function MeetingScreen({ id }: { id: string }) {
           </div>
         </Card>
       )}
+      {m.status === "READY" && m.structured && <ShareCard meetingId={id} proposed={proposed.length} />}
+
       {m.status === "READY" && m.tasks.length === 0 && (
         <Card>
           <p className="text-[13px] text-g600">Задач на нараді не прозвучало.</p>

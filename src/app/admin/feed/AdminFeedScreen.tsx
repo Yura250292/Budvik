@@ -27,6 +27,8 @@ function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
   if (!row.relatedId) return null;
   if (row.type === REP_FEED_TYPES.REQUEST_DONE) return "/admin/requests";
   if (row.type === REP_FEED_TYPES.TASK || row.type === REP_FEED_TYPES.TASK_DONE) return "/admin/tasks";
+  // Наради бачить лише ADMIN (MEETING_ROLES).
+  if (row.type === REP_FEED_TYPES.MEETING) return isAdmin ? `/admin/meetings/${row.relatedId}` : null;
   if (row.type === REP_FEED_TYPES.PAYMENT || row.type === REP_FEED_TYPES.VISIT) {
     return isAdmin ? `/sales/clients/${row.relatedId}` : null;
   }

@@ -1,0 +1,133 @@
+diff --git a/node_modules/expo-task-manager/android/.gradle/9.2.0/checksums/checksums.lock b/node_modules/expo-task-manager/android/.gradle/9.2.0/checksums/checksums.lock
+new file mode 100644
+index 0000000..2dcd98a
+Binary files /dev/null and b/node_modules/expo-task-manager/android/.gradle/9.2.0/checksums/checksums.lock differ
+diff --git a/node_modules/expo-task-manager/android/.gradle/9.2.0/fileChanges/last-build.bin b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileChanges/last-build.bin
+new file mode 100644
+index 0000000..f76dd23
+Binary files /dev/null and b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileChanges/last-build.bin differ
+diff --git a/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.bin b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.bin
+new file mode 100644
+index 0000000..e88d7ef
+Binary files /dev/null and b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.bin differ
+diff --git a/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.lock b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.lock
+new file mode 100644
+index 0000000..fc8ffba
+Binary files /dev/null and b/node_modules/expo-task-manager/android/.gradle/9.2.0/fileHashes/fileHashes.lock differ
+diff --git a/node_modules/expo-task-manager/android/.gradle/9.2.0/gc.properties b/node_modules/expo-task-manager/android/.gradle/9.2.0/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
+new file mode 100644
+index 0000000..02f6869
+Binary files /dev/null and b/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
+diff --git a/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/cache.properties
+new file mode 100644
+index 0000000..a180ab8
+--- /dev/null
++++ b/node_modules/expo-task-manager/android/.gradle/buildOutputCleanup/cache.properties
+@@ -0,0 +1,2 @@
++#Tue Sep 01 10:45:53 EEST 2026
++gradle.version=9.2.0
+diff --git a/node_modules/expo-task-manager/android/.gradle/vcs-1/gc.properties b/node_modules/expo-task-manager/android/.gradle/vcs-1/gc.properties
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/expo-task-manager/build/TaskManager.js b/node_modules/expo-task-manager/build/TaskManager.js
+index 63f2fb6..402c150 100644
+--- a/node_modules/expo-task-manager/build/TaskManager.js
++++ b/node_modules/expo-task-manager/build/TaskManager.js
+@@ -1,4 +1,4 @@
+-import { LegacyEventEmitter, UnavailabilityError } from 'expo-modules-core';
++import { LegacyEventEmitter, Platform, UnavailabilityError } from 'expo-modules-core';
+ import ExpoTaskManager from './ExpoTaskManager';
+ const tasks = new Map();
+ function _validate(taskName) {
+@@ -130,7 +130,29 @@ export async function unregisterAllTasksAsync() {
+ }
+ if (ExpoTaskManager) {
+     const eventEmitter = new LegacyEventEmitter(ExpoTaskManager);
++    /**
++     * ПАТЧ Budvik: перше завдання кожного контексту JS не закриваємо ніколи.
++     *
++     * TaskService.notifyTaskFinished, щойно його список подій спорожніє, за 2 с
++     * кличе invalidateAppRecord і стирає «безінтерфейсну» реєстрацію контексту.
++     * Якщо контекст підняло фонове завдання (сторож на холодному старті), а
++     * потім до нього прив'язався екран, хост не знищується — але TaskService
++     * його більше не бачить: координати, сторож і пуші лягають у чергу, яку
++     * ніхто не читає, до смерті процесу. 15.09.2026 так стояли Джумага, Кулик і
++     * Валентин: служба жива із зірочкою, пачок фіксів нуль.
++     *
++     * Список подій у TaskService створює перша подія після спорожнення, і вона
++     * ж першою доходить сюди. Поки вона відкрита, список не порожніє і
++     * стирання не стається. Ціна — одна незакрита робота на контекст: роботу
++     * локації TaskService закриває сам за 15 с, роботу сторожа WorkManager
++     * зупиняє за 10 хв, а наступний будильник ставить нову.
++     */
++    let heldFirstEvent = false;
+     eventEmitter.addListener(ExpoTaskManager.EVENT_NAME, async ({ data, error, executionInfo }) => {
++        // Синхронно, до першого await: тримати треба саме першу подію.
++        const hold = Platform.OS === 'android' && !heldFirstEvent;
++        if (hold)
++            heldFirstEvent = true;
+         const { eventId, taskName } = executionInfo;
+         const taskExecutor = tasks.get(taskName);
+         let result = null;
+@@ -144,13 +166,15 @@ if (ExpoTaskManager) {
+             }
+             finally {
+                 // Notify manager the task is finished.
+-                await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
++                if (!hold)
++                    await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
+             }
+         }
+         else {
+             console.warn(`TaskManager: Task "${taskName}" has been executed but looks like it is not defined. Make sure that "TaskManager.defineTask" is called during initialization phase.`);
+             // No tasks defined -> we need to notify about finish anyway.
+-            await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
++            if (!hold)
++                await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
+             // We should also unregister such tasks automatically as the task might have been removed
+             // from the app or just renamed - in that case it needs to be registered again (with the new name).
+             await ExpoTaskManager.unregisterTaskAsync(taskName);
+diff --git a/node_modules/expo-task-manager/src/TaskManager.ts b/node_modules/expo-task-manager/src/TaskManager.ts
+index 88aa2d9..85bd15d 100644
+--- a/node_modules/expo-task-manager/src/TaskManager.ts
++++ b/node_modules/expo-task-manager/src/TaskManager.ts
+@@ -1,4 +1,4 @@
+-import { LegacyEventEmitter, UnavailabilityError } from 'expo-modules-core';
++import { LegacyEventEmitter, Platform, UnavailabilityError } from 'expo-modules-core';
+ 
+ import ExpoTaskManager from './ExpoTaskManager';
+ 
+@@ -236,9 +236,13 @@ export async function unregisterAllTasksAsync(): Promise<void> {
+ 
+ if (ExpoTaskManager) {
+   const eventEmitter = new LegacyEventEmitter(ExpoTaskManager);
++  // ПАТЧ Budvik: перше завдання кожного контексту не закриваємо — див. build/TaskManager.js.
++  let heldFirstEvent = false;
+   eventEmitter.addListener<TaskManagerTaskBody>(
+     ExpoTaskManager.EVENT_NAME,
+     async ({ data, error, executionInfo }) => {
++      const hold = Platform.OS === 'android' && !heldFirstEvent;
++      if (hold) heldFirstEvent = true;
+       const { eventId, taskName } = executionInfo;
+       const taskExecutor = tasks.get(taskName);
+       let result: any = null;
+@@ -251,14 +255,14 @@ if (ExpoTaskManager) {
+           console.error(`TaskManager: Task "${taskName}" failed:`, error);
+         } finally {
+           // Notify manager the task is finished.
+-          await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
++          if (!hold) await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
+         }
+       } else {
+         console.warn(
+           `TaskManager: Task "${taskName}" has been executed but looks like it is not defined. Make sure that "TaskManager.defineTask" is called during initialization phase.`
+         );
+         // No tasks defined -> we need to notify about finish anyway.
+-        await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
++        if (!hold) await ExpoTaskManager.notifyTaskFinishedAsync(taskName, { eventId, result });
+         // We should also unregister such tasks automatically as the task might have been removed
+         // from the app or just renamed - in that case it needs to be registered again (with the new name).
+         await ExpoTaskManager.unregisterTaskAsync(taskName);

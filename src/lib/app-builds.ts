@@ -33,9 +33,9 @@ export const SHOP_APK_VERSION_NAME = "1.0.0";
  * сторінок разом із банером у кабінеті, тобто ставити стає нічого. Один раз
  * я вже підняв їх наперед і мало не викотив саме це.
  */
-export const STAFF_APK_KEY = "app/BudvikStaff-1.6.5.apk";
-export const STAFF_APK_VERSION_CODE = 10605;
-export const STAFF_APK_VERSION_NAME = "1.6.5";
+export const STAFF_APK_KEY = "app/BudvikStaff-1.6.6.apk";
+export const STAFF_APK_VERSION_CODE = 10606;
+export const STAFF_APK_VERSION_NAME = "1.6.6";
 
 /**
  * З чого зібрано те, що СПРАВДІ стоїть у полі.
@@ -55,12 +55,21 @@ export const STAFF_APK_VERSION_NAME = "1.6.5";
  * після кожного `npm run update:staff`.
  */
 /**
+ * 1.6.6 (6605092, EAS a39131dc) — чорна скринька треку: нативний маяк track-guard
+ * (/api/track/native-beacon з будильника, після boot і оновлення — без JS),
+ * журнал диспетчера expo-task-manager (BudvikTaskDiag: хто знімав завдання, черга,
+ * стирання реєстрації контексту), лічильники доставки в LocationTaskConsumer,
+ * причини смерті процесу. Для buildFromSource тепер три модулі: expo-location,
+ * expo-task-manager і unimodules-app-loader (без останнього Gradle падає, збірка
+ * 10fcc034). Перевірено 16.09: у dex BudvikTaskDiag/budvikState/budvikDiag і
+ * «Android відмовив у запуску служби», підпис AD:FD:DE:CD…C0:8B як у 1.6.5.
+ *
  * 1.6.5 (1618810) — перша збірка, в якій патч expo-location справді є в коді:
  * до неї EAS брав готовий AAR і правка сирців не потрапляла в APK (1.6.4 з
  * 19d1788 патча НЕ містить). Перевіряти так: `unzip classes*.dex` і
  * `grep -a -c 'Android відмовив у запуску служби'` — має бути ≥1.
  */
-export const STAFF_APK_COMMIT = "1618810";
+export const STAFF_APK_COMMIT = "6605092";
 /**
  * 15.09.2026 ввечері поле одне: 4567623 на всіх живих оболонках — повна
  * діагностика в пульсі (mobile/src/track/diag.ts: канали пробудження контексту,

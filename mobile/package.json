@@ -70,7 +70,8 @@
       "android": {
         "buildFromSource": [
           "expo-location",
-          "expo-task-manager"
+          "expo-task-manager",
+          "unimodules-app-loader"
         ]
       }
     }

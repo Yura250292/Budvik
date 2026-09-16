@@ -86,6 +86,14 @@ function walk(value: unknown, into: SeenEntities) {
       into.numbers.add(Math.round(raw * 10) / 10);
     }
     if (typeof raw === "string") {
+      /*
+       * Цифровий артикул («830054») модель законно пише поруч із назвою, і без
+       * цього рядка кожен такий товар ставав «числом поза даними»: у порівнянні
+       * моделей 16.09.2026 це було 27 із 35 «незвірених» у DeepSeek.
+       */
+      if ((key === "артикул" || key === "sku") && /^\d{3,}$/.test(raw.trim())) {
+        into.numbers.add(Number(raw.trim()));
+      }
       if (CLIENT_KEYS.has(key)) {
         into.clients.add(raw);
       } else if (PRODUCT_KEYS.has(key)) {

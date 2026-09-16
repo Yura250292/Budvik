@@ -42,6 +42,10 @@ export type Severity = 0 | 1 | 2 | 3;
 export type LowStockItem = {
   id: string;
   sku: string | null;
+  /** Ref_Key номенклатури в 1С — за ним заявку зіставляють у 1С без артикулів. */
+  externalId: string | null;
+  /** Кратність пакування з назви 1С; null — поштучно (див. lib/pack-qty.ts). */
+  packQty: number | null;
   name: string;
   brandName: string;
   price: number;
@@ -236,7 +240,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       },
       select: {
         id: true, sku: true, name: true, price: true, stock: true, categoryId: true,
-        brandId: true, brand: { select: { name: true } },
+        brandId: true, brand: { select: { name: true } }, externalId: true, packQty: true,
       },
     }),
     prisma.category.findMany({ select: { id: true, name: true, parentId: true } }),
@@ -344,7 +348,7 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     const groups = sections.get(section)!;
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group)!.push({
-      id: p.id, sku: p.sku, name: p.name, brandName: p.brand?.name ?? "—",
+      id: p.id, sku: p.sku, externalId: p.externalId, packQty: p.packQty, name: p.name, brandName: p.brand?.name ?? "—",
       price: p.price, stock: p.stock, expensive, threshold, severity,
       sold90, perMonth: Math.round(perMonth * 10) / 10, daysLeft, suggested,
       lastReceiptAt: lastReceipts.get(p.id)?.toISOString() ?? null,

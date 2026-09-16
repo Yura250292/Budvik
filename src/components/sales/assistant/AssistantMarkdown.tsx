@@ -23,7 +23,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import RoutePicker from "./RoutePicker";
 import { BlockPlaceholder, KpiTiles, TreeBlock } from "./AssistantBlocks";
-import { BLOCK, parseChart, parseKpi, parseTree } from "@/lib/assistant/blocks";
+import FileCard from "./FileCard";
+import { BLOCK, parseChart, parseFile, parseKpi, parseTree } from "@/lib/assistant/blocks";
 import { catalogHrefIn } from "@/components/sales/catalog/paths";
 
 /**
@@ -121,6 +122,14 @@ export default function AssistantMarkdown({
         components={{
           a: ({ href, children }) => {
             const url = catalogHrefIn(String(href ?? ""), section);
+            // Файл помічника — завантаження, а не сторінка: без next/link і без ?back=.
+            if (url.startsWith("/api/")) {
+              return (
+                <a href={url} download className="font-semibold text-bk underline underline-offset-2">
+                  {children}
+                </a>
+              );
+            }
             if (url.startsWith("/")) {
               if (!linksAllowed) return <span className="font-semibold text-bk">{children}</span>;
               return (
@@ -203,6 +212,10 @@ export default function AssistantMarkdown({
             if (lang === BLOCK.kpi) {
               const parsed = parseKpi(raw);
               return parsed.ok ? <KpiTiles spec={parsed.spec} /> : <BlockPlaceholder label="Показники" broken={!streaming} />;
+            }
+            if (lang === BLOCK.file) {
+              const parsed = parseFile(raw);
+              return parsed.ok ? <FileCard spec={parsed.spec} /> : <BlockPlaceholder label="Файл" broken={!streaming} />;
             }
             if (lang === BLOCK.tree) {
               const parsed = parseTree(raw);

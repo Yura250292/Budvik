@@ -12,7 +12,14 @@ const r2 = new S3Client({
 export async function uploadFile(
   file: Buffer,
   key: string,
-  contentType: string
+  contentType: string,
+  /**
+   * Метадані об'єкта — для файлів, які віддаються через свій роут, а не
+   * публічною адресою (вивантаження помічника): назва файла для
+   * Content-Disposition їде разом із ним, окремої таблиці не треба.
+   * Значення — лише ASCII, тому кирилицю кодуємо encodeURIComponent.
+   */
+  opts: { metadata?: Record<string, string>; signal?: AbortSignal } = {}
 ): Promise<string> {
   await r2.send(
     new PutObjectCommand({
@@ -20,7 +27,9 @@ export async function uploadFile(
       Key: key,
       Body: file,
       ContentType: contentType,
-    })
+      ...(opts.metadata ? { Metadata: opts.metadata } : {}),
+    }),
+    opts.signal ? { abortSignal: opts.signal } : undefined
   );
 
   return `${process.env.R2_PUBLIC_URL}/${key}`;
@@ -33,7 +42,7 @@ export async function uploadFile(
  */
 export async function getFile(
   key: string
-): Promise<{ body: Buffer; contentType: string } | null> {
+): Promise<{ body: Buffer; contentType: string; metadata: Record<string, string> } | null> {
   try {
     const res = await r2.send(
       new GetObjectCommand({
@@ -48,6 +57,7 @@ export async function getFile(
     return {
       body: Buffer.from(bytes),
       contentType: res.ContentType || 'application/octet-stream',
+      metadata: res.Metadata ?? {},
     };
   } catch (e) {
     const name = (e as { name?: string }).name;

@@ -6,7 +6,9 @@
  * товар. Модель читає опис зверху вниз, і для питання «сплануй день»
  * потрібний інструмент має траплятися першим.
  *
- * Стеля: тринадцять для торгового, двадцять для керівника. Кожен інструмент
+ * Стеля: тринадцять для торгового, двадцять для керівника (з 16.09.2026
+ * керівник бачить 23 — export_file додано свідомо: файл інакше не зробити,
+ * а режимом чужого інструмента він не є). Кожен інструмент
  * коштує ~120 токенів у КОЖНОМУ запиті ходу; півсотні інструментів з'їли б
  * контекст ще до першого факту, а модель почала б обирати навмання. Далі
  * рости лише режимами (mode) усередині наявних схем — так уже живуть
@@ -50,6 +52,7 @@ import { staffProfileTool } from "@/lib/assistant/tools/staff";
 import { documentsTool } from "@/lib/assistant/tools/documents";
 import { buildRouteTool } from "@/lib/assistant/tools/route";
 import { queryDbTool } from "@/lib/assistant/tools/query";
+import { exportFileTool } from "@/lib/assistant/tools/export";
 
 export const TOOLS: ToolDef[] = [
   myDayContext,
@@ -82,6 +85,8 @@ export const TOOLS: ToolDef[] = [
   salesAnalysisTool,
   /* Останнім із керівницьких: спершу готові зведення, і лише потім довільний SELECT. */
   queryDbTool,
+  /* Файл — наслідок відповіді, а не джерело даних, тому після query_db. */
+  exportFileTool,
   ordersToPackTool,
   myInvoicesTool,
   searchClients,

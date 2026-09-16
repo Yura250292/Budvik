@@ -150,7 +150,8 @@ export function ToolTrace({
         <Wrench size={12} />
         {COPY.toolsHeader(tools.length)}
         {!viaModel && <span className="font-normal text-cab-t3">· {COPY.withoutModel}</span>}
-        {viaModel && model && <span className="font-normal text-cab-t3">· {modelLabel(model)}</span>}
+        {/* На телефоні рядок і так тісний поруч із «Вголос» і «Переслати». */}
+        {viaModel && model && <span className="hidden font-normal text-cab-t3 sm:inline">· {modelLabel(model)}</span>}
         <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
       </button>
       {open && (

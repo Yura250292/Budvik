@@ -28,10 +28,15 @@ export type SeenEntities = {
   reps: Set<string>;
   /** Документи (накладні), які показав інструмент — посилання на картку в адмінці. */
   docs: Set<string>;
+  /**
+   * Файли, сформовані export_file у ЦЬОМУ ході: id → що показати в картці.
+   * Між ходами не переносяться — посилання живе в самій репліці.
+   */
+  files: Map<string, { name: string; format: string; rows: number; sizeKb: number }>;
 };
 
 export function emptyEntities(): SeenEntities {
-  return { clients: new Set(), products: new Map(), reps: new Set(), docs: new Set(), numbers: new Set() };
+  return { clients: new Set(), products: new Map(), reps: new Set(), docs: new Set(), numbers: new Set(), files: new Map() };
 }
 
 /*
@@ -95,6 +100,14 @@ function walk(value: unknown, into: SeenEntities) {
         into.reps.add(raw);
       } else if (DOC_KEYS.has(key)) {
         into.docs.add(raw);
+      } else if (key === "файл_id") {
+        const format = String(obj["формат"] ?? "");
+        into.files.set(raw, {
+          name: typeof obj["назва"] === "string" ? (obj["назва"] as string) : "файл",
+          format: /1С/.test(format) ? "xlsx_1c" : /pdf/i.test(format) ? "pdf" : "xlsx",
+          rows: typeof obj["рядків"] === "number" ? (obj["рядків"] as number) : 0,
+          sizeKb: typeof obj["розмір_кб"] === "number" ? (obj["розмір_кб"] as number) : 0,
+        });
       }
     }
     walk(raw, into);
@@ -202,7 +215,7 @@ function isKnown(value: number, known: Set<number>): boolean {
   return false;
 }
 
-const LINK_RE = /\[([^\]]{1,120})\]\((client|product|rep|doc):([A-Za-z0-9_-]{6,40})\)/g;
+const LINK_RE = /\[([^\]]{1,160})\]\((client|product|rep|doc|file):([A-Za-z0-9_-]{6,40})\)/g;
 
 /**
  * Переписує службові посилання у справжні адреси кабінету.
@@ -234,6 +247,15 @@ export function rewriteLinks(
         return label;
       }
       return `[${label}](/admin/sales-reps/${entityId})`;
+    }
+
+    if (kind === "file") {
+      // Файл — лише свій і лише цього ходу; роут однаково не віддасть чужий.
+      if (!entities.files.has(entityId)) {
+        stripped++;
+        return label;
+      }
+      return `[${label}](/api/sales/assistant/files/${entityId})`;
     }
 
     if (kind === "doc") {

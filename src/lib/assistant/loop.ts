@@ -49,7 +49,7 @@ import {
 } from "@/lib/assistant/config";
 import { streamChat, stripSignature, LlmError, type ChatResult } from "@/lib/assistant/llm";
 import { isPaused, markQuotaExhausted } from "@/lib/assistant/model-health";
-import { blockNumbersText, withoutBlocks } from "@/lib/assistant/blocks";
+import { block, blockNumbersText, withoutBlocks } from "@/lib/assistant/blocks";
 import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
 import { compact } from "@/lib/assistant/format";
@@ -577,8 +577,17 @@ function finalize(
   const trimmed = stripToolMarkup(raw).trim();
   const body = trimmed || "Не вдалося сформулювати відповідь. Спробуйте перепитати інакше.";
   const { text, stripped } = rewriteLinks(body, seen);
+  /*
+   * Картка кожного файла цього ходу — кодом, а не моделлю. Модель може
+   * забути посилання, переплутати id чи обірвати відповідь на півслові, а
+   * файл, заради якого питали, мусить з'явитися завжди.
+   */
+  const cards = [...seen.files.entries()].map(([id, f]) =>
+    block("file", { url: `/api/sales/assistant/files/${id}`, name: f.name, format: f.format, rows: f.rows, sizeKb: f.sizeKb })
+  );
+  const withCards = cards.length ? `${text}\n\n${cards.join("\n\n")}` : text;
   return {
-    text: finishReason === "length" ? `${text}\n\n_(відповідь обірвано за лімітом довжини)_` : text,
+    text: finishReason === "length" ? `${withCards}\n\n_(відповідь обірвано за лімітом довжини)_` : withCards,
     stripped,
   };
 }
@@ -621,6 +630,7 @@ async function runOneTool(
     for (const [id, sku] of entities.products) {
       if (sku || !seen.products.has(id)) seen.products.set(id, sku);
     }
+    for (const [id, file] of entities.files) seen.files.set(id, file);
     // Числа теж переносимо: за ними числовий вартовий звіряє відповідь.
     for (const n of entities.numbers) seen.numbers.add(n);
 

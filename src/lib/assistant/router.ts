@@ -451,6 +451,15 @@ const COMPOSE =
 const ADMIN_ANALYSIS =
   /(підкажи[а-яіїєґ]*\s+(що|як|кого|чи|де)|порадь|спрогноз[а-яіїєґ]*|прогноз[а-яіїєґ]*\s+на\s+наступн|сезонн[а-яіїєґ]*|врахуй|враховуючи|на\s+наступн[а-яіїєґ]*\s+(місяць|тиждень|квартал|сезон)|залежн[а-яіїєґ]*|проаналізуй\s+(продаж|оборот|склад|попит|залишк|закупів))/i;
 
+/**
+ * Просять файл — це модель і export_file, а не кодова відповідь.
+ *
+ * «Зроби Excel: що замовити по бренду APRO» містить і «замовити», і «по
+ * бренду», і без цього правила отримало б таблицю в чаті замість файла.
+ */
+const ADMIN_EXPORT =
+  /(^|\s)(ексел[а-яіїєґ]*|ексель|excel|xlsx|pdf|пдф|файл[а-яіїєґ]*|вивантаж[а-яіїєґ]*|експорт[а-яіїєґ]*|роздрук[а-яіїєґ]*)(\s|$|[,.:!?])/i;
+
 /** Довше за це питання керівника код не бере — див. ADMIN_ANALYSIS. */
 const ADMIN_CODE_MAX_WORDS = 12;
 
@@ -468,7 +477,7 @@ export function detectIntent(
   if (opts.kind === "DRIVER") return driverIntent(text);
   if (opts.kind === "WAREHOUSE") return warehouseIntent(text);
   if (opts.kind === "ADMIN") {
-    if (ADMIN_ANALYSIS.test(text) || text.split(/\s+/).length > ADMIN_CODE_MAX_WORDS) return null;
+    if (ADMIN_ANALYSIS.test(text) || ADMIN_EXPORT.test(text) || text.split(/\s+/).length > ADMIN_CODE_MAX_WORDS) return null;
     return adminIntent(text, opts);
   }
 

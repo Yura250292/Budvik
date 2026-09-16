@@ -66,7 +66,18 @@ const nextConfig: NextConfig = {
     // /api/app/version теж торкається файлу — читає його розмір, щоб
     // сказати застосунку, скільки важить оновлення.
     "/api/app/version": ["./assets/app/**"],
+    // PDF помічника: pdfmake читає TTF за шляхом (lib/assistant/exports/pdf.ts),
+    // а хід помічника — і з файлом — живе в цьому роуті.
+    "/api/sales/assistant/threads/[id]/messages": ["./node_modules/pdfmake/fonts/Roboto/*.ttf"],
   },
+  /**
+   * pdfmake — поза бандлом.
+   *
+   * Усередині нього pdfkit і fontkit читають власні дані через fs за
+   * відносними шляхами; зібраний бандлером, він шукав би їх не там і падав
+   * лише на проді. Як зовнішній пакет він лежить у node_modules цілим.
+   */
+  serverExternalPackages: ["pdfmake"],
   /**
    * Стара пагінація лендінгів `?page=N` → сегмент шляху `/storinka/N`.
    *

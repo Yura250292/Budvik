@@ -23,6 +23,7 @@ export function MessageBubble({
   backHref,
   linksAllowed = true,
   onForward,
+  section,
 }: {
   message: UiMessage;
   onAsk?: (text: string) => void;
@@ -31,6 +32,8 @@ export function MessageBubble({
   linksAllowed?: boolean;
   /** Переслати відповідь у чат персоналу. Немає — кнопки немає. */
   onForward?: () => void;
+  /** Де відкрито екран — від цього залежать адреси посилань на товар. */
+  section?: "sales" | "driver" | "warehouse" | "admin";
 }) {
   if (message.role === "USER") {
     return (
@@ -58,6 +61,7 @@ export function MessageBubble({
         onAsk={onAsk}
         backHref={backHref}
         linksAllowed={linksAllowed}
+        section={section}
       />
       <div className="mt-1 flex items-center gap-2">
         <SpeakButton text={message.content} />

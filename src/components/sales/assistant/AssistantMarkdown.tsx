@@ -24,6 +24,7 @@ import remarkGfm from "remark-gfm";
 import RoutePicker from "./RoutePicker";
 import { BlockPlaceholder, KpiTiles, TreeBlock } from "./AssistantBlocks";
 import { BLOCK, parseChart, parseKpi, parseTree } from "@/lib/assistant/blocks";
+import { catalogHrefIn } from "@/components/sales/catalog/paths";
 
 /**
  * Recharts — лише коли у відповіді справді є діаграма.
@@ -78,6 +79,7 @@ export default function AssistantMarkdown({
   backHref,
   linksAllowed = true,
   streaming = false,
+  section = "sales",
 }: {
   content: string;
   onAsk?: (text: string) => void;
@@ -101,6 +103,12 @@ export default function AssistantMarkdown({
    * і до кінця потоку він має показуватись як «малюю», а не як «зламано».
    */
   streaming?: boolean;
+  /**
+   * Де показано відповідь. Посилання на товар помічник пише адресою кабінету
+   * (/sales/catalog/list), і в адмінці воно викидало б із панелі на екран
+   * планшета — там його веде в /admin/catalog (див. catalogHrefIn).
+   */
+  section?: "sales" | "driver" | "warehouse" | "admin";
 }) {
   const withBack = (url: string) => {
     if (!backHref || !url.startsWith("/") || url.includes("back=")) return url;
@@ -112,7 +120,7 @@ export default function AssistantMarkdown({
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children }) => {
-            const url = String(href ?? "");
+            const url = catalogHrefIn(String(href ?? ""), section);
             if (url.startsWith("/")) {
               if (!linksAllowed) return <span className="font-semibold text-bk">{children}</span>;
               return (

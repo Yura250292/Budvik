@@ -352,6 +352,7 @@ export default function AssistantScreen({
               onAsk={submit}
               backHref={backHref}
               linksAllowed={linksAllowed}
+              section={section}
               onForward={
                 m.role === "ASSISTANT" && !m.failed && !m.pending ? () => setForwardId(m.id) : undefined
               }
@@ -363,7 +364,13 @@ export default function AssistantScreen({
           )}
           {stream && stream.text.length > 0 && (
             <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-              <AssistantMarkdown content={stream.text} backHref={backHref} linksAllowed={linksAllowed} streaming />
+              <AssistantMarkdown
+                content={stream.text}
+                backHref={backHref}
+                linksAllowed={linksAllowed}
+                section={section}
+                streaming
+              />
             </div>
           )}
 

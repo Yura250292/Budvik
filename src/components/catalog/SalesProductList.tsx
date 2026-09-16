@@ -33,7 +33,19 @@ interface Product {
  * означав би дві різні корзини в одному застосунку і питання, з якої саме
  * оформлюється замовлення.
  */
-export default function SalesProductList({ products }: { products: Product[] }) {
+export default function SalesProductList({
+  products,
+  cartBar = "fixed",
+}: {
+  products: Product[];
+  /**
+   * Як тримається панель кошика. "fixed" — над нижнім меню кабінету
+   * торгового. "sticky" — у шеллі адмінки: там сторінка гортається у власному
+   * контейнері поруч із сайдбаром, і fixed на всю ширину вікна лягав би
+   * поверх сайдбару й висів над порожнечею, де меню кабінету немає.
+   */
+  cartBar?: "fixed" | "sticky";
+}) {
   const [view, setView] = useState<"list" | "photo">("list");
   const [cart, setCart] = useState<CartItem[]>([]);
 
@@ -183,7 +195,7 @@ export default function SalesProductList({ products }: { products: Product[] }) 
         Відступ під панель кошика: вона fixed, і без цього накриває останні
         рядки списку — саме ті, до яких торговий догортав.
       */}
-      {count > 0 && <div className="h-28" aria-hidden />}
+      {count > 0 && cartBar === "fixed" && <div className="h-28" aria-hidden />}
 
       {/*
         Панель кошика — липне до низу, над нижнім меню торгового.
@@ -194,8 +206,12 @@ export default function SalesProductList({ products }: { products: Product[] }) 
       */}
       {count > 0 && (
         <div
-          className="fixed inset-x-0 z-40 border-t border-g200 bg-white px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
-          style={{ bottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}
+          className={
+            cartBar === "fixed"
+              ? "fixed inset-x-0 z-40 border-t border-g200 bg-white px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
+              : "sticky bottom-0 z-40 mt-4 rounded-xl border border-g200 bg-white px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
+          }
+          style={cartBar === "fixed" ? { bottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" } : undefined}
         >
           <div className="mx-auto flex max-w-5xl items-center gap-3">
             <div className="min-w-0 flex-1">

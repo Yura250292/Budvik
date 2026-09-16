@@ -6,9 +6,6 @@ import { Search, X, Clock } from "lucide-react";
 import { useSuggest } from "@/components/search/useSuggest";
 import SuggestList from "@/components/search/SuggestList";
 
-/** Список кабінету: сюди ведуть і Enter, і уточнення брендом чи групою. */
-const LIST_PATH = "/sales/catalog/list";
-
 /**
  * Останні запити торгового.
  *
@@ -73,7 +70,17 @@ function forgetAll() {
  * Чому не /catalog?search=: там стоїть SearchTracker, і запити торгових
  * потрапили б у список «що шукали покупці й не знайшли».
  */
-export default function SalesCatalogSearch({ initialQuery = "" }: { initialQuery?: string }) {
+export default function SalesCatalogSearch({
+  initialQuery = "",
+  listPath = "/sales/catalog/list",
+}: {
+  initialQuery?: string;
+  /**
+   * Список, куди ведуть і Enter, і уточнення брендом чи групою: кабінет
+   * торгового або адмінка — пошук не має виводити з секції.
+   */
+  listPath?: string;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [focused, setFocused] = useState(false);
@@ -113,10 +120,16 @@ export default function SalesCatalogSearch({ initialQuery = "" }: { initialQuery
     if (!q) return;
     setHistory(remember(q));
     close();
-    router.push(`${LIST_PATH}?search=${encodeURIComponent(q)}`);
+    router.push(`${listPath}?search=${encodeURIComponent(q)}`);
   };
 
-  const showSuggest = open && items.length > 0;
+  /*
+   * Лише під курсором. Після Enter список перезбирає поле з уже готовим
+   * запитом, хук одразу тягне підказки й відкриває випадайку — і вона
+   * лягала на перші товари, хоча в полі ніхто не друкує. Так само при
+   * відкритті списку посиланням ?search= (з помічника, зі стрічки).
+   */
+  const showSuggest = focused && open && items.length > 0;
   const showHistory = focused && !showSuggest && query.trim().length === 0 && history.length > 0;
 
   return (
@@ -191,7 +204,7 @@ export default function SalesCatalogSearch({ initialQuery = "" }: { initialQuery
               types={types}
               active={active}
               query={query}
-              basePath={LIST_PATH}
+              basePath={listPath}
               showSku
               onPick={() => {
                 setHistory(remember(query));

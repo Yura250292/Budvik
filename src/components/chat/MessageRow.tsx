@@ -55,7 +55,7 @@ export function MessageRow({
             ✨ {COPY.forwarded}
           </p>
           <div className={mine ? "text-white [&_*]:text-white" : ""}>
-            <AssistantMarkdown content={message.quote} linksAllowed={linksAllowed} />
+            <AssistantMarkdown content={message.quote} linksAllowed={linksAllowed} section={section} />
           </div>
         </div>
       )}

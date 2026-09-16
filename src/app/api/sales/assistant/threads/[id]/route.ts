@@ -47,6 +47,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     tools: Array<{ name: string; label: string; ms: number | null }>;
     /** false — відповідь склав код, модель не викликалася. */
     viaModel: boolean;
+    /** Хто відповів (див. appendMessage.model); null — код або стара репліка. */
+    model: string | null;
   }> = [];
   let pending: Array<{ name: string; label: string; ms: number | null }> = [];
 
@@ -73,6 +75,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // Нуль вхідних токенів буває лише у відповіді, складеної кодом:
       // будь-який похід до моделі коштує щонайменше системного промпту.
       viaModel: row.promptTokens > 0,
+      model: row.role === "ASSISTANT" ? row.toolName : null,
     });
     if (row.role === "ASSISTANT") pending = [];
   }

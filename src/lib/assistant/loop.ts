@@ -17,22 +17,38 @@
  * наступному запиті бракує повідомлення role:"tool" бодай на один
  * tool_call_id. Тому відповідь пишеться навіть на виклик, який ми
  * відмовились виконувати.
+ *
+ * ЗАПАСНА МОДЕЛЬ. Керівникові відповідає Gemini, а коли вона відмовляє
+ * чи мовчить — DeepSeek, до кінця ходу. Повтор на ту саму модель — лише
+ * після швидкої відмови; час кожного виклику рахується від дедлайну ходу,
+ * щоб запасній моделі його лишилось.
  */
 
 import pLimitLike from "@/lib/assistant/concurrency";
 import {
+  ADMIN_MODEL,
+  CALL_TIMEOUT_MS,
+  FALLBACK_MODEL,
   FINAL_ONLY_BELOW_MS,
   MAX_ROUNDS,
   MAX_TOKENS_FINAL,
   MAX_TOKENS_THINKING,
   MAX_TOOL_CALLS_PER_TURN,
+  MIN_CALL_MS,
+  MODEL,
+  RETRY_DELAY_MS,
+  SAVE_RESERVE_MS,
   THINKING_ENABLED,
   THINKING_KINDS,
   THINKING_MIN_MS,
   TOOL_CONCURRENCY,
   TURN_DEADLINE_MS,
+  modelForFlavor,
+  providerFor,
+  type LlmFlavor,
 } from "@/lib/assistant/config";
-import { streamChat, DeepSeekError } from "@/lib/assistant/deepseek";
+import { streamChat, stripSignature, LlmError, type ChatResult } from "@/lib/assistant/llm";
+import { isPaused, markQuotaExhausted } from "@/lib/assistant/model-health";
 import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
 import { compact } from "@/lib/assistant/format";
@@ -48,7 +64,36 @@ import {
 } from "@/lib/assistant/threads";
 import { tryDirectAnswer } from "@/lib/assistant/direct";
 import type { DirectAnswer } from "@/lib/assistant/answers";
-import type { ChatMessage, ToolCall, ToolContext, TurnEvent } from "@/lib/assistant/types";
+import type { AssistantKind, ChatMessage, ToolCall, ToolContext, TurnEvent } from "@/lib/assistant/types";
+
+/** Ключі провайдерів, які є в середовищі. Значення, а не назви змінних. */
+export type ModelKeys = Partial<Record<LlmFlavor, string>>;
+
+export type ModelRoute = { primary: string; fallback: string | null };
+
+/**
+ * Хто відповідає в цьому ході й хто підхоплює.
+ *
+ * Керівник — обрана ним модель (перемикач у кабінеті) або ADMIN_MODEL, а
+ * запасна — друга з пари. Торговий, водій і склад — DeepSeek без запасної:
+ * рішення власника «Gemini тільки для помічника адміна», а подвоювати їм
+ * витрати на випадок збою немає потреби.
+ *
+ * null — немає жодного ключа, і хід моделі неможливий.
+ */
+export function modelRouteFor(kind: AssistantKind, choice: LlmFlavor | null | undefined, keys: ModelKeys): ModelRoute | null {
+  const has = (model: string) => Boolean(keys[providerFor(model).flavor]);
+
+  if (kind !== "ADMIN") return has(MODEL) ? { primary: MODEL, fallback: null } : null;
+
+  const wanted = choice ? modelForFlavor(choice) : ADMIN_MODEL;
+  const other = providerFor(wanted).flavor === providerFor(FALLBACK_MODEL).flavor ? modelForFlavor("gemini") : FALLBACK_MODEL;
+  const backup = other !== wanted && has(other) ? other : null;
+
+  // Модель, що щойно вичерпала квоту, пропускаємо одразу (model-health.ts).
+  if (has(wanted) && !(backup && isPaused(wanted))) return { primary: wanted, fallback: backup };
+  return backup ? { primary: backup, fallback: null } : has(wanted) ? { primary: wanted, fallback: null } : null;
+}
 
 export type RunTurnInput = {
   threadId: string;
@@ -57,7 +102,9 @@ export type RunTurnInput = {
   userText: string;
   clientHint?: { id: string; name: string } | null;
   isFirstMessage: boolean;
-  apiKey: string;
+  keys: ModelKeys;
+  /** Вибір керівника з перемикача; для решти видів ігнорується. */
+  modelChoice?: LlmFlavor | null;
   signal?: AbortSignal;
   emit: (event: TurnEvent) => void;
 };
@@ -169,6 +216,27 @@ export async function runTurn(input: RunTurnInput) {
   const tools = toolSchemas(input.ctx.kind);
   const limit = pLimitLike(TOOL_CONCURRENCY);
 
+  const route = modelRouteFor(input.ctx.kind, input.modelChoice, input.keys);
+  if (!route) {
+    throw new LlmError("Помічник не налаштований: немає ключа до моделі. Повідомте керівника.", 503);
+  }
+  if (input.ctx.kind === "ADMIN") {
+    const wantedFlavor = input.modelChoice ?? providerFor(ADMIN_MODEL).flavor;
+    const primary = providerFor(route.primary);
+    if (primary.flavor !== wantedFlavor) {
+      // Обрана модель поза чергою (квота чи немає ключа) — кажемо одразу,
+      // щоб підпис «відповідає DeepSeek» не став несподіванкою.
+      input.emit({
+        event: "model",
+        data: {
+          model: route.primary,
+          label: primary.label,
+          note: `${wantedFlavor === "gemini" ? "Gemini" : "DeepSeek"} зараз недоступна — відповідає ${primary.label}`,
+        },
+      });
+    }
+  }
+
   /**
    * Режим міркувань — на весь хід, бо змінити його посеред розмови API не дає.
    *
@@ -177,8 +245,108 @@ export async function runTurn(input: RunTurnInput) {
    * інакше роздум зʼїсть відповідь, і користувач отримає позначку «обірвано»
    * замість тексту.
    */
-  const thinking = thinkingForTurn({ kind: input.ctx.kind, timeLeftMs: timeLeft() });
-  const maxTokens = thinking === "enabled" ? MAX_TOKENS_THINKING : MAX_TOKENS_FINAL;
+  let thinking = thinkingForTurn({ kind: input.ctx.kind, timeLeftMs: timeLeft() });
+  /**
+   * Gemini завжди думає — вимкнути думання в Gemini 3 не можна, можна лише
+   * зменшити. А токени думки, як і в DeepSeek, їдять ту саму стелю, що й
+   * текст, тож 1600 їй замало навіть на «low».
+   */
+  const maxTokens =
+    thinking === "enabled" || providerFor(route.primary).flavor === "gemini" ? MAX_TOKENS_THINKING : MAX_TOKENS_FINAL;
+
+  let activeModel = route.primary;
+  let switched = false;
+
+  /**
+   * Один виклик моделі з повтором і запасною.
+   *
+   * Бюджет: поки є запасна, основна отримує не більше половини часу, що
+   * лишився, — інакше після її таймауту запасній не лишилося б на що
+   * відповісти. Повтор на ту саму модель — лише після ШВИДКОЇ відмови
+   * (503/429, обрив зʼєднання): таймаут означає «модель перевантажена», і
+   * другий такий самий таймаут з'їв би весь хід.
+   *
+   * Після переходу на DeepSeek думання вимикається, якщо в розмові вже є
+   * виклики від Gemini: DeepSeek у режимі міркувань відповідає 400 на
+   * виклики без reasoning_content (див. thinkingForTurn).
+   */
+  const callModel = async (args: {
+    toolChoice: "auto" | "none";
+    onDelta: (text: string) => void;
+    onDrop: () => void;
+  }): Promise<ChatResult> => {
+    let attempt = 0;
+    for (;;) {
+      const provider = providerFor(activeModel);
+      const canFallBack = !switched && route.fallback != null;
+      const left = timeLeft() - SAVE_RESERVE_MS;
+      const budget = Math.min(CALL_TIMEOUT_MS, canFallBack ? Math.floor(left / 2) : left);
+      if (budget < MIN_CALL_MS) {
+        throw new LlmError("Не встиг скласти відповідь вчасно. Спробуйте простіше питання.", 504, "timeout");
+      }
+
+      let emitted = false;
+      try {
+        return await streamChat({
+          model: activeModel,
+          apiKey: input.keys[provider.flavor] ?? "",
+          messages,
+          tools,
+          toolChoice: args.toolChoice,
+          maxTokens,
+          thinking,
+          timeoutMs: budget,
+          signal: input.signal,
+          onDelta: (text) => {
+            emitted = true;
+            args.onDelta(text);
+          },
+        });
+      } catch (e) {
+        if (!(e instanceof LlmError) || input.signal?.aborted) throw e;
+        if (emitted) args.onDrop();
+        if (e.quota) markQuotaExhausted(activeModel, e.quota);
+
+        const quickRetry =
+          e.retryable && attempt === 0 && timeLeft() - SAVE_RESERVE_MS - RETRY_DELAY_MS >= MIN_CALL_MS * (canFallBack ? 2 : 1);
+        if (quickRetry) {
+          attempt++;
+          input.emit({
+            event: "model",
+            data: { model: activeModel, label: provider.label, note: `${provider.label} не відповіла (${e.upstream}) — пробую ще раз` },
+          });
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+
+        if (canFallBack && route.fallback) {
+          switched = true;
+          attempt = 0;
+          activeModel = route.fallback;
+          const next = providerFor(activeModel);
+          const hasForeignCalls = messages.some((m) => m.role === "assistant" && (m.tool_calls?.length ?? 0) > 0);
+          if (next.flavor === "deepseek" && hasForeignCalls) thinking = "disabled";
+          console.warn(
+            `[assistant] ${provider.label} відмовила (${e.upstream}: ${e.message}) — відповідає ${next.label} · розмова ${input.threadId}`
+          );
+          input.emit({
+            event: "model",
+            data: {
+              model: activeModel,
+              label: next.label,
+              note: e.quota
+                ? `${provider.label}: вичерпано ${e.quota === "day" ? "денний" : "хвилинний"} ліміт — відповідає ${next.label}`
+                : e.upstream === "timeout"
+                  ? `${provider.label} не відповіла вчасно — відповідає ${next.label}`
+                  : `${provider.label} недоступна — відповідає ${next.label}`,
+            },
+          });
+          continue;
+        }
+        throw e;
+      }
+    }
+  };
 
   let promptTokens = 0;
   let completionTokens = 0;
@@ -220,18 +388,19 @@ export async function runTurn(input: RunTurnInput) {
 
     let answered = "";
     let emitted = false;
-    const result = await streamChat({
-      apiKey: input.apiKey,
-      messages,
-      tools,
+    const result = await callModel({
       toolChoice: toolsOff ? "none" : "auto",
-      maxTokens,
-      thinking,
-      signal: input.signal,
       onDelta: (text) => {
         answered += text;
         emitted = true;
         input.emit({ event: "delta", data: { text } });
+      },
+      // Відмова посеред стріму: показаний шматок скидаємо, інакше повтор
+      // чи запасна модель допишуть другий початок тієї самої репліки.
+      onDrop: () => {
+        answered = "";
+        emitted = false;
+        input.emit({ event: "drop", data: {} });
       },
     });
 
@@ -248,7 +417,8 @@ export async function runTurn(input: RunTurnInput) {
         threadId: input.threadId,
         role: "ASSISTANT",
         content: result.content,
-        toolCalls: result.toolCalls,
+        // Підпис думки Gemini — кілобайти base64, потрібні лише в межах ходу.
+        toolCalls: result.toolCalls.map(stripSignature),
       });
       messages.push({
         role: "assistant",
@@ -304,6 +474,7 @@ export async function runTurn(input: RunTurnInput) {
       promptTokens,
       completionTokens,
       durationMs: Date.now() - startedAt,
+      model: activeModel,
     });
     await Promise.all([
       touchThread(input.threadId, null),
@@ -321,10 +492,11 @@ export async function runTurn(input: RunTurnInput) {
       rounds,
       strippedLinks: final.stripped,
       numbers,
+      model: activeModel,
     };
   }
 
-  throw new DeepSeekError(
+  throw new LlmError(
     "Не вдалося скласти відповідь: модель забагато разів пішла по дані. Спробуйте простіше питання.",
     504
   );
@@ -373,6 +545,7 @@ async function finishDirect(input: RunTurnInput, direct: DirectAnswer, startedAt
     usage: { prompt: 0, completion: 0, reasoning: 0, total: 0 },
     rounds: 0,
     strippedLinks: 0,
+    model: null,
   };
 }
 

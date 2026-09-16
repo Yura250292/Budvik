@@ -15,7 +15,7 @@ import AssistantMarkdown from "./AssistantMarkdown";
 import { COPY } from "./copy";
 import { speak, speechOutputSupported, stopSpeaking } from "./voice";
 import { useVoiceInput } from "./useVoiceInput";
-import type { ToolTrace, UiMessage } from "./api";
+import { modelLabel, type ToolTrace, type UiMessage } from "./api";
 
 export function MessageBubble({
   message,
@@ -71,10 +71,12 @@ export function MessageBubble({
             Переслати
           </button>
         )}
-        {message.tools.length > 0 && (
+        {message.tools.length > 0 ? (
           <div className="min-w-0 flex-1">
-            <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} />
+            <ToolTrace tools={message.tools} viaModel={message.viaModel !== false} model={message.model} />
           </div>
+        ) : (
+          message.model && <span className="text-[11px] text-cab-t3">{modelLabel(message.model)}</span>
         )}
       </div>
     </div>
@@ -124,7 +126,15 @@ function SpeakButton({ text }: { text: string }) {
   );
 }
 
-export function ToolTrace({ tools, viaModel = true }: { tools: ToolTrace[]; viaModel?: boolean }) {
+export function ToolTrace({
+  tools,
+  viaModel = true,
+  model,
+}: {
+  tools: ToolTrace[];
+  viaModel?: boolean;
+  model?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-2.5 border-t border-[#F1F1EF] pt-2">
@@ -136,6 +146,7 @@ export function ToolTrace({ tools, viaModel = true }: { tools: ToolTrace[]; viaM
         <Wrench size={12} />
         {COPY.toolsHeader(tools.length)}
         {!viaModel && <span className="font-normal text-cab-t3">· {COPY.withoutModel}</span>}
+        {viaModel && model && <span className="font-normal text-cab-t3">· {modelLabel(model)}</span>}
         <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
       </button>
       {open && (
@@ -162,9 +173,12 @@ export function ToolTrace({ tools, viaModel = true }: { tools: ToolTrace[]; viaM
 export function ThinkingRow({
   tools,
   startedAt,
+  note,
 }: {
   tools: Array<ToolTrace & { done: boolean }>;
   startedAt: number;
+  /** Що сталося з моделлю: повтор чи перехід на запасну. */
+  note?: string;
 }) {
   const [seconds, setSeconds] = useState(0);
 
@@ -183,6 +197,7 @@ export function ThinkingRow({
         {label}
         {seconds > 8 && <span className="text-cab-t3">· {seconds} с</span>}
       </span>
+      {note && <p className="mt-1.5 text-[11px] text-cab-t3">{note}</p>}
       {seconds > 45 && <p className="mt-1.5 text-[11px] text-cab-t3">{COPY.slowHint}</p>}
     </div>
   );

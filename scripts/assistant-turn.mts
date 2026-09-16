@@ -7,6 +7,10 @@
  *
  *   npx tsx --env-file=.env scripts/assistant-turn.mts "Сплануй мій день"
  *   npx tsx --env-file=.env scripts/assistant-turn.mts "..." [email] [threadId]
+ *   npx tsx --env-file=.env scripts/assistant-turn.mts --model=deepseek "..." admin@…
+ *
+ * --model=gemini|deepseek — перемикач керівника (як у кабінеті); для решти
+ * видів ігнорується. Без нього керівник іде на ASSISTANT_ADMIN_MODEL.
  */
 
 import { prisma } from "../src/lib/prisma";
@@ -17,16 +21,22 @@ import { kindForThread } from "../src/lib/assistant/scope";
 import type { TurnEvent } from "../src/lib/assistant/types";
 
 const DEFAULT_REP = "rep-kavetskyi-viktor@budvik.local";
-const [question, email = DEFAULT_REP, existingThread] = process.argv.slice(2);
+const flags = process.argv.slice(2).filter((a) => a.startsWith("--"));
+const [question, email = DEFAULT_REP, existingThread] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const modelFlag = flags.find((f) => f.startsWith("--model="))?.slice("--model=".length);
+const modelChoice = modelFlag === "gemini" || modelFlag === "deepseek" ? modelFlag : null;
 
 if (!question) {
   console.error('Треба питання: npx tsx --env-file=.env scripts/assistant-turn.mts "Сплануй мій день"');
   process.exit(1);
 }
 
-const apiKey = process.env.DEEPSEEK_API_KEY;
-if (!apiKey) {
-  console.error("Немає DEEPSEEK_API_KEY (запускати з --env-file=.env)");
+const keys = {
+  deepseek: process.env.DEEPSEEK_API_KEY || undefined,
+  gemini: process.env.GEMINI_API_KEY || undefined,
+};
+if (!keys.deepseek && !keys.gemini) {
+  console.error("Немає ні DEEPSEEK_API_KEY, ні GEMINI_API_KEY (запускати з --env-file=.env)");
   process.exit(1);
 }
 
@@ -54,6 +64,7 @@ const emit = (e: TurnEvent) => {
   else if (e.event === "drop") buffer = "";
   else if (e.event === "delta") buffer += e.data.text;
   else if (e.event === "error") console.log(`\n[${at}] ✗ ${e.data.message}`);
+  else if (e.event === "model") console.log(`\n[${at}] ⇄ ${e.data.note ?? e.data.model}`);
 };
 
 try {
@@ -69,13 +80,14 @@ try {
     selfScoped: true,
     userText: question,
     isFirstMessage: !existingThread,
-    apiKey,
+    keys,
+    modelChoice,
     emit,
   });
 
   console.log(`\n${"─".repeat(70)}\n${buffer}\n${"─".repeat(70)}`);
   console.log(
-    `раундів ${out.rounds} · токенів ${out.usage.total} (вхід ${out.usage.prompt}, ` +
+    `${out.model ?? "без моделі"} · раундів ${out.rounds} · токенів ${out.usage.total} (вхід ${out.usage.prompt}, ` +
       `вихід ${out.usage.completion}, з них міркування ${out.usage.reasoning}) · ` +
       `${((Date.now() - started) / 1000).toFixed(1)} с · відкинутих посилань ${out.strippedLinks}`
   );

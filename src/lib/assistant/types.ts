@@ -76,23 +76,43 @@ export type TurnEvent =
    * відповідь, і репліка мала б два початки.
    */
   | { event: "drop"; data: Record<string, never> }
+  /**
+   * Хто зараз відповідає і чому змінилось.
+   *
+   * Шлеться перед кожною спробою, що відрізняється від звичайної: повтор
+   * після відмови або перехід на запасну модель. Крім підпису в рядку
+   * «Думаю…», подія скидає сторожа в інтерфейсі (useAssistantThread): пульс
+   * SSE він не рахує, і поки модель мовчить, сторож за хвилину обірвав би хід.
+   */
+  | { event: "model"; data: { model: string; label: string; note?: string } }
   | {
       event: "done";
       data: {
         messageId: string;
-        usage: { prompt: number; completion: number; total: number };
+        usage: { prompt: number; completion: number; reasoning: number; total: number };
         rounds: number;
         strippedLinks: number;
+        /** Хто дав остаточну відповідь; null — відповідь склав код. */
+        model?: string | null;
       };
     }
   | { event: "error"; data: { message: string } };
 
-/* ── Дріт до DeepSeek (сумісний з OpenAI) ─────────────────────────────── */
+/* ── Дріт до моделі (формат OpenAI: DeepSeek і Gemini) ──────────────── */
 
 export type ToolCall = {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  /**
+   * Підпис думки Gemini: `{ google: { thought_signature } }`.
+   *
+   * Gemini 3 кладе його в кожен виклик інструмента і чекає назад у
+   * наступному раунді ТОГО Ж ходу. Між ходами не потрібен (історія для
+   * моделі — лише текст), тож у базу не пишеться, а DeepSeek його не
+   * отримує: llm.ts вирізає поле для кожного провайдера окремо.
+   */
+  extra_content?: Record<string, unknown>;
 };
 
 export type ChatMessage =
@@ -128,6 +148,8 @@ export type Usage = {
   total_tokens?: number;
   prompt_cache_hit_tokens?: number;
   prompt_cache_miss_tokens?: number;
+  /** Кеш у форматі OpenAI — так його віддає Gemini. */
+  prompt_tokens_details?: { cached_tokens?: number };
   /** Скільки з вихідних токенів пішло на міркування, а не на текст. */
   completion_tokens_details?: { reasoning_tokens?: number };
 };

@@ -18,12 +18,12 @@
 import { requireRoles, STAFF_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/shop/rate-limit";
-import { DAILY_TURN_CAP, USER_TEXT_MAX } from "@/lib/assistant/config";
-import { runTurn } from "@/lib/assistant/loop";
+import { DAILY_TURN_CAP, MODEL_FLAVORS, USER_TEXT_MAX, type LlmFlavor } from "@/lib/assistant/config";
+import { modelRouteFor, runTurn, type ModelKeys } from "@/lib/assistant/loop";
 import { acquireBusy, getThreadForUser, releaseBusy } from "@/lib/assistant/threads";
 import { kindForThread, scopeOf } from "@/lib/assistant/scope";
 import { encodeEvent, keepAlive } from "@/lib/assistant/sse";
-import { DeepSeekError } from "@/lib/assistant/deepseek";
+import { LlmError } from "@/lib/assistant/llm";
 import { kyivDate } from "@/lib/date/kyiv";
 import type { TurnEvent } from "@/lib/assistant/types";
 
@@ -43,15 +43,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const thread = await getThreadForUser(threadId, guard.me.userId);
   if (!thread) return json({ error: "Розмову не знайдено" }, 404);
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
+  /**
+   * Вид рахуємо ДО перевірки ключа: від нього залежить, чий ключ потрібен.
+   * Керівникові вистачає будь-якого з двох, решті — ключа DeepSeek.
+   */
+  const kind = kindForThread(guard.me.role, thread.repId, guard.me.userId);
+  const keys: ModelKeys = {
+    deepseek: process.env.DEEPSEEK_API_KEY || undefined,
+    gemini: process.env.GEMINI_API_KEY || undefined,
+  };
+  if (!modelRouteFor(kind, null, keys)) {
     return json(
       { error: "Помічник не налаштований: немає ключа до моделі. Повідомте керівника." },
       503
     );
   }
 
-  let body: { text?: unknown; counterpartyId?: unknown };
+  let body: { text?: unknown; counterpartyId?: unknown; model?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -94,8 +102,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
    * Вид помічника залежить не лише від ролі, а й від того, кого обрали в
    * ЦІЙ розмові: керівник без обраного торгового питає про всю фірму.
    */
-  const kind = kindForThread(guard.me.role, thread.repId, guard.me.userId);
   const scope = await scopeOf(thread.repId, kind === "ADMIN");
+  // Перемикач моделі — лише керівникові й лише зі списку провайдерів.
+  const modelChoice =
+    kind === "ADMIN" && MODEL_FLAVORS.includes(body.model as LlmFlavor) ? (body.model as LlmFlavor) : null;
   const ctx = {
     userId: guard.me.userId,
     role: guard.me.role,
@@ -134,7 +144,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         userText: text,
         clientHint,
         isFirstMessage: existing === 0,
-        apiKey,
+        keys,
+        modelChoice,
         signal: req.signal,
         emit: send,
       })
@@ -143,7 +154,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         })
         .catch((e: unknown) => {
           const message =
-            e instanceof DeepSeekError
+            e instanceof LlmError
               ? e.message
               : `Не вдалося отримати відповідь: ${(e as Error).message}`;
           console.error("[assistant] хід не вдався", e);

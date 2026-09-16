@@ -25,7 +25,7 @@ import { Composer, ErrorRow, MessageBubble, QuickPrompts, ThinkingRow } from "./
 import AssistantMarkdown from "./AssistantMarkdown";
 import ThreadsSheet from "./ThreadsSheet";
 import ShareToChatSheet from "@/components/chat/ShareToChatSheet";
-import { deleteThread as deleteThreadApi, type ThreadSummary } from "./api";
+import { deleteThread as deleteThreadApi, type ModelChoice, type ThreadSummary } from "./api";
 import { ADMIN_PROMPTS, CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
 
 type ThreadsResponse = {
@@ -40,6 +40,7 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 /** Ключ чернетки — окремий на кожну розмову, щоб вони не змішувались. */
 const draftKey = (threadId: string | null) => `budvik.assistant.draft.${threadId ?? "new"}`;
+const MODEL_KEY = "budvik.assistant.model";
 
 export default function AssistantScreen({
   section,
@@ -96,6 +97,33 @@ export default function AssistantScreen({
   );
 
   const { messages, stream, error, send, retry, stop, clearError } = useAssistantThread(threadId);
+
+  /**
+   * Перемикач моделі — лише в кабінеті керівника.
+   *
+   * Памʼятається в браузері: це звичка людини, а не властивість розмови.
+   * null — як вирішив сервер (Gemini з запасною DeepSeek). Сервер однаково
+   * звіряє вибір зі своїм списком і ігнорує його для розмов «як торговий».
+   */
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  useEffect(() => {
+    if (!embedded) return;
+    try {
+      const saved = localStorage.getItem(MODEL_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved === "gemini" || saved === "deepseek") setModelChoice(saved);
+    } catch {
+      // сховище недоступне — лишаємо вибір сервера
+    }
+  }, [embedded]);
+  const pickModel = (choice: ModelChoice) => {
+    setModelChoice(choice);
+    try {
+      localStorage.setItem(MODEL_KEY, choice);
+    } catch {
+      // не критично
+    }
+  };
 
   /** Адресу міняє екран: хук лише повідомляє, який діалог створено. */
   useEffect(() => {
@@ -176,9 +204,9 @@ export default function AssistantScreen({
       } catch {
         // не критично
       }
-      void send(text, { repId, counterpartyId: clientId });
+      void send(text, { repId, counterpartyId: clientId, model: embedded ? modelChoice : null });
     },
-    [send, repId, clientId, threadId, clearError]
+    [send, repId, clientId, threadId, clearError, embedded, modelChoice]
   );
 
   const prompts = useMemo(
@@ -263,6 +291,7 @@ export default function AssistantScreen({
         // вона не знає: чиї дані читає розмова й дві дії над нею.
         <div className="flex items-center gap-2 border-b border-cab-line bg-white px-4 py-1.5">
           <span className="min-w-0 flex-1 truncate text-[13px] text-cab-t2">{subtitle}</span>
+          {!activeRep && !clientName && <ModelSwitch value={modelChoice ?? "gemini"} onChange={pickModel} />}
           {toolbarButtons}
         </div>
       ) : (
@@ -330,7 +359,7 @@ export default function AssistantScreen({
           ))}
 
           {stream && stream.text.length === 0 && (
-            <ThinkingRow tools={stream.tools} startedAt={stream.startedAt} />
+            <ThinkingRow tools={stream.tools} startedAt={stream.startedAt} note={stream.note} />
           )}
           {stream && stream.text.length > 0 && (
             <div className="rounded-2xl border border-cab-line bg-white p-3.5">
@@ -344,7 +373,7 @@ export default function AssistantScreen({
               onRetry={
                 error === COPY.stopped || error.includes("Ліміт запитів")
                   ? undefined
-                  : () => retry({ repId, counterpartyId: clientId })
+                  : () => retry({ repId, counterpartyId: clientId, model: embedded ? modelChoice : null })
               }
             />
           )}
@@ -439,6 +468,37 @@ export default function AssistantScreen({
  * означає — розмову про всю компанію, а не про керівника з порожнім
  * портфелем.
  */
+/**
+ * «Gemini | DeepSeek» у тулбарі керівника.
+ *
+ * Дві кнопки, а не список: вибір із двох, і він має бути видно без
+ * відкривання. Вузько, щоб на телефоні поруч лишився підпис розмови.
+ */
+function ModelSwitch({ value, onChange }: { value: ModelChoice; onChange: (v: ModelChoice) => void }) {
+  const options: Array<{ id: ModelChoice; label: string }> = [
+    { id: "gemini", label: "Gemini" },
+    { id: "deepseek", label: "DeepSeek" },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Модель помічника" className="flex shrink-0 rounded-full border border-cab-line p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="radio"
+          aria-checked={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={`h-7 rounded-full px-2.5 text-[12px] font-semibold transition-colors ${
+            value === o.id ? "bg-bk text-white" : "text-cab-t2"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RepPicker({
   reps,
   value,

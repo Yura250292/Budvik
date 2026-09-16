@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, createThread, type ToolTrace, type UiMessage } from "./api";
+import { ApiError, createThread, type ModelChoice, type ToolTrace, type UiMessage } from "./api";
 import { readSse } from "./sse";
 import { COPY, NETWORK_ERROR, STALL_ERROR, errorCopy } from "./copy";
 
@@ -35,6 +35,8 @@ export type StreamState = {
   text: string;
   tools: Array<ToolTrace & { done: boolean }>;
   startedAt: number;
+  /** «Gemini не відповіла вчасно — відповідає DeepSeek» і подібне. */
+  note?: string;
 } | null;
 
 export function useAssistantThread(threadId: string | null) {
@@ -96,7 +98,10 @@ export function useAssistantThread(threadId: string | null) {
   useEffect(() => () => abort("unmount"), [abort]);
 
   const send = useCallback(
-    async (text: string, opts: { repId?: string | null; counterpartyId?: string | null } = {}) => {
+    async (
+      text: string,
+      opts: { repId?: string | null; counterpartyId?: string | null; model?: ModelChoice | null } = {}
+    ) => {
       const trimmed = text.trim();
       if (!trimmed || stream) return;
 
@@ -146,6 +151,7 @@ export function useAssistantThread(threadId: string | null) {
           body: JSON.stringify({
             text: trimmed,
             ...(opts.counterpartyId ? { counterpartyId: opts.counterpartyId } : {}),
+            ...(opts.model ? { model: opts.model } : {}),
           }),
           signal: controller.signal,
         });
@@ -184,6 +190,9 @@ export function useAssistantThread(threadId: string | null) {
             } else if (e.event === "delta") {
               bufferRef.current += (e.data as { text: string }).text;
               schedule();
+            } else if (e.event === "model") {
+              const note = (e.data as { note?: string }).note;
+              if (note) setStream((s) => (s ? { ...s, note } : s));
             } else if (e.event === "error") {
               failure = (e.data as { message: string }).message;
             }

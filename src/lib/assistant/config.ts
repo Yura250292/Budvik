@@ -28,9 +28,81 @@ import type { AssistantKind } from "@/lib/assistant/types";
  * його дає не інша модель, а THINKING_KINDS нижче.
  */
 export const MODEL = process.env.ASSISTANT_MODEL || "deepseek-flash";
-export const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
-/** Нижче — менше фантазій у формулюваннях; вище — жвавіший текст. */
+/**
+ * Модель помічника керівника — Gemini, а DeepSeek лишається запасною.
+ *
+ * Рішення власника 16.09.2026: керівникові потрібна модель, що краще
+ * зважує й пояснює, а торговий, водій і склад лишаються на швидкій і
+ * дешевій DeepSeek. Ціна Gemini 3.x Flash — $0,75 / $3,75 за мільйон
+ * (вхід / вихід, до 31.12.2026), тобто вп'ятеро дорожче за DeepSeek; при
+ * ~30 тис. токенів на хід і сотні ходів на місяць це $15–20.
+ *
+ * Чому 3.8, а не 3.7. Того ж дня 3.7 тричі поспіль відповіла 503 «high
+ * demand», а 3.8 працювала; ціна однакова. Через env — щоб перемкнути
+ * без деплою, коли котрась із них почне падати.
+ *
+ * Запасна обовʼязкова, а не про всяк випадок: у день вибору 3.8 кілька
+ * разів мовчала понад хвилину. Хід без запасної в такий день — порожній
+ * екран; з нею — відповідь DeepSeek і позначка, хто відповів.
+ */
+export const ADMIN_MODEL = process.env.ASSISTANT_ADMIN_MODEL || "gemini-3.8-flash";
+export const FALLBACK_MODEL = MODEL;
+
+export type LlmFlavor = "deepseek" | "gemini";
+
+/**
+ * Перемикач у кабінеті керівника обирає ПРОВАЙДЕРА, а не назву моделі.
+ *
+ * Назву моделі — а з нею гроші й ключ — вирішує сервер зі змінних
+ * середовища, а браузер лише каже «Gemini» чи «DeepSeek». Так env лишається
+ * єдиним місцем, де перемикається версія, і сторонній рядок у тілі запиту
+ * нічого не відкриває.
+ */
+export const MODEL_FLAVORS: readonly LlmFlavor[] = ["gemini", "deepseek"];
+
+export function modelForFlavor(flavor: LlmFlavor): string {
+  if (flavor === "deepseek") return MODEL;
+  return ADMIN_MODEL.startsWith("gemini") ? ADMIN_MODEL : "gemini-3.8-flash";
+}
+
+export type LlmProvider = {
+  flavor: LlmFlavor;
+  url: string;
+  /** Змінна середовища з ключем — назва, не значення. */
+  keyEnv: "DEEPSEEK_API_KEY" | "GEMINI_API_KEY";
+  label: string;
+};
+
+const PROVIDERS: Record<LlmFlavor, LlmProvider> = {
+  deepseek: {
+    flavor: "deepseek",
+    url: "https://api.deepseek.com/chat/completions",
+    keyEnv: "DEEPSEEK_API_KEY",
+    label: "DeepSeek",
+  },
+  /**
+   * OpenAI-сумісний вхід Google, а не рідний generateContent.
+   *
+   * Формат повідомлень, інструментів і стріму той самий, що в DeepSeek,
+   * тож цикл ходу, інструменти й склеювання викликів не роздвоюються.
+   * Відмінностей три, і всі вони в llm.ts: підпис думки при кожному
+   * виклику, фрагменти без index і reasoning_effort замість thinking.
+   */
+  gemini: {
+    flavor: "gemini",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    keyEnv: "GEMINI_API_KEY",
+    label: "Gemini",
+  },
+};
+
+/** Провайдер за назвою моделі — префікс однозначний. */
+export function providerFor(model: string): LlmProvider {
+  return model.startsWith("gemini") ? PROVIDERS.gemini : PROVIDERS.deepseek;
+}
+
+/** Нижче — менше фантазій у формулюваннях; вище — жвавіший текст. Лише DeepSeek. */
 export const TEMPERATURE = 0.3;
 
 /** Стеля відповіді: план дня на 10 точок з поясненнями ще вміщається. */
@@ -109,6 +181,26 @@ export const TOOL_CONCURRENCY = 3;
 
 /** Один похід до моделі. */
 export const CALL_TIMEOUT_MS = 40_000;
+
+/**
+ * Скільки лишити ходу на збереження відповіді після останнього виклику.
+ *
+ * Бюджет виклику рахується від дедлайну ходу, а не береться сталим: інакше
+ * повтор і запасна модель складалися б із трьох незалежних 40-секундних
+ * таймаутів — більше, ніж живе роут.
+ */
+export const SAVE_RESERVE_MS = 8_000;
+
+/** Менше цього на виклик — не йдемо до моделі взагалі, а чесно кажемо «не встиг». */
+export const MIN_CALL_MS = 6_000;
+
+/**
+ * Пауза перед повтором на ту саму модель.
+ *
+ * Повтор — лише після ШВИДКОЇ відмови (503/429 за секунду-дві). Після
+ * таймауту повтор марний і з'їдає час запасної моделі.
+ */
+export const RETRY_DELAY_MS = 800;
 
 /**
  * Увесь хід. Менше за maxDuration роута (120 с), бо після дедлайну ще

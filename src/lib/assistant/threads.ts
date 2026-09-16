@@ -121,6 +121,15 @@ export async function appendMessage(input: {
   completionTokens?: number;
   durationMs?: number | null;
   error?: string | null;
+  /**
+   * Модель, що дала цю відповідь (лише фінальна репліка ASSISTANT).
+   *
+   * Пишеться в `toolName`, а не в окрему колонку, і це свідомо: у рядках
+   * ASSISTANT `toolName` завжди порожній, а нова колонка — це міграція на
+   * прод, яку 16.09.2026 не можна було накотити окремо від чужих, ще не
+   * накочених міграцій паралельної роботи. Читає її лише GET розмови.
+   */
+  model?: string | null;
 }) {
   return prisma.assistantMessage.create({
     data: {
@@ -129,7 +138,7 @@ export async function appendMessage(input: {
       content: input.content,
       toolCalls: (input.toolCalls ?? undefined) as Prisma.InputJsonValue | undefined,
       toolCallId: input.toolCallId ?? null,
-      toolName: input.toolName ?? null,
+      toolName: input.toolName ?? input.model ?? null,
       entityIds: input.entityIds ?? [],
       promptTokens: input.promptTokens ?? 0,
       completionTokens: input.completionTokens ?? 0,

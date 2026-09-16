@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { CONSENT_SOURCES, MARKETING_CONSENTS, PREFERRED_CHANNELS } from "@/lib/outreach/types";
 
 type Counterparty = {
   id: string;
@@ -16,7 +17,43 @@ type Counterparty = {
   contactPerson: string | null;
   notes: string | null;
   isActive: boolean;
+  /** Свій, а не клієнт (склад, співробітник, ФОП торгового). */
+  isInternal?: boolean;
+  internalReason?: string | null;
+  marketingConsent?: string;
+  marketingConsentSource?: string | null;
+  preferredChannel?: string | null;
   _count: { purchaseOrders: number; salesDocuments: number; invoices: number };
+};
+
+/**
+ * Звідки згода — словами того, хто вносить її в офісі. Порожнє значення
+ * («не вказано») сервер пише як OFFICE — «внесли в офісі, канал не
+ * названо»: див. PATCH у api/erp/counterparties/[id].
+ */
+const CONSENT_SOURCE_LABELS: Record<string, string> = {
+  REP: "Торговий зі слів клієнта",
+  OFFICE: "Офіс (канал не названо)",
+  BOT: "Клієнт у Telegram-боті",
+  SITE: "Клієнт на сайті",
+  IMPORT: "Імпорт",
+};
+
+const EMPTY_FORM = {
+  name: "",
+  code: "",
+  type: "BOTH" as string,
+  phone: "",
+  email: "",
+  address: "",
+  deliveryAddress: "",
+  contactPerson: "",
+  notes: "",
+  isInternal: false,
+  internalReason: "",
+  marketingConsent: "UNKNOWN",
+  marketingConsentSource: "",
+  preferredChannel: "",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -40,17 +77,7 @@ export default function CounterpartiesPage() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    code: "",
-    type: "BOTH" as string,
-    phone: "",
-    email: "",
-    address: "",
-    deliveryAddress: "",
-    contactPerson: "",
-    notes: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const role = (session?.user as any)?.role;
 
@@ -70,7 +97,7 @@ export default function CounterpartiesPage() {
   }, [role, fetchData]);
 
   const resetForm = () => {
-    setForm({ name: "", code: "", type: "BOTH", phone: "", email: "", address: "", deliveryAddress: "", contactPerson: "", notes: "" });
+    setForm(EMPTY_FORM);
     setEditingId(null);
     setShowForm(false);
   };
@@ -86,6 +113,11 @@ export default function CounterpartiesPage() {
       deliveryAddress: c.deliveryAddress || "",
       contactPerson: c.contactPerson || "",
       notes: c.notes || "",
+      isInternal: c.isInternal ?? false,
+      internalReason: c.internalReason || "",
+      marketingConsent: c.marketingConsent || "UNKNOWN",
+      marketingConsentSource: c.marketingConsentSource || "",
+      preferredChannel: c.preferredChannel || "",
     });
     setEditingId(c.id);
     setShowForm(true);
@@ -296,6 +328,84 @@ export default function CounterpartiesPage() {
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px", resize: "vertical" }}
                   />
                 </div>
+                {/*
+                  Лише в редагуванні: POST нових полів не приймає, а «свій» і
+                  згода — рішення про наявну картку з історією, не про нову.
+                */}
+                {editingId && (
+                  <div className="space-y-4" style={{ borderTop: "1px solid #EFEFEF", paddingTop: "16px" }}>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.isInternal}
+                        onChange={(e) =>
+                          // Знімаючи ознаку, прибираємо й причину: «ФОП торгового»
+                          // на картці, яка вже клієнт, вводила б в оману.
+                          setForm({ ...form, isInternal: e.target.checked, internalReason: e.target.checked ? form.internalReason : "" })
+                        }
+                        style={{ marginTop: "3px", width: "16px", height: "16px", accentColor: "#0A0A0A", flexShrink: 0 }}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-[#0A0A0A]">Внутрішній (не клієнт)</span>
+                        <span className="block" style={{ fontSize: "11px", color: "#9CA3AF", marginTop: "2px" }}>
+                          Склад, співробітник, ФОП торгового. Зникає зі списків клієнтів, втрачених і дзвінків; оборот і зарплата не змінюються.
+                        </span>
+                      </span>
+                    </label>
+                    {form.isInternal && (
+                      <div>
+                        <label className="block text-sm font-medium text-g600 mb-1">Чому свій</label>
+                        <input
+                          value={form.internalReason}
+                          onChange={(e) => setForm({ ...form, internalReason: e.target.value })}
+                          placeholder="ФОП торгового, перевиписка відвантажень"
+                          style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                        />
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-g600 mb-1">Згода на розсилки</label>
+                        <select
+                          value={form.marketingConsent}
+                          onChange={(e) => setForm({ ...form, marketingConsent: e.target.value })}
+                          style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                        >
+                          {MARKETING_CONSENTS.map((c) => (
+                            <option key={c.key} value={c.key}>{c.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-g600 mb-1">Звідки згода</label>
+                        <select
+                          value={form.marketingConsentSource}
+                          onChange={(e) => setForm({ ...form, marketingConsentSource: e.target.value })}
+                          disabled={form.marketingConsent === "UNKNOWN"}
+                          style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px", opacity: form.marketingConsent === "UNKNOWN" ? 0.5 : 1 }}
+                        >
+                          <option value="">Не вказано</option>
+                          {CONSENT_SOURCES.map((s) => (
+                            <option key={s} value={s}>{CONSENT_SOURCE_LABELS[s] ?? s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-g600 mb-1">Як зручніше зв&apos;язуватися</label>
+                      <select
+                        value={form.preferredChannel}
+                        onChange={(e) => setForm({ ...form, preferredChannel: e.target.value })}
+                        style={{ width: "100%", padding: "10px 14px", borderRadius: "8px", border: "1px solid #E5E7EB", fontSize: "14px" }}
+                      >
+                        <option value="">Не вказано</option>
+                        {PREFERRED_CHANNELS.map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-3 pt-2">
                   <button
                     type="submit"
@@ -360,7 +470,18 @@ export default function CounterpartiesPage() {
                         className="hover:bg-g50 transition-colors"
                       >
                         <td style={{ padding: "14px 16px" }}>
-                          <div style={{ fontWeight: 600, fontSize: "14px", color: "#0A0A0A" }}>{c.name}</div>
+                          <div style={{ fontWeight: 600, fontSize: "14px", color: "#0A0A0A" }}>
+                            {c.name}
+                            {c.isInternal && (
+                              <span
+                                title={c.internalReason ? `Свій, не клієнт: ${c.internalReason}` : "Свій, не клієнт"}
+                                className="bg-g100 text-g400 rounded-md"
+                                style={{ marginLeft: "6px", padding: "1px 6px", fontSize: "11px", fontWeight: 500, verticalAlign: "middle" }}
+                              >
+                                свій
+                              </span>
+                            )}
+                          </div>
                           {c.contactPerson && (
                             <div style={{ fontSize: "12px", color: "#9CA3AF", marginTop: "2px" }}>{c.contactPerson}</div>
                           )}

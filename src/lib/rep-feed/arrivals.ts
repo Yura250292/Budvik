@@ -23,7 +23,7 @@ import { isHiddenCategory } from "@/lib/catalog/category-display";
 import { kyivDate } from "@/lib/date/kyiv";
 import { worksToday, isWeekend } from "./call-list";
 import { ARRIVAL_HOUR, arrivalWindow, describeArrival, inDigestWindow } from "./format";
-import { isInternalCounterparty, loadStaffNames } from "./internal";
+import { isInternalClient, loadInternalContext, type InternalContext } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
 /** За скільки днів покупки клієнта вважаються «він це бере». */
@@ -53,12 +53,14 @@ type Row = {
 
 /**
  * Позиції приходу за вікно, які беруть клієнти торгового, від найширше
- * затребуваних. Внутрішні контрагенти (склад, співробітники) — не клієнти.
+ * затребуваних. Внутрішні контрагенти (склад, співробітники, ФОП торгових) —
+ * не клієнти: відсіюються за ознакою Counterparty.isInternal або назвою.
+ * `internal` передає обхід усіх торгових, щоб не читати його на кожного.
  */
 export async function arrivalsForRep(
   repId: string,
   window: { from: Date; to: Date },
-  staff?: ReadonlySet<string>
+  internal?: InternalContext
 ): Promise<ArrivalItem[]> {
   // Дати продажів 1С теж стінний час як UTC; півроку назад похибка в години не важить.
   const buyersSince = new Date(window.to.getTime() - BUYER_WINDOW_DAYS * DAY_MS);
@@ -103,11 +105,11 @@ export async function arrivalsForRep(
     LIMIT 300
   `;
 
-  const staffKeys = staff ?? (await loadStaffNames());
+  const ctx = internal ?? (await loadInternalContext());
   const items: ArrivalItem[] = [];
   for (const r of rows) {
     if (isHiddenCategory(r.categoryName)) continue;
-    const clients = (r.clients ?? []).filter((c) => !isInternalCounterparty(c.name, staffKeys));
+    const clients = (r.clients ?? []).filter((c) => !isInternalClient(c, ctx));
     if (clients.length === 0) continue;
     items.push({
       productId: r.productId,
@@ -147,7 +149,7 @@ export async function collectArrivals(now: Date): Promise<FeedEvent[]> {
   if (docs === 0) return [];
 
   const reps = await prisma.user.findMany({ where: { role: "SALES" }, select: { id: true } });
-  const staff = await loadStaffNames();
+  const internal = await loadInternalContext();
   const events: FeedEvent[] = [];
 
   for (const { id: repId } of reps) {
@@ -156,7 +158,7 @@ export async function collectArrivals(now: Date): Promise<FeedEvent[]> {
     if (known) continue;
     if (!(await worksToday(repId, day))) continue;
 
-    const items = await arrivalsForRep(repId, window, staff);
+    const items = await arrivalsForRep(repId, window, internal);
     if (items.length === 0) continue;
 
     events.push({

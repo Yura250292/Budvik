@@ -17,7 +17,8 @@
 # Scopes, cheapest first:
 #   light   -- prices and stock only, and only for positions that moved since
 #              the last successful run. The 5-minute cycle.
-#   hourly  -- light plus the full catalogs (products, categories, warehouses).
+#   hourly  -- light plus the full catalogs (products, categories, warehouses)
+#              and counterparty contacts.
 #   full    -- everything, ignoring the incremental watermark. Nightly; also
 #              the only scope that can carry a full snapshot for reconciliation.
 #
@@ -261,6 +262,15 @@ if ($config.scope.documents) {
     $filesThisScope += @("counterparty.ndjson", "sales_doc.ndjson", "realization_doc.ndjson",
                          "return_doc.ndjson", "purchase_doc.ndjson", "debt.ndjson", "payment.ndjson",
                          "route_sheet.ndjson", "route_sheet_stop.ndjson")
+
+    # Contacts are REWRITTEN only on hourly/full runs, yet removed on every
+    # documents run -- deliberately unlike the catalog files above. Nothing
+    # reads this file between cycles (send.ps1 ships it in the same cycle that
+    # wrote it), so keeping it buys nothing, while a leftover would be shipped
+    # again by the next hourly run whose contacts query failed or whose
+    # scope.contacts was switched off. Gated on documents only, not on the
+    # contacts flag, so turning the channel off also clears the last file.
+    $filesThisScope += @("counterparty_contact.ndjson")
 }
 foreach ($f in $filesThisScope) {
     Remove-Item (Join-Path $OutDir $f) -Force -EA 0
@@ -784,10 +794,14 @@ try {
         Log "reading counterparties..."
         $w = NewWriter (Join-Path $OutDir "counterparty.ndjson")
         $n = 0
+        # Every counterparty id, for the contacts block below: it writes one
+        # record per counterparty, including those with no contact rows.
+        $cpIds = New-Object Collections.Generic.List[string]
         $r = RunQuery $queries.counterparties
         while ($r.Next()) {
             $id = RefId $ib $r.Get(0)
             if (-not $id) { continue }
+            $cpIds.Add($id)
             $rec = [ordered]@{ externalId = $id; name = Str $r.Get(1) }
             $code = Str $r.Get(2)
             if ($code) { $rec.code = $code }
@@ -815,6 +829,108 @@ try {
         $w.Close()
         $stats.counterparties = $n
         Log "counterparties: $n"
+
+        # --- counterparty contacts: phones, e-mail, addresses ---
+        #
+        # The counterparty catalogue has no phone or address attribute at all
+        # (probe-coverage.ps1 tried seven names); they live in the register
+        # KontaktnayaInformatsiya -- 11 109 rows over 3 341 objects. Until this
+        # block the site had them only from a one-off export (export-contacts.ps1,
+        # 25.08.2026): a new customer arrived without a phone, and a phone
+        # changed in 1C never arrived at all.
+        #
+        # Gated on $doCatalogs, i.e. hourly and full runs, never the 5-minute
+        # light run. The register has no change date, so it can only be read
+        # whole, and contacts change a few times a week -- reading 11k rows
+        # every five minutes to catch that would be all cost. The first run
+        # without a watermark reads it too, exactly as it does the catalogs.
+        #
+        # ONE record per counterparty from the loop above, including those
+        # with no rows: the register only returns rows that exist, so an empty
+        # "contacts" list is the only way the server learns that 1C removed a
+        # phone. Without it a deleted number would live on the site forever --
+        # the same class of bug the debt reconciliation exists for.
+        #
+        # Kinds are NOT interpreted here. Mobile vs landline, fax vs phone and
+        # which row is primary are site semantics (src/lib/contacts/kinds.ts);
+        # the agent stays a transcript of 1C.
+        #
+        # A missing scope.contacts flag means the channel is off. The server
+        # rejects an entity type it does not know, so the flag is what orders
+        # the rollout: deploy the site and worker first, then flip it here.
+        #
+        # Best-effort, like receipts and debt below: losing contacts for an
+        # hour is far better than losing the documents that follow.
+        if ($config.scope.contacts -and $doCatalogs) {
+            Log "reading counterparty contacts..."
+            $wc = $null
+            try {
+                $byCp = @{}
+                $contactRows = 0
+                $r = RunQuery $queries.contacts
+                while ($r.Next()) {
+                    $obj = RefId $ib $r.Get(0)
+                    if (-not $obj) { continue }
+                    $val = Str $r.Get(2)
+                    if (-not $val) { continue }
+                    $row = [ordered]@{ kind1C = Str $r.Get(1); value = $val }
+                    # Column 3 is the contact TYPE (phone / address / e-mail).
+                    # Guarded so a query without it keeps working: the server
+                    # then infers the kind from the kind name alone.
+                    try {
+                        $typ = Str $r.Get(3)
+                        if ($typ) { $row.type1C = $typ }
+                    } catch { }
+                    if (-not $byCp.ContainsKey($obj)) {
+                        $byCp[$obj] = New-Object Collections.Generic.List[object]
+                    }
+                    [void]$byCp[$obj].Add($row)
+                    $contactRows++
+                }
+                Log ("  contact rows: {0} for {1} counterparties" -f $contactRows, $byCp.Count)
+
+                $wc = NewWriter (Join-Path $OutDir "counterparty_contact.ndjson")
+                $n = 0
+                $withRows = 0
+                foreach ($cpId in $cpIds) {
+                    $list = New-Object Collections.Generic.List[object]
+                    if ($byCp.ContainsKey($cpId)) {
+                        # The register keeps no row order, and an unordered
+                        # selection may come back shuffled. Sorting by kind and
+                        # value makes the ordinal stable from run to run --
+                        # otherwise the server would see every counterparty as
+                        # changed and rewrite rows nobody touched.
+                        $sorted = @($byCp[$cpId] | Sort-Object -CaseSensitive -Property `
+                            @{ Expression = { $_.kind1C } }, @{ Expression = { $_.value } })
+                        $i = 0
+                        foreach ($row in $sorted) {
+                            $row.ordinal = $i
+                            [void]$list.Add($row)
+                            $i++
+                        }
+                        $withRows++
+                    }
+                    WriteRecord $wc ([ordered]@{ externalId = $cpId; contacts = $list.ToArray() })
+                    $n++
+                }
+                $wc.Close()
+                $stats.contacts = $n
+                $stats.contactRows = $contactRows
+                Log ("contacts: {0} counterparties ({1} with rows)" -f $n, $withRows)
+            }
+            catch {
+                if ($wc) { try { $wc.Close() } catch { } }
+                # Half a file is worse than none: a truncated list would read on
+                # the server as "1C removed these contacts".
+                Remove-Item (Join-Path $OutDir "counterparty_contact.ndjson") -Force -EA 0
+                if (IsConnectionLost $_) {
+                    Log ("contacts: connection lost -- aborting attempt")
+                    throw
+                }
+                $stats.contactsFailed = $_.Exception.Message
+                Log ("contacts: SKIPPED -- " + $_.Exception.Message)
+            }
+        }
 
         # --- orders, with their line items ---
         #

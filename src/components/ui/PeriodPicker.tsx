@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 
 /**
  * Вибір періоду: пресети + довільний діапазон.
@@ -37,11 +38,16 @@ export type Period = { from: string; to: string };
  * періоду (parsePeriod), але без цієї межі календар пропонував би обрати
  * 2024 рік і мовчки повертав би січень 2026 — вибір, який нікуди не веде.
  *
- * Значення дублює ANALYTICS_SINCE_DAY із lib/analytics/since.ts: клієнтський
- * компонент не може імпортувати серверний модуль, тож при зміні межі
- * (після глибокого бекфілу реалізацій) правити треба обидва місця.
+ * Значення береться з lib/analytics/since.ts, а не дублюється: той модуль
+ * без жодного імпорту (ні Prisma, ні next/*), тож клієнтському компоненту
+ * його імпортувати безпечно. Після глибокого бекфілу реалізацій межа
+ * рухається одним рядком там — і календар, і підпис нижче підуть за нею.
  */
-export const ANALYTICS_SINCE_DAY = "2026-01-01";
+const SINCE_MONTHS = [
+  "січня", "лютого", "березня", "квітня", "травня", "червня",
+  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+];
+const SINCE_LABEL = `${SINCE_MONTHS[Number(ANALYTICS_SINCE_DAY.slice(5, 7)) - 1]} ${ANALYTICS_SINCE_DAY.slice(0, 4)}`;
 
 /** Не даємо пресету зазирнути глибше за наявну історію. */
 function clampDay(day: string): string {
@@ -141,8 +147,8 @@ export function PeriodPicker({
       )}
 
       {value.from === ANALYTICS_SINCE_DAY && (
-        <span className="text-xs text-g400" title="Реалізації з 1С завантажені з січня 2026. За раніші місяці в базі є лише повернення, тож оборот за них показувати не можна.">
-          дані з січня 2026
+        <span className="text-xs text-g400" title={`Реалізації з 1С завантажені з ${SINCE_LABEL}. За раніші місяці в базі є лише повернення, тож оборот за них показувати не можна.`}>
+          дані з {SINCE_LABEL}
         </span>
       )}
     </div>

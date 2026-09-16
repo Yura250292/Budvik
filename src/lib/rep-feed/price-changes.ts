@@ -24,7 +24,7 @@ import { kyivDate } from "@/lib/date/kyiv";
 import type { ArrivalClient } from "./arrivals";
 import { isWeekend, worksToday } from "./call-list";
 import { describePriceUp, inDigestWindow, PRICE_HOUR, priceBasis, priceWindow } from "./format";
-import { isInternalCounterparty, loadStaffNames } from "./internal";
+import { isInternalClient, loadInternalContext, type InternalContext } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
 /** Нижче цього — округлення й копійчані перерахунки курсу, не новина. */
@@ -90,11 +90,14 @@ type Row = {
   clients: ArrivalClient[] | null;
 };
 
-/** Подорожчання за вікно на товарах, які беруть клієнти торгового. */
+/**
+ * Подорожчання за вікно на товарах, які беруть клієнти торгового.
+ * Свої (ознака Counterparty.isInternal або назва) — не клієнти, їх відсіяно.
+ */
 export async function priceChangesForRep(
   repId: string,
   window: { from: Date; to: Date },
-  staff?: ReadonlySet<string>
+  internal?: InternalContext
 ): Promise<PriceChangeItem[]> {
   const buyersSince = new Date(window.to.getTime() - BUYER_WINDOW_DAYS * DAY_MS);
   const rows = await prisma.$queryRaw<Row[]>`
@@ -134,13 +137,13 @@ export async function priceChangesForRep(
     LIMIT 500
   `;
 
-  const staffKeys = staff ?? (await loadStaffNames());
+  const ctx = internal ?? (await loadInternalContext());
   const items: PriceChangeItem[] = [];
   for (const r of rows) {
     if (isHiddenCategory(r.categoryName)) continue;
     const basis = priceBasis(r);
     if (!basis || basis.pct < MIN_PCT) continue;
-    const clients = (r.clients ?? []).filter((c) => !isInternalCounterparty(c.name, staffKeys));
+    const clients = (r.clients ?? []).filter((c) => !isInternalClient(c, ctx));
     if (clients.length === 0) continue;
     items.push({ productId: r.productId, name: r.name, sku: r.sku, ...basis, clients });
   }
@@ -162,7 +165,7 @@ export async function collectPriceUps(now: Date): Promise<FeedEvent[]> {
   if (any === 0) return [];
 
   const reps = await prisma.user.findMany({ where: { role: "SALES" }, select: { id: true } });
-  const staff = await loadStaffNames();
+  const internal = await loadInternalContext();
   const events: FeedEvent[] = [];
 
   for (const { id: repId } of reps) {
@@ -171,7 +174,7 @@ export async function collectPriceUps(now: Date): Promise<FeedEvent[]> {
     if (known) continue;
     if (!(await worksToday(repId, day))) continue;
 
-    const items = await priceChangesForRep(repId, window, staff);
+    const items = await priceChangesForRep(repId, window, internal);
     if (items.length === 0) continue;
 
     events.push({

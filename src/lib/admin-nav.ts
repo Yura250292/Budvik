@@ -89,6 +89,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: "marketing",
+    title: "Маркетинг",
+    // Одразу після продажів: продажі — те, що клієнти вже взяли, а тут —
+    // клієнти, які перестали брати, і чи повертають їх пропозиції торгових.
+    // Лише офіс: телефони, згоди й борги всієї бази (див. middleware).
+    items: [
+      { href: "/admin/marketing", title: "Робота з базою", desc: "Сплячі клієнти, пропозиції торгових, конверсія", iconKey: "megaphone", roles: AM },
+    ],
+  },
+  {
     // id лишився старий: під ним у localStorage лежить стан згортання групи.
     id: "logistics",
     title: "Логістика",
@@ -247,6 +257,8 @@ export function canAccess(pathname: string, role: AdminRole): boolean {
     // Наради керівництва й задачі всієї команди; свої задачі торговий бачить у /sales/tasks.
     "/admin/meetings",
     "/admin/tasks",
+    // Телефони, згоди й борги всієї бази; свої пропозиції — у /sales/outreach.
+    "/admin/marketing",
   ];
   if (pathname === "/admin/sales") return false;
   return !blocked.some((p) => pathname.startsWith(p));

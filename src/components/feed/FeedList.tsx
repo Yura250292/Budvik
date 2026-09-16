@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Banknote, BarChart3, BellRing, ChevronRight, ClipboardCheck, ClipboardList, FileCheck, ListChecks, MapPin, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
+import { Banknote, BarChart3, BellRing, ChevronRight, ClipboardCheck, ClipboardList, FileCheck, HandCoins, ListChecks, MapPin, MessageCircle, PackageCheck, PackagePlus, PhoneCall, Route, TrendingUp, Truck, Undo2 } from "lucide-react";
 import { REP_FEED_TYPES } from "@/lib/rep-feed/types";
 
 /**
@@ -42,11 +42,21 @@ export const FEED_ICONS: Record<string, typeof Banknote> = {
   [REP_FEED_TYPES.TASK]: ClipboardList,
   [REP_FEED_TYPES.TASK_DONE]: ListChecks,
   [REP_FEED_TYPES.MEETING]: ClipboardList,
+  [REP_FEED_TYPES.OUTREACH_RESULT]: HandCoins,
+  [REP_FEED_TYPES.OUTREACH_LIST]: MessageCircle,
 };
 
-/** Оплата — зелена, повернення — червоне, підказки й прихід — жовті, документи — нейтральні. */
+/**
+ * Оплата й спрацьована пропозиція — зелені (гроші прийшли), повернення —
+ * червоне, підказки й прихід — жовті, документи — нейтральні.
+ */
 export function feedTone(type: string): string {
-  if (type === REP_FEED_TYPES.PAYMENT || type === REP_FEED_TYPES.REQUEST_DONE || type === REP_FEED_TYPES.TASK_DONE) {
+  if (
+    type === REP_FEED_TYPES.PAYMENT ||
+    type === REP_FEED_TYPES.REQUEST_DONE ||
+    type === REP_FEED_TYPES.TASK_DONE ||
+    type === REP_FEED_TYPES.OUTREACH_RESULT
+  ) {
     return "text-ok";
   }
   if (type === REP_FEED_TYPES.RETURN) return "text-bad";
@@ -54,6 +64,7 @@ export function feedTone(type: string): string {
     type === REP_FEED_TYPES.TASK ||
     type === REP_FEED_TYPES.VISIT ||
     type === REP_FEED_TYPES.CALL_LIST ||
+    type === REP_FEED_TYPES.OUTREACH_LIST ||
     type === REP_FEED_TYPES.ARRIVAL ||
     type === REP_FEED_TYPES.WATCH ||
     type === REP_FEED_TYPES.PRICE_UP

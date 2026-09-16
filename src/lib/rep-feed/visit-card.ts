@@ -28,7 +28,7 @@ import { myClientsCte } from "@/lib/assistant/facts/sql";
 import { kyivDate } from "@/lib/date/kyiv";
 import { findStops, type StopCandidate } from "@/lib/track/stops";
 import { describeVisit } from "./format";
-import { isInternalCounterparty, loadStaffNames } from "./internal";
+import { isInternalClient, loadInternalContext, type InternalContext } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
 /** Скільки хвилин треку читаємо назад: має вмістити стоянку від 5 хв. */
@@ -48,8 +48,9 @@ type CandidateRow = { id: string; name: string; lat: number; lng: number };
 /**
  * Клієнти торгового з точним піном — кандидати на підпис зупинки.
  * Без внутрішніх: склад із піном MANUAL інакше ставав би «клієнтом» щоранку.
+ * Ознака ловить і ФОП торгового, якого назва не видає.
  */
-async function candidatesFor(repId: string, staff: ReadonlySet<string>): Promise<StopCandidate[]> {
+async function candidatesFor(repId: string, internal: InternalContext): Promise<StopCandidate[]> {
   const rows = await prisma.$queryRaw<CandidateRow[]>`
     WITH ${myClientsCte(repId)}
     SELECT c.id, c.name, c."deliveryLat"::float AS lat, c."deliveryLng"::float AS lng
@@ -59,7 +60,7 @@ async function candidatesFor(repId: string, staff: ReadonlySet<string>): Promise
       AND (c."geoSource" IS NULL OR c."geoSource"::text IN ('GEOCODED', 'MANUAL'))
   `;
   return rows
-    .filter((r) => !isInternalCounterparty(r.name, staff))
+    .filter((r) => !isInternalClient(r, internal))
     .map((r) => ({ counterpartyId: r.id, name: r.name, lat: r.lat, lng: r.lng }));
 }
 
@@ -101,7 +102,7 @@ export async function collectVisitCards(now: Date): Promise<FeedEvent[]> {
   if (open.length === 0) return [];
 
   const day = kyivDate(now);
-  const staff = await loadStaffNames();
+  const internal = await loadInternalContext();
   const since = new Date(now.getTime() - LOOKBACK_MINUTES * 60_000);
   const recentEdge = now.getTime() - RECENT_END_MINUTES * 60_000;
   const events: FeedEvent[] = [];
@@ -114,7 +115,7 @@ export async function collectVisitCards(now: Date): Promise<FeedEvent[]> {
     });
     if (points.length < MIN_POINTS) continue;
 
-    const stops = findStops(points, await candidatesFor(repId, staff)).filter(
+    const stops = findStops(points, await candidatesFor(repId, internal)).filter(
       (s) => s.counterpartyId && s.to.getTime() >= recentEdge
     );
     // Остання за часом: якщо людина встигла постояти у двох, друга актуальніша.

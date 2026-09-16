@@ -149,6 +149,9 @@ $plan = @(
     @{ file = "price.ndjson";        entity = "price"        },
     @{ file = "stock.ndjson";        entity = "stock"        },
     @{ file = "counterparty.ndjson"; entity = "counterparty" },
+    # Contacts right after their counterparties: a contact whose counterparty
+    # the site has not created yet is skipped, not queued.
+    @{ file = "counterparty_contact.ndjson"; entity = "counterparty_contact" },
     @{ file = "sales_doc.ndjson";    entity = "sales_doc"    },
     @{ file = "realization_doc.ndjson"; entity = "realization_doc" },
     @{ file = "return_doc.ndjson";   entity = "return_doc"   },
@@ -179,8 +182,12 @@ try {
         # run so the matching script can use them, so presence on disk is not
         # proof this run produced them. The manifest is the authority: it says
         # whether catalogs were part of this extract at all.
+        #
+        # Contacts ride the same cadence (hourly/full only). extract.ps1 also
+        # deletes their file on every run, so this is the second guard: a light
+        # run must never re-ship a contact list read an hour ago.
         if ($manifest.catalogsSkipped -and
-            $step.entity -in @("category", "product", "warehouse")) {
+            $step.entity -in @("category", "product", "warehouse", "counterparty_contact")) {
             Log ("skip {0} (catalogs not part of this extract)" -f $step.file)
             continue
         }
@@ -196,6 +203,12 @@ try {
         $stepBatch = $batchSize
         if ($step.entity -in @("sales_doc", "realization_doc", "return_doc", "purchase_doc")) {
             $stepBatch = [Math]::Min($batchSize, 100)
+        }
+        # The first delivery of contacts creates ~11k rows, and the server
+        # applies each changed counterparty in its own transaction. 200 keeps
+        # one request well inside the 120-second timeout on that first run.
+        if ($step.entity -eq "counterparty_contact") {
+            $stepBatch = [Math]::Min($batchSize, 200)
         }
 
         # Snapshot ids for the whole entity type, used by "full" runs to flag

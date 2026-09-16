@@ -792,8 +792,13 @@ export default function CabinetScreen() {
            * WebView ці адреси відкинув би: viber: — не наш домен, t.me/share —
            * теж. Без Viber на планшеті openURL мовчки відмовить, і на сторінці
            * лишається копіювання тексту.
+           *
+           * sms:/smsto: і будь-яке t.me — для пропозиції клієнту на картці
+           * клієнта: кнопка SMS відкриває системні повідомлення з готовим
+           * текстом, а посилання t.me/<ім'я> з нотаток веде в чат клієнта, а
+           * не лише в «поділитися».
            */
-          if (/^(https:\/\/(www\.)?google\.[a-z.]+\/maps|https:\/\/maps\.app\.goo\.gl|https:\/\/(www\.)?waze\.com|waze:|geo:|tel:|viber:|https:\/\/t\.me\/share)/i.test(req.url)) {
+          if (/^(https:\/\/(www\.)?google\.[a-z.]+\/maps|https:\/\/maps\.app\.goo\.gl|https:\/\/(www\.)?waze\.com|waze:|geo:|tel:|sms:|smsto:|viber:|https:\/\/t\.me\/)/i.test(req.url)) {
             Linking.openURL(req.url).catch(() => {});
             return false;
           }

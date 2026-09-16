@@ -31,6 +31,7 @@ import {
   alertMassPriceChange,
   alertMissingEntities,
   alertQueryFailed,
+  alertSnapshotQueryFailed,
   alertRunFailed,
   MISSING_ALERT_THRESHOLD,
   PRICE_CHANGE_ALERT_RATIO,
@@ -356,6 +357,10 @@ export async function handleCompleteRun(
   }
   if (body.counts?.receiptsFailed) {
     await alertQueryFailed(runId, "надходження товару", String(body.counts.receiptsFailed));
+  }
+  if (body.counts?.contactsFailed) {
+    // Повний зріз: наступний прогін перечитає все, тож інший текст і пауза між нагадуваннями.
+    await alertSnapshotQueryFailed(runId, "contacts", "контакти клієнтів", String(body.counts.contactsFailed));
   }
 
   if (status === "failed") {

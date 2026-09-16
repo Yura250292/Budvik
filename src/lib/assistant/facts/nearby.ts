@@ -18,6 +18,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { NOT_INTERNAL } from "@/lib/analytics/facts";
 import { agingByCounterparty } from "@/lib/analytics/money-facts";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
 
@@ -105,6 +106,9 @@ export async function nearbyClients(
         WHERE s."counterpartyId" = c.id AND s."docType" <> 'RETURN') AS "lastDocAt"
     FROM "Counterparty" c
     WHERE c."isActive"
+      -- Свої (склад, ФОП торгових) — не «до кого заскочити»: склад із точним
+      -- піном інакше стояв би першим у кожній відповіді біля бази.
+      AND ${NOT_INTERNAL}
       AND c."deliveryLat" IS NOT NULL AND c."deliveryLng" IS NOT NULL
       AND c."deliveryLat" BETWEEN ${point.lat - dLat} AND ${point.lat + dLat}
       AND c."deliveryLng" BETWEEN ${point.lng - dLng} AND ${point.lng + dLng}

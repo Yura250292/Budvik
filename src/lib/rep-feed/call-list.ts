@@ -16,7 +16,7 @@ import { repActionCandidates, ACTION_LABELS, type ActionKind } from "@/lib/analy
 import { shiftDay } from "@/lib/analytics/period";
 import { KYIV_TZ, kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 import { describeCallList, inDigestWindow } from "./format";
-import { isInternalCounterparty, loadStaffNames } from "./internal";
+import { isInternalClient, loadInternalContext } from "./internal";
 import { REP_FEED_TYPES, type FeedEvent } from "./types";
 
 export const CALL_LIST_HOUR = 11;
@@ -71,7 +71,7 @@ export async function collectCallLists(now: Date): Promise<FeedEvent[]> {
   };
 
   const reps = await prisma.user.findMany({ where: { role: "SALES" }, select: { id: true } });
-  const staff = await loadStaffNames();
+  const internal = await loadInternalContext();
   const events: FeedEvent[] = [];
 
   for (const { id: repId } of reps) {
@@ -81,9 +81,11 @@ export async function collectCallLists(now: Date): Promise<FeedEvent[]> {
     if (!(await worksToday(repId, day))) continue;
 
     // Склад, співробітники й картки на ім'я торгових — не клієнти, дзвонити
-    // їм «забрати борг» нема сенсу, а в топ вони лізуть першими.
+    // їм «забрати борг» нема сенсу, а в топ вони лізуть першими. Ознака
+    // ловить «ФОП Кулик Дмитро Михайлович», якого назва не видає; назва —
+    // щойно заведені картки, які ще ніхто не позначив.
     const all = (await repActionCandidates(repId, period)).filter(
-      (c) => !isInternalCounterparty(c.name, staff)
+      (c) => !isInternalClient({ id: c.counterpartyId, name: c.name }, internal)
     );
     if (all.length === 0) continue;
 
@@ -96,7 +98,9 @@ export async function collectCallLists(now: Date): Promise<FeedEvent[]> {
       repId,
       dedupKey,
       relatedId: null,
-      target: "/sales/clients",
+      // Окрема сторінка, а не /sales/clients?filter=…: білий список тапів
+      // застосунку (CABINET_TARGET) параметрів запиту не пропускає.
+      target: "/sales/outreach",
       ...describeCallList(top.map((c) => ({ name: c.name, action: ACTION_LABELS[c.kind] }))),
       at: now,
       standalone: true,

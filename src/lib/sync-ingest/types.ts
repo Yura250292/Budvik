@@ -19,6 +19,7 @@ export type SyncEntityType =
   | "warehouse"
   | "stock"
   | "counterparty"
+  | "counterparty_contact"
   | "sales_doc"
   | "realization_doc"
   | "return_doc"
@@ -121,6 +122,50 @@ export interface CounterpartyRecord {
   isSupplier?: boolean;
   isCustomer?: boolean;
   deleted?: boolean;
+}
+
+/**
+ * Один рядок регістру 1С «КонтактнаяИнформация», переказаний як є.
+ *
+ * Вид на сайті (мобільний, міський, пошта, адреса) і головний контакт
+ * виводить сервер — src/lib/contacts/kinds.ts. Агент лише стенограма 1С.
+ */
+export interface ContactRowRecord {
+  /** ПРЕДСТАВЛЕНИЕ(Вид): «Телефон контрагента», «Адрес доставки»… */
+  kind1C: string;
+  /** Представление — значення, як його бачить менеджер у формі 1С. */
+  value: string;
+  /**
+   * ПРЕДСТАВЛЕНИЕ(Тип): «Телефон», «Адрес», «E-Mail», «Другое». Поля немає —
+   * запит без четвертої колонки, і вид сервер виводить із назви.
+   */
+  type1C?: string;
+  /**
+   * Місце рядка серед контактів контрагента.
+   *
+   * Власного порядку в регістрі немає, тож агент сортує рядки за видом і
+   * значенням. Без цього невпорядкована вибірка давала б інший порядок
+   * щопрогону, і сервер переписував би рядки, яких у 1С ніхто не чіпав.
+   */
+  ordinal: number;
+  /** Контактна особа, якщо рядок належить їй. Агент поки не шле — чекає проби. */
+  personExternalId?: string;
+  personName?: string;
+}
+
+/**
+ * Усі контакти одного контрагента — повним набором.
+ *
+ * Запис приходить на КОЖНОГО контрагента з каналу counterparty, навіть без
+ * жодного рядка (`contacts: []`): саме порожній набір каже серверу, що в 1С
+ * контакти прибрали. Регістр віддає лише наявні рядки, і без цього зниклий
+ * номер жив би на сайті вічно — той самий клас помилок, що з боргами (див.
+ * «Коли запис ЗНИКАЄ з вивантаження» у docs/1c-sync.md).
+ */
+export interface CounterpartyContactsRecord {
+  /** externalId контрагента. */
+  externalId: string;
+  contacts: ContactRowRecord[];
 }
 
 /** Рядок табличної частини документа. */
@@ -347,6 +392,7 @@ export type SyncRecord =
   | WarehouseRecord
   | StockRecord
   | CounterpartyRecord
+  | CounterpartyContactsRecord
   | DocumentRecord
   | RouteSheetRecord
   | DebtRecord
@@ -360,6 +406,7 @@ export interface SyncRecordMap {
   warehouse: WarehouseRecord;
   stock: StockRecord;
   counterparty: CounterpartyRecord;
+  counterparty_contact: CounterpartyContactsRecord;
   sales_doc: DocumentRecord;
   realization_doc: DocumentRecord;
   return_doc: DocumentRecord;
@@ -442,6 +489,13 @@ export interface CompleteRunRequest {
     debtFailed?: string;
     paymentsFailed?: string;
     receiptsFailed?: string;
+    /**
+     * Запит контактів (канал counterparty_contact) упав. На відміну від
+     * боргу, вікна тут немає: це повний зріз, і наступний погодинний прогін
+     * прочитає його заново — сповіщення потрібне, щоб збій не повторювався
+     * тижнями непомітно.
+     */
+    contactsFailed?: string;
   };
 }
 

@@ -39,6 +39,7 @@ import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { runNightlyMarketWork, runWeeklyProposals } from "@/lib/pricing/agent/run";
 import { processMeetings } from "@/lib/meetings/process";
 import { deliverTaskNotifications } from "@/lib/tasks/notify";
+import { isOutreachTableMissing, settleOutreachOutcomes } from "@/lib/outreach/settle";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
@@ -583,6 +584,46 @@ async function tickMeetings(): Promise<void> {
 
 const meetingsTimer = setInterval(() => void tickMeetings(), MEETINGS_INTERVAL_MS);
 
+// ========== Пропозиції клієнтам ==========
+
+/**
+ * Чим закінчились пропозиції торгових (src/lib/outreach/settle.ts): клієнт
+ * узяв товар протягом двох тижнів — ORDERED із накладною й сумою; три тижні
+ * тиші — NO_ANSWER. Ручну відмітку торгового воркер не перезаписує.
+ *
+ * Чверть години, як решта: накладні приходять з 1С раз на 5 хвилин, а пуш
+ * «Пропозиція спрацювала» (стрічка, rep-feed/outreach-results.ts) іде
+ * наступним тіком стрічки, тож спізнення тут нікому не шкодить.
+ *
+ * Поки міграцію ClientOutreach не накочено, прохід пише про це один рядок
+ * на запуск воркера замість стеку кожні 15 хвилин.
+ */
+let outreachBusy = false;
+let outreachTableWarned = false;
+
+async function tickOutreach(): Promise<void> {
+  if (outreachBusy) return;
+  outreachBusy = true;
+  try {
+    const run = await settleOutreachOutcomes();
+    if (run.ordered > 0 || run.noAnswer > 0) {
+      console.log(`пропозиції: замовили ${run.ordered}, без відповіді ${run.noAnswer}`);
+      for (const line of run.lines) console.log(`пропозиції: ${line}`);
+    }
+  } catch (e) {
+    if (isOutreachTableMissing(e)) {
+      if (!outreachTableWarned) console.warn("пропозиції: таблиці ClientOutreach ще немає — міграцію не накочено");
+      outreachTableWarned = true;
+    } else {
+      console.error("пропозиції:", e);
+    }
+  } finally {
+    outreachBusy = false;
+  }
+}
+
+const outreachTimer = setInterval(() => void tickOutreach(), SILENCE_CHECK_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -605,6 +646,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(pruneTimer);
     clearInterval(marketTimer);
     clearInterval(meetingsTimer);
+    clearInterval(outreachTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

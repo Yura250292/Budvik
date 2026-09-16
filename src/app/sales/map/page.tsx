@@ -1095,7 +1095,12 @@ export default function SalesMapPage() {
       {/* key по клієнту: без нього тап по іншій точці лишав би на екрані
           замовлення попереднього, поки вантажаться нові. */}
       {orderFor && (
-        <ClientOrderModal key={orderFor.id} client={orderFor} onClose={() => setOrderFor(null)} />
+        <ClientOrderModal
+          key={orderFor.id}
+          client={orderFor}
+          offerHref={`/sales/clients/${orderFor.id}#offer`}
+          onClose={() => setOrderFor(null)}
+        />
       )}
 
       {/* Нотатки й фото локації. Після збереження перечитуємо карту: точка

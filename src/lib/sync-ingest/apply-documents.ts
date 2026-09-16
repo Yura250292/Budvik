@@ -21,7 +21,7 @@ import { Prisma, type SalesDocType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { documentUnchanged } from "@/lib/sync-ingest/document-unchanged";
 import type { DocumentRecord, DocumentItemRecord } from "./types";
-import { ApplyContext } from "./context";
+import { ApplyContext, type DiscrepancyDraft } from "./context";
 
 /** P2002 саме по парі (number, docType), а не по externalId чи іншому полю. */
 function isNumberCollision(e: unknown): boolean {
@@ -91,19 +91,15 @@ async function resolveItems(
     lineNo: number | null;
   }[] = [];
 
+  const unmatched: DocumentItemRecord[] = [];
+
   for (const item of items) {
     const productId = byExternalId.get(item.productExternalId);
     if (!productId) {
       // Документ зберігаємо навіть без цього рядка — інакше втратимо весь
-      // документ через один незнайомий товар. Розбіжність лишається в журналі.
-      ctx.discrepancy({
-        entityType: "document_item",
-        entityRef: documentNumber,
-        entityName: `Товар ${item.productExternalId}`,
-        field: "UNMATCHED_PRODUCT",
-        value1C: `к-сть ${item.quantity}`,
-        valueBudvik: "товар не знайдено",
-      });
+      // документ через один незнайомий товар. Розбіжність лишається в журналі,
+      // але одна на документ — див. unmatchedProductsDiscrepancy.
+      unmatched.push(item);
       continue;
     }
     // Модуль беремо навмисно: від'ємна кількість у 1С не трапляється
@@ -163,7 +159,71 @@ async function resolveItems(
     });
   }
 
+  if (unmatched.length > 0) ctx.discrepancy(unmatchedProductsDiscrepancy(documentNumber, unmatched));
+
   return resolved;
+}
+
+/** Скільки id товарів перелічити в розбіжності; решта — «… ще N». */
+const UNMATCHED_LIST_LIMIT = 5;
+
+function linesWord(n: number): string {
+  const d10 = n % 10;
+  const d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return "рядок";
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return "рядки";
+  return "рядків";
+}
+
+/**
+ * Одна розбіжність UNMATCHED_PRODUCT на документ, а не на рядок.
+ *
+ * Доки рядків без товару траплялось кілька на день, запис на кожен був
+ * зручним. Бекфіл реалізацій за 2024–2025 (~17,5 тис. документів, ~120 тис.
+ * рядків) перечитує історію, де товарів, яких сайт уже не знає, помітно
+ * більше, — і журнал розбіжностей отримав би десятки тисяч рядків, серед
+ * яких нічого не знайти. Журнал уже раз виростав до 66 МБ саме так (див.
+ * flushDiscrepancies у context.ts).
+ *
+ * Рядок-одинак пишеться ТОЧНО як раніше (та сама назва й значення): відсів
+ * повторів у flushDiscrepancies порівнює value1C, і вже відкриті розбіжності
+ * по таких документах не задублюються після викатки. Для кількох рядків
+ * значення — перелік id за абеткою, щоб повторне читання того самого
+ * документа давало той самий рядок і відсіювалось як «стан не змінився».
+ *
+ * field лишається UNMATCHED_PRODUCT — його знає вкладка «Розбіжності».
+ * На зіставлені рядки й звірку «документ не змінився» це не впливає:
+ * resolveItems повертає той самий набір рядків, що й до зміни.
+ */
+function unmatchedProductsDiscrepancy(
+  documentNumber: string,
+  unmatched: readonly DocumentItemRecord[]
+): DiscrepancyDraft {
+  if (unmatched.length === 1) {
+    const [item] = unmatched;
+    return {
+      entityType: "document_item",
+      entityRef: documentNumber,
+      entityName: `Товар ${item.productExternalId}`,
+      field: "UNMATCHED_PRODUCT",
+      value1C: `к-сть ${item.quantity}`,
+      valueBudvik: "товар не знайдено",
+    };
+  }
+
+  const ids = [...new Set(unmatched.map((i) => i.productExternalId))].sort();
+  const shown = ids.slice(0, UNMATCHED_LIST_LIMIT).join(", ");
+  const rest = ids.length - UNMATCHED_LIST_LIMIT;
+  const n = unmatched.length;
+
+  return {
+    entityType: "document_item",
+    entityRef: documentNumber,
+    entityName: `Товарів без картки: ${ids.length}`,
+    field: "UNMATCHED_PRODUCT",
+    value1C: `${n} ${linesWord(n)} без товару: ${shown}${rest > 0 ? ` … ще ${rest}` : ""}`,
+    valueBudvik: "товари не знайдено",
+  };
 }
 
 /**

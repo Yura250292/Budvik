@@ -24,7 +24,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { NOT_INTERNAL, SOURCE_FILTER } from "@/lib/analytics/facts";
 import {
   DORMANT_DAYS,
   LOST_DAYS,
@@ -150,6 +150,10 @@ export async function GET(req: NextRequest) {
         WHERE c."isActive"
           -- Постачальник — не клієнт: на карті торгового йому нічого робити.
           AND c.type <> 'SUPPLIER'
+          -- Свої теж (склад, співробітники, ФОП торгових): «Склад (Дубляни)»
+          -- червоною точкою «втраченого» відправляв би торгового в рейс до
+          -- власного складу. Ознаку ставить людина — див. Counterparty.isInternal.
+          AND ${NOT_INTERNAL}
           AND (
             ${scopeAll}
             OR EXISTS (SELECT 1 FROM "SalesRepClient" s

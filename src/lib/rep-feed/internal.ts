@@ -50,6 +50,54 @@ export function isInternalCounterparty(name: string, staffKeys: ReadonlySet<stri
   return staffKeys.has(nameKey(name));
 }
 
+/**
+ * Усе, що треба знати, щоб відсіяти своїх: ручна ознака Counterparty.isInternal
+ * (її ставить людина — ловить «ФОП Кулик Дмитро Михайлович», якого назва не
+ * видає) і евристика за назвою (ловить щойно заведені в 1С картки, які ще
+ * ніхто не позначив).
+ */
+export type InternalContext = {
+  staffKeys: ReadonlySet<string>;
+  /** Позначені «свій». */
+  ids: ReadonlySet<string>;
+  /**
+   * Людина явно зняла ознаку: isInternal = false, але internalSetAt стоїть.
+   * Без цього картку, яку назва видає за свою («Кулик Дмитро» — і торговий,
+   * і реальний клієнт-однофамілець), неможливо було б повернути в клієнти:
+   * евристика за назвою перекривала б рішення людини.
+   */
+  clientIds: ReadonlySet<string>;
+};
+
+export async function loadInternalContext(): Promise<InternalContext> {
+  const [staffKeys, decided] = await Promise.all([
+    loadStaffNames(),
+    prisma.counterparty.findMany({
+      where: { OR: [{ isInternal: true }, { internalSetAt: { not: null } }] },
+      select: { id: true, isInternal: true },
+    }),
+  ]);
+  return {
+    staffKeys,
+    ids: new Set(decided.filter((d) => d.isInternal).map((d) => d.id)),
+    clientIds: new Set(decided.filter((d) => !d.isInternal).map((d) => d.id)),
+  };
+}
+
+/**
+ * Чиста перевірка за контекстом. Рішення людини важить більше за назву:
+ * явно знята ознака — клієнт, поставлена — свій; евристика лише для карток,
+ * про які ще ніхто не вирішував.
+ */
+export function isInternalClient(
+  client: { id?: string | null; name: string },
+  ctx: InternalContext
+): boolean {
+  if (client.id && ctx.clientIds.has(client.id)) return false;
+  if (client.id && ctx.ids.has(client.id)) return true;
+  return isInternalCounterparty(client.name, ctx.staffKeys);
+}
+
 /** Ключі повних (≥2 слова) імен персоналу. */
 export async function loadStaffNames(): Promise<Set<string>> {
   const users = await prisma.user.findMany({

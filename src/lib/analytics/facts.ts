@@ -87,6 +87,19 @@ export const SOURCE_FILTER = Prisma.sql`s."externalId" IS NOT NULL AND s.status 
 export const SALES_ONLY = Prisma.sql`s."docType" <> 'RETURN'`;
 
 /**
+ * Не свої: склад, співробітники, ФОП торгових (Counterparty.isInternal).
+ *
+ * Для запитів, де "Counterparty" приєднано під псевдонімом c. У SOURCE_FILTER
+ * навмисно НЕ входить: оборот і зарплата торгових рахуються з усіх
+ * документів, і прибрати звідти перевиписку — окреме бізнес-рішення. Цей
+ * фільтр — для списків КЛІЄНТІВ: стани, втрачені, кому дзвонити й писати.
+ */
+export const NOT_INTERNAL = Prisma.sql`NOT c."isInternal"`;
+
+/** Те саме для запитів без JOIN контрагента — по s."counterpartyId". */
+export const NOT_INTERNAL_DOC = Prisma.sql`NOT EXISTS (SELECT 1 FROM "Counterparty" ic WHERE ic.id = s."counterpartyId" AND ic."isInternal")`;
+
+/**
  * Нижня межа аналітики — див. ANALYTICS_SINCE_DAY у lib/analytics/since.ts.
  *
  * parsePeriod уже обрізає період на вході, але межа продубльована тут

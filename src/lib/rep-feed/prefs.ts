@@ -27,6 +27,8 @@ export const PUSH_CATEGORIES: readonly PushCategory[] = [
   { type: REP_FEED_TYPES.RETURN, label: "Повернення", hint: "проведено повернення від вашого клієнта" },
   { type: REP_FEED_TYPES.VISIT, label: "Картка перед візитом", hint: "коли машина зупинилась біля клієнта: борг і що поповнити" },
   { type: REP_FEED_TYPES.CALL_LIST, label: "Кому подзвонити", hint: "щодня об 11:00, до п'яти клієнтів" },
+  { type: REP_FEED_TYPES.OUTREACH_LIST, label: "Кому написати", hint: "у вівторок о 14:00: до п'яти сплячих клієнтів із мобільним" },
+  { type: REP_FEED_TYPES.OUTREACH_RESULT, label: "Пропозиції спрацювали", hint: "клієнт купив протягом 14 днів після вашого повідомлення" },
   { type: REP_FEED_TYPES.ARRIVAL, label: "Прихід товару", hint: "о 10:00, лише те, що беруть ваші клієнти" },
   { type: REP_FEED_TYPES.WATCH, label: "Товар під запит", hint: "приїхало те, на що ви натиснули «Коли буде»" },
   { type: REP_FEED_TYPES.PRICE_UP, label: "Подорожчання", hint: "зранку, від 3%, лише те, що беруть ваші клієнти" },

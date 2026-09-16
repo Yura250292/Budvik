@@ -10,10 +10,14 @@
  * Місто береться і з адреси, і з НАЗВИ: у 1С його пишуть де завгодно —
  * «Біб В.П. (с.Сокільники)» має його в назві, «ОСББ ВЕСНЯНА 2» — лише в
  * адресі, а в «Техномаш (Сокільники)» адреси немає взагалі.
+ *
+ * Свої (Counterparty.isInternal) — не можливість для розпрацювання: «Склад
+ * (Дубляни)» чи ФОП торгового у відповіді «кого розпрацювати» лише займали б
+ * місце в ліміті.
  */
 
 import { prisma } from "@/lib/prisma";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { NOT_INTERNAL, SOURCE_FILTER } from "@/lib/analytics/facts";
 import { agingByCounterparty } from "@/lib/analytics/money-facts";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
 import { stem } from "@/lib/assistant/facts/search-words";
@@ -72,6 +76,7 @@ export async function clientsInCity(city: string, repId: string, limit = 40): Pr
       0::float AS overdue
     FROM "Counterparty" c
     WHERE c."isActive"
+      AND ${NOT_INTERNAL}
       AND (c.address ILIKE ${like} OR c.name ILIKE ${like})
     ORDER BY revenue DESC NULLS LAST
     LIMIT ${limit}

@@ -41,9 +41,14 @@ export type IconKey =
   | "device"
   | "archive"
   | "mic"
+  | "megaphone"
   | "page";
 
 const PATHS: Record<IconKey, React.ReactNode> = {
+  // Робота з базою (маркетинг) — Heroicons v1 outline «speakerphone».
+  megaphone: (
+    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+  ),
   // Наради — Heroicons outline «microphone».
   mic: (
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />

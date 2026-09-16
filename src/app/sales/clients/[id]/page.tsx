@@ -11,6 +11,7 @@ import { SalesHeader } from "@/components/sales/SalesHeader";
 import { Body, Card, Note, Page } from "@/components/cabinet/ui";
 import { Section, SectionRow } from "@/components/sales/ClientSection";
 import ClientMemorySection from "@/components/sales/ClientMemorySection";
+import ClientOfferSection from "@/components/sales/ClientOfferSection";
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -218,6 +219,11 @@ export default function ClientDetailPage() {
           </span>
           <ChevronRight size={18} className="shrink-0 text-cab-t3" />
         </Link>
+
+        {/* Пропозиція клієнту: готовий текст із товарами в наявності, який
+            торговий шле зі свого телефона. Тут, а не внизу картки: з карти й
+            зі списку «кому написати» сюди ведуть якорем #offer. */}
+        <ClientOfferSection counterpartyId={id} />
 
         {/* Памʼять про клієнта — одразу під боргом: обидва блоки про те,
             як із цією точкою працювати, а не скільки вона купила. */}

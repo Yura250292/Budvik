@@ -231,6 +231,8 @@ model User {
   productWatches ProductWatch[] @relation("productWatchUser")
   /// Заявки торгового в офіс (src/lib/office-requests).
   officeRequests OfficeRequest[] @relation("officeRequestAuthor")
+  /// Пропозиції клієнтам, які написав торговий (src/lib/outreach).
+  outreaches     ClientOutreach[] @relation("outreachRep")
 
   /// Торговий, чий QR привів цього клієнта. Ставиться один раз (перший виграє)
   /// і далі не перезаписується — інакше чужий QR «перехоплював» би клієнта.
@@ -812,6 +814,47 @@ model Counterparty {
   /// суттєва: перше — свідчення присутності, друге — здогад за пам'яттю.
   geoAccuracyM Int?
 
+  /// Основний мобільний у вигляді +380XXXXXXXXX — те, куди йде Viber/SMS.
+  /// Рахує обмін контактів (apply-contacts.ts) з усіх рядків регістру 1С, а
+  /// для карток без рядків — з phone. Окреме поле, бо phone лежить так, як
+  /// його набрали в 1С («067-123-45-67, 050…»), і шукати за ним не можна.
+  primaryPhoneE164 String?
+  /// Коли обмін востаннє звірив набір контактів із 1С.
+  contactsSyncedAt DateTime?
+  contacts         CounterpartyContact[]
+
+  /// Свій, а не клієнт: склад, співробітник, ФОП торгового, на якого офіс
+  /// переписує відвантаження. Такі картки мають документи й борги, тож без
+  /// ознаки очолюють «втрачених» і списки дзвінків (ФОП Кулик — 1,1 млн
+  /// «втрачено» 31.03, хоча це перевиписка). Ставить людина в адмінці або
+  /// scripts/propose-internal-counterparties.mts; евристика за назвою
+  /// (rep-feed/internal.ts) лишається страховкою для щойно заведених карток.
+  isInternal      Boolean   @default(false)
+  internalReason  String?
+  internalSetAt   DateTime?
+  /// Без зв'язку з User — як photoById: рядок переживає видалення акаунта.
+  internalSetById String?
+
+  /// Згода на рекламні повідомлення: UNKNOWN | GRANTED | REFUSED.
+  /// Політика приватності обіцяє «без окремої згоди розсилок не надсилаємо»,
+  /// тож автоматичне надсилання дивиться лише на GRANTED. Особисте
+  /// повідомлення торгового згоди не потребує і цим полем не обмежується.
+  marketingConsent       String    @default("UNKNOWN")
+  marketingConsentAt     DateTime?
+  /// REP | OFFICE | BOT | SITE | IMPORT — хто зафіксував згоду.
+  marketingConsentSource String?
+  marketingConsentById   String?
+  /// Відписка. Блокує маркетинг, але не сервісні повідомлення.
+  marketingOptOutAt      DateTime?
+  /// VIBER | TELEGRAM | SMS | EMAIL | PHONE_CALL | NONE — як клієнт просить.
+  preferredChannel       String?
+  /// Чат клієнтського Telegram-бота. Не унікальний: одна людина веде дві ФОП.
+  telegramChatId         String?
+  /// Код для /start cl_<code> — видається ліниво, як refCode торгового.
+  telegramLinkCode       String?   @unique
+
+  outreaches ClientOutreach[]
+
   debtSnapshots   DebtSnapshot[]
   routeSheetStops RouteSheetStop[]
   prospect        ProspectClient?
@@ -952,6 +995,8 @@ model SalesDocument {
   reservations    StockReservation[]
   deliveryStop    DeliveryStop?
   routeSheetStops RouteSheetStop[]    @relation("routeSheetStops")
+  /// Пропозиції, які закрились цією накладною (ClientOutreach.outcome=ORDERED).
+  outreachOutcomes ClientOutreach[]   @relation("outreachOutcome")
   // Є ще частковий індекс "SalesDocument_client_recent_idx"
   // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
   // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
@@ -3114,6 +3159,94 @@ model OfficeRequest {
 
   @@index([status, createdAt])
   @@index([authorId, createdAt])
+}
+
+/// Один рядок контактної інформації клієнта: телефон, мобільний, пошта, адреса.
+///
+/// У 1С контакти — не реквізити довідника, а регістр КонтактнаяИнформация
+/// (1:N, кілька номерів різних видів). Сайт досі мав лише одноразовий імпорт
+/// у Counterparty.phone/email/address, і нові клієнти приходили без телефону.
+/// Канал обміну counterparty_contact звіряє набір 1С-рядків контрагента
+/// цілком (apply-contacts.ts); рядки, внесені на сайті (source=SITE), обмін
+/// не чіпає.
+model CounterpartyContact {
+  id              String    @id @default(cuid())
+  counterpartyId  String
+  /// PHONE | MOBILE | EMAIL | ADDRESS | OTHER — виводить сервер (contacts/kinds.ts).
+  kind            String
+  /// ПРЕДСТАВЛЕНИЕ(Вид) як у 1С: «Телефон контрагента», «Адрес доставки»…
+  kind1C          String?
+  /// ПРЕДСТАВЛЕНИЕ(Тип): «Телефон», «Адрес», «Адрес электронной почты»…
+  type1C          String?
+  value           String
+  /// +380XXXXXXXXX для телефонів, lower-case для пошти, NULL для решти.
+  valueNormalized String?
+  personExternalId String?
+  personName      String?
+  /// ONE_C | SITE
+  source          String    @default("SITE")
+  /// Ключ ідемпотентності 1С-рядка: контрагент | особа | вид | хеш значення.
+  externalKey     String?   @unique
+  ordinal         Int?
+  isPrimary       Boolean   @default(false)
+  syncedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@index([counterpartyId])
+  @@index([valueNormalized])
+}
+
+/// Пропозиція клієнту: хто, що, яким каналом і чим закінчилось.
+///
+/// Одна таблиця і для торгового (source=REP), і для майбутніх кампаній
+/// (source=CAMPAIGN) — щоб частотна стеля «не більше двох на місяць» і
+/// конверсія рахувались одним запитом незалежно від того, хто написав.
+/// Сайт повідомлення не надсилає: торговий відкриває Viber/Telegram/SMS зі
+/// свого планшета, а рядок фіксує намір і текст (src/lib/outreach).
+model ClientOutreach {
+  id                  String    @id @default(cuid())
+  counterpartyId      String
+  /// Хто написав; null — кампанія без торгового.
+  repId               String?
+  /// WIN_BACK | REPLENISH | ARRIVALS | DEVELOP | PROMO | DEBT | CUSTOM
+  kind                String
+  /// VIBER | TELEGRAM | SMS | CALL | IN_PERSON | COPY
+  channel             String
+  /// MARKETING | SERVICE — лише маркетинг рахується в частотну стелю.
+  purpose             String    @default("MARKETING")
+  /// REP | CAMPAIGN | SYSTEM
+  source              String    @default("REP")
+  text                String
+  productIds          String[]  @default([])
+  campaignId          String?
+  /// Стан клієнта в мить відправки — для чесної конверсії по станах.
+  stateAtSend         String?
+  daysSinceLastAtSend Int?
+  /// Токен у посиланні /r/<code>?o=<token>: «клієнт відкрив».
+  linkToken           String?   @unique
+  clickedAt           DateTime?
+  sentAt              DateTime  @default(now())
+  /// PENDING | ORDERED | REPLIED | REFUSED | NO_ANSWER | OPT_OUT
+  outcome             String    @default("PENDING")
+  outcomeAt           DateTime?
+  /// WORKER | REP — ручну відмітку воркер не перезаписує.
+  outcomeBy           String?
+  outcomeDocId        String?
+  outcomeAmount       Float?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  counterparty Counterparty   @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+  rep          User?          @relation("outreachRep", fields: [repId], references: [id], onDelete: SetNull)
+  outcomeDoc   SalesDocument? @relation("outreachOutcome", fields: [outcomeDocId], references: [id], onDelete: SetNull)
+
+  @@index([counterpartyId, sentAt(sort: Desc)])
+  @@index([repId, sentAt(sort: Desc)])
+  @@index([outcome, sentAt])
+  @@index([campaignId])
 }
 
 /// Остання бачена ціна товару — база, від якої рахується подорожчання.

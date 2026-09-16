@@ -16,9 +16,16 @@
  * клієнти, які зараз у станах LOST і DORMANT. Пороги станів — ті самі
  * константи, що в портфелі клієнтів (clients.ts), щоб «втрачений» тут
  * і там означало одне й те саме.
+ *
+ * Свої (Counterparty.isInternal: склад, співробітники, ФОП торгових) не
+ * входять ні в когорти, ні у відтік. Вони не клієнти, а перевиписка: ФОП
+ * Кулик Дмитро Михайлович очолював відтік із «1,1 млн утрачено» 31.03 лише
+ * тому, що офіс перестав писати накладні через нього. Оборот і КПІ торгових
+ * рахуються в facts.ts і від цього фільтра не змінюються.
  */
 
 import { prisma } from "@/lib/prisma";
+import { NOT_INTERNAL, NOT_INTERNAL_DOC } from "@/lib/analytics/facts";
 import { kyivDate } from "@/lib/date/kyiv";
 import { DORMANT_DAYS, LOST_DAYS } from "@/lib/analytics/clients";
 
@@ -133,6 +140,8 @@ export async function buildCohortReport(topChurnLimit = 30): Promise<CohortRepor
         WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
           AND s."docType" IN ('REALIZATION', 'RETURN')
           AND s."counterpartyId" IS NOT NULL
+          -- Контрагент тут не приєднаний — своїх відсікаємо підзапитом.
+          AND ${NOT_INTERNAL_DOC}
         GROUP BY 1, 2
         -- Місяць «активний», лише якщо в ньому були самі покупки, а не
         -- голе повернення: нетто > 0.
@@ -168,6 +177,7 @@ export async function buildCohortReport(topChurnLimit = 30): Promise<CohortRepor
       WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'
         AND s."docType" IN ('REALIZATION', 'RETURN')
         AND s."counterpartyId" IS NOT NULL
+        AND ${NOT_INTERNAL}
       GROUP BY s."counterpartyId", c.name
       HAVING COUNT(*) FILTER (WHERE s."docType" = 'REALIZATION') >= ${MIN_DOCS_FOR_CHURN}
     `,

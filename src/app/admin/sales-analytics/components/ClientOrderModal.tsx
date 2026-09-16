@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import { Badge, ColorDot } from "@/components/ui/Badge";
 import { money } from "@/components/ui/Stat";
@@ -145,7 +146,17 @@ function OrderCard({ order, open }: { order: LastOrder; open: boolean }) {
  * послідовному викладенні поради опинялися десь під згином, і побачити їх
  * можна було лише прокрутивши весь список. А заходять сюди саме по них.
  */
-export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string }) {
+export function ClientOrderPanel({
+  counterpartyId,
+  offerHref,
+}: {
+  counterpartyId: string;
+  /**
+   * Куди веде «Написати клієнту». Лише в кабінеті торгового: пропозицію
+   * відправляють із телефона торгового, і в адмінці кнопці нема куди вести.
+   */
+  offerHref?: string;
+}) {
   /**
    * Період тягне лише замовлення — окремим запитом від порад.
    *
@@ -336,9 +347,19 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
         )}
       </div>
 
-      <p className="shrink-0 border-t border-line px-3 py-2 text-[11px] text-gr">
-        Джерело: {data.source}
-      </p>
+      <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2">
+        <p className="min-w-0 flex-1 text-[11px] text-gr">Джерело: {data.source}</p>
+        {/* Поради вище — привід написати. Кнопка веде на картку клієнта, де
+            з тих самих порад складається готовий текст з оптовими цінами. */}
+        {offerHref && (
+          <Link
+            href={offerHref}
+            className="shrink-0 rounded-[var(--radius-btn)] bg-bk px-3 py-2 text-sm font-semibold text-white"
+          >
+            Написати клієнту
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
@@ -346,9 +367,12 @@ export function ClientOrderPanel({ counterpartyId }: { counterpartyId: string })
 export function ClientOrderModal({
   client,
   onClose,
+  offerHref,
 }: {
   client: { id: string; name: string; state?: keyof typeof CLIENT_STATE };
   onClose: () => void;
+  /** Кнопка «Написати клієнту» — передає лише карта торгового. */
+  offerHref?: string;
 }) {
   // Esc закриває: модалка перекриває карту, тягтися до хрестика незручно.
   useEffect(() => {
@@ -414,7 +438,7 @@ export function ClientOrderModal({
           </button>
         </div>
 
-        <ClientOrderPanel counterpartyId={client.id} />
+        <ClientOrderPanel counterpartyId={client.id} offerHref={offerHref} />
       </div>
     </div>
   );

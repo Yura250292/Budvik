@@ -8,6 +8,7 @@
  * Відсутність SYNC_ALERT_CHAT_ID не є помилкою — алерти просто не надсилаються.
  */
 
+import { prisma } from "@/lib/prisma";
 import { sendTelegramMessage } from "@/lib/telegram/notify";
 
 /** Частка товарів зі зміненою ціною, вище якої прогін виглядає підозріло. */
@@ -71,6 +72,43 @@ export async function alertQueryFailed(
       `Причина: ${message.slice(0, 300)}\n\n` +
       `Дані за це вікно не прочитані, вотермарк уже просунувся — ` +
       `повторно вони самі не підтягнуться.`
+  );
+}
+
+/** Як часто повторювати сповіщення про той самий зламаний запит повного зрізу. */
+const SNAPSHOT_ALERT_COOLDOWN_MS = 12 * 60 * 60_000;
+
+/**
+ * Упав запит, який щоразу читає ПОВНИЙ зріз (контакти клієнтів).
+ *
+ * На відміну від боргу й оплат, тут нічого не губиться: наступний прогін
+ * перечитає все цілком, тож текст alertQueryFailed («вотермарк просунувся,
+ * повторно не підтягнеться») був би неправдою. Інша біда — такий запит
+ * падає однаково щогодини, і без паузи канал сповіщень забився б одним і тим
+ * самим рядком. Тому не частіше ніж раз на 12 годин на запит; мітка — у
+ * SyncState, бо обробник живе і на Vercel, і на воркері.
+ */
+export async function alertSnapshotQueryFailed(
+  runId: string,
+  key: string,
+  entity: string,
+  message: string
+): Promise<void> {
+  const stateKey = `alert:snapshotQueryFailed:${key}`;
+  try {
+    const last = await prisma.syncState.findUnique({ where: { key: stateKey } });
+    if (last && Date.now() - Date.parse(last.value) < SNAPSHOT_ALERT_COOLDOWN_MS) return;
+    const value = new Date().toISOString();
+    await prisma.syncState.upsert({ where: { key: stateKey }, create: { key: stateKey, value }, update: { value } });
+  } catch {
+    // Мітку не прочитали — краще зайве сповіщення, ніж мовчання про зламаний запит.
+  }
+  await alert(
+    `⚠️ <b>Запит «${entity}» пропущено</b>\n` +
+      `Прогін: <code>${runId}</code> (завершився успішно)\n` +
+      `Причина: ${message.slice(0, 300)}\n\n` +
+      `Дані не втрачено: запит читає повний зріз, і наступний вдалий прогін ` +
+      `підтягне все сам. Поки помилка повторюється, нагадування — раз на 12 годин.`
   );
 }
 

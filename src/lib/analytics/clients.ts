@@ -18,7 +18,7 @@
 import { Prisma } from "@prisma/client";
 import { agingByCounterparty } from "./money-facts";
 import { prisma } from "@/lib/prisma";
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { NOT_INTERNAL, NOT_INTERNAL_DOC, SOURCE_FILTER } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
 
 /**
@@ -128,6 +128,11 @@ type PortfolioRow = {
  * NULL-дати при непорожньому рядку — і classify() падав на .getTime().
  * У портфелі їм і не місце: клієнта, який нічого не купував, не можна
  * назвати ні активним, ні втраченим.
+ *
+ * NOT_INTERNAL відсікає своїх (склад, співробітники, ФОП торгових): це
+ * список КЛІЄНТІВ, а «ФОП Кулик Дмитро Михайлович» із перевипискою на
+ * 1,1 млн очолював «втрачених», щойно офіс переставав через нього писати.
+ * Оборот торгового рахується деінде (facts.ts) і від цього не змінюється.
  */
 async function portfolioRows(repId: string, period: Period): Promise<PortfolioRow[]> {
   return prisma.$queryRaw<PortfolioRow[]>`
@@ -195,6 +200,7 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
     LEFT JOIN period_docs pd ON pd."counterpartyId" = h."counterpartyId"
     LEFT JOIN assortment a   ON a."counterpartyId"  = h."counterpartyId"
     WHERE h."firstDocAt" IS NOT NULL
+      AND ${NOT_INTERNAL}
     ORDER BY COALESCE(pd.amount, 0) DESC
   `;
 }
@@ -334,6 +340,9 @@ type MapRow = PortfolioRow & {
  *
  * Класифікація навмисно та сама функція classifyClient(), а не копія порогів:
  * колір на карті мусить збігатися зі станом у картці торгового.
+ *
+ * Свої (NOT_INTERNAL) з карти прибрані з тієї ж причини, що й з портфеля:
+ * «Склад (Дубляни)» червоною точкою «втраченого» — не робота для торгового.
  */
 export async function clientPortfolioAll(period: Period): Promise<ClientMapPortfolio> {
   const rows = await prisma.$queryRaw<MapRow[]>`
@@ -398,6 +407,7 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
     JOIN "Counterparty" c ON c.id = h."counterpartyId"
     LEFT JOIN period_docs pd ON pd."counterpartyId" = h."counterpartyId"
     WHERE h."firstDocAt" IS NOT NULL
+      AND ${NOT_INTERNAL}
     ORDER BY COALESCE(pd.amount, 0) DESC
   `;
 
@@ -458,6 +468,11 @@ export type PortfolioCounts = {
  * торгового, щоб таблиця команди не розійшлася з карткою людини.
  * Класифікація лишається в JS: дублювати пороги ще й у SQL означало б
  * два місця, які колись розійдуться.
+ *
+ * Своїх відсікає NOT_INTERNAL_DOC прямо в docs: це ЛІЧИЛЬНИКИ КЛІЄНТІВ, і
+ * вони мусять збігатися з карткою торгового (portfolioRows), звідки свої
+ * вже прибрані. Інакше в бенчмарку в людини «втрачених» на одного більше,
+ * ніж у її ж портфелі, — і цей один її власний ФОП.
  */
 export async function portfolioCountsByRep(period: Period): Promise<Map<string, PortfolioCounts>> {
   const rows = await prisma.$queryRaw<Array<PortfolioRow & { repId: string }>>`
@@ -473,6 +488,7 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
       WHERE ${SOURCE_FILTER}
         AND s."salesRepId" IS NOT NULL
         AND s."counterpartyId" IS NOT NULL
+        AND ${NOT_INTERNAL_DOC}
     ),
     period_docs AS (
       SELECT d."salesRepId", d."counterpartyId",

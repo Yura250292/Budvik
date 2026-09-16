@@ -50,6 +50,10 @@ export const REP_FEED_TYPES = {
   TASK_DONE: "REP_TASK_DONE",
   /** Керівник надіслав підсумок наради (src/lib/meetings/share.ts). Цей рядок і є доступом до наради в кабінеті. */
   MEETING: "REP_MEETING",
+  /** Клієнт купив після пропозиції торгового (воркер закрив ClientOutreach як ORDERED). */
+  OUTREACH_RESULT: "REP_OUTREACH_RESULT",
+  /** Щовівторка: кому зі сплячих клієнтів написати цього тижня. */
+  OUTREACH_LIST: "REP_OUTREACH_LIST",
 } as const;
 
 export type RepFeedType = (typeof REP_FEED_TYPES)[keyof typeof REP_FEED_TYPES];
@@ -93,7 +97,9 @@ export type FeedEvent = {
  * і було до стрічки.
  */
 export function feedHref(type: string, relatedId: string | null | undefined): string | null {
-  if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/clients";
+  if (type === REP_FEED_TYPES.CALL_LIST) return "/sales/outreach";
+  // Тижневий список веде туди ж, де торговий готує й відправляє пропозиції.
+  if (type === REP_FEED_TYPES.OUTREACH_LIST) return "/sales/outreach";
   if (type === REP_FEED_TYPES.WATCH) return "/sales/watches";
   if (type === REP_FEED_TYPES.REQUEST_DONE) return "/sales/requests";
   if (type === REP_FEED_TYPES.TASK || type === REP_FEED_TYPES.TASK_DONE) return "/sales/tasks";
@@ -104,7 +110,12 @@ export function feedHref(type: string, relatedId: string | null | undefined): st
   // (notification-taps.ts, CABINET_TARGET) параметрів запиту не пропускає.
   if (type === REP_FEED_TYPES.ARRIVAL) return `/sales/arrivals/${relatedId}`;
   if (type === REP_FEED_TYPES.PRICE_UP) return `/sales/price-changes/${relatedId}`;
-  if (type === REP_FEED_TYPES.PAYMENT || type === REP_FEED_TYPES.VISIT) {
+  // Спрацювала пропозиція — теж на картку: там накладна, історія і наступний крок.
+  if (
+    type === REP_FEED_TYPES.PAYMENT ||
+    type === REP_FEED_TYPES.VISIT ||
+    type === REP_FEED_TYPES.OUTREACH_RESULT
+  ) {
     return `/sales/clients/${relatedId}`;
   }
   return `/sales/orders/${relatedId}`;
@@ -135,6 +146,8 @@ export const FEED_FILTERS = [
     types: [
       REP_FEED_TYPES.VISIT,
       REP_FEED_TYPES.CALL_LIST,
+      REP_FEED_TYPES.OUTREACH_LIST,
+      REP_FEED_TYPES.OUTREACH_RESULT,
       REP_FEED_TYPES.REQUEST_DONE,
       REP_FEED_TYPES.TASK,
       REP_FEED_TYPES.TASK_DONE,

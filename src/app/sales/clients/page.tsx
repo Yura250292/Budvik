@@ -1,12 +1,16 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { Search, Users } from "lucide-react";
+import { MessageSquareText, Search, Users } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SalesHeader } from "@/components/sales/SalesHeader";
-import { ListRow, Note, Page, Pill } from "@/components/cabinet/ui";
+import { ClientStatePill } from "@/components/sales/ClientOfferSection";
+import { LinkList, LinkRow, ListRow, Note, Page, Pill } from "@/components/cabinet/ui";
+import { OUTREACH_CHANNELS, labelOf } from "@/lib/outreach/types";
+import type { ClientFilter, OutreachClientItem, OutreachClientList } from "@/lib/outreach/client-facts";
 
 const AVATAR_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#22C55E", "#EF4444", "#06B6D4"];
 
@@ -19,6 +23,24 @@ const AVATAR_COLORS = ["#3B82F6", "#8B5CF6", "#EC4899", "#F59E0B", "#22C55E", "#
  * щойно відправили.
  */
 type Scope = "mine" | "all";
+
+/**
+ * Зрізи «моїх» за станом.
+ *
+ * Список за абеткою відповідав на «де цей клієнт», але не на «з ким пора
+ * говорити»: 152 клієнти без покупок понад 90 днів тонули серед активних.
+ * Фільтр — у адресі (?filter=), щоб «Назад» із картки клієнта повертав той
+ * самий зріз, а не абетку.
+ */
+const FILTERS: Array<{ key: ClientFilter; label: string }> = [
+  { key: "all", label: "Усі" },
+  { key: "slipping", label: "Згасають" },
+  { key: "dormant", label: "Сплять" },
+  { key: "lost", label: "Втрачені" },
+  { key: "no_outreach", label: "Без пропозиції 30 дн" },
+];
+
+const isFilter = (v: string | null): v is ClientFilter => FILTERS.some((f) => f.key === v);
 
 /**
  * Скільки рядків тягнемо в режимі «Всі».
@@ -90,9 +112,7 @@ const ask = (extra: Record<string, string>, query: string) => {
  * прізвищ на «А» замість власного списку — формально всіх, практично
  * гірше, ніж було.
  */
-async function loadClients([, scope, query]: [string, Scope, string]): Promise<Client[]> {
-  if (scope === "mine") return ask({ mine: "1" }, query);
-
+async function loadAllClients([, query]: [string, string]): Promise<Client[]> {
   const [mine, all] = await Promise.all([
     ask({ mine: "1" }, query),
     ask({ limit: String(ALL_LIMIT) }, query),
@@ -104,10 +124,41 @@ async function loadClients([, scope, query]: [string, Scope, string]): Promise<C
   ];
 }
 
+async function loadMine([, filter]: [string, ClientFilter]): Promise<OutreachClientList> {
+  const res = await fetch(`/api/sales/clients?scope=mine&filter=${filter}`);
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+  return json as OutreachClientList;
+}
+
+const getColor = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+
+function wroteLabel(last: OutreachClientItem["lastOutreach"]): string | null {
+  if (!last) return null;
+  const d = Math.max(0, Math.floor((Date.now() - new Date(last.at).getTime()) / 86_400_000));
+  return `написали ${d === 0 ? "сьогодні" : `${d} дн. тому`} · ${labelOf(OUTREACH_CHANNELS, last.channel)}`;
+}
+
+/** Обгортка: useSearchParams без Suspense Next 16 не пропускає в білд. */
 export default function ClientsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ClientsScreen />
+    </Suspense>
+  );
+}
+
+function ClientsScreen() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const filterParam = searchParams.get("filter");
+  const filter: ClientFilter = isFilter(filterParam) ? filterParam : "all";
+
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<Scope>("all");
+  // Прийшли з фільтром у адресі — отже, про свій портфель.
+  const [scope, setScope] = useState<Scope>(() => (filterParam ? "mine" : "all"));
 
   // Debounce: раніше запит летів на кожну натиснуту літеру, і при
   // повільному 3G у машині відповіді приходили не в тому порядку, у якому
@@ -123,20 +174,37 @@ export default function ClientsPage() {
    * З fetch у useEffect кожен захід на вкладку починався з порожнього
    * екрана й двох запитів по ~0,5 с — навіть якщо торговий був тут
    * хвилину тому й нічого не змінилося. Ключ масивом: у ньому і зріз, і
-   * пошуковий запит, тож повернення до вже баченого списку миттєве, а
-   * нова літера в пошуку — це новий ключ і новий запит, як і було.
+   * пошуковий запит, тож повернення до вже баченого списку миттєве.
+   *
+   * «Мої» йдуть окремим роутом зі станами й останньою пропозицією; пошук
+   * по них — на місці, бо портфель торгового — сотня-дві рядків.
    */
-  const { data, isLoading } = useSWR(["sales-clients", scope, query] as const, loadClients, {
+  const allApi = useSWR(scope === "all" ? (["sales-clients-all", query] as [string, string]) : null, loadAllClients, {
     dedupingInterval: 60_000,
     revalidateOnFocus: false,
     keepPreviousData: true,
   });
-  const clients = data ?? [];
+  const mineApi = useSWR(scope === "mine" ? (["sales-clients-mine", filter] as [string, ClientFilter]) : null, loadMine, {
+    dedupingInterval: 60_000,
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  });
+
+  const q = query.toLowerCase();
+  const mineItems = (mineApi.data?.items ?? []).filter(
+    (c) => !q || c.name.toLowerCase().includes(q) || (c.code ?? "").toLowerCase().includes(q) || (c.phone ?? "").includes(q)
+  );
+  const clients = allApi.data ?? [];
+  const counts = mineApi.data?.counts;
+
   // keepPreviousData лишає на екрані попередній список, поки їде новий —
   // заглушку показуємо лише коли показувати справді нічого.
-  const loading = isLoading && !data;
+  const loading = scope === "mine" ? mineApi.isLoading && !mineApi.data : allApi.isLoading && !allApi.data;
+  const shown = scope === "mine" ? mineItems.length : clients.length;
 
-  const getColor = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+  const setFilter = (f: ClientFilter) => {
+    router.replace(f === "all" ? pathname : `${pathname}?filter=${f}`, { scroll: false });
+  };
 
   return (
     <>
@@ -144,11 +212,7 @@ export default function ClientsPage() {
         title="Клієнти"
         backTo="/sales"
         sticky
-        right={
-          !loading ? (
-            <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>{clients.length}</span>
-          ) : null
-        }
+        right={!loading ? <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>{shown}</span> : null}
       />
 
       <Page>
@@ -178,6 +242,36 @@ export default function ClientsPage() {
           })}
         </div>
 
+        {scope === "mine" && (
+          <>
+            <LinkList>
+              <LinkRow icon={<MessageSquareText size={18} />} href="/sales/outreach">
+                Кому написати / подзвонити сьогодні
+              </LinkRow>
+            </LinkList>
+            <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5">
+              {FILTERS.map((f) => {
+                const on = filter === f.key;
+                const n = counts?.[f.key];
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setFilter(f.key)}
+                    aria-pressed={on}
+                    className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] font-medium ${
+                      on ? "border-bk bg-bk text-white" : "border-cab-line bg-white text-cab-t2"
+                    }`}
+                  >
+                    {f.label}
+                    {n != null ? ` · ${n}` : ""}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
         <div className="relative">
           <Search size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cab-t3" />
           <input
@@ -191,22 +285,28 @@ export default function ClientsPage() {
           />
         </div>
 
+        {mineApi.error && scope === "mine" && !mineApi.data && (
+          <Note tone="bad">{(mineApi.error as Error).message}</Note>
+        )}
+
         {loading ? (
           <ClientsSkeleton />
-        ) : clients.length === 0 ? (
+        ) : shown === 0 ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
             <Users size={32} className="text-cab-t3" />
             {/*
-              Два різні порожні стани. «Нічого не знайдено» і «за вами ще
-              нікого не закріплено» вимагають різних дій, і зливати їх в
-              одну фразу означало б, що торговий шукатиме клієнта, якого
-              йому просто не призначили.
+              Різні порожні стани. «Нічого не знайдено», «у цьому зрізі
+              нікого» і «за вами ще нікого не закріплено» вимагають різних
+              дій, і зливати їх в одну фразу означало б, що торговий шукатиме
+              клієнта, якого йому просто не призначили.
             */}
             {query ? (
               <>
                 <p className="text-[15px] font-semibold text-bk">Нічого не знайдено</p>
                 <Note>за запитом «{query}»</Note>
               </>
+            ) : scope === "mine" && filter !== "all" && (counts?.all ?? 0) > 0 ? (
+              <p className="text-[15px] font-semibold text-bk">У цьому зрізі нікого</p>
             ) : (
               <>
                 <p className="text-[15px] font-semibold text-bk">За вами ще немає клієнтів</p>
@@ -217,10 +317,44 @@ export default function ClientsPage() {
               </>
             )}
           </div>
+        ) : scope === "mine" ? (
+          <div className="flex flex-col gap-2">
+            {mineItems.map((c) => (
+              <ListRow
+                key={c.id}
+                href={`/sales/clients/${c.id}`}
+                lead={c.name.charAt(0).toUpperCase()}
+                leadColor={getColor(c.name)}
+                title={c.name}
+                subtitle={
+                  [
+                    wroteLabel(c.lastOutreach),
+                    c.overdue > 0 ? `прострочено ${formatPrice(c.overdue)}` : null,
+                    c.phone,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+                /*
+                  Скільки днів мовчить — головне число цього списку: саме за
+                  ним торговий вирішує, кому писати першим. Борг — у підписі,
+                  і лише прострочений: свіжий борг — нормальна робота.
+                */
+                value={
+                  c.daysSinceLast != null ? (
+                    <span className="tabular-nums">{c.daysSinceLast} дн.</span>
+                  ) : (
+                    <span className="font-medium text-cab-t3">без покупок</span>
+                  )
+                }
+                badge={c.state ? <ClientStatePill state={c.state} /> : undefined}
+              />
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col gap-2">
             {/* Обрізаний список видно одразу, а не після марного гортання. */}
-            {scope === "all" && !query && (
+            {!query && (
               <Note>
                 Спершу ваші клієнти, далі — решта бази компанії (перші {ALL_LIMIT} за абеткою). Щоб
                 знайти конкретного — введіть назву в пошук: він шукає по всій базі.
@@ -232,7 +366,7 @@ export default function ClientsPage() {
               const docs = c._count?.salesDocuments ?? 0;
               // Межа між своїм портфелем і рештою бази. Підпис, а не колір:
               // у списку з двох сотень рядків відтінок нічого не пояснює.
-              const boundary = scope === "all" && !c.mine && i > 0 && clients[i - 1].mine === true;
+              const boundary = !c.mine && i > 0 && clients[i - 1].mine === true;
 
               return (
                 <Fragment key={c.id}>

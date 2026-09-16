@@ -153,7 +153,7 @@ const DOC_HEAD = [
   col("doc_type", T, "ORDER (замовлення) / REALIZATION (реалізація, відвантажено) / RETURN (повернення)"),
   col("status", T, "DRAFT / CONFIRMED (проведено) / PACKING / IN_TRANSIT / DELIVERED / CANCELLED"),
   col("from_1c", B, "документ прийшов з 1С (інакше створений на сайті)"),
-  col("real_sale", B, "проведена реалізація або повернення з 1С з 2026-01-01 — фільтр обороту, як у кабінеті"),
+  col("real_sale", B, `проведена реалізація або повернення з 1С з ${ANALYTICS_SINCE_DAY} — фільтр обороту, як у кабінеті`),
   col("day", D, "київська дата документа"),
 ];
 
@@ -187,7 +187,9 @@ export const VIEWS: View[] = [
   },
   {
     name: "clients",
-    purpose: "контрагенти: борг, торговий за драбиною, остання реалізація, адреса",
+    purpose:
+      "контрагенти: борг, торговий за драбиною, остання реалізація, адреса, згода на повідомлення; " +
+      "у списках КЛІЄНТІВ (втрачені, кому дзвонити, кому писати) відсіюй свої: WHERE NOT internal",
     deps: ["client_facts"],
     columns: [
       col("client_id", ID, "ідентифікатор"),
@@ -210,6 +212,10 @@ export const VIEWS: View[] = [
       col("last_sale_day", D, "остання проведена реалізація"),
       col("notes", T, "нотатки (до 200 символів)"),
       col("created_day", D, "коли заведено"),
+      col("internal", B, "свій, а не клієнт: склад, співробітник, ФОП торгового (оборот із ним лишається в КПІ)"),
+      col("consent", T, "згода на рекламні повідомлення: UNKNOWN (не питали) / GRANTED / REFUSED"),
+      col("opted_out", B, "клієнт відписався від реклами — рекламу не пропонувати, сервісні можна"),
+      col("mobile", T, "основний мобільний +380XXXXXXXXX для Viber/SMS; NULL — мобільного немає"),
     ],
     sql: `
       SELECT c.id AS client_id, c.name, c.code, c.type::text AS kind,
@@ -220,13 +226,18 @@ export const VIEWS: View[] = [
              cf.rep_id, ru.name AS rep,
              ${KYIV_DAY("cf.last_sale_at")} AS last_sale_day,
              LEFT(c.notes, 200) AS notes,
-             ${KYIV_DAY('c."createdAt"')} AS created_day
+             ${KYIV_DAY('c."createdAt"')} AS created_day,
+             c."isInternal" AS internal,
+             c."marketingConsent" AS consent,
+             (c."marketingOptOutAt" IS NOT NULL) AS opted_out,
+             c."primaryPhoneE164" AS mobile
       FROM "Counterparty" c
       JOIN client_facts cf ON cf.client_id = c.id
       LEFT JOIN "User" ru ON ru.id = cf.rep_id`,
     examples: [
       "SELECT name, debt, rep, last_sale_day FROM clients WHERE debt > 0 ORDER BY debt DESC LIMIT 20",
       "SELECT rep, COUNT(*) AS clients, SUM(debt) AS debt FROM clients WHERE debt > 0 GROUP BY rep ORDER BY debt DESC LIMIT 20",
+      "SELECT name, rep, last_sale_day, mobile FROM clients WHERE NOT internal AND last_sale_day < CURRENT_DATE - 90 AND consent = 'GRANTED' AND NOT opted_out ORDER BY last_sale_day DESC LIMIT 30",
     ],
   },
   {

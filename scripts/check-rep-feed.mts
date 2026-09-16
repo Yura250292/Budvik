@@ -121,7 +121,8 @@ check("старий тип → документ (як було)", feedHref("WHOL
 check("без relatedId → null", feedHref(REP_FEED_TYPES.PAYMENT, null) === null);
 check("isRepFeedType", isRepFeedType("REP_PAYMENT") && !isRepFeedType("REP_SOMETHING"));
 check("візит → картка клієнта", feedHref(REP_FEED_TYPES.VISIT, "c1") === "/sales/clients/c1");
-check("дзвінки → список клієнтів, без relatedId", feedHref(REP_FEED_TYPES.CALL_LIST, null) === "/sales/clients");
+// Не /sales/clients?filter=…: білий список тапів застосунку не пропускає query.
+check("дзвінки → «Кому написати», без relatedId", feedHref(REP_FEED_TYPES.CALL_LIST, null) === "/sales/outreach");
 
 // ---- картка перед візитом ----
 check("daysAgo 0/1/3/40", [0, 1, 3, 40].map(daysAgo).join("|") === "сьогодні|вчора|3 дні тому|40 днів тому");
@@ -252,7 +253,18 @@ check("prefs: null → нічого не вимкнено", parsePushPrefs(null)
 const prefs = parsePushPrefs({ mutedTypes: ["REP_PAYMENT", "REP_NOPE", 5, "REP_PAYMENT"] });
 check("prefs: невідоме й дублі відкинуто", prefs.mutedTypes.join() === "REP_PAYMENT", prefs);
 check("prefs: isPushMuted", isPushMuted(prefs, REP_FEED_TYPES.PAYMENT) && !isPushMuted(prefs, REP_FEED_TYPES.VISIT));
-check("prefs: усі типи стрічки є в переліку категорій", Object.values(REP_FEED_TYPES).every((t) => PUSH_CATEGORIES.some((c) => c.type === t)));
+// Винятки — типи, пуш яких налаштувань стрічки не читає, тож перемикач у
+// профілі нічого б не вимикав:
+//   TASK_DONE — рядок і пуш іде офісному автору задачі (tasks/notify.ts);
+//   MEETING   — підсумок наради розсилає керівник свідомо, пуш шле роут у
+//               мить розсилки (meetings/share.ts).
+const NO_CATEGORY: readonly string[] = [REP_FEED_TYPES.TASK_DONE, REP_FEED_TYPES.MEETING];
+check(
+  "prefs: усі типи стрічки торгового є в переліку категорій",
+  Object.values(REP_FEED_TYPES)
+    .filter((t) => !NO_CATEGORY.includes(t))
+    .every((t) => PUSH_CATEGORIES.some((c) => c.type === t))
+);
 check("docDayBounds: доба як UTC", docDayBounds("2026-09-14").from.toISOString() === "2026-09-14T00:00:00.000Z" && docDayBounds("2026-09-14").to.toISOString() === "2026-09-14T23:59:59.999Z");
 
 console.log(failed ? `\n✗ помилок: ${failed}` : "\n✓ усе гаразд");

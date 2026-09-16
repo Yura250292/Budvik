@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import type {
   BatchRequest,
   CategoryRecord,
+  CounterpartyContactsRecord,
   CounterpartyRecord,
   DebtRecord,
   PaymentRecord,
@@ -26,6 +27,7 @@ import { applyPrices } from "./apply-prices";
 import { applyCategories } from "./apply-categories";
 import { applyStock, applyWarehouses } from "./apply-stock";
 import { applyCounterparties, applyDebts } from "./apply-counterparties";
+import { applyCounterpartyContacts } from "./apply-contacts";
 import { applySalesDocuments, applyPurchaseDocuments } from "./apply-documents";
 import { applyPayments } from "./apply-payments";
 import { applyRouteSheets } from "./apply-route-sheets";
@@ -48,6 +50,10 @@ import { unresolvedRefs, zeroStock } from "./stale";
 const SLOW_ENTITIES: Partial<Record<SyncEntityType, number>> = {
   counterparty: 60 * 60_000,
   debt: 60 * 60_000,
+  // Контакти агент читає лише погодинно (11 тис. рядків регістру), а
+  // міняються вони кілька разів на тиждень. Шість годин тримають новий номер
+  // на сайті в межах робочого дня, а нічний повний прогін звіряє завжди.
+  counterparty_contact: 6 * 60 * 60_000,
 };
 
 /**
@@ -125,6 +131,9 @@ export async function dispatchBatch(
       break;
     case "counterparty":
       await applyCounterparties(batch.records as CounterpartyRecord[], ctx);
+      break;
+    case "counterparty_contact":
+      await applyCounterpartyContacts(batch.records as CounterpartyContactsRecord[], ctx);
       break;
     case "sales_doc":
       await applySalesDocuments(batch.records as DocumentRecord[], ctx, "ORDER");

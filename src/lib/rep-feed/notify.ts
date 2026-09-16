@@ -15,7 +15,9 @@
  *   - route-sheets.ts — накладна потрапила в маршрутний лист 1С;
  *   - watches.ts — приїхав товар, на який торговий чекав;
  *   - price-changes.ts — зранку: подорожчало те, що беруть клієнти торгового;
- *   - week-summary.ts — у п'ятницю: підсумок тижня з місцем у команді.
+ *   - week-summary.ts — у п'ятницю: підсумок тижня з місцем у команді;
+ *   - outreach-results.ts — пропозиція торгового закрилась накладною (ORDERED від воркера);
+ *   - outreach-list.ts — у вівторок з 14:00: кому зі сплячих написати цього тижня.
  * Вони мають власні ключі дедуплікації й не залежать від курсора; їхні
  * помилки не зупиняють головну стрічку.
  *
@@ -43,6 +45,8 @@ import { collectRouteSheetEvents } from "./route-sheets";
 import { collectWatchEvents } from "./watches";
 import { collectPriceUps, recordPriceChanges } from "./price-changes";
 import { collectWeekSummaries } from "./week-summary";
+import { collectOutreachResults } from "./outreach-results";
+import { collectOutreachLists } from "./outreach-list";
 import {
   CURSOR_OVERLAP_MS,
   DAILY_PUSH_CAP,
@@ -149,6 +153,8 @@ export async function notifyRepFeed(
     ...(await safely("товар під запит", () => collectWatchEvents(now))),
     ...(await safely("подорожчання", () => collectPriceUps(now))),
     ...(await safely("підсумок тижня", () => collectWeekSummaries(now))),
+    ...(await safely("пропозиції спрацювали", () => collectOutreachResults(now))),
+    ...(await safely("кому написати", () => collectOutreachLists(now))),
   ];
 
   // ---- запис: нові проти відомих ----

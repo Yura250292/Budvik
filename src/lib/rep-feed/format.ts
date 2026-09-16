@@ -251,8 +251,69 @@ export const PRICE_HOUR = 9;
 /** Година п'ятничного підсумку тижня. */
 export const WEEK_HOUR = 16;
 
+/** День тижня за Києвом: 0 — неділя, 2 — вівторок, 5 — п'ятниця. */
+export function kyivWeekday(now: Date): number {
+  return weekdayOf(kyivDate(now));
+}
+
 export function isKyivFriday(now: Date): boolean {
-  return new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Kyiv", weekday: "short" }).format(now) === "Fri";
+  return kyivWeekday(now) === 5;
+}
+
+/**
+ * Тижневий список «Кому написати» — вівторок, з 14:00.
+ *
+ * Не понеділок: у понеділок торговий розбирає замовлення за вихідні, а офіс —
+ * пропозиції цін на тиждень, і лист «напишіть сплячим» тоне серед них. Не
+ * ранок: о 9–11 уже йдуть подорожчання, прихід і список дзвінків, і денна
+ * стеля пушів ділиться між ними. Після обіду маршрут здебільшого пройдений,
+ * а п'ять повідомлень із планшета — десять хвилин у машині.
+ */
+export const OUTREACH_LIST_WEEKDAY = 2;
+export const OUTREACH_LIST_HOUR = 14;
+
+export function isOutreachListTime(now: Date): boolean {
+  return kyivWeekday(now) === OUTREACH_LIST_WEEKDAY && inDigestWindow(now, OUTREACH_LIST_HOUR);
+}
+
+/**
+ * «Пропозиція спрацювала: Заяць» / «Повернути · написали 6 днів тому · взяв на 12 400 ₴».
+ *
+ * `kind` — готова назва виду українською: format.ts не знає довідника
+ * пропозицій і не мусить (див. src/lib/outreach/types.ts). Суму без
+ * накладної не вигадуємо — тоді частини «взяв на» немає.
+ */
+export function describeOutreachResult(input: {
+  name: string | null | undefined;
+  kind: string;
+  sentDaysAgo: number;
+  amount: number | null;
+}): { title: string; body: string } {
+  const parts = [input.kind, `написали ${daysAgo(input.sentDaysAgo)}`];
+  if (input.amount != null && input.amount > 0) parts.push(`взяв на ${uah(input.amount)} ₴`);
+  return {
+    title: `Пропозиція спрацювала: ${shortName(input.name, 24)}`,
+    body: parts.filter(Boolean).join(" · "),
+  };
+}
+
+/** Скільки клієнтів перелічуємо в тілі тижневого списку. */
+const OUTREACH_LIST_HEAD = 3;
+
+/** «Кому написати цього тижня: 5» / «Заяць (75 дн) · Химич (64 дн) · Галан (41 дн) і ще 2». */
+export function describeOutreachList(items: { name: string | null | undefined; daysSinceLast: number }[]): {
+  title: string;
+  body: string;
+} {
+  const n = items.length;
+  const head = items
+    .slice(0, OUTREACH_LIST_HEAD)
+    .map((i) => `${shortName(i.name, 24)} (${Math.max(0, Math.round(i.daysSinceLast))} дн)`);
+  const rest = n - head.length;
+  return {
+    title: `Кому написати цього тижня: ${n}`,
+    body: rest > 0 ? `${head.join(" · ")} і ще ${rest}` : head.join(" · "),
+  };
 }
 
 /** Понеділок тижня київського дня «YYYY-MM-DD». */
@@ -461,4 +522,6 @@ export const TYPE_LABELS: Record<RepFeedType, string> = {
   REP_TASK: "задача",
   REP_TASK_DONE: "виконано",
   REP_MEETING: "нарада",
+  REP_OUTREACH_RESULT: "спрацювало",
+  REP_OUTREACH_LIST: "написати",
 };

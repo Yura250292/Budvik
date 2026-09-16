@@ -16,11 +16,24 @@
  */
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import RoutePicker from "./RoutePicker";
+import { BlockPlaceholder, KpiTiles, TreeBlock } from "./AssistantBlocks";
+import { BLOCK, parseChart, parseKpi, parseTree } from "@/lib/assistant/blocks";
+
+/**
+ * Recharts — лише коли у відповіді справді є діаграма.
+ *
+ * ssr: false — діаграма міряє ширину контейнера, на сервері її немає.
+ */
+const AssistantChart = dynamic(() => import("./AssistantChart"), {
+  ssr: false,
+  loading: () => <BlockPlaceholder label="Діаграма" broken={false} />,
+});
 
 type HastNode = {
   tagName?: string;
@@ -64,6 +77,7 @@ export default function AssistantMarkdown({
   onAsk,
   backHref,
   linksAllowed = true,
+  streaming = false,
 }: {
   content: string;
   onAsk?: (text: string) => void;
@@ -82,6 +96,11 @@ export default function AssistantMarkdown({
    * зменшується, зникає лише глухий кут.
    */
   linksAllowed?: boolean;
+  /**
+   * Відповідь ще дописується. Недописаний блок діаграми — це обірваний JSON,
+   * і до кінця потоку він має показуватись як «малюю», а не як «зламано».
+   */
+  streaming?: boolean;
 }) {
   const withBack = (url: string) => {
     if (!backHref || !url.startsWith("/") || url.includes("back=")) return url;
@@ -116,7 +135,9 @@ export default function AssistantMarkdown({
 
           li: ({ children, node }) => {
             const href = linksAllowed ? clientHref(node) : null;
-            if (!href) return <li className="ml-4 list-disc py-0.5">{children}</li>;
+            // Маркер (крапка чи номер) бере список-батько: «Що робити» у
+            // відповіді керівника нумерований, і номер там — порядок дій.
+            if (!href) return <li className="ml-4 py-0.5">{children}</li>;
             return (
               <li className="my-1.5 list-none">
                 <span className="flex items-start gap-2 rounded-xl bg-cab-bg px-3 py-2.5">
@@ -134,8 +155,14 @@ export default function AssistantMarkdown({
           h2: ({ children }) => <Heading>{children}</Heading>,
           h3: ({ children }) => <Heading>{children}</Heading>,
           strong: ({ children }) => <strong className="font-bold text-bk">{children}</strong>,
-          ol: ({ children }) => <ol className="my-1 flex flex-col">{children}</ol>,
-          ul: ({ children }) => <ul className="my-1 flex flex-col">{children}</ul>,
+          // start — бо таблиця посеред нумерованого списку розриває його, і
+          // продовження «3.» інакше знову почалося б з одиниці.
+          ol: ({ children, start }) => (
+            <ol start={start} className="my-1 flex list-decimal flex-col pl-1 marker:font-semibold">
+              {children}
+            </ol>
+          ),
+          ul: ({ children }) => <ul className="my-1 flex list-disc flex-col">{children}</ul>,
           code: ({ children }) => (
             <code className="rounded bg-cab-bg px-1 py-0.5 text-[13px]">{children}</code>
           ),
@@ -152,8 +179,26 @@ export default function AssistantMarkdown({
           pre: ({ children }) => {
             const node = Array.isArray(children) ? children[0] : children;
             const props = (node as { props?: { className?: string; children?: unknown } })?.props;
-            if (typeof props?.className === "string" && props.className.includes("budvik-route")) {
-              return <RoutePicker json={String(props.children ?? "")} backHref={backHref} />;
+            const lang = typeof props?.className === "string" ? props.className.replace(/^language-/, "") : "";
+            const raw = String(props?.children ?? "");
+            if (lang === BLOCK.route) {
+              return <RoutePicker json={raw} backHref={backHref} />;
+            }
+            /*
+             * Діаграма, плитки й дерево — див. src/lib/assistant/blocks.ts.
+             * Зламаний JSON не показуємо сирим: людині він нічого не каже.
+             */
+            if (lang === BLOCK.chart) {
+              const parsed = parseChart(raw);
+              return parsed.ok ? <AssistantChart spec={parsed.spec} /> : <BlockPlaceholder label="Діаграма" broken={!streaming} />;
+            }
+            if (lang === BLOCK.kpi) {
+              const parsed = parseKpi(raw);
+              return parsed.ok ? <KpiTiles spec={parsed.spec} /> : <BlockPlaceholder label="Показники" broken={!streaming} />;
+            }
+            if (lang === BLOCK.tree) {
+              const parsed = parseTree(raw);
+              return parsed.ok ? <TreeBlock spec={parsed.spec} /> : <BlockPlaceholder label="Схема" broken={!streaming} />;
             }
             return (
               <pre className="my-2 overflow-x-auto rounded-xl bg-cab-bg p-3 text-[12px]">

@@ -21,9 +21,13 @@ import {
   MEDALS,
   arrow,
   bar,
+  chart,
   followUps,
+  kpi,
   light,
   md,
+  monthShort,
+  moneyShort,
   payerIcon,
   short,
   table,
@@ -360,11 +364,28 @@ export async function answerTeamSales(
   const planned = board.filter((r) => r.план != null);
   const earlyMonth = period.fromDay.endsWith("-01") && Number(ctx.today.slice(8, 10)) <= 7;
 
+  const leader = board[0];
+
   return {
     markdown: md([
       `## 📈 Продажі по торгових · ${period.label}`,
       "",
-      `Разом **${money(totals.оборот)}** за ${totals.реалізацій} реалізацій, зібрано ${money(totals.зібрано)}.`,
+      kpi([
+        { label: "Оборот", value: moneyShort(totals.оборот), hint: `${totals.реалізацій} реалізацій` },
+        { label: "Зібрано", value: moneyShort(totals.зібрано) },
+        { label: "Медіана торгового", value: moneyShort(medians.оборот) },
+        { label: "Лідер", value: moneyShort(leader.оборот), hint: short(leader.торговий, 22) },
+      ]),
+      "",
+      board.length >= 3
+        ? chart({
+            type: "bar",
+            title: `Оборот по торгових · ${period.label}`,
+            unit: "₴",
+            categories: board.slice(0, 15).map((r) => short(r.торговий, 22)),
+            series: [{ name: "Оборот", values: board.slice(0, 15).map((r) => Math.round(r.оборот)) }],
+          })
+        : null,
       "",
       ...table(["#", "Торговий", "Оборот", "Реал.", "Динаміка"], rows),
       "",
@@ -905,12 +926,45 @@ export async function answerLowStock(
     | undefined;
 
   const state = low ? (low.пекучих > 0 ? "🔴" : low.до_замовлення > 0 ? "🟡" : "🟢") : "";
+  // Діаграма — за сумою, а таблиця нижче лишається за кількістю позицій:
+  // гроші й штуки — різні питання («на що піде бюджет» і «скільки роботи»).
+  const brandsWithOrder = [...(low?.по_брендах ?? [])]
+    .filter((b) => b.сума > 0)
+    .sort((a, b) => b.сума - a.сума)
+    .slice(0, 10);
 
   return {
     markdown: md([
       `## 📦 Склад · ${brandName}`,
       "",
-      low ? `${state} До замовлення **${low.до_замовлення}** позицій на ${money(low.сума_закупівлі)}; пекучих ${low.пекучих}, з нулем ${low.нуль_на_складі}.` : null,
+      low
+        ? kpi([
+            { label: "До замовлення", value: `${low.до_замовлення} поз.`, tone: low.пекучих > 0 ? "bad" : "neutral" },
+            { label: "Сума закупівлі", value: moneyShort(low.сума_закупівлі), hint: "верхня межа" },
+            { label: "Нуль на складі", value: `${low.нуль_на_складі} поз.` },
+            { label: "Пекучих", value: `${low.пекучих} поз.`, hint: "продається й скінчилось", tone: low.пекучих > 0 ? "bad" : "good" },
+          ])
+        : turnover
+          ? kpi([
+              { label: "Запас", value: moneyShort(turnover.запас_грн) },
+              { label: "Без руху", value: moneyShort(turnover.без_руху_грн), hint: `${turnover.без_руху_позицій} поз.`, tone: "bad" },
+              { label: "Частка без руху", value: percent(turnover.частка_мертвих_відсотків) },
+              { label: "Обертів на рік", value: turnover.обертів_на_рік != null ? String(turnover.обертів_на_рік) : "—" },
+            ])
+          : null,
+      "",
+      low ? `${state} Точна сума — ${money(low.сума_закупівлі)}.` : null,
+      "",
+      brandsWithOrder.length >= 3
+        ? chart({
+            type: "bar",
+            title: "Сума дефіциту по брендах",
+            unit: "₴",
+            categories: brandsWithOrder.map((b) => short(b.бренд, 22)),
+            series: [{ name: "Сума закупівлі", values: brandsWithOrder.map((b) => Math.round(b.сума)) }],
+            note: "Верхня межа: усе, що нижче норми, без урахування того, що вже в дорозі.",
+          })
+        : null,
       "",
       low && low.по_брендах.length > 1 ? "### По брендах" : null,
       ...(low && low.по_брендах.length > 1
@@ -1194,11 +1248,22 @@ export async function answerMoneyFlows(
       return { markdown: `${capitalize(period.label)} надходжень товару не було.`, tools };
     }
 
+    const topSuppliers = bySupplier.slice(0, 10);
     return {
       markdown: md([
         `## 🚛 Закупівлі · ${period.label}`,
         "",
         `Завезли на **${money(total.сума)}** за ${total.документів} документів від ${total.постачальників} постачальників.`,
+        "",
+        topSuppliers.length >= 3
+          ? chart({
+              type: "bar",
+              title: `Закупівлі по постачальниках · ${period.label}`,
+              unit: "₴",
+              categories: topSuppliers.map((x) => short(x.назва, 22)),
+              series: [{ name: "Сума", values: topSuppliers.map((x) => Math.round(x.сума)) }],
+            })
+          : null,
         "",
         ...table(
           ["Постачальник", "Документів", "Сума"],
@@ -1236,15 +1301,19 @@ export async function answerMoneyFlows(
     markdown: md([
       `## 💳 Гроші фірми · ${period.label}`,
       "",
-      ...table(
-        ["Відвантажено", "Зібрано", "Завезено", "Повернень"],
-        [[
-          `${money(shipped.сума)} (${shipped.документів} док.)`,
-          `${money(collected.сума)} (${collected.платежів} пл.)`,
-          `${money(purchased.сума)} (${purchased.документів} док.)`,
-          money(returned.сума),
-        ]]
-      ),
+      kpi([
+        { label: "Відвантажено", value: moneyShort(shipped.сума), hint: `${shipped.документів} док.` },
+        { label: "Зібрано", value: moneyShort(collected.сума), hint: `${collected.платежів} пл.` },
+        {
+          label: "Розрив",
+          value: moneyShort(gap),
+          tone: gap > 0 ? "bad" : "good",
+          hint: gap > 0 ? "борг клієнтів виріс" : "борг зменшився",
+        },
+        { label: "Дебіторка зараз", value: moneyShort(debt.борг), hint: `прострочено ${percent(debt.прострочено_відсотків)}` },
+      ]),
+      "",
+      `Завезено товару на ${money(purchased.сума)} (${purchased.документів} док.), повернень на ${money(returned.сума)}.`,
       "",
       /*
        * Розрив — головне число цієї відповіді: воно й є приріст боргу за
@@ -1266,10 +1335,25 @@ export async function answerMoneyFlows(
         .map((c) => `- ${clientLink(c.клієнт_id, c.клієнт)} — ${money(c.сума)}`),
       "",
       months.length > 1 ? "### Помісячно" : null,
-      ...table(
-        ["Місяць", "Відвантажено", "Зібрано"],
-        months.map((m) => [m.місяць, money(m.відвантажено), money(m.зібрано)])
-      ),
+      // Від трьох місяців — діаграма (числа в ній за кнопкою «Таблиця»), менше — таблиця.
+      months.length >= 3
+        ? chart({
+            type: "column",
+            title: "Відвантажено й зібрано по місяцях",
+            unit: "₴",
+            categories: months.map((m) => monthShort(m.місяць)),
+            series: [
+              { name: "Відвантажено", values: months.map((m) => Math.round(m.відвантажено)) },
+              { name: "Зібрано", values: months.map((m) => Math.round(m.зібрано)) },
+            ],
+          })
+        : null,
+      ...(months.length >= 3
+        ? []
+        : table(
+            ["Місяць", "Відвантажено", "Зібрано"],
+            months.map((m) => [m.місяць, money(m.відвантажено), money(m.зібрано)])
+          )),
       "",
       followUps("Закупівлі за місяць", "Дебіторка фірми", "Хто скільки зібрав за тиждень"),
     ]),

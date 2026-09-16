@@ -49,6 +49,7 @@ import {
 } from "@/lib/assistant/config";
 import { streamChat, stripSignature, LlmError, type ChatResult } from "@/lib/assistant/llm";
 import { isPaused, markQuotaExhausted } from "@/lib/assistant/model-health";
+import { blockNumbersText, withoutBlocks } from "@/lib/assistant/blocks";
 import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
 import { compact } from "@/lib/assistant/format";
@@ -459,13 +460,31 @@ export async function runTurn(input: RunTurnInput) {
      * незвірених і лишаємо слід у журналі: так видно, чи вигадує вона
      * взагалі, і скільки.
      */
-    const numbers = verifyNumbers(final.text, input.userText, seen);
+    const numbers = verifyNumbers(withoutBlocks(final.text), input.userText, seen);
     if (numbers.unverified.length > 0) {
       console.warn(
         `[помічник] числа поза даними (${numbers.unverified.join(", ")}) · розмова ${input.threadId}`
       );
     }
     void recordNumberCheck(input.ctx.today, numbers);
+
+    /**
+     * Числа діаграм — окремо й лише в журнал.
+     *
+     * У лічильник вартового вони не йдуть: діаграма з 12 місяців додала б
+     * дюжину перевірених чисел до кожної відповіді й зсунула б частку,
+     * з якою порівнюємо з еталоном. Але вигадана точка на графіку не менш
+     * небезпечна за вигадану суму в тексті — тому слід у журналі лишається.
+     */
+    const chartNumbers = blockNumbersText(final.text);
+    if (chartNumbers) {
+      const chart = verifyNumbers(chartNumbers, input.userText, seen);
+      if (chart.unverified.length > 0) {
+        console.warn(
+          `[помічник] числа діаграми поза даними (${chart.unverified.slice(0, 12).join(", ")}) · розмова ${input.threadId}`
+        );
+      }
+    }
 
     const saved = await appendMessage({
       threadId: input.threadId,

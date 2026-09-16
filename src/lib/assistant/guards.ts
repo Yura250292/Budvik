@@ -150,16 +150,33 @@ export function verifyNumbers(answer: string, question: string, seen: SeenEntiti
   // Дати («2026-09-06», «06.09») до перевірки не потрапляють: NUMBER_RE
   // не бере числа, приклеєні до крапки чи дефіса з обох боків.
   for (const m of answer.matchAll(NUMBER_RE)) {
-    const value = parseNumber(m[1]);
-    if (!Number.isFinite(value)) continue;
-    if (Math.abs(value) <= SMALL) continue;
+    const bare = parseNumber(m[1]);
+    if (!Number.isFinite(bare)) continue;
+    const after = answer.slice(m.index + m[0].length);
     // Відсоток одразу за числом — ознака порахованого, а не взятого.
-    if (/^\s*%/.test(answer.slice(m.index + m[0].length))) continue;
-    if (value >= 1900 && value <= 2100 && Number.isInteger(value)) continue;
-    if (fromQuestion.has(value)) continue;
+    if (/^\s*%/.test(after)) continue;
+
+    /**
+     * «7,7 млн ₴», «846 тис ₴» — округлена сума з даних.
+     *
+     * Промпт керівника просить округлювати суми в тексті, тож «846» тут —
+     * це 846 тисяч, і звіряти його треба з 846 550, а не шукати 846. Допуск —
+     * одна одиниця останнього показаного розряду: модель і округлює, і
+     * відкидає хвіст, тож «846 тис» для 846 550 — чесне число, а «850 тис» —
+     * уже ні.
+     */
+    const scale = /^\s*млн/.test(after) ? 1_000_000 : /^\s*тис/.test(after) ? 1_000 : 1;
+    const value = bare * scale;
+    if (Math.abs(value) <= SMALL) continue;
+    if (scale === 1 && value >= 1900 && value <= 2100 && Number.isInteger(value)) continue;
+    if (fromQuestion.has(bare) || fromQuestion.has(value)) continue;
 
     checked++;
-    if (isKnown(value, seen.numbers)) continue;
+    if (scale > 1) {
+      const decimals = (m[1].split(/[.,]/)[1] ?? "").length;
+      const tolerance = scale / 10 ** decimals;
+      if ([...seen.numbers].some((k) => Math.abs(Math.abs(k) - Math.abs(value)) <= tolerance)) continue;
+    } else if (isKnown(value, seen.numbers)) continue;
     unverified.push(value);
   }
 

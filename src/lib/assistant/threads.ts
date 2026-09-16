@@ -17,6 +17,7 @@ import type { AssistantRole, Prisma } from "@prisma/client";
 import { HISTORY_MAX_CHARS, HISTORY_MAX_MESSAGES } from "@/lib/assistant/config";
 import type { ChatMessage, ToolCall } from "@/lib/assistant/types";
 import { emptyEntities, type SeenEntities } from "@/lib/assistant/guards";
+import { blocksForHistory } from "@/lib/assistant/blocks";
 
 /** Скільки часу тримається замок на розмову, поки формується відповідь. */
 const BUSY_MS = 130_000;
@@ -187,17 +188,15 @@ export async function loadHistoryForModel(threadId: string): Promise<ChatMessage
           : HISTORY_ASSISTANT_MAX
         : Infinity;
     /**
-     * Службовий блок маршруту в історію не йде.
+     * Службові блоки в історію не йдуть сирим JSON.
      *
-     * Це півтори тисячі символів координат, які моделі ні про що не
-     * кажуть: точки вона однаково не читає, а місце в контексті вони
-     * з'їдають при КОЖНОМУ наступному запиті. Людині ж лишається сам
-     * список — його малює кабінет.
+     * Маршрут — це півтори тисячі символів координат, діаграма — сотня
+     * чисел: місце в контексті вони з'їдають при КОЖНОМУ наступному
+     * запиті. Замість них модель бачить короткий опис (blocks.ts): назву
+     * діаграми з числами, плитки, назву файла. Людині ж лишається картинка —
+     * її малює кабінет.
      */
-    const body = row.content.replace(
-      /```budvik-route[\s\S]*?```/g,
-      "(маршрут показано списком у кабінеті)"
-    );
+    const body = blocksForHistory(row.content);
     const content = body.length > limit ? `${body.slice(0, limit)}…` : body;
     if (chars + content.length > HISTORY_MAX_CHARS) break;
     chars += content.length;

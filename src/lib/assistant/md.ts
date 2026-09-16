@@ -17,6 +17,8 @@
  * «натиснув і поїхав» виходить «прочитав і шукай руками».
  */
 
+import { block, type ChartSpec, type KpiSpec } from "@/lib/assistant/blocks";
+
 /**
  * Збірка відповіді з рядків.
  *
@@ -101,6 +103,40 @@ export function bar(percentValue: number | null): string {
   const filled = Math.max(0, Math.min(10, Math.round(percentValue / 10)));
   const block = percentValue >= 100 ? "🟩" : percentValue >= 90 ? "🟨" : "🟥";
   return block.repeat(filled) + "⬜".repeat(10 - filled);
+}
+
+/**
+ * Плитки й діаграма — ті самі блоки, що пише модель (див. blocks.ts).
+ *
+ * Кодові відповіді мусять виглядати так само, як відповіді моделі: в одній
+ * розмові зустрічаються обидві, і різна подача однакових чисел збиває.
+ */
+export function kpi(items: KpiSpec["items"]): string {
+  const list = items.filter((i) => i.value !== "");
+  return list.length ? block("kpi", { items: list.slice(0, 4) }) : "";
+}
+
+export function chart(spec: Partial<ChartSpec> & Pick<ChartSpec, "type" | "title" | "unit">): string {
+  if (spec.type === "scatter" ? (spec.points?.length ?? 0) < 2 : (spec.categories?.length ?? 0) < 2) return "";
+  return block("chart", spec);
+}
+
+const MONTHS_SHORT = ["січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"];
+
+/** «2026-04» → «кві 26»: підпис стовпчика має вміститися в 40 точок. */
+export function monthShort(ym: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(ym);
+  if (!m) return ym;
+  return `${MONTHS_SHORT[Number(m[2]) - 1] ?? m[2]} ${m[1].slice(2)}`;
+}
+
+/** Сума для плитки: «7,7 млн ₴», «846 тис ₴», «12 300 ₴». */
+export function moneyShort(value: number): string {
+  const a = Math.abs(value);
+  const sign = value < 0 ? "−" : "";
+  if (a >= 1_000_000) return `${sign}${(a / 1_000_000).toFixed(1).replace(".", ",")} млн ₴`;
+  if (a >= 100_000) return `${sign}${Math.round(a / 1000)} тис ₴`;
+  return `${sign}${Math.round(a).toLocaleString("uk-UA")} ₴`;
 }
 
 /** Медаль за місце. Далі третього — просто число, інакше медалі знецінюються. */

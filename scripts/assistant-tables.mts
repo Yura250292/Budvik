@@ -7,12 +7,17 @@
  * готовому екрані. Саме так проскочили дві таблиці, коли до товарів
  * додавали колонку з артикулом.
  *
+ * Друга перевірка — блоки діаграм, плиток і схем (```budvik-chart тощо):
+ * зламаний JSON кабінет показує написом «не вдалося намалювати», і це теж
+ * помітно лише очима.
+ *
  *   npx tsx --env-file=.env scripts/assistant-tables.mts
  */
 import { prisma } from "../src/lib/prisma";
 import { tryDirectAnswer } from "../src/lib/assistant/direct";
 import { scopeOf } from "../src/lib/assistant/scope";
 import { kyivDate } from "../src/lib/date/kyiv";
+import { BLOCK, parseChart, parseKpi, parseTree } from "../src/lib/assistant/blocks";
 
 const rep = await prisma.user.findFirstOrThrow({
   where: { email: "rep-kavetskyi-viktor@budvik.local" },
@@ -48,6 +53,12 @@ const QUESTIONS: Array<[string, "SALES" | "ADMIN"]> = [
 ];
 
 let bad = 0;
+let blocks = 0;
+const PARSERS: Record<string, (raw: string) => { ok: boolean; error?: string }> = {
+  [BLOCK.chart]: parseChart,
+  [BLOCK.kpi]: parseKpi,
+  [BLOCK.tree]: parseTree,
+};
 for (const [q, kind] of QUESTIONS) {
   const who = kind === "ADMIN" ? admin?.id : rep.id;
   if (!who) continue;
@@ -60,6 +71,15 @@ for (const [q, kind] of QUESTIONS) {
   };
   const a = await tryDirectAnswer(ctx, q, { hasHistory: false });
   if (!a) continue;
+
+  for (const m of a.markdown.matchAll(/```(budvik-(?:chart|kpi|tree))\s*\n([\s\S]*?)```/g)) {
+    blocks++;
+    const parsed = PARSERS[m[1]](m[2]);
+    if (!parsed.ok) {
+      console.log(`✗ ${q}: блок ${m[1]} — ${parsed.error}`);
+      bad++;
+    }
+  }
 
   let headers = 0;
   for (const line of a.markdown.split("\n")) {
@@ -75,5 +95,5 @@ for (const [q, kind] of QUESTIONS) {
     }
   }
 }
-console.log(bad === 0 ? "✓ усі таблиці рівні" : `✗ кривих рядків: ${bad}`);
+console.log(bad === 0 ? `✓ усі таблиці рівні, блоків перевірено ${blocks}` : `✗ кривих рядків і блоків: ${bad}`);
 await prisma.$disconnect();

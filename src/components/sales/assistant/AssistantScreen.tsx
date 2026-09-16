@@ -363,7 +363,7 @@ export default function AssistantScreen({
           )}
           {stream && stream.text.length > 0 && (
             <div className="rounded-2xl border border-cab-line bg-white p-3.5">
-              <AssistantMarkdown content={stream.text} backHref={backHref} linksAllowed={linksAllowed} />
+              <AssistantMarkdown content={stream.text} backHref={backHref} linksAllowed={linksAllowed} streaming />
             </div>
           )}
 

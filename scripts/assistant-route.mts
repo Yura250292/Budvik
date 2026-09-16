@@ -237,6 +237,18 @@ const args = process.argv.slice(2);
 
 type Kind = "SALES" | "DRIVER" | "WAREHOUSE" | "ADMIN";
 
+/**
+ * Керівник просить зважити — це модель, навіть коли в питанні є «продажі» й
+ * період. 16.09.2026 перше з них отримало таблицю торгових за вересень.
+ */
+const ADMIN_HARD = [
+  "Проаналізуй продажі за останні 2 місяці і підкажи, що мені замовити на наступний місяць: що ходове, чого не вистачає, скільки на залишку і з якою швидкістю витрачається",
+  "Сформуй товари, які варто замовити на наступний місяць",
+  "Врахуй сезонність минулих років",
+  "Підкажи що робити з мертвим складом",
+  "Спрогнозуй оборот на жовтень",
+];
+
 const show = (q: string, hasHistory = false, kind: Kind = "SALES") => {
   const intent = detectIntent(q, { hasHistory, kind });
   const label = intent ? `${intent.kind}${JSON.stringify(intent).replace(/^\{"kind":"[A-Z_]+"/, "").replace(/^,/, " ").replace(/\}$/, "")}` : "→ МОДЕЛЬ";
@@ -282,11 +294,16 @@ console.log(`\nсклад: без моделі ${WAREHOUSE_CASES.length - whMiss
 console.log("\nКЕРІВНИК — типові питання (мають іти без моделі):");
 for (const q of ADMIN_CASES) show(q, false, "ADMIN");
 
+console.log("\nКЕРІВНИК — порада й аналіз (мають іти до моделі: шаблон виконав би лише першу умову):");
+for (const q of ADMIN_HARD) show(q, false, "ADMIN");
+
 console.log("\nКЕРІВНИК — питання торгового (мають іти до моделі: у керівника цього немає):");
 for (const q of ADMIN_NOT_MINE) show(q, false, "ADMIN");
 
 const adminMissed = ADMIN_CASES.filter((q) => !detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length;
-const adminLeak = ADMIN_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length;
+const adminLeak =
+  ADMIN_NOT_MINE.filter((q) => detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length +
+  ADMIN_HARD.filter((q) => detectIntent(q, { hasHistory: false, kind: "ADMIN" })).length;
 console.log(`\nкерівник: без моделі ${ADMIN_CASES.length - adminMissed}/${ADMIN_CASES.length}; чужих звітів проскочило ${adminLeak}`);
 
 const missed = CASES.filter((q) => !detectIntent(q, { hasHistory: false })).length;

@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { peopleOnly, type TrafficView } from "@/lib/webstats/people";
 
 /** Скільки рядків показуємо в кожному рейтингу. */
 const TOP_LIMIT = 12;
@@ -35,6 +36,8 @@ export type SiteOverview = {
     addToCarts: number;
     orders: number;
     phoneClicks: number;
+    /** Усі візити періоду до фільтра «лише люди» — щоб показати, скільки відсіяно. */
+    allSessions: number;
     /** Скільки візитів дійшло до замовлення, %. */
     conversion: number;
   };
@@ -49,8 +52,15 @@ export type SiteOverview = {
   searches: Array<{ query: string; searches: number; visitors: number; found: number }>;
 };
 
-export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> {
-  const [totals, timeline, pages, devices, browsers, referrers, cities, refCodes, searches] =
+export async function siteOverview(
+  from: Date,
+  to: Date,
+  view: TrafficView = "people"
+): Promise<SiteOverview> {
+  const people = peopleOnly(view);
+  const peopleE = peopleOnly(view, "e");
+
+  const [totals, timeline, pages, devices, browsers, referrers, cities, refCodes, searches, all] =
     await Promise.all([
       prisma.$queryRaw<TotalsRow[]>`
         SELECT
@@ -63,7 +73,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
           COUNT(*) FILTER (WHERE "type" = 'order_placed')  AS orders,
           COUNT(*) FILTER (WHERE "type" = 'phone_click')   AS phone_clicks
         FROM "SiteEvent"
-        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
       `,
 
       // Дні — за київською добою, як їх зводить нічний cron: інакше
@@ -75,7 +85,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
           COUNT(*) FILTER (WHERE "type" = 'page_view')                         AS page_views,
           COUNT(*) FILTER (WHERE "type" = 'order_placed')                      AS orders
         FROM "SiteEvent"
-        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY 1
       `,
@@ -84,7 +94,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
         SELECT "path" AS path, COUNT(*) AS views, COUNT(DISTINCT "visitorId") AS visitors
         FROM "SiteEvent"
         WHERE "type" = 'page_view' AND "path" IS NOT NULL
-          AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+          AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY views DESC
         LIMIT ${TOP_LIMIT}
@@ -96,7 +106,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
       prisma.$queryRaw<Array<{ device: string; visitors: bigint }>>`
         SELECT COALESCE("device", 'unknown') AS device, COUNT(DISTINCT "visitorId") AS visitors
         FROM "SiteEvent"
-        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY visitors DESC
       `,
@@ -104,7 +114,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
       prisma.$queryRaw<Array<{ browser: string; visitors: bigint }>>`
         SELECT COALESCE("browser", 'інше') AS browser, COUNT(DISTINCT "visitorId") AS visitors
         FROM "SiteEvent"
-        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY visitors DESC
         LIMIT ${TOP_LIMIT}
@@ -114,7 +124,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
         SELECT "referrer" AS referrer, COUNT(DISTINCT "sessionId") AS sessions
         FROM "SiteEvent"
         WHERE "referrer" IS NOT NULL
-          AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+          AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY sessions DESC
         LIMIT ${TOP_LIMIT}
@@ -124,7 +134,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
         SELECT "city" AS city, COUNT(DISTINCT "visitorId") AS visitors
         FROM "SiteEvent"
         WHERE "city" IS NOT NULL
-          AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+          AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY visitors DESC
         LIMIT ${TOP_LIMIT}
@@ -136,7 +146,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
         FROM "SiteEvent" e
         LEFT JOIN "User" u ON u."refCode" = e."refCode"
         WHERE e."refCode" IS NOT NULL
-          AND e."createdAt" >= ${from} AND e."createdAt" <= ${to}
+          AND e."createdAt" >= ${from} AND e."createdAt" <= ${to} ${peopleE}
         GROUP BY 1, 3
         ORDER BY visitors DESC
         LIMIT ${TOP_LIMIT}
@@ -155,10 +165,17 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
                AVG("value")                AS found
         FROM "SiteEvent"
         WHERE "type" = 'search' AND "query" IS NOT NULL
-          AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+          AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
         GROUP BY 1
         ORDER BY searches DESC
         LIMIT ${TOP_LIMIT}
+      `,
+
+      // Усі візити без фільтра — лише щоб сказати, скільки не довели, що люди.
+      prisma.$queryRaw<Array<{ sessions: bigint }>>`
+        SELECT COUNT(DISTINCT "sessionId") AS sessions
+        FROM "SiteEvent"
+        WHERE "createdAt" BETWEEN ${from} AND ${to}
       `,
     ]);
 
@@ -176,6 +193,7 @@ export async function siteOverview(from: Date, to: Date): Promise<SiteOverview> 
       addToCarts: n(t?.add_to_carts),
       orders,
       phoneClicks: n(t?.phone_clicks),
+      allSessions: n(all[0]?.sessions),
       conversion: sessions > 0 ? (orders / sessions) * 100 : 0,
     },
     timeline: timeline.map((r) => ({
@@ -232,6 +250,6 @@ export async function siteTrafficFacts(from: Date, to: Date) {
       відвідувачів: r.visitors,
     })),
     примітка:
-      "Рахуються лише події з браузера покупця: заходи з застосунку сюди не потрапляють.",
+      "Рахуються лише живі люди в браузері: боти відсіяні за поведінкою (до 17.09.2026 — оцінка: лише відвідувачі з України); заходи з застосунку сюди не потрапляють.",
   };
 }

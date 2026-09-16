@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parsePeriod } from "@/lib/analytics/period";
 import { siteOverview } from "@/lib/webstats/traffic";
+import { parseView, HUMAN_SIGNALS_SINCE_DAY } from "@/lib/webstats/people";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +21,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const period = parsePeriod(new URL(req.url).searchParams);
-  const data = await siteOverview(period.from, period.to);
+  const params = new URL(req.url).searchParams;
+  const period = parsePeriod(params);
+  const view = parseView(params);
+  const data = await siteOverview(period.from, period.to, view);
 
   return NextResponse.json({
     period: { from: period.fromDay, to: period.toDay, days: period.days },
+    view,
+    humanSignalsSince: HUMAN_SIGNALS_SINCE_DAY,
     ...data,
   });
 }

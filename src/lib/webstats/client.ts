@@ -20,6 +20,8 @@
  *    сховище) не долітав до коду магазину.
  */
 
+import { watchHuman, type HumanVerdict } from "./human";
+
 export type WebstatsEventType =
   | "page_view"
   | "product_view"
@@ -28,7 +30,9 @@ export type WebstatsEventType =
   | "add_to_wishlist"
   | "add_to_compare"
   | "order_placed"
-  | "phone_click";
+  | "phone_click"
+  /** Відвідувач довів, що людина (human.ts): label — чим, value — секунд видимості. */
+  | "human";
 
 export interface WebstatsPayload {
   path?: string | null;
@@ -216,9 +220,24 @@ export function flush() {
 }
 
 /** Вішає флаш на приховання вкладки. Викликається один раз із трекера. */
+let human: { notePath(path: string): void } | null = null;
+
 export function startWebstats() {
   if (started || typeof window === "undefined" || !isTrackable()) return;
   started = true;
+
+  // Доказ «людина» — раз на сесію. Сесія може змінитися, поки вкладка
+  // відкрита (30 хв тиші), тому позначка прив'язана до id сесії, а не до
+  // вкладки. Сесію не продовжуємо: читаємо id, а не getSessionId().
+  human = watchHuman((verdict: HumanVerdict, visibleMs: number) => {
+    const sid = readStore(SID_KEY);
+    if (!sid || !markOnce(`human_${sid}`)) return;
+    track("human", {
+      label: verdict,
+      value: Math.round(visibleMs / 1000),
+      path: window.location.pathname,
+    });
+  });
 
   const onHide = () => {
     if (document.visibilityState === "hidden") flush();
@@ -227,4 +246,9 @@ export function startWebstats() {
   // pagehide, а не unload: у Safari лише він надійно спрацьовує при
   // переході «назад» і при згортанні застосунку.
   window.addEventListener("pagehide", flush);
+}
+
+/** Трекер повідомляє про кожну відкриту сторінку: друга, інша адреса — теж доказ. */
+export function noteHumanPath(path: string) {
+  human?.notePath(path);
 }

@@ -14,7 +14,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { startWebstats, track, flush, isNewSession } from "@/lib/webstats/client";
+import { startWebstats, track, flush, isNewSession, noteHumanPath } from "@/lib/webstats/client";
 
 /**
  * Внутрішні кабінети, які до відвідуваності магазину не належать.
@@ -129,6 +129,7 @@ export default function WebstatsTracker() {
       path: pathname,
       referrer: referrer && !referrer.includes(window.location.host) ? referrer : null,
     });
+    noteHumanPath(pathname);
   }, [pathname]);
 
   return null;

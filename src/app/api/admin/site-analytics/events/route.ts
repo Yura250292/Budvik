@@ -13,6 +13,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
+import { parseView, peopleOnly } from "@/lib/webstats/people";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ const TYPE_LABELS: Record<string, string> = {
   add_to_compare: "Додав у порівняння",
   order_placed: "Оформив замовлення",
   phone_click: "Клік по контакту",
+  human: "Довів, що людина",
 };
 
 const CONTACT_LABELS: Record<string, string> = {
@@ -43,12 +45,13 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const { from, to, fromDay, toDay } = parsePeriod(searchParams);
+  const people = peopleOnly(parseView(searchParams));
 
   const [byType, contacts, funnel] = await Promise.all([
     prisma.$queryRaw<Array<{ type: string; events: bigint; visitors: bigint }>>`
       SELECT "type" AS type, COUNT(*) AS events, COUNT(DISTINCT "visitorId") AS visitors
       FROM "SiteEvent"
-      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
       GROUP BY 1
       ORDER BY events DESC
     `,
@@ -57,7 +60,7 @@ export async function GET(req: NextRequest) {
       SELECT COALESCE("label", 'інше') AS label, COUNT(*) AS clicks, COUNT(DISTINCT "visitorId") AS visitors
       FROM "SiteEvent"
       WHERE "type" = 'phone_click'
-        AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+        AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
       GROUP BY 1
       ORDER BY clicks DESC
     `,
@@ -81,7 +84,7 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT "sessionId") FILTER (WHERE "type" = 'page_view' AND "path" = '/checkout') AS checkout,
         COUNT(DISTINCT "sessionId") FILTER (WHERE "type" = 'order_placed')         AS ordered
       FROM "SiteEvent"
-      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
     `,
   ]);
 

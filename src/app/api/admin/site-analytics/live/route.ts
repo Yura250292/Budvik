@@ -9,33 +9,37 @@
  * його щопівхвилини окремо від решти вкладки.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { parseView, peopleOnly } from "@/lib/webstats/people";
 
 export const dynamic = "force-dynamic";
 
 const WINDOW_MINUTES = 5;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session || !["ADMIN", "MANAGER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const since = new Date(Date.now() - WINDOW_MINUTES * 60 * 1000);
+  // Доказ «людина» приходить за 3+ с після першої сторінки, тож новий
+  // відвідувач з'являється тут із затримкою в одну пачку (до 15 с).
+  const people = peopleOnly(parseView(new URL(req.url).searchParams));
 
   const [online, pages] = await Promise.all([
     prisma.$queryRaw<Array<{ visitors: bigint }>>`
       SELECT COUNT(DISTINCT "visitorId") AS visitors
       FROM "SiteEvent"
-      WHERE "createdAt" >= ${since}
+      WHERE "createdAt" >= ${since} ${people}
     `,
     prisma.$queryRaw<Array<{ path: string; visitors: bigint }>>`
       SELECT "path" AS path, COUNT(DISTINCT "visitorId") AS visitors
       FROM "SiteEvent"
-      WHERE "createdAt" >= ${since} AND "type" = 'page_view' AND "path" IS NOT NULL
+      WHERE "createdAt" >= ${since} ${people} AND "type" = 'page_view' AND "path" IS NOT NULL
       GROUP BY 1
       ORDER BY visitors DESC
       LIMIT 8

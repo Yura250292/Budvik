@@ -11,6 +11,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
+import { parseView, peopleOnly } from "@/lib/webstats/people";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const { from, to, fromDay, toDay } = parsePeriod(searchParams);
+  const people = peopleOnly(parseView(searchParams));
 
   const [top, empty, totals] = await Promise.all([
     prisma.$queryRaw<
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
         MAX("createdAt")              AS last_at
       FROM "SiteEvent"
       WHERE "type" = 'search' AND "query" IS NOT NULL
-        AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+        AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
       GROUP BY 1
       ORDER BY searches DESC
       LIMIT ${LIMIT}
@@ -51,7 +53,7 @@ export async function GET(req: NextRequest) {
         MAX("createdAt")              AS last_at
       FROM "SiteEvent"
       WHERE "type" = 'search' AND "query" IS NOT NULL AND "value" = 0
-        AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+        AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
       GROUP BY 1
       ORDER BY searches DESC
       LIMIT ${LIMIT}
@@ -64,7 +66,7 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT "visitorId")               AS searchers
       FROM "SiteEvent"
       WHERE "type" = 'search'
-        AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+        AND "createdAt" >= ${from} AND "createdAt" <= ${to} ${people}
     `,
   ]);
 

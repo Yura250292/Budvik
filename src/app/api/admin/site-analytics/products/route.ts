@@ -12,6 +12,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
+import { parseView, peopleOnly } from "@/lib/webstats/people";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const { from, to, fromDay, toDay } = parsePeriod(searchParams);
+  const people = peopleOnly(parseView(searchParams), "e");
 
   /**
    * Один прохід по подіях замість двох запитів із наступним склеюванням:
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
     LEFT JOIN "Product" p ON p."id" = e."productId"
     WHERE e."productId" IS NOT NULL
       AND e."type" IN ('product_view', 'add_to_cart')
-      AND e."createdAt" >= ${from} AND e."createdAt" <= ${to}
+      AND e."createdAt" >= ${from} AND e."createdAt" <= ${to} ${people}
     GROUP BY 1, 2, 3, 4
     ORDER BY views DESC, carts DESC
     LIMIT ${LIMIT}

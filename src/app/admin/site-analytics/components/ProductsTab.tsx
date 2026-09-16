@@ -42,9 +42,9 @@ function conversionTone(conversion: number, views: number): string | undefined {
   return undefined;
 }
 
-export function ProductsTab({ period }: { period: Period }) {
+export function ProductsTab({ period, view }: { period: Period; view: "people" | "all" }) {
   const { data, loading, error, reload } = useApi<{ products: ProductRow[] }>(
-    `/api/admin/site-analytics/products?from=${period.from}&to=${period.to}`
+    `/api/admin/site-analytics/products?from=${period.from}&to=${period.to}&view=${view}`
   );
 
   if (error) return <ErrorBox message={error} onRetry={reload} />;

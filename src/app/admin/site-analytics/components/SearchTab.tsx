@@ -53,9 +53,9 @@ function QueryLink({ query }: { query: string }) {
   );
 }
 
-export function SearchTab({ period }: { period: Period }) {
+export function SearchTab({ period, view }: { period: Period; view: "people" | "all" }) {
   const { data, loading, error, reload } = useApi<SearchData>(
-    `/api/admin/site-analytics/search?from=${period.from}&to=${period.to}`
+    `/api/admin/site-analytics/search?from=${period.from}&to=${period.to}&view=${view}`
   );
 
   if (error) return <ErrorBox message={error} onRetry={reload} />;

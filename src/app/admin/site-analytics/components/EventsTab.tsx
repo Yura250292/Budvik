@@ -22,9 +22,9 @@ interface EventsData {
   funnel: Array<{ label: string; sessions: number; share: number }>;
 }
 
-export function EventsTab({ period }: { period: Period }) {
+export function EventsTab({ period, view }: { period: Period; view: "people" | "all" }) {
   const { data, loading, error, reload } = useApi<EventsData>(
-    `/api/admin/site-analytics/events?from=${period.from}&to=${period.to}`
+    `/api/admin/site-analytics/events?from=${period.from}&to=${period.to}&view=${view}`
   );
 
   if (error) return <ErrorBox message={error} onRetry={reload} />;

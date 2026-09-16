@@ -17,6 +17,7 @@ import { CardSkeleton, StatCardSkeleton } from "@/components/ui/Skeleton";
 import { useApi } from "@/components/ui/useApi";
 import { CATEGORICAL, NEUTRAL } from "@/lib/analytics/colors";
 import type { Period } from "@/components/ui/PeriodPicker";
+import type { TrafficView } from "./SiteAnalyticsShell";
 
 const VisitorsChart = dynamic(() => import("./VisitorsChart"), {
   ssr: false,
@@ -34,7 +35,11 @@ interface Overview {
     orders: number;
     phoneClicks: number;
     conversion: number;
+    /** Усі візити періоду до фільтра «лише люди». */
+    allSessions: number;
   };
+  /** З якого дня «людина» доведена поведінкою; раніше — оцінка за країною. */
+  humanSignalsSince: string;
   timeline: Array<{ day: string; visitors: number; pageViews: number; orders: number }>;
   pages: Array<{ path: string; views: number; visitors: number }>;
   devices: Array<{ device: string; visitors: number }>;
@@ -55,6 +60,11 @@ const DEVICE_LABELS: Record<string, string> = {
   desktop: "Комп'ютер",
   unknown: "Невідомо",
 };
+
+function dayMonth(day: string): string {
+  const [, m, d] = day.split("-");
+  return `${d}.${m}`;
+}
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -105,15 +115,15 @@ function RankList({
   );
 }
 
-export function OverviewTab({ period }: { period: Period }) {
+export function OverviewTab({ period, view }: { period: Period; view: TrafficView }) {
   const { data, loading, error, reload } = useApi<Overview>(
-    `/api/admin/site-analytics/overview?from=${period.from}&to=${period.to}`
+    `/api/admin/site-analytics/overview?from=${period.from}&to=${period.to}&view=${view}`
   );
 
   // Лічильник «зараз» живе окремо від решти вкладки: у нього своє вікно
   // (5 хвилин) і власне оновлення раз на півхвилини, тоді як звіт за
   // період перечитувати так часто нема сенсу.
-  const { data: live } = useSWR<Live>("/api/admin/site-analytics/live", fetcher, {
+  const { data: live } = useSWR<Live>(`/api/admin/site-analytics/live?view=${view}`, fetcher, {
     refreshInterval: 30_000,
     revalidateOnFocus: true,
   });
@@ -196,10 +206,18 @@ export function OverviewTab({ period }: { period: Period }) {
             <StatCard
               label="Відвідувачі"
               value={num(t.visitors)}
-              hint="Унікальні пристрої"
+              hint={view === "people" ? "Поводились як люди" : "Унікальні пристрої, разом із ботами"}
               accent={CATEGORICAL[0]}
             />
-            <StatCard label="Візити" value={num(t.sessions)} hint="Сесії до 30 хв паузи" />
+            <StatCard
+              label="Візити"
+              value={num(t.sessions)}
+              hint={
+                view === "people" && t.allSessions > t.sessions
+                  ? `Без ознак людини: ${num(t.allSessions - t.sessions)} з ${num(t.allSessions)}`
+                  : "Сесії до 30 хв паузи"
+              }
+            />
             <StatCard label="Перегляди сторінок" value={num(t.pageViews)} />
             <StatCard label="Перегляди товарів" value={num(t.productViews)} />
             <StatCard
@@ -218,7 +236,14 @@ export function OverviewTab({ period }: { period: Period }) {
           </div>
 
           <Card>
-            <CardHeader title="Динаміка" hint="Відвідувачі та перегляди сторінок по днях" />
+            <CardHeader
+              title="Динаміка"
+              hint={
+                view === "people" && period.from < data.humanSignalsSince
+                  ? `Відвідувачі та перегляди сторінок по днях. До ${dayMonth(data.humanSignalsSince)} — оцінка: лише відвідувачі з України`
+                  : "Відвідувачі та перегляди сторінок по днях"
+              }
+            />
             <VisitorsChart data={data.timeline} />
           </Card>
 

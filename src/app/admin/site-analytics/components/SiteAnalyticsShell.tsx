@@ -29,6 +29,21 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 /**
+ * Кого рахувати. Типово — лише тих, хто поводився як людина
+ * (lib/webstats/human.ts): хвиля ботів 01–13.09 роздула графік у 50 разів.
+ */
+const VIEWS = [
+  {
+    key: "people",
+    label: "Люди",
+    hint: "Лише ті, хто рухав мишею, гортав, торкався екрана, переходив між сторінками або читав від 30 с",
+  },
+  { key: "all", label: "Усі", hint: "Усе, що дійшло до лічильника, разом із ботами" },
+] as const;
+
+export type TrafficView = (typeof VIEWS)[number]["key"];
+
+/**
  * Типово — останні 30 днів, а не «цей місяць»: першого числа розділ
  * інакше відкривався б майже порожнім.
  */
@@ -52,6 +67,10 @@ export function SiteAnalyticsShell() {
     return from && to ? { from, to } : defaultPeriod();
   });
 
+  const [view, setView] = useState<TrafficView>(() =>
+    searchParams.get("view") === "all" ? "all" : "people"
+  );
+
   // replace, а не push: інакше кожна зміна фільтра лягала б в історію і
   // «Назад» гортало б власні кліки замість виходу з розділу.
   useEffect(() => {
@@ -59,8 +78,9 @@ export function SiteAnalyticsShell() {
     if (tab !== "overview") params.set("tab", tab);
     params.set("from", period.from);
     params.set("to", period.to);
+    if (view === "all") params.set("view", "all");
     router.replace(`/admin/site-analytics?${params.toString()}`, { scroll: false });
-  }, [tab, period, router]);
+  }, [tab, period, view, router]);
 
   const onPeriodChange = useCallback((p: Period) => setPeriod(p), []);
 
@@ -115,14 +135,35 @@ export function SiteAnalyticsShell() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 pt-4 pb-10 sm:px-6">
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <PeriodPicker value={period} onChange={onPeriodChange} />
+          <div
+            role="radiogroup"
+            aria-label="Кого рахувати"
+            className="inline-flex rounded-[var(--radius-btn)] border border-g200 bg-white p-0.5"
+          >
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                role="radio"
+                aria-checked={view === v.key}
+                title={v.hint}
+                onClick={() => setView(v.key)}
+                className={`cursor-pointer rounded-[var(--radius-btn)] px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-dark ${
+                  view === v.key ? "bg-bk text-white" : "text-g600 hover:bg-g100 hover:text-bk"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {tab === "overview" && <OverviewTab period={period} />}
-        {tab === "products" && <ProductsTab period={period} />}
-        {tab === "search" && <SearchTab period={period} />}
-        {tab === "events" && <EventsTab period={period} />}
+        {tab === "overview" && <OverviewTab period={period} view={view} />}
+        {tab === "products" && <ProductsTab period={period} view={view} />}
+        {tab === "search" && <SearchTab period={period} view={view} />}
+        {tab === "events" && <EventsTab period={period} view={view} />}
       </div>
     </div>
   );

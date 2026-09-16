@@ -19,6 +19,7 @@ export const EVENT_TYPES = new Set<WebstatsEventType>([
   "add_to_compare",
   "order_placed",
   "phone_click",
+  "human",
 ]);
 
 const BOT_RE = /bot|crawl|spider|slurp|headless|lighthouse|pagespeed|monitor|scrape|curl|wget|python-requests|axios|fetch\b/i;

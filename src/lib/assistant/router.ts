@@ -88,6 +88,8 @@ export type Intent =
   | { kind: "STAFF_PROFILE"; who: string; period: PeriodSpec }
   | { kind: "WAREHOUSE_ACTIVITY"; period: PeriodSpec; who: string | null }
   | { kind: "LOW_STOCK"; brand: string | null; mode: "low" | "turnover" | "dead" }
+  /** Огляд одного бренду: продажі, частка, ходові товари, хто продає, склад. */
+  | { kind: "BRAND_OVERVIEW"; brand: string; period: PeriodSpec }
   | { kind: "ABC_ITEMS"; dimension: "product" | "brand"; basis: "amount" | "profit"; period: PeriodSpec }
   | { kind: "MONEY_FLOWS"; period: PeriodSpec; mode: "flows" | "purchases" }
   | { kind: "SALES_ANALYSIS"; period: PeriodSpec; mode: "discounts" | "geo" | "cohorts" }
@@ -856,6 +858,25 @@ function adminIntent(
     return { kind: "HELP" };
   }
 
+  /* ── Бренд ─────────────────────────────────────────────────────────── */
+
+  /*
+   * «Посортуй мені по фірмі СИЛА», «що по бренду APRO», «продажі по фірмі
+   * Grösser за 2 місяці». Стоїть на початку, бо далі «що по …» ловить
+   * профіль співробітника, а «продажі …» — табло команди.
+   *
+   * Питання про склад бренду («дефіцит по бренду APRO», «мертві залишки по
+   * фірмі СИЛА») сюди не йдуть — їх бере LOW_STOCK нижче з тим самим брендом.
+   * ABC по брендах — теж окремий шаблон.
+   */
+  const brandTail = brandAfter(text);
+  if (
+    brandTail &&
+    !/(^|\s)(закінчу|дефіцит|замовити|докупити|закупити|нуль\s+на\s+складі|оборотн|мертв|abc|авс)/i.test(text)
+  ) {
+    return { kind: "BRAND_OVERVIEW", brand: brandTail, period: periodIn(text, { kind: "days", days: 90 }) };
+  }
+
   /* ── Що нового ────────────────────────────────────────────────────── */
 
   if (
@@ -1024,7 +1045,7 @@ function adminIntent(
       text
     )
   ) {
-    const brand = subjectAfter(text, /(по\s+бренду|бренд[уа]?)\s*/i);
+    const brand = brandAfter(text) ?? subjectAfter(text, /(по\s+бренду|бренд[уа]?)\s*/i);
     const mode = /(^|\s)оборотн/i.test(text)
       ? ("turnover" as const)
       : /(^|\s)мертв/i.test(text)
@@ -1268,6 +1289,37 @@ function adminIntent(
  * довідник людей летить «Кулик за тиждень». Період із цієї ж фрази вже
  * розібрано окремо, тож тут його лишається просто відрізати.
  */
+/**
+ * Назва бренду після «по бренду / по фірмі / по виробнику / по марці».
+ *
+ * Словник брендів тут недоступний (розпізнавач не ходить у базу), тож
+ * беремо до трьох слів після маркера й зрізаємо хвіст періоду чи питання:
+ * «по фірмі СИЛА за 2 місяці» → «СИЛА». Чи є такий бренд, вирішує
+ * resolveBrand уже у відповіді — і показує варіанти, якщо ні.
+ *
+ * Голе «фірма» без «по» не беремо: «як фірма», «оборот фірми» — це про
+ * компанію, а не про виробника.
+ */
+function brandAfter(text: string): string | null {
+  const m = /(^|\s)(по|за|про)\s+(бренду|фірмі|виробнику|марці)\s+(.+)$/i.exec(text);
+  if (!m) return null;
+  /*
+   * «Повернення по фірмі за 90 днів», «прогноз по фірмі на місяць» — тут
+   * «по фірмі» означає «по всій компанії», а після нього одразу період чи
+   * питання, а не назва.
+   */
+  if (/^(за|на|з|від|у|в|і|та|й|чи|що|як|скільки|сьогодні|вчора|цього|минул|поточн|загалом|в\s+цілому)(\s|$)/i.test(m[4])) {
+    return null;
+  }
+  const tail = m[4]
+    .split(/\s+(за|на|з|від|у|в|і|та|й|чи|що|як|скільки)\s+|[,.;:?!]/i)[0]
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)
+    .join(" ");
+  return tail.length >= 2 ? tail : null;
+}
+
 function stripPeriodTail(name: string | null): string | null {
   if (!name) return null;
   const once = (value: string) =>

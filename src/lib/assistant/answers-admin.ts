@@ -1012,6 +1012,150 @@ export async function answerLowStock(
   };
 }
 
+/* ── 🏷 Огляд бренду ─────────────────────────────────────────────────── */
+
+/**
+ * «Посортуй мені по фірмі СИЛА» — одна картина бренду замість трьох питань.
+ *
+ * Продажі (team_overview з brand) і склад (stock_health з brand) — два
+ * інструменти паралельно, ті самі, що кличе модель, тож числа збігаються з
+ * її відповідями. Бренд не розв'язався — не вгадуємо, а даємо кнопки з
+ * варіантами.
+ */
+export async function answerBrandOverview(ctx: ToolContext, brand: string, spec: PeriodSpec): Promise<DirectAnswer> {
+  const tools: DirectAnswer["tools"] = [];
+  const period = periodOf(ctx.today, spec);
+
+  const [sales, stock] = await Promise.all([
+    callTool(teamOverviewTool, ctx, { brand, period_from: period.fromDay, period_to: period.toDay }, tools),
+    callTool(stockHealthTool, ctx, { brand, mode: "all" }, tools),
+  ]);
+
+  if (sales.помилка) {
+    const options = (sales.варіанти ?? []) as Array<{ бренд: string; товарів: number }>;
+    return {
+      markdown: md([
+        `## 🏷 Бренд «${brand}»`,
+        "",
+        `${String(sales.помилка)}.`,
+        "",
+        options.length ? followUps(...options.slice(0, 4).map((o) => `Що по бренду ${o.бренд}`)) : null,
+      ]),
+      tools,
+    };
+  }
+
+  const name = String(sales.бренд);
+  const s = sales.продажі as {
+    оборот: number;
+    штук: number;
+    реалізацій: number;
+    клієнтів: number;
+    частка_фірми_відсотків: number | null;
+    маржа_відсотків: number | null;
+  };
+  const prev = sales.попередній_період as { оборот?: number; зміна_відсотків?: number | null; примітка?: string };
+  const months = (sales.помісячно ?? []) as Array<{ місяць: string; оборот: number; частка_відсотків: number | null }>;
+  const top = (sales.найходовіші ?? []) as Array<{
+    назва: string;
+    артикул: string | null;
+    накладних: number;
+    продано_шт: number;
+    оборот: number;
+    залишок: number;
+    шт_на_день: number;
+    вистачить_днів: number | null;
+  }>;
+  const reps = (sales.хто_продає ?? []) as Array<{
+    торговий_id: string;
+    торговий: string;
+    оборот: number;
+    клієнтів: number;
+    частка_бренду_відсотків: number | null;
+  }>;
+  const low = stock.дефіцит as
+    | { до_замовлення: number; нуль_на_складі: number; пекучих: number; сума_закупівлі: number }
+    | undefined;
+  const turnover = stock.оборотність as { без_руху_позицій: number; без_руху_грн: number; обертів_на_рік: number | null } | undefined;
+
+  const change = prev.зміна_відсотків ?? null;
+  const daysLeft = (d: number | null, left: number) =>
+    left <= 0 ? "🔴 нуль" : d == null ? "—" : d < 14 ? `🟠 ~${d} дн` : `~${d} дн`;
+
+  return {
+    markdown: md([
+      `## 🏷 ${name} · ${period.label}`,
+      "",
+      kpi([
+        {
+          label: "Оборот бренду",
+          value: moneyShort(s.оборот),
+          delta: change == null ? undefined : `${change > 0 ? "+" : "−"}${percent(Math.abs(change))} до попередніх ${period.days} дн`,
+          tone: change == null ? "neutral" : change >= 0 ? "good" : "bad",
+          hint: `${s.штук} шт · ${s.клієнтів} клієнтів`,
+        },
+        { label: "Частка у фірмі", value: s.частка_фірми_відсотків == null ? "—" : percent(s.частка_фірми_відсотків) },
+        { label: "Маржа", value: s.маржа_відсотків == null ? "—" : percent(s.маржа_відсотків), hint: "за відомою собівартістю" },
+        low
+          ? {
+              label: "До замовлення",
+              value: `${low.до_замовлення} поз.`,
+              hint: `з нулем ${low.нуль_на_складі} · ${moneyShort(low.сума_закупівлі)}`,
+              tone: low.пекучих > 0 ? "bad" : "neutral",
+            }
+          : { label: "Реалізацій", value: String(s.реалізацій) },
+      ]),
+      "",
+      months.length >= 3
+        ? chart({
+            type: "column",
+            title: `${name}: оборот по місяцях`,
+            unit: "₴",
+            categories: months.map((m) => monthShort(m.місяць)),
+            series: [{ name: "Оборот", values: months.map((m) => m.оборот) }],
+            note: prev.примітка ?? "Поточний місяць — неповний.",
+          })
+        : null,
+      "",
+      top.length ? "### 🔥 Найходовіші" : null,
+      ...table(
+        ["Товар", "Накл.", "Продано", "Залишок", "Вистачить"],
+        top.slice(0, 10).map((p) => [
+          productLink(short(p.назва, 34), p.артикул),
+          p.накладних,
+          `${p.продано_шт} шт`,
+          p.залишок,
+          daysLeft(p.вистачить_днів, p.залишок),
+        ])
+      ),
+      "",
+      reps.length ? "### 🧑‍💼 Хто продає" : null,
+      ...table(
+        ["Торговий", "Оборот", "Частка", "Клієнтів"],
+        reps.slice(0, 6).map((r) => [
+          repLink(r.торговий_id, short(r.торговий, 22)),
+          money(r.оборот),
+          r.частка_бренду_відсотків == null ? "—" : percent(r.частка_бренду_відсотків),
+          r.клієнтів,
+        ])
+      ),
+      "",
+      low || turnover ? "### 📦 Склад" : null,
+      low
+        ? `${low.пекучих > 0 ? "🔴" : "🟡"} До замовлення ${low.до_замовлення} позицій на ${money(low.сума_закупівлі)}; продається й скінчилось — ${low.пекучих}.`
+        : null,
+      turnover && turnover.без_руху_позицій > 0
+        ? `🧊 Без руху ${turnover.без_руху_позицій} позицій на ${money(turnover.без_руху_грн)}${turnover.обертів_на_рік != null ? `, обертів на рік ${String(turnover.обертів_на_рік).replace(".", ",")}` : ""}.`
+        : null,
+      "",
+      `_${String(sales.примітка ?? "")}_`,
+      "",
+      followUps(`Що треба замовити по бренду ${name}`, `Мертві залишки по бренду ${name}`, `Зроби Excel: що замовити по бренду ${name}`),
+    ]),
+    tools,
+  };
+}
+
 /* ── 🔄 Обмін із 1С ───────────────────────────────────────────────────── */
 
 export async function answerSyncHealth(ctx: ToolContext): Promise<DirectAnswer> {

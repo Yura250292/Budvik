@@ -23,6 +23,7 @@ import {
   answerDigest,
   answerDriverPayroll,
   answerDriversDay,
+  answerBrandOverview,
   answerLowStock,
   answerMoneyFlows,
   answerSalesAnalysis,
@@ -226,6 +227,9 @@ export async function tryDirectAnswer(
 
     case "LOW_STOCK":
       return answerLowStock(ctx, intent.brand, intent.mode);
+
+    case "BRAND_OVERVIEW":
+      return answerBrandOverview(ctx, intent.brand, intent.period);
 
     case "ABC_ITEMS":
       return answerAbcItems(ctx, intent.period, intent.dimension, intent.basis);

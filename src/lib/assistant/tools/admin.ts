@@ -13,6 +13,8 @@
  *   ніколи не різав таблицю посеред рядка.
  */
 
+import { brandProblem, resolveBrand } from "@/lib/assistant/facts/brands";
+import { brandOverviewFacts } from "@/lib/assistant/facts/brand-overview";
 import type { ToolDef } from "@/lib/assistant/types";
 import { prisma } from "@/lib/prisma";
 import { bool, day as validDay, enumOf, int, str } from "@/lib/assistant/validate";
@@ -76,16 +78,27 @@ export const teamOverviewTool: ToolDef = {
   label: "Дивлюся команду торгових",
   kinds: ["ADMIN"],
   description:
-    "Продажі всієї команди за період: оборот, місце, реалізації, клієнти, середній чек, зібрані гроші, прострочка, повернення, динаміка, приріст боргу, а в поточному місяці ще й план і прогноз. Параметр rep — по одному торговому (прізвища досить), by_brand — розкладка по брендах. Викликай на будь-яке питання про продажі, оборот, команду, «хто скільки продав», «як фірма».",
+    "Продажі всієї команди за період: оборот, місце, реалізації, клієнти, середній чек, зібрані гроші, прострочка, повернення, динаміка, приріст боргу, а в поточному місяці ще й план і прогноз. Параметр rep — по одному торговому (прізвища досить), by_brand — розкладка по брендах. Параметр brand — огляд ОДНОГО бренду замість команди: оборот і зміна до попереднього періоду, частка у фірмі, маржа, помісячно з початку року, найходовіші товари із залишком і днями запасу, хто з торгових його продає (без періоду — 90 днів). Викликай на будь-яке питання про продажі, оборот, команду, «хто скільки продав», «як фірма», «по бренду / по фірмі X».",
   parameters: {
     type: "object",
     properties: {
       rep: { type: "string", description: "Прізвище або ім'я торгового. Без нього — вся команда." },
       by_brand: { type: "boolean", description: "true — додати розкладку обороту по брендах." },
+      brand: { type: "string", description: "Назва бренду як у питанні («Сила», «гроссер», «APRO») — огляд цього бренду." },
       ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
+    if (typeof args.brand === "string" && args.brand.trim()) {
+      const query = str(args.brand, "brand", { min: 2, max: 40 });
+      const match = await resolveBrand(query);
+      if (!match.ok) return brandProblem(match, query);
+      // Бренд за календарний місяць з 1 числа — надто мало, щоб судити про
+      // ходові позиції: без явного періоду беремо 90 днів.
+      const period = hasPeriodArgs(args) ? checkedPeriod(ctx.today, args) : periodFromArgs(ctx.today, { days: 90 });
+      return brandOverviewFacts(match.brand, period);
+    }
+
     const period = checkedPeriod(ctx.today, args);
     const byBrand = bool(args.by_brand, false);
 
@@ -792,12 +805,10 @@ export const stockHealthTool: ToolDef = {
     let brand: { id: string; name: string } | null = null;
     if (typeof args.brand === "string" && args.brand.trim()) {
       const query = str(args.brand, "brand", { min: 2, max: 40 });
-      brand = await prisma.brand.findFirst({
-        where: { name: { contains: query, mode: "insensitive" } },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      });
-      if (!brand) return { помилка: `Бренду «${query}» у базі немає` };
+      // Не findFirst: на «бриг» він мовчки брав першого з трьох «Бригадирів».
+      const match = await resolveBrand(query);
+      if (!match.ok) return brandProblem(match, query);
+      brand = match.brand;
     }
 
     if (mode === "abc") {

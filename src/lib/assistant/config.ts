@@ -38,15 +38,19 @@ export const MODEL = process.env.ASSISTANT_MODEL || "deepseek-flash";
  * (вхід / вихід, до 31.12.2026), тобто вп'ятеро дорожче за DeepSeek; при
  * ~30 тис. токенів на хід і сотні ходів на місяць це $15–20.
  *
- * Чому 3.8, а не 3.7. Того ж дня 3.7 тричі поспіль відповіла 503 «high
- * demand», а 3.8 працювала; ціна однакова. Через env — щоб перемкнути
- * без деплою, коли котрась із них почне падати.
+ * Чому 3.6, а не 3.8. 16.09 вибір упав на 3.8: 3.7 тричі поспіль відповіла
+ * 503 «high demand», а 3.8 працювала. Наступного дня 3.8 сама почала
+ * відмовляти: з Vercel двічі 503 поспіль, тож на кожне питання керівника
+ * відповідала запасна DeepSeek, а локально та сама модель думала 7–19 секунд
+ * над словом «так». 3.6 відповідає за 1–3 секунди, а в порівнянні на 10
+ * питаннях (scripts/assistant-eval.mts) дала таку саму якість. Ціна в них
+ * однакова. Через env — щоб перемкнути без деплою, коли й ця почне падати.
  *
  * Запасна обовʼязкова, а не про всяк випадок: у день вибору 3.8 кілька
  * разів мовчала понад хвилину. Хід без запасної в такий день — порожній
  * екран; з нею — відповідь DeepSeek і позначка, хто відповів.
  */
-export const ADMIN_MODEL = process.env.ASSISTANT_ADMIN_MODEL || "gemini-3.8-flash";
+export const ADMIN_MODEL = process.env.ASSISTANT_ADMIN_MODEL || "gemini-3.6-flash";
 export const FALLBACK_MODEL = MODEL;
 
 export type LlmFlavor = "deepseek" | "gemini";
@@ -63,7 +67,7 @@ export const MODEL_FLAVORS: readonly LlmFlavor[] = ["gemini", "deepseek"];
 
 export function modelForFlavor(flavor: LlmFlavor): string {
   if (flavor === "deepseek") return MODEL;
-  return ADMIN_MODEL.startsWith("gemini") ? ADMIN_MODEL : "gemini-3.8-flash";
+  return ADMIN_MODEL.startsWith("gemini") ? ADMIN_MODEL : "gemini-3.6-flash";
 }
 
 export type LlmProvider = {

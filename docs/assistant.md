@@ -7,7 +7,7 @@
 
 | Вид | Де | Модель | Запасна |
 | --- | --- | --- | --- |
-| Керівник (ADMIN) | `/admin/assistant`, розмова «Уся фірма» | `ASSISTANT_ADMIN_MODEL`; на проді `gemini-3.6-flash`, у коді типово `gemini-3.8-flash` | DeepSeek |
+| Керівник (ADMIN) | `/admin/assistant`, розмова «Уся фірма» | `ASSISTANT_ADMIN_MODEL`, типово `gemini-3.6-flash` | DeepSeek |
 | Торговий, водій, склад | `/sales`, `/driver`, `/warehouse` | `ASSISTANT_MODEL`, типово `deepseek-flash` | немає |
 
 - Спершу код: `router.ts` + `answers*.ts` відповідають на типові питання без моделі

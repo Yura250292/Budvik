@@ -23,7 +23,7 @@ import { prisma } from "../src/lib/prisma";
 import { runTurn } from "../src/lib/assistant/loop";
 import { createThread, deleteThread } from "../src/lib/assistant/threads";
 import { kyivDate } from "../src/lib/date/kyiv";
-import type { LlmFlavor } from "../src/lib/assistant/config";
+import { assistantKeys, type LlmFlavor } from "../src/lib/assistant/config";
 import type { TurnEvent } from "../src/lib/assistant/types";
 
 const OWNER = process.env.ADMIN_EMAIL ?? "ufedishin@gmail.com";
@@ -65,7 +65,7 @@ if (!owner) {
   console.error(`Немає користувача ${OWNER}`);
   process.exit(1);
 }
-const keys = { deepseek: process.env.DEEPSEEK_API_KEY || undefined, gemini: process.env.GEMINI_API_KEY || undefined };
+const keys = assistantKeys();
 
 type Row = {
   n: number;

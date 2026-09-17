@@ -70,7 +70,7 @@ export type LlmProvider = {
   flavor: LlmFlavor;
   url: string;
   /** Змінна середовища з ключем — назва, не значення. */
-  keyEnv: "DEEPSEEK_API_KEY" | "GEMINI_API_KEY";
+  keyEnv: "DEEPSEEK_API_KEY" | "ASSISTANT_GEMINI_API_KEY";
   label: string;
 };
 
@@ -92,10 +92,28 @@ const PROVIDERS: Record<LlmFlavor, LlmProvider> = {
   gemini: {
     flavor: "gemini",
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    keyEnv: "GEMINI_API_KEY",
+    keyEnv: "ASSISTANT_GEMINI_API_KEY",
     label: "Gemini",
   },
 };
+
+/**
+ * Ключі провайдерів для помічника — з середовища.
+ *
+ * Gemini помічника має СВІЙ ключ (ASSISTANT_GEMINI_API_KEY), окремий від
+ * спільного GEMINI_API_KEY вітрини. Причина перевірена 17.09.2026: у проєкті
+ * нового ключа Google уже не віддає gemini-2.5-flash «новим користувачам», а
+ * на ній жорстко стоять розпізнавання одометра, перевірка цін, пошук фото й
+ * збагачення описів. Заміна спільного ключа поклала б їх; окремий ключ ще й
+ * розводить рахунки: помічник платить зі свого проєкту.
+ * Немає окремого — береться спільний, як було до 17.09.
+ */
+export function assistantKeys(): Partial<Record<LlmFlavor, string>> {
+  return {
+    deepseek: process.env.DEEPSEEK_API_KEY || undefined,
+    gemini: process.env.ASSISTANT_GEMINI_API_KEY || process.env.GEMINI_API_KEY || undefined,
+  };
+}
 
 /** Провайдер за назвою моделі — префікс однозначний. */
 export function providerFor(model: string): LlmProvider {

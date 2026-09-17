@@ -18,6 +18,7 @@ import { runTurn } from "../src/lib/assistant/loop";
 import { createThread } from "../src/lib/assistant/threads";
 import { kyivDate } from "../src/lib/date/kyiv";
 import { kindForThread } from "../src/lib/assistant/scope";
+import { assistantKeys } from "../src/lib/assistant/config";
 import type { TurnEvent } from "../src/lib/assistant/types";
 
 const DEFAULT_REP = "rep-kavetskyi-viktor@budvik.local";
@@ -31,12 +32,9 @@ if (!question) {
   process.exit(1);
 }
 
-const keys = {
-  deepseek: process.env.DEEPSEEK_API_KEY || undefined,
-  gemini: process.env.GEMINI_API_KEY || undefined,
-};
+const keys = assistantKeys();
 if (!keys.deepseek && !keys.gemini) {
-  console.error("Немає ні DEEPSEEK_API_KEY, ні GEMINI_API_KEY (запускати з --env-file=.env)");
+  console.error("Немає ні DEEPSEEK_API_KEY, ні ASSISTANT_GEMINI_API_KEY / GEMINI_API_KEY (запускати з --env-file=.env)");
   process.exit(1);
 }
 

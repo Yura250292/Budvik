@@ -18,7 +18,7 @@
 import { requireRoles, STAFF_ROLES, OFFICE_ROLES } from "@/lib/app/identity";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/shop/rate-limit";
-import { DAILY_TURN_CAP, MODEL_FLAVORS, USER_TEXT_MAX, type LlmFlavor } from "@/lib/assistant/config";
+import { DAILY_TURN_CAP, MODEL_FLAVORS, USER_TEXT_MAX, assistantKeys, type LlmFlavor } from "@/lib/assistant/config";
 import { modelRouteFor, runTurn, type ModelKeys } from "@/lib/assistant/loop";
 import { acquireBusy, getThreadForUser, releaseBusy } from "@/lib/assistant/threads";
 import { kindForThread, scopeOf } from "@/lib/assistant/scope";
@@ -48,10 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
    * Керівникові вистачає будь-якого з двох, решті — ключа DeepSeek.
    */
   const kind = kindForThread(guard.me.role, thread.repId, guard.me.userId);
-  const keys: ModelKeys = {
-    deepseek: process.env.DEEPSEEK_API_KEY || undefined,
-    gemini: process.env.GEMINI_API_KEY || undefined,
-  };
+  const keys: ModelKeys = assistantKeys();
   if (!modelRouteFor(kind, null, keys)) {
     return json(
       { error: "Помічник не налаштований: немає ключа до моделі. Повідомте керівника." },

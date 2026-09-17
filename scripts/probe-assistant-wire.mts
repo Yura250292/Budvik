@@ -12,11 +12,11 @@
  */
 
 import { streamChat, LlmError, stripSignature } from "../src/lib/assistant/llm";
-import { modelForFlavor, providerFor } from "../src/lib/assistant/config";
+import { assistantKeys, modelForFlavor, providerFor } from "../src/lib/assistant/config";
 import type { ChatMessage, ToolSchema } from "../src/lib/assistant/types";
 
 const which = process.argv[2] ?? "both";
-const keys = { deepseek: process.env.DEEPSEEK_API_KEY ?? "", gemini: process.env.GEMINI_API_KEY ?? "" };
+const keys = { deepseek: assistantKeys().deepseek ?? "", gemini: assistantKeys().gemini ?? "" };
 
 const TOOLS: ToolSchema[] = [
   {

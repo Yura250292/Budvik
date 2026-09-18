@@ -22,6 +22,7 @@ import {
   arrow,
   bar,
   chart,
+  clarify,
   followUps,
   kpi,
   light,
@@ -79,18 +80,39 @@ async function callTool(
 }
 
 /** Відповідь «уточніть, про кого мова» — та сама форма скрізь. */
+/**
+ * Кілька людей під одне імʼя — питаємо, але кнопками.
+ *
+ * Кнопка повторює ПИТАННЯ з повним прізвищем замість того фрагмента, який
+ * написала людина: «скільки продав Дмитро за тиждень» → «скільки продав
+ * Передрій Дмитро за тиждень». Голе прізвище кнопкою губило б і період, і
+ * суть питання, а набирати його руками з телефона в машині — саме та
+ * робота, заради якої помічника й заводили.
+ *
+ * Питання й фрагмент можуть не дійти (виклик із інструмента, інша гілка) —
+ * тоді кнопка стає «Розкажи про X», теж робочим питанням.
+ */
 function askWhich(
   candidates: Array<{ id: string; name: string; role: StaffRole }>,
-  tools: DirectAnswer["tools"]
+  tools: DirectAnswer["tools"],
+  ctx?: ToolContext,
+  subject?: string | null
 ): DirectAnswer {
+  const asked = ctx?.question?.trim();
+  const optionFor = (name: string) => {
+    if (asked && subject) {
+      const swapped = asked.replace(subject, name);
+      if (swapped !== asked) return capitalize(swapped);
+    }
+    return `Розкажи про ${name}`;
+  };
+
   return {
-    markdown: md([
-      "## 🙋 Уточніть, про кого мова",
-      "",
-      ...candidates.map((c) => `- **${c.name}**`),
-      "",
-      "Назвіть прізвище повністю.",
-    ]),
+    markdown: clarify({
+      title: "Уточніть, про кого мова",
+      question: subject ? `Під «${subject}» підходить кілька людей.` : "Під це імʼя підходить кілька людей.",
+      options: candidates.slice(0, 4).map((c) => optionFor(c.name)),
+    }),
     tools,
   };
 }
@@ -128,7 +150,7 @@ export async function answerStaffNow(
   let asked: string | null = null;
   if (who) {
     const match = await resolveStaff(who, role ? [role] : ["SALES", "DRIVER"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     if (!match.ok) {
       return {
         markdown: `## 📍 Хто де зараз\n\nСпівробітника «${who}» у базі немає.`,
@@ -151,7 +173,9 @@ export async function answerStaffNow(
     if (variants.length > 0) {
       return askWhich(
         variants.map((v) => ({ id: v.id, name: v.ім_я, role: "SALES" as StaffRole })),
-        tools
+        tools,
+        ctx,
+        who
       );
     }
     return { markdown: `## 📍 Хто де зараз\n\n${String(facts.помилка)}.`, tools };
@@ -269,7 +293,7 @@ export async function answerTeamSales(
    */
   if (who) {
     const match = await resolveStaff(who, ["SALES"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     if (!match.ok) return answerClientCard(ctx, who);
   }
 
@@ -419,7 +443,7 @@ export async function answerTeamDebts(ctx: ToolContext, who: string | null): Pro
 
   if (who) {
     const match = await resolveStaff(who, ["SALES"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     // Не торговий — значить, питали про клієнта.
     if (!match.ok) return answerClientCard(ctx, who);
   }
@@ -593,7 +617,7 @@ export async function answerShifts(
 
   if (who) {
     const match = await resolveStaff(who, ["SALES", "DRIVER"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     if (!match.ok) {
       return {
         markdown: `## 🚗 Зміни\n\nСпівробітника «${who}» у базі немає.`,
@@ -727,7 +751,7 @@ export async function answerDriverPayroll(
 
   if (who) {
     const match = await resolveStaff(who, ["DRIVER"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     if (!match.ok) {
       return {
         markdown: `## 💸 Водії\n\nВодія «${who}» у базі немає.`,
@@ -1034,13 +1058,15 @@ export async function answerBrandOverview(ctx: ToolContext, brand: string, spec:
   if (sales.помилка) {
     const options = (sales.варіанти ?? []) as Array<{ бренд: string; товарів: number }>;
     return {
-      markdown: md([
-        `## 🏷 Бренд «${brand}»`,
-        "",
-        `${String(sales.помилка)}.`,
-        "",
-        options.length ? followUps(...options.slice(0, 4).map((o) => `Що по бренду ${o.бренд}`)) : null,
-      ]),
+      markdown: options.length
+        ? clarify({
+            title: `Бренд «${brand}»`,
+            // Текст помилки інструмента писаний для МОДЕЛІ («покажіть варіанти
+            // й попросіть уточнити») — людині він читається як інструкція комусь іншому.
+            question: "Під цю назву підходить кілька брендів.",
+            options: options.slice(0, 4).map((o) => `Що по бренду ${o.бренд}`),
+          })
+        : md([`## 🏷 Бренд «${brand}»`, "", `${String(sales.помилка)}.`]),
       tools,
     };
   }
@@ -1980,7 +2006,7 @@ export async function answerDocuments(ctx: ToolContext, intent: DocIntent): Prom
   if (intent.who) {
     if (intent.asDriver) {
       const match = await resolveStaff(intent.who, ["DRIVER"]);
-      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, intent.who);
       if (!match.ok) {
         return {
           markdown: `## 🧾 Накладні\n\nВодія «${intent.who}» у базі немає.`,
@@ -1994,7 +2020,7 @@ export async function answerDocuments(ctx: ToolContext, intent: DocIntent): Prom
       mode = "driver";
     } else {
       const match = await resolveStaff(intent.who, ["SALES"]);
-      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+      if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, intent.who);
       if (match.ok) {
         filter.repId = match.user.id;
         title = match.user.name;
@@ -2214,7 +2240,7 @@ const arr = <T = Loose,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []
 export async function answerStaffProfile(ctx: ToolContext, who: string, spec: PeriodSpec): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
   const match = await resolveStaff(who, ["SALES", "DRIVER", "WAREHOUSE"]);
-  if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+  if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
   if (!match.ok) return answerClientCard(ctx, who);
 
   if (match.user.role === "WAREHOUSE") return answerWarehouse(ctx, spec, who);
@@ -2428,7 +2454,7 @@ export async function answerWarehouse(
 
   if (who) {
     const match = await resolveStaff(who, ["WAREHOUSE", "SALES"]);
-    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools);
+    if (!match.ok && match.reason === "ambiguous") return askWhich(match.candidates, tools, ctx, who);
     if (!match.ok) {
       return {
         markdown: `## 🏗 Склад\n\nСпівробітника «${who}» у базі немає.`,

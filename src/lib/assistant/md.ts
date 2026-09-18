@@ -85,6 +85,46 @@ export const payerIcon = (verdict: string | null | undefined) =>
 export const arrow = (value: number | null): string =>
   value == null ? "" : value > 0 ? "📈" : value < 0 ? "📉" : "➖";
 
+/**
+ * Уточнення завжди лишає двері відчиненими.
+ *
+ * Кнопки покривають типові випадки, але не всі: період буває «з 3 по 17»,
+ * бренд — написаний по-своєму, а питання — узагалі про інше. Рядок нижче
+ * прямо каже, що можна відповісти словами, інакше людина вважає, що вибір
+ * обмежений трьома кнопками.
+ */
+export const OWN_ANSWER_HINT = "_Тапніть варіант або напишіть свій — я зрозумію._";
+
+/**
+ * Позначка уточнення на початку репліки.
+ *
+ * За нею цикл ходу впізнає, що попередня відповідь була питанням, і НЕ дає
+ * коду перехопити відповідь людини: «знижку 5 % для Кунанця» після уточнення
+ * про знижку код прочитав би як «звіт про знижки за місяць» і відповів би не
+ * на те. Той самий знак ставить і модель (див. промпт керівника).
+ */
+export const CLARIFY_MARK = "## 🙋";
+
+export const isClarification = (markdown: string) => markdown.trimStart().startsWith(CLARIFY_MARK);
+
+/**
+ * Питання-уточнення з кнопками: заголовок, питання, варіанти, підказка.
+ *
+ * Одна форма на всі уточнення (однофамільці, бренд, день, період), щоб
+ * людина впізнавала їх з першого погляду.
+ */
+export function clarify(input: { title: string; question?: string; options: string[]; note?: string }): string {
+  return md([
+    `${CLARIFY_MARK} ${input.title}`,
+    "",
+    input.question ?? null,
+    input.note ?? null,
+    "",
+    followUps(...input.options),
+    OWN_ANSWER_HINT,
+  ]);
+}
+
 /** Рядок підказок під відповіддю: у кабінеті це тапабельні кнопки. */
 export function followUps(...questions: Array<string | null>): string {
   const list = questions.filter((q): q is string => Boolean(q));

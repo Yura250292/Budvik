@@ -80,10 +80,15 @@ function nextWeekday(today: string, weekday: number): string {
 }
 
 export async function tryDirectAnswer(
-  ctx: ToolContext,
+  baseCtx: ToolContext,
   text: string,
-  opts: { hasHistory: boolean; clientHint?: { id: string; name: string } | null }
+  opts: { hasHistory: boolean; afterClarify?: boolean; clientHint?: { id: string; name: string } | null }
 ): Promise<DirectAnswer | null> {
+  // Відповідь на уточнення — це контекст, а не нове питання: веде модель.
+  if (opts.afterClarify) return null;
+
+  // Питання кладемо в контекст: з нього уточнення збирає кнопки (див. md.clarify).
+  const ctx: ToolContext = { ...baseCtx, question: text };
   const intent = detectIntent(text, {
     hasHistory: opts.hasHistory,
     hasClientHint: Boolean(opts.clientHint),

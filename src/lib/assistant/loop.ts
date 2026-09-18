@@ -54,6 +54,7 @@ import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
 import { compact } from "@/lib/assistant/format";
 import { collectEntities, entityIdList, rewriteLinks, verifyNumbers } from "@/lib/assistant/guards";
+import { isClarification } from "@/lib/assistant/md";
 import { recordNumberCheck } from "@/lib/assistant/number-guard";
 import { ToolArgError } from "@/lib/assistant/validate";
 import {
@@ -173,9 +174,24 @@ export async function runTurn(input: RunTurnInput) {
    * код складає їх за секунду й безкоштовно. Модель лишається для
    * питань, де треба зважити або пояснити.
    */
+  /**
+   * Відповідь на уточнення завжди веде модель.
+   *
+   * «Клієнт Кунанець просить знижку 5 % на піну» після нашого ж питання про
+   * знижку код упізнав як «звіт про знижки за місяць» і видав зведення по
+   * фірмі — впевнено й не на те. Контекст питання тримає лише модель, тож
+   * після будь-якого уточнення (кодового чи її власного) хід іде їй.
+   */
+  const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
+  const afterClarify =
+    lastAssistant?.role === "assistant" && typeof lastAssistant.content === "string"
+      ? isClarification(lastAssistant.content)
+      : false;
+
   const direct = await tryDirectAnswer(input.ctx, input.userText, {
     // history містить щойно збережене питання, тож своя репліка не рахується.
     hasHistory: history.length > 1,
+    afterClarify,
     clientHint: input.clientHint,
   });
 

@@ -20,9 +20,11 @@ import { prisma } from "@/lib/prisma";
 import { ymd } from "@/lib/assistant/format";
 import {
   MEDALS,
+  OWN_ANSWER_HINT,
   PLAN_HOOKS,
   arrow,
   bar,
+  clarify,
   followUps,
   light,
   md,
@@ -141,13 +143,11 @@ export async function answerDayChoice(ctx: ToolContext): Promise<DirectAnswer> {
   }
 
   return {
-    markdown: md([
-      "## 📅 На який день планувати?",
-      "",
-      `Зараз ${planDayLabel(ctx.today, WEEKDAY_ACCUSATIVE[weekdayIndexOfDay(ctx.today)])}.`,
-      "",
-      followUps(...choices),
-    ]),
+    markdown: clarify({
+      title: "На який день планувати?",
+      question: `Зараз ${planDayLabel(ctx.today, WEEKDAY_ACCUSATIVE[weekdayIndexOfDay(ctx.today)])}.`,
+      options: choices,
+    }),
     tools: [],
   };
 }
@@ -822,6 +822,11 @@ export function askWhich(subject: string, hits: ClientHit[], company = false): s
     "",
     // У розмові про фірму «ваш» немає: керівник ні за ким не закріплений.
     company ? "_⭐ — закріплений за торговим._" : "_⭐ — ваш клієнт._",
+    /*
+     * Список лишається списком карток (дотик відкриває клієнта), але людина
+     * має знати, що може й просто дописати місто чи код — тоді пошук звузиться.
+     */
+    OWN_ANSWER_HINT,
   ]);
 }
 

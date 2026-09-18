@@ -48,7 +48,7 @@ import {
   type LlmFlavor,
 } from "@/lib/assistant/config";
 import { streamChat, stripSignature, LlmError, type ChatResult } from "@/lib/assistant/llm";
-import { isPaused, markQuotaExhausted } from "@/lib/assistant/model-health";
+import { isPaused, keySlot, markQuotaExhausted } from "@/lib/assistant/model-health";
 import { block, blockNumbersText, withoutBlocks } from "@/lib/assistant/blocks";
 import { systemPromptFor, buildTurnContext } from "@/lib/assistant/prompt";
 import { TOOL_BY_NAME, toolSchemas } from "@/lib/assistant/tools";
@@ -68,7 +68,8 @@ import type { DirectAnswer } from "@/lib/assistant/answers";
 import type { AssistantKind, ChatMessage, ToolCall, ToolContext, TurnEvent } from "@/lib/assistant/types";
 
 /** Ключі провайдерів, які є в середовищі. Значення, а не назви змінних. */
-export type ModelKeys = Partial<Record<LlmFlavor, string>>;
+/** Ключі провайдера по порядку витрат: перший — найдешевший (див. assistantKeys). */
+export type ModelKeys = Partial<Record<LlmFlavor, string[]>>;
 
 export type ModelRoute = { primary: string; fallback: string | null };
 
@@ -83,7 +84,7 @@ export type ModelRoute = { primary: string; fallback: string | null };
  * null — немає жодного ключа, і хід моделі неможливий.
  */
 export function modelRouteFor(kind: AssistantKind, choice: LlmFlavor | null | undefined, keys: ModelKeys): ModelRoute | null {
-  const has = (model: string) => Boolean(keys[providerFor(model).flavor]);
+  const has = (model: string) => (keys[providerFor(model).flavor]?.length ?? 0) > 0;
 
   if (kind !== "ADMIN") return has(MODEL) ? { primary: MODEL, fallback: null } : null;
 
@@ -91,8 +92,15 @@ export function modelRouteFor(kind: AssistantKind, choice: LlmFlavor | null | un
   const other = providerFor(wanted).flavor === providerFor(FALLBACK_MODEL).flavor ? modelForFlavor("gemini") : FALLBACK_MODEL;
   const backup = other !== wanted && has(other) ? other : null;
 
-  // Модель, що щойно вичерпала квоту, пропускаємо одразу (model-health.ts).
-  if (has(wanted) && !(backup && isPaused(wanted))) return { primary: wanted, fallback: backup };
+  /*
+   * Модель пропускаємо, лише коли вичерпані ВСІ її ключі: у Gemini їх два —
+   * безкоштовний і платний, і смерть першого не привід платити DeepSeek.
+   */
+  const allKeysPaused = (model: string) => {
+    const list = keys[providerFor(model).flavor] ?? [];
+    return list.length > 0 && list.every((_, i) => isPaused(keySlot(model, i)));
+  };
+  if (has(wanted) && !(backup && allKeysPaused(wanted))) return { primary: wanted, fallback: backup };
   return backup ? { primary: backup, fallback: null } : has(wanted) ? { primary: wanted, fallback: null } : null;
 }
 
@@ -257,6 +265,14 @@ export async function runTurn(input: RunTurnInput) {
 
   let activeModel = route.primary;
   let switched = false;
+  /**
+   * Який ключ провайдера працює в цьому ході: нуль — найдешевший.
+   *
+   * Живе на рівні ХОДУ, а не окремого виклику: інакше кожен раунд знову
+   * починав би з ключа, який щойно відмовив, і платив за це секундами.
+   * Скидається разом зі зміною моделі.
+   */
+  let keyIndex = 0;
 
   /**
    * Один виклик моделі з повтором і запасною.
@@ -279,6 +295,9 @@ export async function runTurn(input: RunTurnInput) {
     let attempt = 0;
     for (;;) {
       const provider = providerFor(activeModel);
+      const providerKeys = input.keys[provider.flavor] ?? [];
+      // Ключі, вичерпані недавно, пропускаємо одразу: запит по них — гарантована відмова.
+      while (keyIndex < providerKeys.length - 1 && isPaused(keySlot(activeModel, keyIndex))) keyIndex++;
       const canFallBack = !switched && route.fallback != null;
       const left = timeLeft() - SAVE_RESERVE_MS;
       const budget = Math.min(CALL_TIMEOUT_MS, canFallBack ? Math.floor(left / 2) : left);
@@ -290,7 +309,7 @@ export async function runTurn(input: RunTurnInput) {
       try {
         return await streamChat({
           model: activeModel,
-          apiKey: input.keys[provider.flavor] ?? "",
+          apiKey: providerKeys[keyIndex] ?? "",
           messages,
           tools,
           toolChoice: args.toolChoice,
@@ -306,7 +325,31 @@ export async function runTurn(input: RunTurnInput) {
       } catch (e) {
         if (!(e instanceof LlmError) || input.signal?.aborted) throw e;
         if (emitted) args.onDrop();
-        if (e.quota) markQuotaExhausted(activeModel, e.quota);
+        if (e.quota) markQuotaExhausted(keySlot(activeModel, keyIndex), e.quota);
+
+        /*
+         * Наступний ключ тієї ж моделі — перед тим, як міняти модель.
+         * Безкоштовний ключ вичерпався, зіпсувався чи його відкликали — платний
+         * доводить хід до кінця, і людина цього навіть не бачить.
+         */
+        if (keyIndex < providerKeys.length - 1) {
+          keyIndex++;
+          attempt = 0;
+          console.warn(
+            `[assistant] ${provider.label}: ключ ${keyIndex} після відмови (${e.upstream}: ${e.message}) · розмова ${input.threadId}`
+          );
+          input.emit({
+            event: "model",
+            data: {
+              model: activeModel,
+              label: provider.label,
+              note: e.quota
+                ? `${provider.label}: безкоштовний ключ вичерпано — беру платний`
+                : `${provider.label}: ключ не спрацював — беру наступний`,
+            },
+          });
+          continue;
+        }
 
         const quickRetry =
           e.retryable && attempt === 0 && timeLeft() - SAVE_RESERVE_MS - RETRY_DELAY_MS >= MIN_CALL_MS * (canFallBack ? 2 : 1);
@@ -324,6 +367,7 @@ export async function runTurn(input: RunTurnInput) {
           switched = true;
           attempt = 0;
           activeModel = route.fallback;
+          keyIndex = 0;
           const next = providerFor(activeModel);
           const hasForeignCalls = messages.some((m) => m.role === "assistant" && (m.tool_calls?.length ?? 0) > 0);
           if (next.flavor === "deepseek" && hasForeignCalls) thinking = "disabled";

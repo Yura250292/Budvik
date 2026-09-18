@@ -22,6 +22,16 @@ const MINUTE_QUOTA_PAUSE_MS = 60_000;
 
 const pausedUntil = new Map<string, number>();
 
+/**
+ * Ключ у межах моделі: «gemini-3.6-flash#0».
+ *
+ * Пауза ставиться саме на пару «модель + ключ», бо квота Google рахується
+ * за проєктом КЛЮЧА: безкоштовний ключ може бути вичерпаний, а платний —
+ * ні, і пропускати через це всю модель означало б платити там, де ще можна
+ * не платити.
+ */
+export const keySlot = (model: string, index: number) => `${model}#${index}`;
+
 export function markQuotaExhausted(model: string, quota: "day" | "minute") {
   pausedUntil.set(model, Date.now() + (quota === "day" ? DAY_QUOTA_PAUSE_MS : MINUTE_QUOTA_PAUSE_MS));
 }

@@ -33,7 +33,7 @@ if (!question) {
 }
 
 const keys = assistantKeys();
-if (!keys.deepseek && !keys.gemini) {
+if (!keys.deepseek?.length && !keys.gemini?.length) {
   console.error("Немає ні DEEPSEEK_API_KEY, ні ASSISTANT_GEMINI_API_KEY / GEMINI_API_KEY (запускати з --env-file=.env)");
   process.exit(1);
 }

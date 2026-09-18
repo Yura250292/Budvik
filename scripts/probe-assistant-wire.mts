@@ -16,7 +16,9 @@ import { assistantKeys, modelForFlavor, providerFor } from "../src/lib/assistant
 import type { ChatMessage, ToolSchema } from "../src/lib/assistant/types";
 
 const which = process.argv[2] ?? "both";
-const keys = { deepseek: assistantKeys().deepseek ?? "", gemini: assistantKeys().gemini ?? "" };
+// Проба бере ПЕРШИЙ ключ провайдера — той самий, з якого починає хід.
+const all = assistantKeys();
+const keys = { deepseek: all.deepseek?.[0] ?? "", gemini: all.gemini?.[0] ?? "" };
 
 const TOOLS: ToolSchema[] = [
   {

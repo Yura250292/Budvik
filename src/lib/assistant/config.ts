@@ -121,10 +121,25 @@ const PROVIDERS: Record<LlmFlavor, LlmProvider> = {
  * розводить рахунки: помічник платить зі свого проєкту.
  * Немає окремого — береться спільний, як було до 17.09.
  */
-export function assistantKeys(): Partial<Record<LlmFlavor, string>> {
+export function assistantKeys(): Partial<Record<LlmFlavor, string[]>> {
+  /**
+   * Порядок ключів Gemini — це порядок витрат: спершу безкоштовний.
+   *
+   * Рішення власника 18.09.2026: «щоб зекономити». Спільний GEMINI_API_KEY
+   * сидить на безкоштовному тарифі (20 запитів на добу на модель), і поки він
+   * відповідає, платити нема за що. Щойно він упирається в квоту, той самий
+   * хід доходить платним ASSISTANT_GEMINI_API_KEY, а вичерпаний ключ
+   * пропускається наступну годину (model-health.ts) — інакше кожен хід
+   * починався б із гарантованої відмови.
+   *
+   * Якщо ключ один, список із одного елемента: поведінка як була.
+   */
+  const gemini = [process.env.GEMINI_API_KEY, process.env.ASSISTANT_GEMINI_API_KEY]
+    .map((k) => k?.trim())
+    .filter((k): k is string => Boolean(k));
   return {
-    deepseek: process.env.DEEPSEEK_API_KEY || undefined,
-    gemini: process.env.ASSISTANT_GEMINI_API_KEY || process.env.GEMINI_API_KEY || undefined,
+    deepseek: process.env.DEEPSEEK_API_KEY ? [process.env.DEEPSEEK_API_KEY] : undefined,
+    gemini: gemini.length > 0 ? [...new Set(gemini)] : undefined,
   };
 }
 

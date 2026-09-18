@@ -1565,6 +1565,17 @@ export async function answerSalesAnalysis(
         `Віддали **${money(total.явна_знижка + total.прихована_знижка)}** — ${percent(total.разом_віддали_відсотків)} від обороту ${money(total.оборот)}.`,
         `З них явних ${money(total.явна_знижка)}, прихованих ${money(total.прихована_знижка)}.`,
         "",
+        byRep.length >= 3
+          ? chart({
+              type: "bar",
+              title: `Скільки віддали знижками · ${period.label}`,
+              unit: "%",
+              categories: byRep.map((r) => short(r.торговий, 20)),
+              series: [{ name: "Частка свого обороту", values: byRep.map((r) => r.від_свого_обороту_відсотків) }],
+              note: "Явні знижки з документів плюс приховані — продаж нижче прайсу.",
+            })
+          : null,
+        "",
         ...table(
           ["Торговий", "Оборот", "Знижок", "% свого", "Рентаб."],
           byRep.map((r) => [
@@ -1613,6 +1624,16 @@ export async function answerSalesAnalysis(
         `## 🗺 Де ми продаємо · ${period.label}`,
         "",
         `Оборот **${money(total)}** по ${cities.length} містах у топі.`,
+        "",
+        cities.length >= 3
+          ? chart({
+              type: "bar",
+              title: `Оборот по містах · ${period.label}`,
+              unit: "₴",
+              categories: cities.slice(0, 12).map((c) => short(c.місто, 20)),
+              series: [{ name: "Оборот", values: cities.slice(0, 12).map((c) => Math.round(c.оборот)) }],
+            })
+          : null,
         "",
         ...table(
           ["Місто", "Оборот", "Купували", "Клієнтів", "На покупця"],

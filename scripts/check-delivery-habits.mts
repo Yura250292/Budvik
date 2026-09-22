@@ -62,6 +62,60 @@ for (const w of habits.weekdayByClient.values()) {
 }
 check("клієнтів з повторюваним днем ≥ 50", withWeekday >= 50, withWeekday);
 
+/* Незалежна перевірка дня тижня: систематичний зсув дат на добу не зловила
+   б жодна з перевірок вище — кількість клієнтів з вираженим днем лишилась
+   би такою ж, просто зсунутою. Джерело істини тут — власний EXTRACT(ISODOW)
+   Postgres, а НЕ формула (getUTCDay()+6)%7 з модуля: порівнювати формулу
+   саму із собою завжди дало б зелений результат.
+
+   Вибірка — 5 найсвіжіших листів і 6 із часом рівно 00:00 (це найризикованіший
+   випадок: зсув на -3 год перекинув би дату на попередній день). Для кожного
+   беремо будь-якого клієнта листа й перевіряємо, що в weekdayByClient
+   лічильник очікуваного дня (isodow − 1, бо в модуля 0 = понеділок) не нуль. */
+type WeekdayCheckRow = { sheet_id: string; sheet_date: Date; expected_weekday: number; cp: string | null };
+
+const since180 = new Date(Date.now() - 180 * 86_400_000);
+const weekdaySample = await prisma.$queryRaw<WeekdayCheckRow[]>`
+  WITH candidates AS (
+    (
+      SELECT rs.id, rs.date
+      FROM "RouteSheet" rs
+      WHERE rs.date >= ${since180}
+        AND EXISTS (SELECT 1 FROM "RouteSheetStop" s WHERE s."routeSheetId" = rs.id AND s.hidden = false AND s."counterpartyId" IS NOT NULL)
+      ORDER BY rs.date DESC
+      LIMIT 5
+    )
+    UNION
+    (
+      SELECT rs.id, rs.date
+      FROM "RouteSheet" rs
+      WHERE rs.date >= ${since180}
+        AND to_char(rs.date, 'HH24:MI') = '00:00'
+        AND EXISTS (SELECT 1 FROM "RouteSheetStop" s WHERE s."routeSheetId" = rs.id AND s.hidden = false AND s."counterpartyId" IS NOT NULL)
+      ORDER BY rs.date DESC
+      LIMIT 6
+    )
+  )
+  SELECT c.id AS sheet_id,
+         c.date AS sheet_date,
+         (EXTRACT(ISODOW FROM c.date)::int - 1) AS expected_weekday,
+         (SELECT s."counterpartyId" FROM "RouteSheetStop" s
+           WHERE s."routeSheetId" = c.id AND s.hidden = false AND s."counterpartyId" IS NOT NULL
+           LIMIT 1) AS cp
+  FROM candidates c
+`;
+
+check("вибірка для перевірки дня тижня непорожня", weekdaySample.length > 0, weekdaySample.length);
+
+for (const row of weekdaySample) {
+  const got = row.cp ? (habits.weekdayByClient.get(row.cp)?.[row.expected_weekday] ?? 0) : 0;
+  check(
+    `день тижня листа ${row.sheet_id} (${row.sheet_date.toISOString().slice(0, 16)}) — очікували isodow-1=${row.expected_weekday}`,
+    got > 0,
+    `лічильник дня ${row.expected_weekday} у клієнта ${row.cp} = ${got}`
+  );
+}
+
 await prisma.$disconnect();
 
 if (fails.length) {

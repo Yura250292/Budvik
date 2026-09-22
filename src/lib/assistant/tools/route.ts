@@ -1,28 +1,43 @@
 /**
- * Маршрут за конкретними точками — для керівника.
+ * Маршрут для керівника: за конкретними точками або на весь день.
  *
- * Це не план дня. План дня торгового живе в розмові «як торговий» і сам
- * вирішує, куди їхати; тут людина вже знає перелік — клієнти, адреси,
- * склад — і хоче лише порядок обʼїзду, кілометри й посилання, з якого
- * починається навігація.
+ * Два режими живуть в одному інструменті навмисно: у керівника вже 23
+ * інструменти-стеля (кожен коштує токени в КОЖНОМУ ході розмови), тому нову
+ * можливість додаємо режимом (mode), як у stock_health чи money_flows, а не
+ * двадцять четвертим інструментом.
  *
- * Правила ті самі, що й у кодовій відповіді торгового (route-build.ts):
- * неоднозначні імена не зупиняють роботу, а перелічуються внизу. Кілометри
- * й хвилини — лише від OSRM; коли дороги немає, чесно віддаємо порядок за
- * відстанню й порожні числа, а не «приблизно» по прямій: саме з вигаданих
- * кілометрів колись починалися суперечки про пробіг.
+ * mode="stops" — людина вже знає перелік точок: клієнти з бази, адреси
+ * текстом, слово «склад» — і хоче лише порядок обʼїзду, кілометри й
+ * посилання, з якого починається навігація. Правила ті самі, що й у
+ * кодовій відповіді торгового (route-build.ts): неоднозначні імена не
+ * зупиняють роботу, а перелічуються внизу. Кілометри й хвилини — лише від
+ * OSRM; коли дороги немає, чесно віддаємо порядок за відстанню й порожні
+ * числа, а не «приблизно» по прямій: саме з вигаданих кілометрів колись
+ * починалися суперечки про пробіг. Старт — склад, якщо не сказано інакше:
+ * у керівника немає «своєї останньої точки треку», а розвозка виїжджає
+ * зі складу.
  *
- * Старт — склад, якщо не сказано інакше. У керівника немає «своєї останньої
- * точки треку», а розвозка виїжджає зі складу.
+ * mode="day_plan" — керівник не називає точок сам, а просить «розкинути
+ * доставку по водіях» чи «скласти маршрути на завтра». Ядро для цього вже
+ * є — buildDayPlan (routes/build-day-plan.ts), та сама логіка, що стоїть
+ * за вкладкою «План» на /admin/logistics/delivery. Тут лише розв'язуємо
+ * імена водіїв у id (ядро про базу User не знає, а менеджер каже «Пайда»,
+ * не id) і перекладаємо відповідь людською мовою. Інструмент нічого не
+ * пише: чернетки маршрутів створює людина натиском на екрані, а тут —
+ * лише план і посилання туди.
  */
 
 import type { ToolDef } from "@/lib/assistant/types";
-import { str, ToolArgError } from "@/lib/assistant/validate";
+import { day as validDay, enumOf, str, ToolArgError } from "@/lib/assistant/validate";
 import { resolveRouteStops, type RouteStop } from "@/lib/assistant/facts/route-build";
 import { orderStops, type RouteLeg } from "@/lib/assistant/facts/day-plan";
+import { WEEKDAY_ACCUSATIVE } from "@/lib/assistant/facts/route-habits";
 import { defaultDepot } from "@/lib/routes/depot";
+import { buildDayPlan } from "@/lib/routes/build-day-plan";
 import { googleMapsLinksFromHere } from "@/lib/maps/google-links";
 import { getRoute } from "@/lib/geo/osrm";
+import { prisma } from "@/lib/prisma";
+import { kyivDate } from "@/lib/date/kyiv";
 
 const MIN_STOPS = 2;
 const MAX_STOPS = 20;
@@ -100,25 +115,103 @@ export const buildRouteTool: ToolDef = {
   label: "Будую маршрут",
   kinds: ["ADMIN"],
   description:
-    "Маршрут за названими точками від складу: клієнти з бази (прізвища чи назви досить), адреси текстом («вул. Шевченка 10, Стрий»), слово «склад». Повертає порядок обʼїзду, кілометри й хвилини від OSRM, плече від попередньої точки і посилання Google Maps. 2–20 точок. Викликай на «побудуй/склади маршрут: …», «як обʼїхати …», «маршрут по Стрию: …». Не для плану дня торгового — це розмова «як торговий».",
+    "Два режими. mode=\"stops\" (за замовчуванням): порядок обʼїзду за названими точками — клієнти з бази, адреси текстом, слово «склад»; повертає порядок, кілометри й хвилини від OSRM і посилання Google Maps. mode=\"day_plan\": СКЛАДАЄ МАРШРУТИ ВОДІЯМ НА ДЕНЬ — сам бере непривезені реалізації, ділить їх між водіями за історією доставок, шикує порядок і каже, що відкласти. Викликай day_plan на «склади маршрути на завтра», «розкинь доставку по водіях», «кому що везти завтра»; stops — на «як обʼїхати …», «маршрут по Стрию: …».",
   parameters: {
     type: "object",
     properties: {
+      mode: {
+        type: "string",
+        enum: ["stops", "day_plan"],
+        description: "stops — порядок за названими точками; day_plan — план доставки на день. Без поля — stops.",
+      },
       stops: {
         type: "array",
         items: { type: "string" },
         minItems: MIN_STOPS,
         maxItems: MAX_STOPS,
-        description: "Точки маршруту: назви клієнтів, адреси або «склад». Від 2 до 20.",
+        description: "Тільки для mode=stops. Точки маршруту: назви клієнтів, адреси або «склад». Від 2 до 20.",
       },
       start: {
         type: "string",
-        description: "Звідки виїжджати: клієнт, адреса або «склад». Без цього — склад.",
+        description: "Тільки для mode=stops. Звідки виїжджати: клієнт, адреса або «склад». Без цього — склад.",
+      },
+      date: {
+        type: "string",
+        description: "Тільки для mode=day_plan. День у форматі YYYY-MM-DD. Без цього — завтра.",
+      },
+      drivers: {
+        type: "array",
+        items: { type: "string" },
+        description: "Тільки для mode=day_plan. Імена водіїв, якщо людина назвала їх сама. Без цього — усі, хто возив за два тижні.",
       },
     },
-    required: ["stops"],
+    required: [],
   },
   async run(ctx, args) {
+    const mode = enumOf(args.mode, "mode", ["stops", "day_plan"] as const, "stops");
+
+    if (mode === "day_plan") {
+      const date = validDay(args.date, "date", kyivDate(new Date(Date.now() + 86_400_000)));
+      const names = Array.isArray(args.drivers)
+        ? args.drivers.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+        : [];
+      const dayNotes: string[] = [];
+
+      // Імена водіїв розв'язуємо тут, а не в ядрі: buildDayPlan не знає про
+      // базу User, а модель називає людей так, як їх називає менеджер —
+      // «Пайда», а не id. Не знайшли жодного — краще сказати про це прямо,
+      // ніж мовчки побудувати план на всіх водіїв замість названих.
+      let driverIds: string[] | undefined;
+      if (names.length) {
+        const matched = await prisma.user.findMany({
+          where: { role: "DRIVER", OR: names.map((n) => ({ name: { contains: n, mode: "insensitive" as const } })) },
+          select: { id: true, name: true },
+        });
+        if (matched.length === 0) {
+          return { помилка: `Водія з іменем ${names.map((n) => `«${n}»`).join(", ")} серед водіїв не знайшов.` };
+        }
+        const unresolved = names.filter(
+          (n) => !matched.some((d) => d.name.toLowerCase().includes(n.trim().toLowerCase()))
+        );
+        if (unresolved.length) {
+          dayNotes.push(
+            `${unresolved.map((n) => `«${n}»`).join(", ")} серед водіїв не знайшов — план лише по тих, кого впізнав.`
+          );
+        }
+        driverIds = matched.map((d) => d.id);
+      }
+
+      const plan = await buildDayPlan({ date, driverIds });
+      if ("error" in plan) return { помилка: plan.error };
+
+      return {
+        дата: plan.date,
+        маршрути: plan.routes.map((r) => ({
+          водій: r.driverName,
+          точок: r.stops.length,
+          сума: Math.round(r.stops.reduce((s, x) => s + x.amount, 0)),
+          км: r.distanceKm === null ? null : Math.round(r.distanceKm),
+          хвилин: r.durationMin === null ? null : Math.round(r.durationMin),
+          підстава: r.reason,
+          порядок: r.stops.map((s) => ({ n: s.sequence, назва: s.name, адреса: s.address, сума: Math.round(s.amount) })),
+        })),
+        відкладені: plan.deferred.map((d) => ({
+          причина: d.reason,
+          зазвичай_їде: d.suggestWeekday === null ? null : WEEKDAY_ACCUSATIVE[d.suggestWeekday],
+          точки: d.points.map((p) => p.name),
+        })),
+        без_координат: plan.noPin.map((p) => p.name),
+        не_наша_розвозка: plan.outOfZone.map((p) => p.name),
+        без_контрагента: plan.noCounterparty.map((p) => p.salesDocumentId),
+        посилання: `/admin/logistics/delivery?tab=plan&day=${plan.date}`,
+        примітка: [
+          ...dayNotes,
+          ...plan.notes,
+          "План поки нікуди не записаний. Щоб створити чернетки маршрутів, людина відкриває посилання й тисне «Створити маршрути».",
+        ].join(" "),
+      };
+    }
+
     const names = stopsArg(args.stops);
     const startName = str(args.start, "start", { min: NAME_MIN, max: NAME_MAX, required: false });
     const repId = ctx.scope.repId;

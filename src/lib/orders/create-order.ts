@@ -212,7 +212,7 @@ export async function createOrder(
           sourceCampaign,
           items: { create: orderItems },
         },
-        include: { items: { include: { product: { select: { name: true } } } } },
+        include: { items: { include: { product: { select: { name: true, sku: true } } } } },
       });
 
       // Списання складу умовним UPDATE, а не decrement: між перевіркою вище і
@@ -271,7 +271,11 @@ export async function createOrder(
     comment: order.comment,
     totalAmount: order.totalAmount,
     isGuest: !order.userId,
-    items: order.items.map((i) => ({ name: i.product.name, quantity: i.quantity })),
+    items: order.items.map((i) => ({
+      sku: i.product.sku,
+      name: i.product.name,
+      quantity: i.quantity,
+    })),
   }).catch(() => {});
 
   const staff = await prisma.user.findMany({

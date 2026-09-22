@@ -36,7 +36,8 @@ export interface NewOrderAlert {
    */
   shippingFee?: number | null;
   isGuest: boolean;
-  items: { name: string; quantity: number }[];
+  /** Артикул попереду назви: менеджер шукає номенклатуру в 1С саме за ним. */
+  items: { sku?: string | null; name: string; quantity: number }[];
 }
 
 function buildText(order: NewOrderAlert): string {
@@ -48,7 +49,7 @@ function buildText(order: NewOrderAlert): string {
   // Перші 10 позицій: довше повідомлення Telegram однаково обріже на 4096.
   const lines = order.items
     .slice(0, 10)
-    .map((i) => `• ${escapeHtml(i.name)} × ${i.quantity}`)
+    .map((i) => `• ${i.sku ? `<code>${escapeHtml(i.sku)}</code> ` : ""}${escapeHtml(i.name)} × ${i.quantity}`)
     .join("\n");
   const more = order.items.length > 10 ? `\n…і ще ${order.items.length - 10} поз.` : "";
 

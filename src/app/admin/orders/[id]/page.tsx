@@ -13,6 +13,14 @@ import {
   PAYMENT_METHOD_LABELS,
 } from "@/lib/utils";
 import { packLabel } from "@/lib/pack-qty";
+import { orderTextFor1C } from "@/lib/orders/for-1c";
+
+/** Позиція замовлення в тому вигляді, в якому її віддає /api/orders/[id]. */
+type OrderItemRow = {
+  quantity: number;
+  price: number;
+  product: { sku: string | null; name: string };
+};
 
 const ALL_STATUSES: OrderStatus[] = [
   "PENDING",
@@ -77,6 +85,7 @@ export default function AdminOrderDetailPage() {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [copied1C, setCopied1C] = useState(false);
 
   useEffect(() => {
     fetch(`/api/orders/${id}`)
@@ -96,6 +105,47 @@ export default function AdminOrderDetailPage() {
       body: JSON.stringify({ status }),
     });
     if (res.ok) setOrder(await res.json());
+    setSaving(false);
+  };
+
+  /**
+   * Текст замовлення для внесення в 1С.
+   *
+   * У 1С ми не пишемо нічого — менеджер вносить замовлення руками, так само
+   * як замовлення торгових з Impuls. Артикул стоїть першим у рядку: саме за
+   * ним шукають номенклатуру.
+   */
+  const copyFor1C = () => {
+    navigator.clipboard?.writeText(
+      orderTextFor1C({
+        orderNumber: order.orderNumber,
+        contactName: order.contactName || order.user?.name || null,
+        phone: order.phone || order.user?.phone || null,
+        city: order.city,
+        address: order.address,
+        deliveryMethod: order.deliveryMethod,
+        comment: order.comment,
+        totalAmount: order.totalAmount,
+        items: (order.items as OrderItemRow[]).map((i) => ({
+          sku: i.product.sku ?? null,
+          name: i.product.name,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+      })
+    );
+    setCopied1C(true);
+    setTimeout(() => setCopied1C(false), 2000);
+  };
+
+  /** Позначка «внесено»: сервер сам перемикає її туди-назад. */
+  const toggleEntered1C = async () => {
+    setSaving(true);
+    const res = await fetch(`/api/admin/orders/${id}/entered-1c`, { method: "POST" });
+    if (res.ok) {
+      const { enteredIn1CAt } = await res.json();
+      setOrder({ ...order, enteredIn1CAt });
+    }
     setSaving(false);
   };
 
@@ -138,6 +188,44 @@ export default function AdminOrderDetailPage() {
           ← Усі замовлення
         </Link>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Менеджер вносить замовлення в 1С руками: спершу копіює текст,
+              потім позначає, що внесено — щоб ніхто не вніс його вдруге. */}
+          <button
+            type="button"
+            onClick={copyFor1C}
+            className="flex items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-white px-3.5 py-2 text-[13px] font-medium text-bk transition-colors hover:bg-g50"
+          >
+            {copied1C ? (
+              <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4 text-g500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
+            {copied1C ? "Скопійовано" : "Скопіювати для 1С"}
+          </button>
+          <button
+            type="button"
+            onClick={toggleEntered1C}
+            disabled={saving}
+            className={`flex items-center gap-1.5 rounded-[var(--radius-btn)] border px-3.5 py-2 text-[13px] font-medium transition-colors disabled:opacity-50 ${
+              order.enteredIn1CAt
+                ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                : "border-g200 bg-white text-bk hover:bg-g50"
+            }`}
+            title={
+              order.enteredIn1CAt
+                ? `Внесено ${formatDate(order.enteredIn1CAt)}. Натисніть, щоб зняти позначку`
+                : "Позначити, що замовлення вже внесене в 1С"
+            }
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {order.enteredIn1CAt ? "Внесено в 1С" : "Заведено в 1С"}
+          </button>
           <a
             href={`/api/admin/orders/${id}/export`}
             className="flex items-center gap-1.5 rounded-[var(--radius-btn)] border border-g200 bg-white px-3.5 py-2 text-[13px] font-medium text-bk transition-colors hover:bg-g50"

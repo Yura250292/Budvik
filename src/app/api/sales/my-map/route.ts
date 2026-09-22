@@ -22,6 +22,7 @@
  * «сплячих» перетворюється на суперечку про визначення.
  */
 
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NOT_INTERNAL, SOURCE_FILTER } from "@/lib/analytics/facts";
@@ -33,7 +34,7 @@ import {
   type ClientState,
 } from "@/lib/analytics/clients";
 import { resolveRouteForDay } from "@/lib/routes/resolve";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivDaySql } from "@/lib/date/kyiv";
 import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 
 export const dynamic = "force-dynamic";
@@ -170,7 +171,7 @@ export async function GET(req: NextRequest) {
                MIN(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "firstDocAt",
                MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastDocAt",
                COUNT(*) FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDocs",
-               COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+               COUNT(DISTINCT ${Prisma.raw(kyivDaySql('s."createdAt"'))})
                  FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDays"
         FROM "SalesDocument" s
         WHERE ${SOURCE_FILTER}

@@ -39,7 +39,7 @@
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE } from "@/lib/assistant/facts/sql";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
-import { kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDayStart, kyivDaySql, kyivTsSql } from "@/lib/date/kyiv";
 
 export type ViewColumn = { name: string; type: string; description: string };
 
@@ -62,15 +62,13 @@ export type HelperCte = { name: string; body: string };
 /* ── Фрагменти ─────────────────────────────────────────────────────────── */
 
 /** Київська дата з будь-якої мітки (див. шапку про три види часу). */
-export const KYIV_DAY = (col: string) =>
-  `((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Kyiv')::date`;
+export const KYIV_DAY = (col: string) => kyivDaySql(col);
 
 /** Настінний час 1С як записано — для міток, що вже київські. */
 export const WALL = (col: string) => `to_char(${col}, 'HH24:MI')`;
 
 /** Київський час із справжньої UTC-мітки сайту. */
-export const CLOCK = (col: string) =>
-  `to_char((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Kyiv', 'HH24:MI')`;
+export const CLOCK = (col: string) => `to_char(${kyivTsSql(col)}, 'HH24:MI')`;
 
 /** Мітка 1С (настінний час як UTC) → справжній UTC, щоб форматер не додав ще 3 години. */
 export const TS_1C = (col: string) => `((${col}) AT TIME ZONE 'Europe/Kyiv' AT TIME ZONE 'UTC')`;

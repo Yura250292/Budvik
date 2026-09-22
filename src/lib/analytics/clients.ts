@@ -20,6 +20,7 @@ import { agingByCounterparty } from "./money-facts";
 import { prisma } from "@/lib/prisma";
 import { NOT_INTERNAL, NOT_INTERNAL_DOC, SOURCE_FILTER } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
+import { kyivDaySql } from "@/lib/date/kyiv";
 
 /**
  * Пороги станів у днях без документа.
@@ -163,7 +164,7 @@ async function portfolioRows(repId: string, period: Period): Promise<PortfolioRo
         MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
         MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
         COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
-        COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+        COUNT(DISTINCT ${Prisma.raw(kyivDaySql('d."createdAt"'))})
           FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1
@@ -372,7 +373,7 @@ export async function clientPortfolioAll(period: Period): Promise<ClientMapPortf
         MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
         MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
         COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
-        COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+        COUNT(DISTINCT ${Prisma.raw(kyivDaySql('d."createdAt"'))})
           FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1
@@ -503,7 +504,7 @@ export async function portfolioCountsByRep(period: Period): Promise<Map<string, 
              MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
              MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
              COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
-             COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+             COUNT(DISTINCT ${Prisma.raw(kyivDaySql('d."createdAt"'))})
                FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM docs d
       GROUP BY 1, 2

@@ -33,7 +33,7 @@ import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { classifyClient, type ClientState } from "@/lib/analytics/clients";
 import { shiftDay, type Period } from "@/lib/analytics/period";
-import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayEnd, kyivDaySql, kyivDayStart } from "@/lib/date/kyiv";
 import { isInternalClient, loadInternalContext } from "@/lib/rep-feed/internal";
 import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 import { ORDERED_WINDOW_DAYS, QUIET_AFTER_OUTREACH_DAYS } from "./types";
@@ -138,7 +138,7 @@ async function computeBaseline(now: Date): Promise<RepurchaseBaseline> {
         MIN(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "firstDocAt",
         MAX(d."createdAt") FILTER (WHERE d."docType" <> 'RETURN') AS "lastDocAt",
         COUNT(*) FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDocs",
-        COUNT(DISTINCT (d."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+        COUNT(DISTINCT ${Prisma.raw(kyivDaySql('d."createdAt"'))})
           FILTER (WHERE d."docType" <> 'RETURN')::int AS "historyDays"
       FROM cuts k
       JOIN docs d ON d."createdAt" <= k.hist_to

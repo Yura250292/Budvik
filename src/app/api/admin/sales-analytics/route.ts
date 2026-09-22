@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parsePeriod } from "@/lib/analytics/period";
 import { SOURCE_FILTER, SALES_ONLY } from "@/lib/analytics/facts";
+import { kyivTsSql } from "@/lib/date/kyiv";
 
 export const dynamic = "force-dynamic";
 
@@ -161,11 +162,12 @@ export async function GET(req: Request) {
     `,
 
     // --- динаміка по днях ---
-    // AT TIME ZONE 'Europe/Kyiv' обовʼязково: без нього документ, проведений
-    // о 23:30 за Києвом, потрапляв у наступний день (UTC ще 20:30/21:30).
+    // Київська доба через kyivTsSql: колонка тримає UTC, і документ,
+    // проведений о 23:30 за Києвом, без переводу потрапляв би в наступний
+    // день. Одного AT TIME ZONE тут мало — він зсуває час у зворотний бік.
     prisma.$queryRaw<Array<{ day: string; docs: number; amount: number }>>`
       SELECT
-        to_char(date_trunc('day', s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS day,
+        to_char(date_trunc('day', ${Prisma.raw(kyivTsSql('s."createdAt"'))}), 'YYYY-MM-DD') AS day,
         COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s

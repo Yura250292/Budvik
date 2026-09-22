@@ -7,6 +7,7 @@
  * Виняток — дебіторка: це залишок станом на зараз, а не потік за період.
  */
 
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { SalesDocType } from "@prisma/client";
@@ -23,6 +24,7 @@ import {
   sumAging,
 } from "@/lib/analytics/money-facts";
 import { earningsByRep } from "@/lib/motivation/period-facts";
+import { kyivTsSql } from "@/lib/date/kyiv";
 
 export const dynamic = "force-dynamic";
 
@@ -115,7 +117,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repI
     }),
     prisma.$queryRaw<Array<{ day: string; docs: number; amount: number }>>`
       SELECT
-        to_char(date_trunc('day', s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS day,
+        to_char(date_trunc('day', ${Prisma.raw(kyivTsSql('s."createdAt"'))}), 'YYYY-MM-DD') AS day,
         COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
         SUM(s."totalAmount")::float AS amount
       FROM "SalesDocument" s

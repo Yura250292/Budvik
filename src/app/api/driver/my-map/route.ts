@@ -10,6 +10,7 @@
  * керівник мусять бачити однаковий колір на одному магазині.
  */
 
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
@@ -20,7 +21,7 @@ import {
   SLIPPING_FACTOR,
   type ClientState,
 } from "@/lib/analytics/clients";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivDaySql } from "@/lib/date/kyiv";
 import { resolveDriverDay } from "@/lib/track/day-stops";
 import { requireRoles, DRIVER_ROLES } from "@/lib/app/identity";
 
@@ -156,7 +157,7 @@ export async function GET(req: NextRequest) {
                MIN(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "firstDocAt",
                MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastDocAt",
                COUNT(*) FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDocs",
-               COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+               COUNT(DISTINCT ${Prisma.raw(kyivDaySql('s."createdAt"'))})
                  FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDays"
         FROM "SalesDocument" s
         WHERE ${SOURCE_FILTER}

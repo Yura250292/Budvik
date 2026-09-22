@@ -24,9 +24,10 @@
  * рахуються в facts.ts і від цього фільтра не змінюються.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { NOT_INTERNAL, NOT_INTERNAL_DOC } from "@/lib/analytics/facts";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivTsSql } from "@/lib/date/kyiv";
 import { DORMANT_DAYS, LOST_DAYS } from "@/lib/analytics/clients";
 
 /**
@@ -134,7 +135,7 @@ export async function buildCohortReport(topChurnLimit = 30): Promise<CohortRepor
       WITH activity AS (
         SELECT
           s."counterpartyId",
-          to_char(date_trunc('month', s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM') AS m,
+          to_char(date_trunc('month', ${Prisma.raw(kyivTsSql('s."createdAt"'))}), 'YYYY-MM') AS m,
           SUM(s."totalAmount")::float AS amount
         FROM "SalesDocument" s
         WHERE s."externalId" IS NOT NULL AND s.status = 'CONFIRMED'

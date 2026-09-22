@@ -10,7 +10,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDayStart, kyivTsSql } from "@/lib/date/kyiv";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 
 /** Дефолти авто, якщо для працівника ще не заведено SalesVehicle. */
@@ -485,7 +485,7 @@ export async function shiftFactsByUser(from: Date, to: Date, userId?: string | n
       COALESCE(SUM(s."gpsDistanceKm"), 0)::float              AS "gpsKm",
       COALESCE(SUM(s."gpsDistanceKm") FILTER (WHERE s."distanceKm" IS NULL), 0)::float
                                                               AS "gpsOnlyKm",
-      COUNT(DISTINCT date_trunc('day', s."startedAt" AT TIME ZONE 'Europe/Kyiv'))
+      COUNT(DISTINCT date_trunc('day', ${Prisma.raw(kyivTsSql('s."startedAt"'))}))
         FILTER (WHERE s."distanceKm" IS NOT NULL)::int        AS "daysWorked",
       COUNT(*) FILTER (WHERE s."odometerSuspicious")::int     AS suspicious,
       COUNT(*) FILTER (WHERE s.status = 'OPEN')::int          AS "openShifts"

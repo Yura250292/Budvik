@@ -40,6 +40,7 @@ import {
 } from "@/lib/analytics/money-facts";
 import type { AgingResult } from "@/lib/erp/receivables";
 import type { Period } from "@/lib/analytics/period";
+import { kyivTsSql } from "@/lib/date/kyiv";
 
 /** Місячний ряд: відвантажено vs оплачено. */
 export type MonthRow = {
@@ -213,7 +214,7 @@ async function collectedTotals(from: Date, to: Date) {
 async function monthlyFlows(): Promise<MonthRow[]> {
   return prisma.$queryRaw<MonthRow[]>`
     WITH ship AS (
-      SELECT to_char("createdAt" AT TIME ZONE 'Europe/Kyiv', 'YYYY-MM') AS ym,
+      SELECT to_char(${Prisma.raw(kyivTsSql('"createdAt"'))}, 'YYYY-MM') AS ym,
              SUM("totalAmount")::float8 AS amount,
              COUNT(*)::int AS cnt
       FROM "SalesDocument"
@@ -221,7 +222,7 @@ async function monthlyFlows(): Promise<MonthRow[]> {
       GROUP BY 1
     ),
     pay AS (
-      SELECT to_char(COALESCE("paidAt", "createdAt") AT TIME ZONE 'Europe/Kyiv', 'YYYY-MM') AS ym,
+      SELECT to_char(${Prisma.raw(kyivTsSql('COALESCE("paidAt", "createdAt")'))}, 'YYYY-MM') AS ym,
              SUM(amount)::float8 AS amount,
              COUNT(*)::int AS cnt
       FROM "Payment"

@@ -10,11 +10,12 @@
  * «подивитися, скільки коштує» вже міняло б план дня.
  */
 
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivDaySql } from "@/lib/date/kyiv";
 import { defaultDepot } from "@/lib/routes/depot";
 import { resolveDeliveryRouteById, resolveDriverDay } from "@/lib/track/day-stops";
 import { explainScore, scoreClient } from "@/lib/routes/priority";
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
       SELECT s."counterpartyId",
              COALESCE(SUM(s."totalAmount"), 0)::float AS turnover,
              COUNT(*)::int AS docs,
-             COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)::int AS days,
+             COUNT(DISTINCT ${Prisma.raw(kyivDaySql('s."createdAt"'))})::int AS days,
              MIN(s."createdAt") AS "firstDocAt",
              MAX(s."createdAt") AS "lastDocAt"
       FROM "SalesDocument" s

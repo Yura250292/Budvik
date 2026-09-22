@@ -14,10 +14,11 @@
  * пропозицій і розсилок: один запит на сотні клієнтів замість сотні запитів.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { classifyClient, avgIntervalDays, type ClientState } from "@/lib/analytics/clients";
-import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayEnd, kyivDaySql, kyivDayStart } from "@/lib/date/kyiv";
 import { shiftDay, type Period } from "@/lib/analytics/period";
 
 const DAY_MS = 86_400_000;
@@ -109,7 +110,7 @@ export async function clientStatesNow(
       MIN(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "firstDocAt",
       MAX(s."createdAt") FILTER (WHERE s."docType" <> 'RETURN') AS "lastDocAt",
       COUNT(*) FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDocs",
-      COUNT(DISTINCT (s."createdAt" AT TIME ZONE 'Europe/Kyiv')::date)
+      COUNT(DISTINCT ${Prisma.raw(kyivDaySql('s."createdAt"'))})
         FILTER (WHERE s."docType" <> 'RETURN')::int AS "historyDays"
     FROM "SalesDocument" s
     WHERE ${SOURCE_FILTER} AND s."counterpartyId" = ANY(${ids}::text[])

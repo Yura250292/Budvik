@@ -15,6 +15,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER, SALES_ONLY, ANALYTICS_SINCE, clampFrom } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
+import { kyivTsSql } from "@/lib/date/kyiv";
 
 /**
  * Ширина вікна порівняння — 4 тижні проти попередніх 4.
@@ -104,7 +105,7 @@ async function bucketsByRep(
   >`
     SELECT
       s."salesRepId" AS "repId",
-      to_char(date_trunc(${truncUnit}, s."createdAt" AT TIME ZONE 'Europe/Kyiv'), 'YYYY-MM-DD') AS bucket,
+      to_char(date_trunc(${truncUnit}, ${Prisma.raw(kyivTsSql('s."createdAt"'))}), 'YYYY-MM-DD') AS bucket,
       SUM(s."totalAmount")::float AS amount,
       COUNT(*) FILTER (WHERE ${SALES_ONLY})::int AS docs,
       COUNT(DISTINCT s."counterpartyId") FILTER (WHERE ${SALES_ONLY})::int AS clients

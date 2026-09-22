@@ -21,7 +21,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivTsSql } from "@/lib/date/kyiv";
 import { SOURCE_FILTER, clampFrom } from "@/lib/analytics/facts";
 
 /**
@@ -262,7 +262,7 @@ export async function buildAbcReport(
         ${dim.id} AS id,
         MIN(${dim.name}) AS name,
         ${dimension === "product" ? Prisma.sql`MIN(b.name)` : Prisma.sql`NULL::text`} AS "brandName",
-        date_trunc('month', s."createdAt" AT TIME ZONE 'Europe/Kyiv') AS m,
+        date_trunc('month', ${Prisma.raw(kyivTsSql('s."createdAt"'))}) AS m,
         SUM(i.quantity * i."sellingPrice")::float AS amount,
         -- Прибуток і його база — лише по рядках із відомою собівартістю.
         -- Рядок без неї не «нульова маржа», а невідома, і мовчки зарахувати

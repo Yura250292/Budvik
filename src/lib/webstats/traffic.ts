@@ -7,8 +7,10 @@
  * джерело на екран і на помічника, інакше вони почнуть розходитись.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { peopleOnly, type TrafficView } from "@/lib/webstats/people";
+import { kyivDaySql } from "@/lib/date/kyiv";
 
 /** Скільки рядків показуємо в кожному рейтингу. */
 const TOP_LIMIT = 12;
@@ -80,7 +82,7 @@ export async function siteOverview(
       // «сьогодні» на графіку розходилося б із SiteDailyStat на три години.
       prisma.$queryRaw<Array<{ day: string; visitors: bigint; page_views: bigint; orders: bigint }>>`
         SELECT
-          to_char(("createdAt" AT TIME ZONE 'Europe/Kyiv')::date, 'YYYY-MM-DD') AS day,
+          to_char(${Prisma.raw(kyivDaySql('"createdAt"'))}, 'YYYY-MM-DD') AS day,
           COUNT(DISTINCT "visitorId")                                          AS visitors,
           COUNT(*) FILTER (WHERE "type" = 'page_view')                         AS page_views,
           COUNT(*) FILTER (WHERE "type" = 'order_placed')                      AS orders

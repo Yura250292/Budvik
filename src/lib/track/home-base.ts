@@ -19,10 +19,11 @@
  * значення: плече міряється десятками кілометрів.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { haversineM } from "@/lib/track/geo";
-import { kyivDate } from "@/lib/date/kyiv";
-import { isWorkingTime } from "@/lib/track/work-hours";
+import { KYIV_TZ } from "@/lib/date/kyiv";
+import { WORK_HOUR_FROM, WORK_HOUR_TO } from "@/lib/track/work-hours";
 
 /** Радіус купки, у межах якого ранки вважаємо «тим самим місцем». */
 export const BASE_RADIUS_M = 700;
@@ -62,8 +63,15 @@ type Morning = { day: string; lat: number; lng: number };
 /**
  * Ранки одразу для кількох людей — один запит на всіх.
  *
- * Окремий виклик на кожного торгового означав би десяток сканів по місяцю
- * точок на КОЖЕН перегляд таблиці; тут одна вибірка й розкладка в пам'яті.
+ * Вибір першої точки дня робить БАЗА, а не Node, і це не мікрооптимізація:
+ * читати місяць треку рядок за рядком означало тягнути ~70 тис. точок і
+ * прокручувати їх через Intl (київська доба, робоче вікно) заради сотні
+ * ранків. На Vercel це впиралось у 60-секундну межу функції, і вкладка
+ * «Паливо» не відкривалась узагалі. DISTINCT ON віддає рівно те, що
+ * потрібно, — по рядку на людину й день.
+ *
+ * Межі робочого вікна беруться з work-hours.ts, щоб число жило в одному
+ * місці: тут воно лише підставляється в SQL.
  */
 async function morningsForMany(
   userIds: string[],
@@ -72,26 +80,42 @@ async function morningsForMany(
   const byUser = new Map<string, Morning[]>();
   if (userIds.length === 0) return byUser;
 
-  const points = await prisma.trackPoint.findMany({
-    where: { userId: { in: userIds }, recordedAt: { gte: since } },
-    select: { userId: true, recordedAt: true, lat: true, lng: true },
-    orderBy: { recordedAt: "asc" },
-  });
+  // Київська доба й година. Колонка — timestamp WITHOUT time zone, у якій
+  // лежить UTC, тому одного `AT TIME ZONE 'Europe/Kyiv'` мало: він трактує
+  // значення ЯК київське і зсуває час на 3 години НАЗАД. Спершу оголошуємо
+  // пояс збереженого значення ('UTC'), і лише тоді переводимо в київський.
+  // Доба рахується в підзапиті, щоб DISTINCT ON і ORDER BY посилались на ту
+  // саму колонку: повторений вираз із параметром Postgres вважає різним
+  // (42P10), і запит не збирається взагалі.
+  //
+  // Ніч у дворі — це дрейф GPS, а не початок дня: планшет лежить удома і
+  // малює «поїздки», яких не було. Беремо лише робоче вікно.
+  const rows = await prisma.$queryRaw<Array<{ userId: string; day: string; lat: number; lng: number }>>`
+    SELECT DISTINCT ON (t."userId", t.day)
+      t."userId" AS "userId",
+      t.day      AS day,
+      t.lat      AS lat,
+      t.lng      AS lng
+    FROM (
+      SELECT
+        p."userId",
+        to_char((p."recordedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${KYIV_TZ}, 'YYYY-MM-DD') AS day,
+        date_part('hour', (p."recordedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${KYIV_TZ})     AS hour,
+        p.lat,
+        p.lng,
+        p."recordedAt"
+      FROM "TrackPoint" p
+      WHERE p."userId" IN (${Prisma.join(userIds)})
+        AND p."recordedAt" >= ${since}
+    ) t
+    WHERE t.hour >= ${WORK_HOUR_FROM} AND t.hour < ${WORK_HOUR_TO}
+    ORDER BY t."userId", t.day, t."recordedAt" ASC
+  `;
 
-  // Ключ «користувач+день»: перша точка дня перемагає, решта дня не цікавить.
-  const seen = new Set<string>();
-  for (const p of points) {
-    // Ніч у дворі — це дрейф GPS, а не початок дня: планшет лежить удома і
-    // малює «поїздки», яких не було. Беремо лише робоче вікно.
-    if (!isWorkingTime(p.recordedAt)) continue;
-    const day = kyivDate(p.recordedAt);
-    const key = `${p.userId}|${day}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const list = byUser.get(p.userId) ?? [];
-    list.push({ day, lat: p.lat, lng: p.lng });
-    byUser.set(p.userId, list);
+  for (const r of rows) {
+    const list = byUser.get(r.userId) ?? [];
+    list.push({ day: r.day, lat: r.lat, lng: r.lng });
+    byUser.set(r.userId, list);
   }
 
   return byUser;

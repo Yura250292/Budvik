@@ -18,9 +18,11 @@ import { OverviewTab } from "./OverviewTab";
 import { ProductsTab } from "./ProductsTab";
 import { SearchTab } from "./SearchTab";
 import { EventsTab } from "./EventsTab";
+import { SourcesTab } from "./SourcesTab";
 
 const TABS = [
   { key: "overview", label: "Огляд" },
+  { key: "sources", label: "Джерела" },
   { key: "products", label: "Товари" },
   { key: "search", label: "Пошук" },
   { key: "events", label: "Події" },
@@ -161,6 +163,7 @@ export function SiteAnalyticsShell() {
         </div>
 
         {tab === "overview" && <OverviewTab period={period} view={view} />}
+        {tab === "sources" && <SourcesTab period={period} view={view} />}
         {tab === "products" && <ProductsTab period={period} view={view} />}
         {tab === "search" && <SearchTab period={period} view={view} />}
         {tab === "events" && <EventsTab period={period} view={view} />}

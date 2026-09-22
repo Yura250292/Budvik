@@ -1,11 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "crons": [
     {
       "path": "/api/cron/webstats-rollup",
       "schedule": "30 1 * * *"
     }
   ],
-  "ignoreCommand": "bash -c 'PREV=\"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\"; git cat-file -e \"$PREV^{commit}\" 2>/dev/null || exit 1; git diff --quiet \"$PREV\" HEAD -- \":!scripts\" \":!output\" \":!design\" \":!worker\" \":!agent\" \":!mobile\" \":!railway.json\" \":!.railwayignore\" \":!.nvmrc\" \":!*.md\"'"
+  "ignoreCommand": "bash scripts/vercel-ignore.sh"
 }

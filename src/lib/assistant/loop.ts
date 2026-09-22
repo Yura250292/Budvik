@@ -56,6 +56,7 @@ import { compact } from "@/lib/assistant/format";
 import { collectEntities, entityIdList, rewriteLinks, verifyNumbers } from "@/lib/assistant/guards";
 import { isClarification } from "@/lib/assistant/md";
 import { recordNumberCheck } from "@/lib/assistant/number-guard";
+import { markReaskIfRepeat, recordSignals, type TurnSignal } from "@/lib/assistant/feedback";
 import { ToolArgError } from "@/lib/assistant/validate";
 import {
   addUsage,
@@ -158,6 +159,13 @@ function thinkingForTurn(input: {
 export async function runTurn(input: RunTurnInput) {
   const startedAt = Date.now();
   const timeLeft = () => TURN_DEADLINE_MS - (Date.now() - startedAt);
+
+  /**
+   * Чи не перепитує керівник те саме. Дивимось ДО збереження нового
+   * питання, поки в хвості розмови ще стоїть попередня пара «питання —
+   * відповідь»: сигнал стосується саме тієї, попередньої відповіді.
+   */
+  void markReaskIfRepeat(input.threadId, input.userText);
 
   await appendMessage({ threadId: input.threadId, role: "USER", content: input.userText });
   await touchThread(input.threadId, input.isFirstMessage ? input.userText : null);
@@ -559,6 +567,25 @@ export async function runTurn(input: RunTurnInput) {
       touchThread(input.threadId, null),
       addUsage(input.threadId, promptTokens + completionTokens),
     ]);
+
+    /**
+     * Сигнали невдачі — у чергу розбору.
+     *
+     * Усе це вже пораховано вище, тож коштує лише один запис, і той через
+     * `void`: черга не має права затримати відповідь або зламати її.
+     * Помилки інструментів і порожні результати сюди не збираємо — їх
+     * видно з TOOL-рядків, і знімок дістає їх сам.
+     */
+    const signals: TurnSignal[] = [];
+    if (result.finishReason === "length") signals.push("truncated");
+    if (activeModel !== route.primary) signals.push("fallback");
+    if (final.stripped > 0) signals.push("strippedLinks");
+    if (numbers.checked >= 3 && numbers.unverified.length / numbers.checked > 0.3) {
+      signals.push("unverified");
+    }
+    if (isClarification(final.text) && afterClarify) signals.push("clarifyTwice");
+    if (direct?.miss) signals.push("codeMiss");
+    void recordSignals(saved.id, signals);
 
     return {
       messageId: saved.id,

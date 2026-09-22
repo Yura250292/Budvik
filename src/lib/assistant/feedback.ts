@@ -234,3 +234,178 @@ export async function saveExpected(messageId: string, expected: string): Promise
 export async function dropVerdict(messageId: string): Promise<void> {
   await prisma.assistantFeedback.deleteMany({ where: { messageId, source: "OWNER" } }).catch(() => {});
 }
+
+/**
+ * Сигнали невдачі, які хід помічає сам.
+ *
+ * Це головне джерело черги розбору. Розраховувати на кнопки не можна:
+ * керівник натисне 👎 кілька разів і забуде, а погані відповіді треба
+ * бачити щодня. Усе нижче вже обчислюється в ході — лишається не викинути.
+ */
+export type TurnSignal =
+  | "codeMiss"      // код шукав і не знайшов
+  | "toolError"     // інструмент упав
+  | "emptyResult"   // інструменти відпрацювали, але нічого не показали
+  | "strippedLinks" // модель послалась на те, чого їй не показували
+  | "unverified"    // забагато чисел поза даними
+  | "fallback"      // відповідала запасна модель
+  | "truncated"     // відповідь обірвано за лімітом
+  | "clarifyTwice"  // уточнення двічі поспіль
+  | "reask"         // те саме питання перепитали інакше
+  | "turnFailed";   // хід упав із помилкою
+
+/**
+ * Які сигнали достатньо серйозні, щоб самі завели рядок у чергу.
+ *
+ * Решта (одне зняте посилання, сама по собі запасна модель) лише
+ * дописується до рядка, якщо він уже є: інакше черга за тиждень
+ * перетворюється на смітник, у якому 👎 керівника не знайти.
+ */
+const HARD: ReadonlySet<TurnSignal> = new Set([
+  "codeMiss",
+  "toolError",
+  "truncated",
+  "turnFailed",
+  "clarifyTwice",
+  "reask",
+]);
+
+/** Стеля авторядків на добу — щоб один зламаний день не залив чергу. */
+const DAILY_CAP = 20;
+
+function isHard(signals: TurnSignal[]): boolean {
+  if (signals.some((s) => HARD.has(s))) return true;
+  // Запасна модель сама по собі не біда, а разом із вигаданими числами — так.
+  return signals.includes("fallback") && signals.includes("unverified");
+}
+
+async function autoRowsToday(): Promise<number> {
+  const since = new Date(Date.now() - 24 * 3600 * 1000);
+  return prisma.assistantFeedback.count({
+    where: { source: "AUTO", verdict: null, createdAt: { gte: since } },
+  });
+}
+
+/**
+ * Записати сигнали про відповідь. Викликається з ходу через `void`:
+ * лічильник не має права зламати відповідь.
+ */
+export async function recordSignals(messageId: string, signals: TurnSignal[]): Promise<void> {
+  try {
+    if (signals.length === 0) return;
+
+    const existing = await prisma.assistantFeedback.findUnique({
+      where: { messageId },
+      select: { id: true, signals: true },
+    });
+
+    // Рядок уже є (керівник оцінив або сигнал прилітав раніше) — лише
+    // домальовуємо те, чого там ще немає.
+    if (existing) {
+      const merged = Array.from(new Set([...existing.signals, ...signals]));
+      if (merged.length !== existing.signals.length) {
+        await prisma.assistantFeedback.update({ where: { id: existing.id }, data: { signals: merged } });
+      }
+      return;
+    }
+
+    if (!isHard(signals)) return;
+    if ((await autoRowsToday()) >= DAILY_CAP) return;
+
+    const snap = await buildSnapshot(messageId);
+    if (!snap) return;
+
+    await prisma.assistantFeedback.create({
+      data: {
+        messageId,
+        threadId: snap.threadId,
+        userId: snap.userId,
+        kind: snap.kind,
+        question: snap.question,
+        answer: snap.answer,
+        toolTrace: snap.toolTrace as unknown as Prisma.InputJsonValue,
+        model: snap.model,
+        viaModel: snap.viaModel,
+        intent: snap.intent,
+        rounds: snap.rounds,
+        promptTokens: snap.promptTokens,
+        completionTokens: snap.completionTokens,
+        durationMs: snap.durationMs,
+        numbersChecked: snap.numbersChecked,
+        numbersUnverified: snap.numbersUnverified,
+        lessonIds: snap.lessonIds,
+        source: "AUTO",
+        signals,
+      },
+    });
+  } catch (e) {
+    console.warn(`[петля якості] сигнали не записались: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Перепит: керівник поставив те саме питання іншими словами.
+ *
+ * Видно лише з НАСТУПНОГО ходу: якщо відповідь влаштувала, людина не
+ * переформульовує. Сигнал ставиться на ПОПЕРЕДНЮ відповідь.
+ *
+ * Межі, заміряні на справжньому ланцюжку 22.09 (шість питань поспіль про
+ * зимові закупівлі): з п'яти переходів поріг упізнає ОДИН — «який саме
+ * зимовий товар закупити» → «що ти вважаєш зимовим товаром» (67 %).
+ * Решта переходів були не повтором, а уточненням іншими словами, і
+ * словесний перетин їх не бачить. Знижувати поріг марно: на 20 % у
+ * вибірку починають падати сусідні питання про різне.
+ *
+ * Тобто це сигнал про БУКВАЛЬНИЙ перепит, а не про незакриту тему.
+ * Довгу серію уточнень ловлять інші сигнали ходу (codeMiss, порожній
+ * результат, числа поза даними) — і кнопка 👎.
+ */
+
+/** Основа слова: закінчення в українській змінюються, корінь — ні. */
+function stems(text: string): Set<string> {
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 5);
+  return new Set(words.map((w) => w.slice(0, 5)));
+}
+
+/** Скільки слів нового питання вже звучали в попередньому. */
+function overlap(prev: string, next: string): number {
+  const a = stems(prev);
+  const b = stems(next);
+  if (b.size === 0) return 0;
+  let hit = 0;
+  for (const s of b) if (a.has(s)) hit += 1;
+  return hit / b.size;
+}
+
+/** Питання поспіль довше за це вікно — уже нова тема, а не перепит. */
+const REASK_WINDOW_MS = 20 * 60 * 1000;
+/** Наскільки питання мають перетинатися, щоб вважати це перепитом. */
+const REASK_OVERLAP = 0.55;
+
+export async function markReaskIfRepeat(threadId: string, question: string): Promise<void> {
+  try {
+    const tail = await prisma.assistantMessage.findMany({
+      where: { threadId, role: { in: ["USER", "ASSISTANT"] }, content: { not: "" } },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+
+    // Чекаємо на хвіст «…питання, відповідь»: саме ту відповідь і судимо.
+    const lastAnswer = tail.find((m) => m.role === "ASSISTANT");
+    const prevQuestion = tail.find((m) => m.role === "USER");
+    if (!lastAnswer || !prevQuestion) return;
+    if (Date.now() - lastAnswer.createdAt.getTime() > REASK_WINDOW_MS) return;
+
+    const signals: TurnSignal[] = [];
+    if (overlap(prevQuestion.content, question) >= REASK_OVERLAP) signals.push("reask");
+
+    if (signals.length > 0) await recordSignals(lastAnswer.id, signals);
+  } catch {
+    // Сигнал — не відповідь; його втрата нічого не ламає.
+  }
+}

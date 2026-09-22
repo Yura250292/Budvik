@@ -19,7 +19,8 @@
  *   br   сигналів від системи з координатами; sc — робіт доставки поставлено;
  *        jx — виконано
  *   dir  подій віддано JS напряму; qd — у чергу; fin — закрито JS
- *   act  активний модуль-приймач: o слухає JS, u не слухає, - немає; далі його черга
+ *   act  активний модуль-приймач: o слухає JS, u не слухає, - немає. Число поруч —
+ *        скільки подій чекає в ньому без читача; без числа черги немає взагалі
  *   mods живих екземплярів модуля / з них слухає JS (лише 1.6.7+)
  *   oc   скільки разів у активного спрацював onCreate; em/ef спроби й невдачі емітера
  *   svc  служба локації: * передній план, + без нього, - немає
@@ -140,7 +141,14 @@ export function modules(ts: TaskServiceDiag | undefined): DispatchModule[] {
 function describeActive(app: DispatchApp | undefined): string | undefined {
   if (!app || app.activeObserved === undefined) return undefined;
   if (!app.activeId) return "-";
-  return `${app.activeObserved ? "o" : "u"}${app.activeQueue ?? 0}`;
+  const letter = app.activeObserved ? "o" : "u";
+  /**
+   * `-1` від нативного боку означає «черги немає, події йдуть одразу» — тобто
+   * здоровий стан. Друкувати його числом не можна: `act=o-1` читається як
+   * від'ємна кількість, а цей рядок читає людина о третій ночі.
+   */
+  const queued = app.activeQueue ?? -1;
+  return queued < 0 ? letter : `${letter}${queued}`;
 }
 
 /** Скільки екземплярів модуля живі й скільки з них слухає JS: `1/1` — норма. */

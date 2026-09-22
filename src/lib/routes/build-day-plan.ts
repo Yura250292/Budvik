@@ -41,13 +41,6 @@ export type PlanStopOut = {
   sequence: number;
   /** Клієнт ніколи не був у маршрутному листі — схоже, забирає сам */
   neverDelivered: boolean;
-  /**
-   * 0..1 з priority.ts (борг, оборот, стан клієнта) — те саме число, яким
-   * ядро й оптимізатор обирали, кого підтягнути вперед. Брифом це поле не
-   * передбачалося, але PlanPoint із plan-day.ts його рахує, і без нього
-   * менеджер бачив би точку нагорі списку без жодного пояснення чому.
-   */
-  score: number;
 };
 
 export type PlanRouteOut = {
@@ -224,7 +217,6 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       amount: p.amount,
       sequence,
       neverDelivered: !habits.deliveriesByClient.has(p.counterpartyId),
-      score: Math.round(p.score * 100) / 100,
     };
   };
 

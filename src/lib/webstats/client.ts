@@ -41,6 +41,8 @@ export interface WebstatsPayload {
   label?: string | null;
   value?: number | null;
   referrer?: string | null;
+  /** Джерело візиту — лише на першій події сесії (src/lib/webstats/source.ts). */
+  src?: string | null;
 }
 
 interface QueuedEvent extends WebstatsPayload {

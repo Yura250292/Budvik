@@ -10,6 +10,7 @@ import { formatPrice } from "@/lib/utils";
 import { DELIVERY_TERMS, DELIVERY_DAYS_LABEL, deliveryFee } from "@/lib/delivery-terms";
 import { formatPhoneInput, isValidUaPhone } from "@/lib/phone";
 import { track, flush } from "@/lib/webstats/client";
+import { unpackSource, SOURCE_MEMORY_KEY } from "@/lib/webstats/source";
 
 /**
  * Останні контакти покупця. Гість без акаунта інакше набирав би адресу
@@ -25,6 +26,22 @@ type Draft = {
   deliveryMethod: "DELIVERY" | "PICKUP";
   comment: string;
 };
+
+/**
+ * Звідки прийшов покупець — із пам'яті браузера (30 днів).
+ *
+ * Читаємо саме на клієнті: на сервері цього знання немає, а кука заради
+ * нього вимкнула б кеш каталогу. Поза компонентом — бо Date.now() у тілі
+ * компонента лінтер правильно вважає нечистим викликом.
+ */
+function rememberedSource() {
+  try {
+    return unpackSource(localStorage.getItem(SOURCE_MEMORY_KEY), Date.now());
+  } catch {
+    // Сховище недоступне (приватний режим) — замовлення піде без джерела.
+    return null;
+  }
+}
 
 const EMPTY: Draft = {
   contactName: "",
@@ -152,6 +169,8 @@ export default function CheckoutPage() {
 
     setLoading(true);
 
+    const attribution = rememberedSource();
+
     const res = await fetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -163,6 +182,13 @@ export default function CheckoutPage() {
         address: form.address,
         deliveryMethod: form.deliveryMethod,
         comment: form.comment,
+        ...(attribution
+          ? {
+              source: attribution.source,
+              sourceMedium: attribution.medium,
+              sourceCampaign: attribution.campaign,
+            }
+          : {}),
       }),
     });
 

@@ -15,6 +15,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { startWebstats, track, flush, isNewSession, noteHumanPath } from "@/lib/webstats/client";
+import { resolveSource, packSource, SOURCE_MEMORY_KEY, DIRECT } from "@/lib/webstats/source";
 
 /**
  * Внутрішні кабінети, які до відвідуваності магазину не належать.
@@ -125,9 +126,34 @@ export default function WebstatsTracker() {
     if (!pathname || isInternalPath(pathname)) return;
     const fresh = isNewSession();
     const referrer = fresh && document.referrer ? document.referrer : null;
+
+    // Джерело визначаємо на першій сторінці візиту — далі реферером був би
+    // наш власний сайт, а мітка з фіду лишилась би тільки на вході.
+    let src: string | null = null;
+    if (fresh) {
+      const attribution = resolveSource(
+        window.location.search,
+        document.referrer || null,
+        window.location.host
+      );
+      src = attribution.source;
+
+      // Прямий захід не перетирає майданчик: людина могла побачити товар на
+      // Hotline, а через два дні прийти на сайт сама — замовлення все одно
+      // заробив Hotline, і саме за цей перехід ми йому заплатили.
+      if (attribution.source !== DIRECT.source) {
+        try {
+          localStorage.setItem(SOURCE_MEMORY_KEY, packSource(attribution, Date.now()));
+        } catch {
+          /* приватний режим — джерело просто не запам'ятається */
+        }
+      }
+    }
+
     track("page_view", {
       path: pathname,
       referrer: referrer && !referrer.includes(window.location.host) ? referrer : null,
+      src,
     });
     noteHumanPath(pathname);
   }, [pathname]);

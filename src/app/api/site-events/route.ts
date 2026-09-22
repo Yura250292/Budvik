@@ -28,6 +28,7 @@ import {
   clampInt,
   refererHost,
 } from "@/lib/webstats/server";
+import { sourceTag } from "@/lib/webstats/source";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ interface RawEvent {
   label?: unknown;
   value?: unknown;
   referrer?: unknown;
+  src?: unknown;
 }
 
 export async function POST(req: NextRequest) {
@@ -119,6 +121,9 @@ export async function POST(req: NextRequest) {
         label: clip(e.label, 120),
         value: clampInt(e.value),
         referrer: refererHost(e.referrer),
+        // Джерело шле клієнт, тож проходить той самий санітайзер, що й у
+        // браузері: у базу лягає або чиста мітка, або нічого.
+        source: sourceTag(typeof e.src === "string" ? e.src : null),
         refCode,
         device,
         browser,

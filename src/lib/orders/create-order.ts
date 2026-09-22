@@ -20,6 +20,7 @@ import { findSalesRepByRefCode } from "@/lib/ref-code";
 import { packQtyOf, roundUpToPack } from "@/lib/pack-qty";
 import { normalizePhone } from "@/lib/phone";
 import { notifyStaffNewOrder } from "@/lib/telegram/order-alerts";
+import { sourceTag } from "@/lib/webstats/source";
 import { deliveryFee } from "@/lib/delivery-terms";
 
 /** Один кошик — не оптова заявка: стільки різних позицій роздріб не набирає. */
@@ -34,6 +35,10 @@ export type CreateOrderInput = {
   address?: unknown;
   comment?: unknown;
   deliveryMethod?: unknown;
+  /** Звідки прийшов покупець — з пам'яті браузера (src/lib/webstats/source.ts). */
+  source?: unknown;
+  sourceMedium?: unknown;
+  sourceCampaign?: unknown;
 };
 
 export type CreateOrderContext = {
@@ -173,6 +178,15 @@ export async function createOrder(
 
   const guestToken = user ? null : randomUUID();
 
+  // Джерело переходу приходить із браузера, тож проходить той самий
+  // санітайзер, що й мітка в аналітиці: у базу лягає або чиста мітка, або
+  // нічого. Застосунок покупця цих полів не шле — там буде null.
+  const source = sourceTag(typeof body.source === "string" ? body.source : null);
+  const sourceMedium = sourceTag(typeof body.sourceMedium === "string" ? body.sourceMedium : null);
+  const sourceCampaign = sourceTag(
+    typeof body.sourceCampaign === "string" ? body.sourceCampaign : null
+  );
+
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
@@ -193,6 +207,9 @@ export async function createOrder(
           boltsEarned,
           status: "PENDING",
           salesRepId,
+          source,
+          sourceMedium,
+          sourceCampaign,
           items: { create: orderItems },
         },
         include: { items: { include: { product: { select: { name: true } } } } },

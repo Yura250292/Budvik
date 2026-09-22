@@ -347,6 +347,8 @@ model User {
   // Помічник торгового
   assistantThreads      AssistantThread[]   @relation("assistantThreadUser")
   assistantThreadsAsRep AssistantThread[]   @relation("assistantThreadRep")
+  assistantFeedback     AssistantFeedback[] @relation("assistantFeedbackUser")
+  assistantLessons      AssistantLesson[]   @relation("assistantLessonAuthor")
   clientMemories        ClientMemory[]      @relation("clientMemoryAuthor")
   assistantReminders    AssistantReminder[] @relation("assistantReminderUser")
 
@@ -3753,11 +3755,225 @@ model AssistantMessage {
 
   createdAt DateTime @default(now())
 
+  /// Які правила з AssistantLesson діяли, коли складалась ця відповідь.
+  ///
+  /// Без цього списку «👎 через тиждень після нового правила» не має чим
+  /// доводитись: правила змінюються, а відповідь лишається. Тут — перелік
+  /// підозрюваних на момент ходу, а не здогад заднім числом.
+  lessonIds String[] @default([])
+
   thread AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   /// Куди цю відповідь пересилали в чат персоналу.
   forwards StaffMessage[]
+  /// Оцінка керівника або автосигнал про цю відповідь.
+  feedback AssistantFeedback?
 
   @@index([threadId, createdAt])
+}
+
+/// Присуд керівника про відповідь помічника.
+enum AssistantVerdict {
+  GOOD
+  BAD
+}
+
+/// Звідки взявся рядок розбору: натиснув керівник чи завів сам хід.
+///
+/// Обидва джерела лягають в одну таблицю навмисно: автосигнал і оцінка
+/// людини описують ту саму відповідь, і тримати їх окремо означало б
+/// зводити їх щоразу в запиті.
+enum AssistantFeedbackSource {
+  OWNER
+  AUTO
+}
+
+/// Де рядок у розборі. NEW — ще не дивились.
+enum AssistantReviewStatus {
+  NEW
+  TRIAGED
+  RULED
+  TEST
+  WONTFIX
+}
+
+/// Оцінка відповіді помічника й черга розбору — в одному рядку.
+///
+/// ЗІ ЗНІМКОМ, а не лише посиланням. AssistantThread.messages видаляється
+/// каскадом, а розмови прибирають однією кнопкою — тобто керівник, чистячи
+/// історію, стер би разом із нею весь свій розбір. Тому питання, відповідь
+/// і слід інструментів лежать тут копією, а messageId лише SetNull: поки
+/// розмова жива, з картки можна в неї перейти.
+///
+/// Обсяг цього не боїться: за весь час у базі 323 відповіді помічника,
+/// знімок — кілька кілобайт. Нормалізація коштувала б JOIN-ів і втрати
+/// даних при видаленні розмови, а виграла б мегабайти.
+model AssistantFeedback {
+  id String @id @default(cuid())
+
+  /// Жива репліка, поки розмову не видалили.
+  messageId String? @unique
+  /// Лише щоб зібрати адресу розмови: FK немає, бо розмови може вже не бути.
+  threadId  String?
+
+  /// Хто оцінив; для AUTO — той, у чиїй розмові це сталося.
+  userId String
+  /// Вид помічника рядком (ADMIN / SALES / DRIVER / WAREHOUSE): у Prisma
+  /// такого enum немає, і заводити другу правду про види не варто.
+  kind   String?
+
+  /// null — автосигнал, людина ще не дивилась.
+  verdict  AssistantVerdict?
+  /// «А як правильно?» словами керівника. Звідси береться текст правила
+  /// і рубрика для регресійного кейса.
+  expected String?
+
+  // ── знімок ходу ────────────────────────────────────────────────
+  question String
+  answer   String
+  /// [{ name, label, ms, ok }] — той самий слід, що показує ToolTrace.
+  toolTrace Json
+  /// Хто відповів; null — відповідь склав код без моделі.
+  model     String?
+  viaModel  Boolean
+  /// Який намір упізнав роутер, якщо відповідь кодова. Без цього «правити
+  /// роутер» означає шукати його наосліп серед сорока намірів.
+  intent    String?
+  rounds    Int     @default(0)
+
+  promptTokens     Int @default(0)
+  completionTokens Int @default(0)
+  durationMs       Int?
+
+  /// Числовий вартовий, перерахований на знімку: TOOL-рядки зберігають
+  /// повний JSON інструмента, тож перевірку можна відтворити заднім числом.
+  numbersChecked    Int @default(0)
+  numbersUnverified Int @default(0)
+  /// Скільки посилань довелося зняти як вигадані.
+  strippedLinks     Int @default(0)
+  /// Які правила діяли на момент відповіді — копія з AssistantMessage.
+  lessonIds         String[] @default([])
+
+  // ── розбір ─────────────────────────────────────────────────────
+  source  AssistantFeedbackSource @default(OWNER)
+  /// codeMiss, toolError, emptyResult, strippedLinks, unverified, fallback,
+  /// truncated, reask, clarifyTwice, turnFailed
+  signals String[]                @default([])
+  status  AssistantReviewStatus   @default(NEW)
+
+  reviewNote String?
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  message AssistantMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  user    User              @relation("assistantFeedbackUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Черга розбору: «нові згори». Єдиний запит, який ходить часто.
+  @@index([status, createdAt(sort: Desc)])
+  /// Окремий фільтр екрана — «покажи всі 👎».
+  @@index([verdict, createdAt(sort: Desc)])
+}
+
+/// Чи діє правило. Чернетка в хід не потрапляє: жодне правило не вмикається
+/// саме, керівник затверджує кожне.
+enum AssistantLessonStatus {
+  DRAFT
+  ACTIVE
+  OFF
+}
+
+/// Правило, яке підкладається помічникові в КОЖЕН наступний хід.
+///
+/// Це і є все «навчання», яке тут можливе: Gemini і DeepSeek — чужі закриті
+/// моделі, донавчити їх не можна. Зате можна щоразу нагадувати те, що
+/// керівник уже виправляв.
+///
+/// Живе у змінній частині ходу (buildTurnContext), а не в системному
+/// промпті: той лишається байт-у-байт тим самим між запитами, і провайдер
+/// зараховує його як кешований префікс. Правила міняються щотижня — у
+/// префіксі вони вбили б кеш на всіх видах помічника.
+model AssistantLesson {
+  id String @id @default(cuid())
+
+  /// Одне речення наказовим способом. Довше — це вже інструкція, і їй
+  /// місце в промпті, а не в списку виправлень.
+  text String
+  /// Кому підкладати; null — усім видам помічника.
+  kind String?
+
+  /// Слова питання, за якими правило впізнається (нижній регістр, без
+  /// закінчень). Порожньо — правило загальне і йде в КОЖЕН хід.
+  ///
+  /// Саме слова, а не рубрики: розпізнавання питання тут уже зроблено
+  /// правилами по тексту (router.ts), і заводити теми означало б кликати
+  /// модель перед тим, як покликати модель.
+  triggers String[] @default([])
+  /// Яких інструментів стосується — підказка на екрані, не умова відбору.
+  tools    String[] @default([])
+
+  status   AssistantLessonStatus @default(DRAFT)
+  /// Що вище, те раніше в списку й тим більше шансів пережити стелю ходу.
+  priority Int                   @default(0)
+
+  authorId String?
+  /// З якої саме поганої відповіді це народилось.
+  feedbackId String?
+
+  /// Чи спрацьовує взагалі. Правило, яке за місяць не підклалося жодного
+  /// разу, або нікому не потрібне, або має надто вузькі тригери.
+  usedCount  Int       @default(0)
+  lastUsedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  /// М'яке вимкнення, як у ClientMemory: «хто це стер і чому» питають тоді,
+  /// коли відповіді вже немає.
+  archivedAt DateTime?
+
+  author User? @relation("assistantLessonAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([status, kind])
+}
+
+/// Регресійний кейс: питання, яке має відповідатись правильно й далі.
+///
+/// Очікування описують ФОРМУ, а не числа. Набір ганяє справжній хід по
+/// живій базі, і завтрашня дебіторка інша, ніж сьогоднішня: кейс «оборот
+/// має бути 7,7 млн» помре за добу, а кейс «має викликати team_overview,
+/// намалювати діаграму й не сказати „перцентиль"» живе роками.
+model AssistantEvalCase {
+  id       String @id @default(cuid())
+  question String
+  kind     String @default("ADMIN")
+
+  /// Які інструменти мали бути викликані, а які — ні.
+  expectTools String[] @default([])
+  forbidTools String[] @default([])
+  /// kpi / chart / tree / file — які блоки має намалювати відповідь.
+  expectBlocks String[] @default([])
+  /// "MODEL" — має піти до моделі, "CODE" — має відповісти роутер,
+  /// null — байдуже.
+  expectVia String?
+
+  mustContain    String[] @default([])
+  mustNotContain String[] @default([])
+  /// Стеля чисел, яких немає в даних. null — не перевіряємо.
+  maxUnverified Int?
+
+  /// «Як правильно» словами керівника — для людини й для судді-моделі.
+  rubric String?
+  /// Кейс-еталон із 👍. Він тут не щоб зловити помилку, а щоб зловити
+  /// правило, яке зіпсувало те, що працювало.
+  golden Boolean @default(false)
+
+  feedbackId String?
+  lessonId   String?
+  status     AssistantLessonStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
 }
 
 /// Пам'ять про клієнта: те, чого немає в жодному документі.

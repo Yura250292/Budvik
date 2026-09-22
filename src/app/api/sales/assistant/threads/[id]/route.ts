@@ -34,6 +34,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       promptTokens: true,
       error: true,
       createdAt: true,
+      /** Оцінка керівника: без неї кнопки 👍/👎 скидалися б при кожному
+       *  поверненні в розмову, і та сама відповідь оцінювалась би двічі. */
+      feedback: { select: { verdict: true, expected: true } },
     },
   });
 
@@ -49,6 +52,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     viaModel: boolean;
     /** Хто відповів (див. appendMessage.model); null — код або стара репліка. */
     model: string | null;
+    /** Що керівник уже сказав про цю відповідь; null — ще не оцінював. */
+    feedback: { verdict: "GOOD" | "BAD" | null; expected: string | null } | null;
   }> = [];
   let pending: Array<{ name: string; label: string; ms: number | null }> = [];
 
@@ -76,6 +81,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // будь-який похід до моделі коштує щонайменше системного промпту.
       viaModel: row.promptTokens > 0,
       model: row.role === "ASSISTANT" ? row.toolName : null,
+      feedback: row.feedback
+        ? { verdict: row.feedback.verdict, expected: row.feedback.expected }
+        : null,
     });
     if (row.role === "ASSISTANT") pending = [];
   }

@@ -14,10 +14,15 @@ export type UiMessage = {
   viaModel?: boolean;
   /** Назва моделі, що відповіла; null — код або давня репліка. */
   model?: string | null;
+  /** Що керівник уже сказав про цю відповідь; null — ще не оцінював. */
+  feedback?: { verdict: "GOOD" | "BAD" | null; expected: string | null } | null;
   /** Локальні стани оптимістичного повідомлення. */
   pending?: boolean;
   failed?: boolean;
 };
+
+/** Присуд про відповідь помічника. */
+export type Verdict = "GOOD" | "BAD";
 
 /** Перемикач керівника: провайдер, а не назва моделі (див. config.ts). */
 export type ModelChoice = "gemini" | "deepseek";
@@ -65,5 +70,38 @@ export async function createThread(repId?: string | null): Promise<string> {
 
 export async function deleteThread(id: string): Promise<void> {
   const res = await fetch(`/api/sales/assistant/threads/${id}`, { method: "DELETE" });
+  await jsonOrThrow(res);
+}
+
+/**
+ * Оцінити відповідь.
+ *
+ * Знімок ходу (питання, інструменти, токени) збирає сервер сам — звідси
+ * летить лише id репліки й присуд.
+ */
+export async function sendVerdict(messageId: string, verdict: Verdict, expected?: string): Promise<void> {
+  const res = await fetch("/api/sales/assistant/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(expected ? { messageId, verdict, expected } : { messageId, verdict }),
+  });
+  await jsonOrThrow(res);
+}
+
+/** Дописати «як мало бути» після того, як 👎 уже поставлено. */
+export async function sendExpected(messageId: string, expected: string): Promise<void> {
+  const res = await fetch("/api/sales/assistant/feedback", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId, expected }),
+  });
+  await jsonOrThrow(res);
+}
+
+/** Зняти оцінку — натиснув не ту кнопку. */
+export async function dropVerdict(messageId: string): Promise<void> {
+  const res = await fetch(`/api/sales/assistant/feedback?messageId=${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+  });
   await jsonOrThrow(res);
 }

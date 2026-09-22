@@ -16,6 +16,7 @@ import { COPY } from "./copy";
 import { speak, speechOutputSupported, stopSpeaking } from "./voice";
 import { useVoiceInput } from "./useVoiceInput";
 import { modelLabel, type ToolTrace, type UiMessage } from "./api";
+import Feedback from "./Feedback";
 
 export function MessageBubble({
   message,
@@ -63,7 +64,12 @@ export function MessageBubble({
         linksAllowed={linksAllowed}
         section={section}
       />
-      <div className="mt-1 flex items-center gap-2">
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        {/* Оцінка — перша в ряду: це єдина дія, яку роблять щодня. Умова та
+            сама, що в «Переслати»: оцінювати можна лише готову відповідь. */}
+        {!message.pending && !message.failed && (
+          <Feedback messageId={message.id} initial={message.feedback} />
+        )}
         <SpeakButton text={message.content} />
         {onForward && (
           <button

@@ -28,9 +28,11 @@ import { CardSkeleton } from "@/components/ui/Skeleton";
 import { RouteJournal } from "@/components/routes/RouteJournal";
 import RoutePlanner from "@/components/routes/RoutePlanner";
 import DayTab from "./DayTab";
+import PlanTab from "./PlanTab";
 
 const TABS = [
   { key: "day", label: "День" },
+  { key: "plan", label: "План" },
   { key: "journal", label: "Журнал" },
   { key: "map", label: "Карта" },
 ] as const;
@@ -38,7 +40,7 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 function isTab(v: string | null): v is TabKey {
-  return v === "day" || v === "journal" || v === "map";
+  return v === "day" || v === "plan" || v === "journal" || v === "map";
 }
 
 /** Журнал за замовчуванням дивиться на поточний місяць — як і в водіях. */
@@ -75,6 +77,8 @@ export default function RoutesShell() {
     } else if (tab === "journal") {
       next.set("from", period.from);
       next.set("to", period.to);
+    } else if (tab === "plan") {
+      if (day !== kyivToday()) next.set("day", day);
     } else if (plannerRouteId) {
       next.set("deliveryRouteId", plannerRouteId);
     }
@@ -132,6 +136,8 @@ export default function RoutesShell() {
           onOpenChange={setOpenId}
         />
       )}
+
+      {tab === "plan" && <PlanTab day={day} />}
 
       {tab === "journal" && (
         <div className="space-y-4">

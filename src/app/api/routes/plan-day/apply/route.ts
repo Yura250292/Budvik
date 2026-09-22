@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRoles, OFFICE_ROLES } from "@/lib/app/identity";
 import { getNextDocumentNumber } from "@/lib/erp/document-numbers";
@@ -83,7 +84,9 @@ export async function POST(req: NextRequest) {
           date: new Date(body.date!),
           status: "PLANNED",
           totalDistanceKm: r.distanceKm ?? null,
-          routeGeometry: (r.geometry as never) ?? null,
+          routeGeometry: typeof r.geometry === "object" && r.geometry !== null
+            ? (r.geometry as Prisma.InputJsonValue)
+            : undefined,
           createdById: me.userId,
           notes: "Склав помічник",
         },

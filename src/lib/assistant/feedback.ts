@@ -409,3 +409,104 @@ export async function markReaskIfRepeat(threadId: string, question: string): Pro
     // Сигнал — не відповідь; його втрата нічого не ламає.
   }
 }
+
+/** Рядок черги розбору для екрана в адмінці. */
+export type ReviewRow = {
+  id: string;
+  messageId: string | null;
+  threadId: string | null;
+  createdAt: string;
+  verdict: "GOOD" | "BAD" | null;
+  expected: string | null;
+  source: "OWNER" | "AUTO";
+  signals: string[];
+  status: string;
+  reviewNote: string | null;
+  kind: string | null;
+  question: string;
+  answer: string;
+  toolTrace: TraceStep[];
+  model: string | null;
+  viaModel: boolean;
+  intent: string | null;
+  rounds: number;
+  promptTokens: number;
+  completionTokens: number;
+  durationMs: number | null;
+  numbersChecked: number;
+  numbersUnverified: number;
+  strippedLinks: number;
+  lessonIds: string[];
+};
+
+/**
+ * Черга розбору.
+ *
+ * Найсвіжіші згори й без жодної статистики: за весь час у базі 323
+ * відповіді помічника, і будь-який відсоток на такому обсязі — шум.
+ * Екран показує одиничні випадки, а не графіки.
+ */
+export async function listReview(filter: {
+  status?: string | null;
+  verdict?: string | null;
+  source?: string | null;
+  /** true — лише те, що склав код: правило для моделі таких не виправить. */
+  codeOnly?: boolean;
+  limit?: number;
+}): Promise<ReviewRow[]> {
+  const where: Prisma.AssistantFeedbackWhereInput = {};
+  if (filter.status) where.status = filter.status as Prisma.EnumAssistantReviewStatusFilter["equals"];
+  if (filter.verdict === "GOOD" || filter.verdict === "BAD") where.verdict = filter.verdict;
+  if (filter.source === "OWNER" || filter.source === "AUTO") where.source = filter.source;
+  if (filter.codeOnly) where.viaModel = false;
+
+  const rows = await prisma.assistantFeedback.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: Math.min(filter.limit ?? 50, 200),
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    messageId: r.messageId,
+    threadId: r.threadId,
+    createdAt: r.createdAt.toISOString(),
+    verdict: r.verdict,
+    expected: r.expected,
+    source: r.source,
+    signals: r.signals,
+    status: r.status,
+    reviewNote: r.reviewNote,
+    kind: r.kind,
+    question: r.question,
+    answer: r.answer,
+    toolTrace: (r.toolTrace as unknown as TraceStep[]) ?? [],
+    model: r.model,
+    viaModel: r.viaModel,
+    intent: r.intent,
+    rounds: r.rounds,
+    promptTokens: r.promptTokens,
+    completionTokens: r.completionTokens,
+    durationMs: r.durationMs,
+    numbersChecked: r.numbersChecked,
+    numbersUnverified: r.numbersUnverified,
+    strippedLinks: r.strippedLinks,
+    lessonIds: r.lessonIds,
+  }));
+}
+
+/** Позначити рядок розібраним (або повернути в чергу). */
+export async function setReviewStatus(
+  id: string,
+  status: "NEW" | "TRIAGED" | "RULED" | "TEST" | "WONTFIX",
+  note?: string | null
+): Promise<void> {
+  await prisma.assistantFeedback.update({
+    where: { id },
+    data: {
+      status,
+      reviewNote: note?.trim() || null,
+      reviewedAt: status === "NEW" ? null : new Date(),
+    },
+  });
+}

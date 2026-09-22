@@ -16,6 +16,12 @@
  * доставками стоять у Дніпрі та Києві, і це Нова пошта, а не розвозка.
  * Крім того, наш OSRM зібраний з витяжки по області, тож дорогу за її межі
  * він однаково не покаже чесно.
+ *
+ * Counterparty приєднано через LEFT JOIN, а не INNER: SalesDocument.counterpartyId
+ * буває NULL (шість реалізацій CONFIRMED без контрагента за 26.01–25.05.2026,
+ * плюс 158 замовлень і 494 повернення тим самим грішні) — INNER JOIN мовчки
+ * губив би такий документ з усіх кошиків, а тут менеджеру є на що дивитись:
+ * номер документа й нагадування піти подивитись у 1С.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -40,6 +46,8 @@ export type CandidatesResult = {
   noPin: PlanCandidate[];
   /** Поза Львівщиною: пошта, не розвозка */
   outOfZone: PlanCandidate[];
+  /** Контрагента в документі взагалі немає — ставити пін нема кому, дивитись у 1С */
+  noCounterparty: PlanCandidate[];
 };
 
 /** Скільки днів назад дивимося. */
@@ -60,8 +68,9 @@ export const DELIVERY_BBOX = {
 type Row = {
   id: string;
   number: string;
-  counterpartyId: string;
-  name: string;
+  /** NULL, коли в документа взагалі немає контрагента (LEFT JOIN) */
+  counterpartyId: string | null;
+  name: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
@@ -83,7 +92,7 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
            d."totalAmount" AS amount,
            d."createdAt" AS created_at
     FROM "SalesDocument" d
-    JOIN "Counterparty" c ON c.id = d."counterpartyId"
+    LEFT JOIN "Counterparty" c ON c.id = d."counterpartyId"
     WHERE d."docType" = 'REALIZATION'
       AND d.status = 'CONFIRMED'
       AND d."createdAt" >= ${since}
@@ -101,13 +110,33 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
   const points: PlanCandidate[] = [];
   const noPin: PlanCandidate[] = [];
   const outOfZone: PlanCandidate[] = [];
+  const noCounterparty: PlanCandidate[] = [];
 
   for (const r of rows) {
+    // Документ без контрагента: LEFT JOIN не дав ні імені, ні координат —
+    // це не «немає піна», це «нема кому ставити пін». Перевіряємо раніше
+    // за координати, бо в такого рядка lat/lng теж NULL, і без цієї
+    // перевірки він осів би в noPin з порожнім іменем.
+    if (r.counterpartyId === null) {
+      noCounterparty.push({
+        salesDocumentId: r.id,
+        number: r.number,
+        counterpartyId: "",
+        name: "без контрагента",
+        address: r.address,
+        lat: r.lat,
+        lng: r.lng,
+        amount: r.amount,
+        createdAt: r.created_at,
+      });
+      continue;
+    }
+
     const c: PlanCandidate = {
       salesDocumentId: r.id,
       number: r.number,
       counterpartyId: r.counterpartyId,
-      name: r.name,
+      name: r.name ?? "",
       address: r.address,
       lat: r.lat,
       lng: r.lng,
@@ -129,5 +158,5 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
     points.push(c);
   }
 
-  return { points, noPin, outOfZone };
+  return { points, noPin, outOfZone, noCounterparty };
 }

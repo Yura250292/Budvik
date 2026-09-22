@@ -213,7 +213,7 @@ index 0000000..7915321
 +  }
 +}
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java
-index e8df881..f7168af 100644
+index e8df881..61849e0 100644
 --- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java
 +++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java
 @@ -9,11 +9,17 @@ import expo.modules.core.interfaces.InternalModule;
@@ -336,7 +336,7 @@ index e8df881..f7168af 100644
    }
  
    @Override
-@@ -186,7 +251,96 @@ public class TaskManagerInternalModule implements InternalModule, TaskManagerInt
+@@ -186,7 +251,114 @@ public class TaskManagerInternalModule implements InternalModule, TaskManagerInt
      }
    }
  
@@ -390,6 +390,24 @@ index e8df881..f7168af 100644
 +      out.addAll(m.budvikTakeQueue());
 +    }
 +    return out;
++  }
++
++  /** Живий екземпляр під підпискою JS або null. */
++  static TaskManagerInternalModule budvikFindObserved() {
++    synchronized (sBudvikInstances) {
++      for (WeakReference<TaskManagerInternalModule> ref : sBudvikInstances) {
++        TaskManagerInternalModule m = ref.get();
++        if (m != null && m.budvikIsObserved()) {
++          return m;
++        }
++      }
++    }
++    return null;
++  }
++
++  /** Чи слухає JS хоч один живий екземпляр у цьому процесі. */
++  static boolean budvikHasObserved() {
++    return budvikFindObserved() != null;
 +  }
 +
 +  /** Усі живі екземпляри процесу — для нативного знімка. */
@@ -465,7 +483,7 @@ index 294cd71..1248190 100644
          1000
        )
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
-index 2b6c2fa..55a6a64 100644
+index 2b6c2fa..e5b44fd 100644
 --- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
 +++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
 @@ -11,6 +11,7 @@ import android.os.Handler;
@@ -653,7 +671,7 @@ index 2b6c2fa..55a6a64 100644
    }
  
    private void removeAppFromConfig(String appScopeKey) {
-@@ -591,24 +655,159 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
+@@ -591,22 +655,195 @@ public class TaskService implements SingletonModule, TaskServiceInterface {
     */
    @Nullable
    private TaskManagerInterface getTaskManager(String appScopeKey) {
@@ -677,12 +695,24 @@ index 2b6c2fa..55a6a64 100644
 +    TaskManagerInterface headless = budvikLive(sHeadlessTaskManagers.get(appScopeKey));
 +    if (fg != null && budvikObserved(fg)) {
 +      return fg;
-     }
--    return weakRef == null ? null : weakRef.get();
++    }
 +    if (headless != null && budvikObserved(headless)) {
 +      return headless;
 +    }
-+    return fg != null ? fg : headless;
++    if (fg != null || headless != null) {
++      return fg != null ? fg : headless;
++    }
++    /**
++     * ПАТЧ Budvik: реєстрації немає, а модуль під підпискою JS живий — віддаємо
++     * події йому напряму.
++     *
++     * Без цього одне стирання реєстрації означає мовчазну смерть треку до кінця
++     * життя процесу: події лягають у чергу, якої ніхто не читає (22.09.2026,
++     * новий планшет Олександра — 116 подій за три години). Стирання тепер
++     * заборонено вище, але цей запобіжник лікує й ті процеси, де воно вже
++     * сталося, і будь-який інший шлях, яким реєстрація може зникнути.
++     */
++    return TaskManagerInternalModule.budvikFindObserved();
 +  }
 +
 +  /** Зняти безінтерфейсну реєстрацію, якщо вона належить саме цьому модулю. */
@@ -690,7 +720,8 @@ index 2b6c2fa..55a6a64 100644
 +    if (budvikLive(sHeadlessTaskManagers.get(appScopeKey)) == manager) {
 +      sHeadlessTaskManagers.remove(appScopeKey);
 +      BudvikTaskDiag.note(mContextRef.get(), "manager", "знято безінтерфейсну id=" + budvikId(manager));
-+    }
+     }
+-    return weakRef == null ? null : weakRef.get();
 +  }
 +
 +  @Nullable
@@ -703,6 +734,11 @@ index 2b6c2fa..55a6a64 100644
 +      && ((TaskManagerInternalModule) manager).budvikIsObserved();
 +  }
 +
++  /** Чи є в процесі ХОЧ ОДИН живий модуль під підпискою JS. */
++  static boolean budvikAnyObserved() {
++    return TaskManagerInternalModule.budvikHasObserved();
++  }
++
 +  static String budvikId(TaskManagerInterface manager) {
 +    return manager instanceof TaskManagerInternalModule
 +      ? ((TaskManagerInternalModule) manager).budvikId
@@ -710,6 +746,26 @@ index 2b6c2fa..55a6a64 100644
    }
  
    private void invalidateAppRecord(String appScopeKey) {
++    /**
++     * ПАТЧ Budvik: живий контекст, який СЛУХАЄ JS, не стираємо ніколи.
++     *
++     * Саме це стирання заморожувало трек 15.09.2026, і захистом від нього був
++     * трюк у JS — не закривати першу подію контексту, щоб список подій не
++     * спорожнів. Трюк виявився крихким: облік подій в upstream тримає лише
++     * ПЕРШУ подію (решта лягають у відчеплений список), тож досить подіям
++     * прийти в іншому порядку — наприклад, коли підписаний модуль перебирає
++     * чергу в попередника, — і притримана подія вже не та, що тримає облік.
++     * 22.09.2026 так сталося на новому планшеті Олександра: перенесено 4
++     * події, закрито 4, список спорожнів, реєстрацію стерто, 116 подій лягли
++     * в чергу без читача.
++     *
++     * Тут перевірка пряма й не залежить від порядку: поки хоч один живий
++     * модуль підписаний JS, контекст потрібен, і чіпати його не можна.
++     */
++    if (budvikAnyObserved()) {
++      BudvikTaskDiag.note(mContextRef.get(), "invalidate", "скасовано: контекст слухає JS");
++      return;
++    }
      HeadlessAppLoader appLoader = getAppLoader();
 +    BudvikTaskDiag.invalidations.incrementAndGet();
      if (appLoader != null) {
@@ -718,10 +774,10 @@ index 2b6c2fa..55a6a64 100644
 +        WeakReference<TaskManagerInterface> removedForDiag = sHeadlessTaskManagers.remove(appScopeKey);
 +        // ПАТЧ Budvik: саме це стирання заморожувало трек 15.09 — лишаємо слід.
 +        BudvikTaskDiag.note(mContextRef.get(), "invalidate", removedForDiag != null ? "стерто безінтерфейсну реєстрацію контексту" : "стерто запис завантажувача");
-       }
-     }
-   }
- 
++      }
++    }
++  }
++
 +  // ПАТЧ Budvik: знімок стану диспетчера для BudvikTaskDiag.snapshot. Лише читання:
 +  // TaskService тут не створюється (його конструктор відновлює завдання й реєструє
 +  // споживачів), а все, що може впасти, загороджено.
@@ -798,7 +854,7 @@ index 2b6c2fa..55a6a64 100644
 +          persisted.put(entry.getKey(), names);
 +        } catch (Exception ignored) {
 +        }
-+      }
+       }
 +      out.put("persisted", persisted);
 +    } catch (Throwable e) {
 +      try {
@@ -812,13 +868,11 @@ index 2b6c2fa..55a6a64 100644
 +  private static String budvikRef(WeakReference<TaskManagerInterface> ref) {
 +    if (ref == null) {
 +      return "none";
-+    }
+     }
 +    return ref.get() == null ? "collected" : "live";
-+  }
-+
+   }
+ 
    private void finishJobAfterTimeout(final JobService jobService, final JobParameters params, long timeout) {
-     Handler handler = new Handler();
-     handler.postDelayed(new Runnable() {
 diff --git a/node_modules/expo-task-manager/build/TaskManager.js b/node_modules/expo-task-manager/build/TaskManager.js
 index 63f2fb6..c85e75b 100644
 --- a/node_modules/expo-task-manager/build/TaskManager.js

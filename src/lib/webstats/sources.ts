@@ -48,12 +48,22 @@ export async function sourceReport(
 
   const [visits, orders] = await Promise.all([
     prisma.$queryRaw<VisitRow[]>`
-      WITH first_event AS (
+      WITH sessions_in_period AS (
+        SELECT DISTINCT e."sessionId"
+        FROM "SiteEvent" e
+        WHERE e."createdAt" BETWEEN ${from} AND ${to} ${people}
+      ),
+      -- Першу подію сесії шукаємо БЕЗ межі періоду. Джерело пишеться лише
+      -- на ній, а сесія живе 30 хвилин і легко переступає північ: інакше
+      -- людина, що прийшла з Hotline о 23:50, а картку відкрила о 00:05,
+      -- за фільтром «Сьогодні» ставала б «невідомо» — і звіт занижував би
+      -- саме той майданчик, за який ми платимо.
+      first_event AS (
         SELECT DISTINCT ON (e."sessionId")
           e."sessionId",
           COALESCE(e."source", ${UNKNOWN}) AS source
         FROM "SiteEvent" e
-        WHERE e."createdAt" BETWEEN ${from} AND ${to} ${people}
+        WHERE e."sessionId" IN (SELECT "sessionId" FROM sessions_in_period)
         ORDER BY e."sessionId", e."createdAt"
       ),
       per_session AS (
@@ -69,7 +79,7 @@ export async function sourceReport(
         COUNT(*) FILTER (WHERE s.pv)  AS product_views,
         COUNT(*) FILTER (WHERE s.atc) AS add_to_carts
       FROM first_event f
-      LEFT JOIN per_session s ON s."sessionId" = f."sessionId"
+      JOIN per_session s ON s."sessionId" = f."sessionId"
       GROUP BY f.source`,
     prisma.$queryRaw<OrderRow[]>`
       SELECT COALESCE("source", ${UNKNOWN})   AS source,

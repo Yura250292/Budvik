@@ -33,9 +33,9 @@ export const SHOP_APK_VERSION_NAME = "1.0.0";
  * сторінок разом із банером у кабінеті, тобто ставити стає нічого. Один раз
  * я вже підняв їх наперед і мало не викотив саме це.
  */
-export const STAFF_APK_KEY = "app/BudvikStaff-1.6.6.apk";
-export const STAFF_APK_VERSION_CODE = 10606;
-export const STAFF_APK_VERSION_NAME = "1.6.6";
+export const STAFF_APK_KEY = "app/BudvikStaff-1.6.7.apk";
+export const STAFF_APK_VERSION_CODE = 10607;
+export const STAFF_APK_VERSION_NAME = "1.6.7";
 
 /**
  * З чого зібрано те, що СПРАВДІ стоїть у полі.
@@ -55,6 +55,16 @@ export const STAFF_APK_VERSION_NAME = "1.6.6";
  * після кожного `npm run update:staff`.
  */
 /**
+ * 1.6.7 (e3e5afc, EAS bfe2c04d) — трек більше не тоне в модулі, якого JS не слухає.
+ * У процесі буває кілька екземплярів TaskManagerInternalModule; диспетчер тримав
+ * останній, а JS підписувався на свій, і події лягали в чергу без читача (планшет
+ * Передрія: 8619 відданих, 0 оброблених, п'ять днів без треку). Тепер підписка JS
+ * робить свій екземпляр активним і забирає застряглі черги, непідписаний не
+ * витісняє підписаного, а в знімку видно, хто активний і скільки копій живе.
+ * Перевірено в dex: «перехоплення», «відхилено id=», budvikDrainOthers, budvikPick,
+ * activeObserved, «внутрішнього модуля немає»; старі рядки 1.6.5/1.6.6 на місці;
+ * підпис AD:FD:DE:CD…C0:8B.
+ *
  * 1.6.6 (6605092, EAS a39131dc) — чорна скринька треку: нативний маяк track-guard
  * (/api/track/native-beacon з будильника, після boot і оновлення — без JS),
  * журнал диспетчера expo-task-manager (BudvikTaskDiag: хто знімав завдання, черга,
@@ -69,7 +79,7 @@ export const STAFF_APK_VERSION_NAME = "1.6.6";
  * 19d1788 патча НЕ містить). Перевіряти так: `unzip classes*.dex` і
  * `grep -a -c 'Android відмовив у запуску служби'` — має бути ≥1.
  */
-export const STAFF_APK_COMMIT = "6605092";
+export const STAFF_APK_COMMIT = "e3e5afc";
 /**
  * 15.09.2026 ввечері поле одне: 4567623 на всіх живих оболонках — повна
  * діагностика в пульсі (mobile/src/track/diag.ts: канали пробудження контексту,

@@ -632,11 +632,26 @@ model Order {
   salesRepId String?
   salesRep   User?   @relation("orderSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
 
+  /// Звідки прийшов покупець — знімок на момент оформлення з пам'яті
+  /// браузера (30 днів, src/lib/webstats/source.ts). Саме знімок: людина
+  /// могла побачити товар на Hotline, а купити через тиждень напряму, і
+  /// замовлення все одно заробив Hotline. Застосунок покупця не шле — null.
+  source         String?
+  /// 'cpc' | 'organic' | 'social' | 'referral' — як саме прийшли.
+  sourceMedium   String?
+  sourceCampaign String?
+
+  /// Коли менеджер вніс замовлення в 1С. Ставить людина кнопкою: у 1С ми
+  /// нічого не пишемо і дізнатися самі не можемо. Захист від подвійного
+  /// внесення того самого замовлення.
+  enteredIn1CAt DateTime?
+
   user  User?       @relation(fields: [userId], references: [id])
   items OrderItem[]
 
   @@index([salesRepId])
   @@index([userId])
+  @@index([source, createdAt])
 }
 
 model OrderItem {
@@ -3600,6 +3615,10 @@ model SiteEvent {
   /// Код торгового з QR-переходу (кука budvik_ref). Читається на інжесті —
   /// цей роут не кешується, тож ISR не зачіпає.
   refCode  String?
+  /// Джерело ЦЬОГО візиту: 'hotline', 'google', 'direct', хост реферера.
+  /// Пишеться лише на першій події сесії, як і referrer. NULL — подія до
+  /// вересня 2026, коли джерел ще не рахували; 'direct' пишемо явно.
+  source   String?
 
   /// mobile | desktop — з User-Agent на сервері
   device  String?
@@ -3616,6 +3635,7 @@ model SiteEvent {
   @@index([type, createdAt])
   @@index([sessionId])
   @@index([productId, type])
+  @@index([source, createdAt])
 }
 
 /// Денний зріз вебаналітики за київською добою.

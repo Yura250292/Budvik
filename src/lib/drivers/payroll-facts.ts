@@ -225,6 +225,25 @@ export function sheetToFacts(sheet: SheetRow): RouteSheetFacts {
       amount: s.payOverride as number,
     }));
 
+  // База відсотка — з РЯДКІВ, а не з шапки листа.
+  //
+  // Документ.МаршрутнийЛист у 1С не має табличної частини й сум у собі не
+  // несе взагалі (agent/ps/README-route-sheets.md): ordersTotal/debtsTotal у
+  // шапці порожні в усіх 139 листів, і відсоток мовчки не нараховувався —
+  // водій бачив «База % 0» там, де він розвіз товару на 200 тисяч.
+  //
+  // Суми живуть у рядках: кожна точка — реалізація з реквізитом
+  // МаршрутнийЛист. Той самий обхід уже робить кабінет водія
+  // (api/driver/routes). Шапка лишається запасним джерелом на випадок, якщо
+  // 1С колись почне віддавати підсумок.
+  //
+  // Беремо ВСІ видимі рядки, а не лише оплачені точки: дедуплікація за
+  // адресою стосується плати за вигрузку (три накладні на один поріг — одна
+  // точка), а товар у тих накладних водій віз увесь.
+  const visible = resolveStops(sheet);
+  const rowsTotal = visible.reduce((s, x) => s + x.amount, 0);
+  const rowsDebts = visible.reduce((s, x) => s + x.debtAmount, 0);
+
   return {
     routeSheetId: sheet.id,
     source: sheet.source,
@@ -244,8 +263,8 @@ export function sheetToFacts(sheet: SheetRow): RouteSheetFacts {
     oblastPoints: stops.filter((s) => s.zone === "OBLAST").length,
     unknownZonePoints: stops.filter((s) => s.zoneSource === "UNKNOWN").length,
     paidExtras,
-    ordersTotal: sheet.ordersTotal,
-    debtsTotal: sheet.debtsTotal,
+    ordersTotal: rowsTotal || sheet.ordersTotal,
+    debtsTotal: rowsDebts || sheet.debtsTotal,
   };
 }
 

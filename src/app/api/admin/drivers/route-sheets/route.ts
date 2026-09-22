@@ -70,7 +70,10 @@ export async function GET(req: NextRequest) {
       const stops = resolveStops(sheet);
       // Непроведений документ — чернетка в 1С, за неї не платять; показуємо
       // нуль, щоб не створювати враження заробітку.
-      const pay = sheet.posted ? calculateRouteSheetPay(sheetToFacts(sheet), rates) : null;
+      // Суми листа беремо з фактів, а не з шапки: у 1С підсумку в документі
+      // немає, і facts збирає його з рядків (див. payroll-facts.sheetToFacts).
+      const facts = sheetToFacts(sheet);
+      const pay = sheet.posted ? calculateRouteSheetPay(facts, rates) : null;
 
       const asRoute = sheet.source === "SHEET_1C"
         ? (convertedByNumber.get(`1С-${sheet.number}`) ?? null)
@@ -91,8 +94,8 @@ export async function GET(req: NextRequest) {
         distanceKm: sheet.distanceKm,
         plannedKm: sheet.plannedKm,
         actualKm: sheet.actualKm,
-        ordersTotal: sheet.ordersTotal,
-        debtsTotal: sheet.debtsTotal,
+        ordersTotal: facts.ordersTotal,
+        debtsTotal: facts.debtsTotal,
         stopsCount: stops.length,
         paidPoints: stops.filter((s) => s.paid).length,
         unknownZonePoints: stops.filter((s) => s.paid && s.zoneSource === "UNKNOWN").length,

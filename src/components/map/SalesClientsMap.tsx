@@ -43,16 +43,6 @@ export type SalesClientPoint = {
    */
   mine?: boolean;
   /**
-   * Чи можна цій людині уточнити точку саме цього клієнта.
-   *
-   * Не завжди збігається з `mine`: чужому клієнту точку можна ПОСТАВИТИ,
-   * якщо її ще немає або вона з геокодера, і не можна ПЕРЕСУНУТИ ту, яку
-   * вже поставила людина (див. PATCH /api/admin/client-map/[id]). Кнопку,
-   * яка гарантовано поверне 403, не показуємо. Поле необовʼязкове —
-   * без нього кнопка керується лише `extras.pin`, як і раніше.
-   */
-  canPin?: boolean;
-  /**
    * Фото точки: як виглядає вхід, з якого боку заїзд.
    *
    * Показуємо просто в попапі, а не за кнопкою: водій під'їхав і мусить
@@ -360,7 +350,7 @@ export function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
           )
         : ""
     }
-    ${extras.pin && c.canPin !== false ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
+    ${extras.pin ? popupButton("pin", c.id, "Уточнити точку", false) : ""}
     ${
       extras.clientCardHref
         ? `<a href="${escapeHtml(extras.clientCardHref)}${escapeHtml(c.id)}"

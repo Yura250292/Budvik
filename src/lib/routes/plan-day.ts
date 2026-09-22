@@ -275,7 +275,7 @@ export function planDay(input: PlanInput): DayPlan {
     }
   }
 
-  /* ── Грона: дорогі й близькі першими ───────────────────────────────── */
+  /* ── Грона: дорожчі першими ─────────────────────────────────────────── */
 
   const clusters = clusterPoints(rest, depot, options).sort((a, b) => b.amount - a.amount);
 
@@ -284,7 +284,7 @@ export function planDay(input: PlanInput): DayPlan {
     if (far && cluster.amount < options.minFarAmount) {
       deferred.push({
         points: cluster.points,
-        reason: `${cluster.points.length} точ. на ${Math.round(cluster.amount).toLocaleString("uk-UA")} ₴ за ${Math.round(cluster.anchorKm)} км — рейс не окупиться`,
+        reason: `${cluster.points.length} точ. на ${Math.round(cluster.amount).toLocaleString("uk-UA")} ₴ за ${Math.round(cluster.anchorKm)} км по прямій — рейс не окупиться`,
         suggestWeekday: usualWeekday(cluster.points, habits),
       });
       continue;

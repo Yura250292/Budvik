@@ -68,6 +68,12 @@ type Tablet = {
   state: "OK" | "WARN" | "DEAD" | "IDLE";
   verdict: string;
   action: string | null;
+  dispatch: {
+    direct: number;
+    finished: number;
+    modules: { live: number; observed: number } | null;
+    deaf: boolean;
+  } | null;
 };
 
 type Board = { day: string; now: string; tablets: Tablet[] };
@@ -214,6 +220,21 @@ export default function TrackHealthBoard() {
                     value={b.fixBatches != null ? String(b.fixBatches) : "?"}
                     alarm={b.fixBatches === 0 && b.tracking}
                   />
+                  {/**
+                   * Доставка від системи до JS. Рахує нативний маяк, тож число
+                   * є й тоді, коли сам застосунок мовчить: «8731 → 0» означає,
+                   * що координати віддано екземпляру модуля, якого JS не
+                   * слухає, і жоден інший показник цього не покаже.
+                   */}
+                  {t.dispatch && (
+                    <Fact
+                      label="Доставка в застосунок"
+                      value={`${t.dispatch.direct} → ${t.dispatch.finished}${
+                        t.dispatch.modules ? ` · копій ${t.dispatch.modules.live}` : ""
+                      }`}
+                      alarm={t.dispatch.deaf}
+                    />
+                  )}
                   <Fact label="Точок за день" value={String(t.points.today)} />
                   <Fact label="Остання точка" value={hm(t.points.lastAt)} />
                   <Fact

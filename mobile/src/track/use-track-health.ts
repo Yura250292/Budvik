@@ -16,6 +16,7 @@ import { AppState } from "react-native";
 import { IS_STAFF_BUILD } from "@/lib/flavor";
 import { ensureFreshFixes } from "./health";
 import { ensureRecording, isTracking, startTracking } from "./controller";
+import { reloadIfDeaf } from "./deaf-dispatch";
 import { flush } from "./uploader";
 import { trackProbeParam } from "./self-probe";
 import { staffApi } from "@/api/staff";
@@ -47,7 +48,18 @@ export function useTrackHealth(): void {
   useEffect(() => {
     if (!IS_STAFF_BUILD) return;
 
-    const check = () => void ensureFreshFixes().catch(() => {});
+    /**
+     * Перевірка свіжості фіксів — і окремо перевірка того, що події від системи
+     * взагалі доходять до цього контексту JS.
+     *
+     * Друга живе саме тут, бо лікується рестартом контексту, а піднімати запис
+     * після нього можна лише з переднього плану (див. deaf-dispatch.ts). Це
+     * єдиний шар застосунку, який працює рівно тоді, коли екран відкритий.
+     */
+    const check = () => {
+      void ensureFreshFixes().catch(() => {});
+      void reloadIfDeaf("екран").catch(() => {});
+    };
 
     check();
     const timer = setInterval(check, CHECK_INTERVAL_MS);

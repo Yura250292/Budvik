@@ -31,6 +31,7 @@ export const VERDICT = {
   writingLate: "пише, доставлено пізніше",
   offShift: "поза зміною",
   frozen: "ЗАМОРОЖЕНО: диспетчер не бачить контексту JS",
+  dispatchDeaf: "ГЛУХИЙ ДИСПЕТЧЕР: події віддано модулю, якого JS не слухає",
   taskGone: "завдання локації знято",
   noService: "служба запису не працює",
   noForeground: "служба без переднього плану (Android ріже координати)",
@@ -222,14 +223,29 @@ export async function buildDayReport(userId: string, day: string, now = new Date
         const n = parseNativeNote(nat.note);
         evidence.push(`маяк ${hm(nat.at)}: ${nat.note ?? ""}`);
         const prevNat = natives.slice(0, natIdx).reverse().find((x) => parseNativeNote(x.note).p === n.p);
+        const prev = prevNat ? parseNativeNote(prevNat.note) : null;
+        const d = (k: string) => (prev ? Number(n[k]) - Number(prev[k]) : 0);
         if (n.tm && !n.tm.includes("L")) return VERDICT.frozen;
+        /**
+         * Диспетчер віддає події, а JS не закриває жодної — отже вони йдуть в
+         * екземпляр модуля, на який JS не підписаний, і назавжди лягають у його
+         * чергу в пам'яті. Перевірка стоїть попереду всіх інших нативних правил:
+         * у цьому стані і завдання, і служба, і приймач справні, тож кожне з них
+         * назве наслідок замість причини (17–22.09.2026, планшет Передрія).
+         *
+         * Поріг `dir ≥ 5` робить правило самодостатнім, без порівняння з
+         * попереднім маяком: перший маяк доби попередника не має (він лишився у
+         * вчорашньому дні), а саме він і описує ранок. Здоровий процес відстає
+         * від `dir` щонайбільше на дві події — одну тримає наш патч, друга може
+         * бути в роботі, — тож п'ять відданих при нулі закритих не бувають.
+         */
+        const deaf = n.act?.startsWith("u") || (Number(n.dir) >= 5 && Number(n.fin) === 0);
+        if (deaf) return VERDICT.dispatchDeaf;
         const hasLoc = (list?: string) => !!list && list.split(",").includes("loc");
         if (n.t !== undefined && !hasLoc(n.t) && !hasLoc(n.ps)) return VERDICT.taskGone;
         if (n.svc === "-") return VERDICT.noService;
         if (n.svc === "+") return VERDICT.noForeground;
-        if (prevNat) {
-          const p = parseNativeNote(prevNat.note);
-          const d = (k: string) => Number(n[k]) - Number(p[k]);
+        if (prev) {
           if (d("qd") > 0 && d("dir") === 0) return VERDICT.frozen;
           if (d("br") === 0) return VERDICT.noFixes;
           if (d("br") > 0 && d("sc") === 0) return VERDICT.stuckInLocation;

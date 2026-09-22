@@ -9,6 +9,37 @@
  */
 
 import { diagnose, type DeviceBeat } from "../src/lib/track/diagnosis";
+import { judge } from "../src/lib/track/health-board";
+
+/** Здоровий пульс у вигляді, якого чекає пульт (`judge`), — усе інше в ньому null. */
+function boardBeat() {
+  return {
+    at: "",
+    minutesAgo: 2,
+    appVersion: "1.6.6 apk",
+    osVersion: "Android 14",
+    device: null,
+    tracking: true,
+    subscribed: true,
+    mode: "SHIFT",
+    buffered: 0,
+    lastFixAt: null,
+    lastFixMinutesAgo: 1,
+    lastFixAccuracyM: 12,
+    lastSyncAt: null,
+    lastError: null,
+    locationPermission: "ALWAYS",
+    locationMode: "GPS",
+    batteryOptimized: false,
+    batteryPct: 90,
+    watchdogAt: null,
+    watchdogStatus: null,
+    contextStartedAt: null,
+    contextMinutes: 60,
+    fixBatches: 10,
+    contextPoints: 5,
+  };
+}
 
 let failed = 0;
 
@@ -261,6 +292,70 @@ check(
     beat: beat({ tracking: false, lastFixMinutesAgo: 90, lastError: null }),
   }),
   "Запис вимкнено при відкритій зміні"
+);
+
+console.log("\nПодії не доходять до застосунку — окрема дія, а не «хай відкриє»");
+/**
+ * 17–22.09.2026, планшет Передрія: диспетчер фонових завдань віддав 8619 подій
+ * і жодної не було оброблено. Усе інше при цьому справне, тож стара фраза
+ * радила відкрити застосунок — і він відкривав його щодня без жодного
+ * результату, бо лікує тут лише НОВИЙ процес.
+ */
+check(
+  "Глухий диспетчер називає перезапуск, а не відкриття",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    dispatchDeaf: true,
+    lastPointMinutesAgo: 300,
+    shiftMinutes: 320,
+    hasPointsInShift: false,
+    beat: beat({ minutesAgo: 240, lastFixMinutesAgo: 300 }),
+  }),
+  /Примусово зупинити/
+);
+check(
+  "Поки точки йдуть, лічильники маяка нічого не значать",
+  diagnose({
+    hasDevice: true,
+    shiftOpen: true,
+    dispatchDeaf: true,
+    lastPointMinutesAgo: 1,
+    beat: beat(),
+  }),
+  null
+);
+
+console.log("\nПульт: той самий стан, той самий висновок");
+check(
+  "Глухий диспетчер випереджає «служба не кличе застосунок»",
+  judge({
+    shiftOpen: true,
+    shiftMinutes: 320,
+    pointsToday: 0,
+    lastPointMinutesAgo: 300,
+    hasDevice: true,
+    dispatch: { at: "", minutesAgo: 3, direct: 8619, finished: 0, modules: null, deaf: true },
+    beat: {
+      ...boardBeat(),
+      contextMinutes: 6794,
+      fixBatches: 0,
+    },
+  }).action,
+  /Примусово зупинити/
+);
+check(
+  "Без глухоти лишається стара порада",
+  judge({
+    shiftOpen: true,
+    shiftMinutes: 320,
+    pointsToday: 0,
+    lastPointMinutesAgo: 300,
+    hasDevice: true,
+    dispatch: { at: "", minutesAgo: 3, direct: 4168, finished: 4169, modules: null, deaf: false },
+    beat: { ...boardBeat(), contextMinutes: 300, fixBatches: 0 },
+  }).action,
+  /із переднього плану служба піднімається завжди/
 );
 
 console.log(failed === 0 ? "\nУсе зійшлося.\n" : `\nНе зійшлося: ${failed}.\n`);

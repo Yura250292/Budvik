@@ -25,6 +25,7 @@ import { kyivDayStart } from "@/lib/date/kyiv";
 // дві різні відповіді на одне питання гірші за жодної.
 import { orderCountsByRep } from "@/lib/track/orders-today";
 import { diagnose, HEARTBEAT_WINDOW_MIN } from "@/lib/track/diagnosis";
+import { loadDispatch } from "@/lib/track/dispatch-health";
 
 /** Скільки хвилин без точки, щоб вважати трек обірваним. */
 export const ONLINE_WINDOW_MIN = 10;
@@ -185,6 +186,9 @@ export async function livePositions(
     installed.map((row) => [row.key.replace("app:installed:", ""), row.value])
   );
 
+  /** Чи доходять події до застосунку — окремим шаром, бо в пульсі цього немає. */
+  const dispatchBy = await loadDispatch(userIds, now.getTime());
+
   const pointBy = new Map(points.map((p) => [p.userId, p]));
   const sessionBy = new Map(sessions.map((s) => [s.userId, s]));
   const beatBy = new Map(beats.map((b) => [b.userId, b]));
@@ -222,6 +226,7 @@ export async function livePositions(
       hasDevice,
       shiftOpen,
       installedVersion,
+      dispatchDeaf: dispatchBy.get(u.id)?.deaf ?? null,
       // Точки — головний доказ того, що трек живий; пульс лише пояснює
       // їхню відсутність. Обидва числа вже пораховані вище.
       lastPointMinutesAgo: minutesAgo,

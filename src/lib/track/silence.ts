@@ -38,6 +38,7 @@ import { prisma } from "@/lib/prisma";
 import { sendTelegramMessage } from "@/lib/telegram/notify";
 import { sendPushToUser } from "@/lib/push/send";
 import { diagnose, BUFFER_ALARM, HEARTBEAT_WINDOW_MIN } from "@/lib/track/diagnosis";
+import { nativeKey, readDispatch } from "@/lib/track/dispatch-health";
 
 /** Скільки хвилин без жодної точки при відкритій зміні вважати аварією. */
 const SILENT_MINUTES = 25;
@@ -119,7 +120,7 @@ export async function checkTrackSilence(): Promise<number> {
      * добових сесіях; та й прив'язку до зміни ставить сервер уже при
      * прийомі — шукати по людині надійніше.
      */
-    const [lastPoint, lastBeat, device, throttled] = await Promise.all([
+    const [lastPoint, lastBeat, device, throttled, nativeRow] = await Promise.all([
       prisma.trackPoint.findFirst({
         where: { userId: shift.userId, recordedAt: { gte: shift.startedAt } },
         orderBy: { recordedAt: "desc" },
@@ -146,6 +147,7 @@ export async function checkTrackSilence(): Promise<number> {
         select: { id: true },
       }),
       prisma.syncState.findUnique({ where: { key: alertKey(shift.userId) } }),
+      prisma.syncState.findUnique({ where: { key: nativeKey(shift.userId) } }),
     ]);
 
     const silentMin = Math.floor(
@@ -196,6 +198,11 @@ export async function checkTrackSilence(): Promise<number> {
     const reason = diagnose({
       hasDevice: !!device,
       shiftOpen: true,
+      /**
+       * Стан, якого не видно з пульсу: події до застосунку не доходять, і
+       * порада «хай відкриє застосунок» у ньому не працює (див. dispatch-health.ts).
+       */
+      dispatchDeaf: readDispatch(nativeRow?.value, nativeRow?.updatedAt, now)?.deaf ?? null,
       lastPointMinutesAgo: lastPoint ? silentMin : null,
       lastPointSpeedKmh: lastPoint?.speedKmh ?? null,
       // `lastPoint` тут уже обмежений початком зміни, тож його відсутність і

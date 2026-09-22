@@ -23,6 +23,7 @@
 import { prisma } from "@/lib/prisma";
 import { kyivDate, kyivDayStart, kyivDayEnd } from "@/lib/date/kyiv";
 import { diagnose } from "@/lib/track/diagnosis";
+import { loadDispatch, type DispatchView } from "@/lib/track/dispatch-health";
 
 /** Скільки хвилин без виклику служби вважати, що вона не кличе застосунок. */
 const NO_CALL_MIN = 12;
@@ -88,6 +89,8 @@ export type TabletHealth = {
    * доходить звідти, звідки не доходить нічого іншого.
    */
   probe: { text: string; at: string; minutesAgo: number } | null;
+  /** Диспетчер фонових завдань: чи доходять події до JS (нативний маяк, 1.6.6+). */
+  dispatch: DispatchView | null;
 };
 
 type BeatView = {
@@ -120,11 +123,20 @@ type BeatView = {
 
 /** «1 точка», «3 точки», «12 точок» — інакше пульт читається як машинний лог. */
 function points(n: number): string {
+  return plural(n, "точка", "точки", "точок");
+}
+
+/** Те саме для викликів застосунку: «8731 виклик», а не «8731 викликів». */
+function calls(n: number): string {
+  return plural(n, "виклик", "виклики", "викликів");
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
   const t = n % 10;
   const h = n % 100;
-  if (t === 1 && h !== 11) return `${n} точка`;
-  if (t >= 2 && t <= 4 && (h < 12 || h > 14)) return `${n} точки`;
-  return `${n} точок`;
+  if (t === 1 && h !== 11) return `${n} ${one}`;
+  if (t >= 2 && t <= 4 && (h < 12 || h > 14)) return `${n} ${few}`;
+  return `${n} ${many}`;
 }
 
 const minutesSince = (d: Date | null | undefined, now: number): number | null =>
@@ -159,6 +171,12 @@ export async function trackHealthBoard(day?: string): Promise<{
     },
     select: { id: true, name: true, email: true, role: true },
   });
+
+  /**
+   * Стан диспетчера — одним запитом на всіх: він потрібен КОЖНІЙ картці, а в
+   * циклі це був би ще один похід у базу на людину.
+   */
+  const dispatchBy = await loadDispatch(users.map((u) => u.id), now);
 
   const tablets: TabletHealth[] = [];
 
@@ -236,6 +254,8 @@ export async function trackHealthBoard(day?: string): Promise<{
         }
       : null;
 
+    const dispatch = dispatchBy.get(u.id) ?? null;
+
     const { state, verdict, action } = judge({
       shiftOpen: !!shift,
       shiftMinutes,
@@ -243,6 +263,7 @@ export async function trackHealthBoard(day?: string): Promise<{
       lastPointMinutesAgo,
       beat,
       hasDevice: true,
+      dispatch,
     });
 
     tablets.push({
@@ -269,6 +290,7 @@ export async function trackHealthBoard(day?: string): Promise<{
             minutesAgo: minutesSince(probeRow.updatedAt, now) ?? 0,
           }
         : null,
+      dispatch,
     });
   }
 
@@ -293,8 +315,9 @@ export function judge(input: {
   lastPointMinutesAgo: number | null;
   beat: BeatView | null;
   hasDevice: boolean;
+  dispatch?: DispatchView | null;
 }): { state: HealthState; verdict: string; action: string | null } {
-  const { shiftOpen, shiftMinutes, pointsToday, lastPointMinutesAgo, beat } = input;
+  const { shiftOpen, shiftMinutes, pointsToday, lastPointMinutesAgo, beat, dispatch } = input;
 
   if (!shiftOpen) {
     return {
@@ -356,6 +379,28 @@ export function judge(input: {
    * служба встигла покликати його, і не покликала жодного разу. Судити про це
    * теперішнім часом не можна — числа описують мить відправки, а не зараз.
    */
+  /**
+   * Перед усім іншим: диспетчер віддає події модулю, якого JS не слухає.
+   *
+   * Стоїть попереду правила нижче навмисно. Обидва стани дають `fixBatches: 0`,
+   * але дія протилежна: там запис піднімає відкритий застосунок, а тут
+   * відкриття не міняє нічого — потрібен НОВИЙ процес. Передрій відкривав
+   * застосунок щодня з 17 по 22.09 і щодня лишався без треку, бо пульт радив
+   * саме те, що вже не працювало.
+   */
+  if (dispatch?.deaf) {
+    const mods = dispatch.modules ? `, копій модуля ${dispatch.modules.live}` : "";
+    return {
+      state: "DEAD",
+      verdict:
+        `Координати йдуть у порожнечу: застосунок отримав ${calls(dispatch.direct)} ` +
+        `і не обробив жодного${mods}`,
+      action:
+        "Налаштування → Застосунки → Будвік27 Робота → «Примусово зупинити», " +
+        "потім відкрити застосунок. Зміну не закривати",
+    };
+  }
+
   const contextAlive = beat.contextMinutes != null && beat.contextMinutes >= NO_CALL_MIN;
   const noCalls = beat.fixBatches === 0;
   if (contextAlive && noCalls && beat.tracking) {
@@ -418,6 +463,7 @@ export function headline(t: TabletHealth): string | null {
   return diagnose({
     hasDevice: true,
     shiftOpen: !!t.shift,
+    dispatchDeaf: t.dispatch?.deaf ?? null,
     beat: t.beat
       ? {
           minutesAgo: t.beat.minutesAgo,

@@ -19,9 +19,17 @@
  *   br   сигналів від системи з координатами; sc — робіт доставки поставлено;
  *        jx — виконано
  *   dir  подій віддано JS напряму; qd — у чергу; fin — закрито JS
+ *   act  активний модуль-приймач: o слухає JS, u не слухає, - немає; далі його черга
+ *   mods живих екземплярів модуля / з них слухає JS (лише 1.6.7+)
+ *   oc   скільки разів у активного спрацював onCreate; em/ef спроби й невдачі емітера
  *   svc  служба локації: * передній план, + без нього, - немає
  *   ex   остання смерть процесу: причина@час
  *   net  v перевірена мережа, c є без перевірки, - немає; gps 1/0; bk кошик; rs фонові обмеження
+ *   oe   відкритих подій; qm — диспетчер у режимі черги (обидва в хвості: їх дублюють dir/qd)
+ *
+ * `dir` росте, а `fin` стоїть на нулі — диспетчер віддає події екземпляру модуля,
+ * на який JS не підписаний. Саме так планшет Передрія не писав трек 17–22.09.2026:
+ * 8619 відданих подій, жодної закритої, і всі прапорці стану при цьому справні.
  */
 
 export type DispatchApp = {
@@ -31,6 +39,22 @@ export type DispatchApp = {
   openEvents?: number;
   tasks?: string[];
   headlessRecord?: boolean;
+  /** Кого саме диспетчер вибере для події (1.6.7+): id, чи слухає його JS, його черга. */
+  activeId?: string;
+  activeObserved?: boolean;
+  activeQueue?: number;
+};
+
+/** Екземпляр TaskManagerInternalModule у процесі (1.6.7+). */
+export type DispatchModule = {
+  id?: string;
+  seq?: number;
+  createdAt?: number;
+  observed?: boolean;
+  emitter?: boolean;
+  queue?: number;
+  onCreate?: number;
+  emits?: number;
 };
 
 export type TaskServiceDiag = {
@@ -38,8 +62,18 @@ export type TaskServiceDiag = {
   execQueued?: number;
   finished?: number;
   queuedMode?: boolean;
+  /** Спроби емітера й ті з них, що впали (1.6.7+): мовчазна втрата події видима лише так. */
+  emitAttempts?: number;
+  emitFailed?: number;
+  /** Скільки разів підписаний модуль перехопив реєстрацію і скільки затирань відхилено. */
+  takeovers?: number;
+  rejected?: number;
   log?: string[];
-  state?: { apps?: Record<string, DispatchApp>; persisted?: Record<string, string[]> };
+  state?: {
+    apps?: Record<string, DispatchApp>;
+    persisted?: Record<string, string[]>;
+    modules?: DispatchModule[];
+  };
 };
 
 export type LocationConsumerDiag = {
@@ -95,6 +129,27 @@ export function mainDispatchApp(ts: TaskServiceDiag | undefined): DispatchApp | 
   return apps.sort((a, b) => (b.tasks?.length ?? 0) - (a.tasks?.length ?? 0))[0];
 }
 
+export function modules(ts: TaskServiceDiag | undefined): DispatchModule[] {
+  return ts?.state?.modules ?? [];
+}
+
+/**
+ * Хто прийме наступну подію: `o` — модуль, на який підписався JS, `u` — той, у
+ * кого черга росте без читача, `-` — модуля немає. Число поруч — його черга.
+ */
+function describeActive(app: DispatchApp | undefined): string | undefined {
+  if (!app || app.activeObserved === undefined) return undefined;
+  if (!app.activeId) return "-";
+  return `${app.activeObserved ? "o" : "u"}${app.activeQueue ?? 0}`;
+}
+
+/** Скільки екземплярів модуля живі й скільки з них слухає JS: `1/1` — норма. */
+function describeModules(ts: TaskServiceDiag | undefined): string | undefined {
+  const list = modules(ts);
+  if (!list.length) return undefined;
+  return `${list.length}/${list.filter((m) => m.observed).length}`;
+}
+
 export function summarizeNative(body: NativeBeaconBody): string {
   const s = body.snapshot ?? {};
   const ts = asObject(s.taskService);
@@ -115,8 +170,6 @@ export function summarizeNative(body: NativeBeaconBody): string {
   add("p", s.process?.startedAt ? hm(s.process.startedAt) : undefined);
   add("tm", app ? `${ref(app.fg)}${ref(app.headless)}` : ts ? "--" : undefined);
   add("q", app?.queued);
-  add("oe", app?.openEvents);
-  add("qm", ts?.queuedMode === undefined ? undefined : ts.queuedMode ? 1 : 0);
   add("t", list(app?.tasks));
   add("ps", list(persisted));
   add("j", s.jobs ? `${s.jobs.length}/${locJobs.reduce((a, j) => a + (j.data ?? 0), 0)}` : undefined);
@@ -126,12 +179,23 @@ export function summarizeNative(body: NativeBeaconBody): string {
   add("dir", ts?.execDirect);
   add("qd", ts?.execQueued);
   add("fin", ts?.finished);
+  add("act", describeActive(app));
+  add("mods", describeModules(ts));
+  add("oc", modules(ts).find((m) => m.id === app?.activeId)?.onCreate);
+  add("em", ts?.emitAttempts);
+  add("ef", ts?.emitFailed);
   add("svc", s.services ? (service ? (service.endsWith("*") ? "*" : "+") : "-") : undefined);
   add("ex", lastExit?.at ? `${lastExit.reason ?? "?"}@${hm(lastExit.at)}` : undefined);
   add("net", s.network ? (s.network.validated ? "v" : s.network.active ? "c" : "-") : undefined);
   add("gps", s.location ? (s.location.gps ? 1 : 0) : undefined);
   add("bk", s.bucket ? s.bucket.replace(/\s+/g, "") : undefined);
   add("rs", typeof s.restricted === "boolean" ? (s.restricted ? 1 : 0) : undefined);
+  /**
+   * Два останні — навмисно в хвості: нотатка обрізається на 200 символах, а ці
+   * числа дублюють `dir` і `qd`, тоді як `act`/`mods` вище не дублює ніщо.
+   */
+  add("oe", app?.openEvents);
+  add("qm", ts?.queuedMode === undefined ? undefined : ts.queuedMode ? 1 : 0);
   return parts.join(" ").slice(0, 200);
 }
 

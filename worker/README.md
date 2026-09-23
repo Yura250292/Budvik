@@ -78,6 +78,13 @@ npx tsx --env-file=.env worker/index.ts
 
 Перевірка живості: `curl localhost:3001/healthz`. Решта маршрутів вимагає підпису HMAC — його схема в [`src/lib/sync-ingest/auth.ts`](../src/lib/sync-ingest/auth.ts).
 
+## Сусід: MCP-конектор
+
+У тому ж проєкті Railway живе окремий сервіс `budvik-mcp` — дані фірми для
+claude.ai і ChatGPT ([mcp/README.md](../mcp/README.md), [docs/mcp-connector.md](../docs/mcp-connector.md)).
+Він окремий навмисно: його деплой не перезапускає прийом обміну. Кореневий
+`railway.json` — лише для воркера; у `budvik-mcp` в налаштуваннях вказано `/mcp/railway.json`.
+
 ## Відкат
 
 Повернути старий `ingest.url` (`https://www.budvik27.com`) у конфізі агента. Маршрути `/api/sync-ingest/*` на сайті лишаються робочими саме для цього.

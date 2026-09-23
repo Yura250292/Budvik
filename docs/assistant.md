@@ -105,6 +105,14 @@ npx tsx --env-file=.env scripts/probe-assistant-wire.mts gemini-3.6-flash   # д
 npx tsx --env-file=.env scripts/assistant-eval.mts --models=gemini,deepseek # порівняння моделей
 ```
 
+## Назовні: MCP-конектор
+
+Ті самі зведення керівника й `query_db` віддаються в claude.ai і ChatGPT через
+MCP-конектор — [mcp-connector.md](mcp-connector.md). Правка інструмента зі списку
+`SUMMARY_TOOLS` (`src/lib/mcp/tools.ts`) змінює і його: після неї — `npm run check:mcp`.
+Новий інструмент помічника назовні сам не потрапляє, його додають у список явно
+(і лише читальний).
+
 ## Петля якості
 
 Модель донавчити неможливо — Gemini і DeepSeek чужі й закриті. Тому

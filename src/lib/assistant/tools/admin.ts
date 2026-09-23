@@ -44,6 +44,7 @@ import { driverEfficiencyFacts } from "@/lib/drivers/efficiency-facts";
 import { buildDriverFacts, getRates, loadBonuses } from "@/lib/drivers/payroll-facts";
 import { calculateDriverPeriod } from "@/lib/drivers/payroll";
 import { buildLowStockReport, DEFAULT_PARAMS } from "@/lib/procurement/low-stock";
+import { completeYears, risingGroups } from "@/lib/analytics/seasonality";
 import { buildTurnoverReport } from "@/lib/analytics/turnover";
 import { buildAbcReport, type AbcBasis, type AbcDimension, type AbcRow } from "@/lib/analytics/abc";
 import { deadStockItems } from "@/lib/assistant/facts/product-facts";
@@ -868,16 +869,16 @@ export const stockHealthTool: ToolDef = {
   label: "Дивлюся склад",
   kinds: ["ADMIN"],
   description:
-    "Стан складу: дефіцит (що продається й скінчилось, скільки замовити й на яку суму, по яких брендах), оборотність (запас у грошах, скільки лежить без руху, обертів на рік), мертві залишки і ABC/XYZ (mode=abc: класи по товарах, брендах або клієнтах за оборотом чи прибутком, з матрицею XYZ). Параметр brand звужує до бренду, mode обирає блок. Викликай на «що замовити», «дефіцит», «закінчується», «нуль на складі», «оборотність», «мертвий запас», «ABC», «що тримає оборот по товарах».",
+    "Стан складу: дефіцит (що продається й скінчилось, скільки замовити й на яку суму, по яких брендах), оборотність (запас у грошах, скільки лежить без руху, обертів на рік), мертві залишки, ABC/XYZ (mode=abc) і СЕЗОН (mode=season: які групи входять у сезон найближчі місяці й чого бракує на складі саме під нього). Параметр brand звужує до бренду, mode обирає блок. Викликай на «що замовити», «дефіцит», «закінчується», «нуль на складі», «оборотність», «мертвий запас», «ABC», «що тримає оборот по товарах», а на «що сезонне», «до чого готуватись», «що брати на зиму», «сезонність» — mode=season.",
   parameters: {
     type: "object",
     properties: {
       brand: { type: "string", description: "Назва бренду або її частина." },
       mode: {
         type: "string",
-        enum: ["low", "turnover", "dead", "all", "abc"],
+        enum: ["low", "turnover", "dead", "all", "abc", "season"],
         description:
-          "low — дефіцит (за замовчуванням), turnover — оборотність, dead — мертві залишки, all — усе разом, abc — ABC/XYZ-аналіз.",
+          "low — дефіцит (за замовчуванням), turnover — оборотність, dead — мертві залишки, all — усе разом, abc — ABC/XYZ-аналіз, season — сезон: що входить у сезон і чого під нього бракує.",
       },
       dimension: {
         type: "string",
@@ -894,7 +895,9 @@ export const stockHealthTool: ToolDef = {
   },
   async run(ctx, args) {
     const mode =
-      args.mode == null ? "low" : enumOf(args.mode, "mode", ["low", "turnover", "dead", "all", "abc"] as const);
+      args.mode == null
+        ? "low"
+        : enumOf(args.mode, "mode", ["low", "turnover", "dead", "all", "abc", "season"] as const);
 
     let brand: { id: string; name: string } | null = null;
     if (typeof args.brand === "string" && args.brand.trim()) {
@@ -914,6 +917,61 @@ export const stockHealthTool: ToolDef = {
       // ABC без періоду — пів року: місяць дає замало місяців для XYZ.
       const period = hasPeriodArgs(args) ? checkedPeriod(ctx.today, args) : periodFromArgs(ctx.today, { days: 180 });
       return abcFacts(period, dimension, basis, brand);
+    }
+
+    if (mode === "season") {
+      /*
+       * Сезон: що входить у сезон і чого під нього бракує.
+       *
+       * Два питання, які власник ставив живцем і на які помічник не міг
+       * відповісти: «який саме зимовий товар треба закупити» і «у мене на
+       * залишках мало генераторів, чому ти мені їх не пропонуєш».
+       *
+       * Інструмент віддає ГОТОВЕ очікування або нічого. Індекс сам по
+       * собі сюди не потрапляє як число, яке можна на щось помножити:
+       * модель уже одного разу намагалася перемножити коефіцієнт на
+       * оборот і отримати прогноз у гривнях.
+       */
+      const month = Number(ctx.today.slice(5, 7));
+      const [rising, low] = await Promise.all([
+        risingGroups({ month, aheadMonths: 2, limit: 8 }),
+        buildLowStockReport({ brandId: brand?.id ?? null, ...DEFAULT_PARAMS, season: true }),
+      ]);
+
+      if (rising.length === 0 && (low?.seasonWatch.length ?? 0) === 0) {
+        const { years } = await completeYears();
+        return {
+          бренд: brand?.name ?? "усі бренди",
+          сезон: null,
+          пояснення:
+            years.length === 0
+              ? "Сезонний профіль ще не побудований: у базі немає жодного повного року реалізацій. Порівнювати місяці з минулими роками поки нема з чим."
+              : `Профіль побудований на роках ${years.join(", ")}, але груп з високою довірою, що входять у сезон найближчі два місяці, зараз немає.`,
+        };
+      }
+
+      return {
+        бренд: brand?.name ?? "усі бренди",
+        місяць: month,
+        входять_у_сезон: rising.map((g) => ({
+          група: g.label,
+          у_скільки_разів_більше_за_поточний_місяць: Math.round(g.factor * 100) / 100,
+          роки_спостережень: g.years,
+        })),
+        готуватися_до_сезону: (low?.seasonWatch ?? []).slice(0, 15).map((i) => ({
+          товар_id: i.id,
+          назва: i.name,
+          артикул: i.sku,
+          бренд: i.brandName,
+          залишок: i.stock,
+          замовити: i.suggested,
+          ціна: uah(i.price),
+          сезон_підняв_у_разів: i.seasonFactor,
+          сезон_узято_з: i.seasonFrom,
+        })),
+        як_читати:
+          "Числа «у скільки разів» — це порівняння місяця з місяцем усередині року, вже очищене від загального руху фірми. Множити їх на оборот НЕ можна: скільки замовити — уже пораховано в полі «замовити».",
+      };
     }
 
     const wantLow = mode === "low" || mode === "all";

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_VELOCITY_DAYS } from "@/lib/analytics/velocity-window";
+import { forwardDemand, loadProfiles, NO_SEASON, type SeasonLookup } from "@/lib/analytics/seasonality";
+import { kyivDate } from "@/lib/date/kyiv";
 
 /**
  * Звіт закупівельника: що замовити.
@@ -27,9 +29,36 @@ export type LowStockParams = {
   search?: string;
   /** Вікно руху в днях (дозволені варіанти — velocity-window.ts). */
   velocityDays?: number;
+  /**
+   * Враховувати сезон. Типово так — рішення власника.
+   *
+   * Вимикач існує не для краси: закупівельник має могти побачити ті самі
+   * числа, що й учора, коли щось виглядає дивно. Коли профілю немає або
+   * довіра до нього низька, увімкнений сезон нічого не змінює — усі
+   * індекси дорівнюють одиниці, і рекомендація збігається до гривні.
+   */
+  season?: boolean;
 };
 
 export const DEFAULT_PARAMS = { expensivePrice: 1000, expensiveMin: 5, cheapMin: 10 };
+
+/**
+ * На скільки місяців уперед закривається потреба.
+ *
+ * Два — це те саме «~2 місяці продажів», що стояло тут завжди; сезон
+ * лише перестав бути невидимим усередині цього числа. Горизонт винесено
+ * в константу, бо тепер він має сенс: індекси наступних двох місяців
+ * складаються, і це видно у формулі, а не в множнику.
+ */
+const HORIZON_MONTHS = 2;
+
+/**
+ * Від якого підйому позиція потрапляє в «Готуватися до сезону».
+ *
+ * Чверть — це вже помітно й варте окремого рядка, але ще не шум: при
+ * 1,1 у список падала б половина каталогу через звичайні коливання.
+ */
+const SEASON_WATCH_FACTOR = 1.25;
 
 /**
  * 0 — продається, але скінчилось (пекуче);
@@ -61,6 +90,22 @@ export type LowStockItem = {
   daysLeft: number | null;
   /** Скільки радимо замовити, щоб вистачило на ~2 місяці (мінімум — норма). */
   suggested: number;
+  /**
+   * У скільки разів сезон підняв або опустив рекомендацію. 1 — не чіпав.
+   *
+   * Показується в рядку окремо, щоб закупівельник бачив: число підняв
+   * сезон, а не збій. Без цього перше ж «чому тут раптом 214 штук»
+   * коштувало б довіри до всього звіту.
+   */
+  seasonFactor: number;
+  /** Звідки взято сезон: «група», «розділ» — або null, якщо не застосовано. */
+  seasonFrom: string | null;
+  /**
+   * Позиція, яку сьогодні не видно взагалі: формально все гаразд
+   * (severity 3), але сезон іде, а залишку менше за очікування. Це рівно
+   * ті генератори, що влітку законно мають severity 3.
+   */
+  seasonWatch: boolean;
   /**
    * Коли товар востаннє приходив від постачальника; null — не приходив
    * ніколи в межах наявної історії надходжень.
@@ -102,6 +147,17 @@ export type LowStockReport = {
   noPrice: number;
   brands: BrandSummary[];
   sections: LowStockSection[];
+  /** Чи рахувалося з поправкою на сезон. */
+  season: boolean;
+  /**
+   * «Готуватися до сезону» — окремий список, а не зміна severity.
+   *
+   * Кольори severity на сторінці налаштовані й читаються щодня;
+   * переозначити їх сезоном означало б зламати робочий екран. Тому
+   * позиції, які входять у сезон найближчими місяцями при недостатньому
+   * залишку, виносяться окремо.
+   */
+  seasonWatch: LowStockItem[];
 };
 
 // Розділи в порядку показу — як гілка GROSSER у дереві номенклатури 1С.
@@ -241,6 +297,9 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       select: {
         id: true, sku: true, name: true, price: true, stock: true, categoryId: true,
         brandId: true, brand: { select: { name: true } }, externalId: true, packQty: true,
+        // Для сезону: профіль береться за групою каталогу, а не за
+        // категорією 1С — у дереві 1С є категорії-звалища.
+        typeKey: true, sectionId: true,
       },
     }),
     prisma.category.findMany({ select: { id: true, name: true, parentId: true } }),
@@ -288,6 +347,35 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
   // Сервісні позиції «РЕМОНТ …» — не товар, який замовляють у постачальника.
   const goods = products.filter((p) => !/^РЕМОНТ/i.test(p.name.trim()));
 
+  /*
+   * Сезонні профілі — двома вибірками на весь звіт, а не по товару.
+   *
+   * На сторінці закупівель бувають тисячі рядків, і похід у базу за
+   * кожним перетворив би один клік фільтра на тисячу запитів. Драбина
+   * тут спрощена до двох сходинок (група → розділ): рівень SKU на
+   * закупівлі не потрібен — по одному товару даних майже ніколи не
+   * вистачає на високу довіру, а нижче розділу спускатись нема куди.
+   */
+  const seasonOn = params.season !== false;
+  const month = Number(kyivDate(new Date()).slice(5, 7));
+  const typeProfiles = seasonOn
+    ? await loadProfiles("TYPE", goods.map((p) => p.typeKey).filter((k): k is string => !!k))
+    : new Map<string, SeasonLookup>();
+  const sectionProfiles = seasonOn
+    ? await loadProfiles("SECTION", goods.map((p) => p.sectionId).filter((k): k is string => !!k))
+    : new Map<string, SeasonLookup>();
+
+  const seasonFor = (p: { typeKey: string | null; sectionId: string | null }): SeasonLookup => {
+    if (!seasonOn) return NO_SEASON;
+    const byType = p.typeKey ? typeProfiles.get(p.typeKey) : undefined;
+    if (byType && byType.confidence !== "LOW") return byType;
+    const bySection = p.sectionId ? sectionProfiles.get(p.sectionId) : undefined;
+    if (bySection && bySection.confidence !== "LOW") return bySection;
+    return NO_SEASON;
+  };
+
+  const seasonWatch: LowStockItem[] = [];
+
   const sections = new Map<string, Map<string, LowStockItem[]>>();
   const brandAgg = new Map<string, BrandSummary>();
   let toOrder = 0;
@@ -322,9 +410,47 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     else if (sold90 === 0 && priceKnown && p.stock < threshold) severity = 2;
     else severity = 3;
 
-    // Рекомендація: закрити ~2 місяці продажів, але не менше норми.
+    /*
+     * Рекомендація: закрити ~2 місяці продажів, але не менше норми.
+     *
+     * Замість `perMonth × 2` тут очікування з поправкою на сезон:
+     * швидкість спершу десезоналізується (ділиться на середній індекс
+     * вікна, яке її дало), а потім засезоналізується назад на місяці
+     * попереду. Коли профілю немає — множник рівно 1, і число збігається
+     * зі старим до гривні.
+     */
+    const season = seasonFor(p);
+    const demand = forwardDemand({
+      perMonth,
+      month,
+      windowDays: velocityDays,
+      horizonMonths: HORIZON_MONTHS,
+      season,
+    });
+
     const suggested =
-      severity === 3 ? 0 : Math.max(threshold - p.stock, Math.ceil(perMonth * 2) - p.stock, 0);
+      severity === 3 ? 0 : Math.max(threshold - p.stock, Math.ceil(demand.expected) - p.stock, 0);
+
+    /*
+     * «Готуватися до сезону»: формально все гаразд, але сезон іде.
+     *
+     * Саме цей випадок і був сліпою плямою. Влітку генератор має нуль
+     * продажів за вікно, отже severity 3, отже його немає у звіті —
+     * рівно тоді, коли його треба замовляти. Severity не чіпаємо (кольори
+     * на сторінці читаються щодня), позицію виносимо окремим списком.
+     */
+    if (severity === 3 && demand.applied && demand.factor > SEASON_WATCH_FACTOR && p.stock < demand.expected) {
+      seasonWatch.push({
+        id: p.id, sku: p.sku, externalId: p.externalId, packQty: p.packQty, name: p.name,
+        brandName: p.brand?.name ?? "—", price: p.price, stock: p.stock, expensive, threshold,
+        severity, sold90, perMonth, daysLeft,
+        suggested: Math.max(Math.ceil(demand.expected) - p.stock, 0),
+        seasonFactor: demand.factor,
+        seasonFrom: season.level === "TYPE" ? "група" : season.level === "SECTION" ? "розділ" : null,
+        seasonWatch: true,
+        lastReceiptAt: lastReceipts.get(p.id)?.toISOString() ?? null,
+      });
+    }
 
     if (severity < 3) {
       toOrder++;
@@ -351,6 +477,9 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
       id: p.id, sku: p.sku, externalId: p.externalId, packQty: p.packQty, name: p.name, brandName: p.brand?.name ?? "—",
       price: p.price, stock: p.stock, expensive, threshold, severity,
       sold90, perMonth: Math.round(perMonth * 10) / 10, daysLeft, suggested,
+      seasonFactor: Math.round(demand.factor * 100) / 100,
+      seasonFrom: demand.applied ? (season.level === "TYPE" ? "група" : "розділ") : null,
+      seasonWatch: false,
       lastReceiptAt: lastReceipts.get(p.id)?.toISOString() ?? null,
     });
   }
@@ -398,5 +527,9 @@ export async function buildLowStockReport(params: LowStockParams): Promise<LowSt
     noPrice,
     brands: [...brandAgg.values()].sort((a, b) => b.toOrder - a.toOrder || b.outOfStock - a.outOfStock),
     sections: sectionList,
+    season: seasonOn,
+    // Найсильніший підйом згори: це список «на що подивитись», і довгим
+    // він бути не повинен — інакше його просто перестануть читати.
+    seasonWatch: seasonWatch.sort((a, b) => b.seasonFactor - a.seasonFactor).slice(0, 40),
   };
 }

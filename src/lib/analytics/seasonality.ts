@@ -675,16 +675,36 @@ export async function risingGroups(input: {
   const ahead = input.aheadMonths ?? 2;
   const minFactor = input.minFactor ?? 1.25;
 
-  const rows = await prisma.seasonProfile.findMany({
-    where: { level: "TYPE", confidence: "HIGH", lumpy: false },
-  });
+  const [rows, company] = await Promise.all([
+    prisma.seasonProfile.findMany({ where: { level: "TYPE", confidence: "HIGH", lumpy: false } }),
+    prisma.seasonProfile.findFirst({ where: { level: "COMPANY", key: "all" } }),
+  ]);
+
+  /*
+   * Ділимо на рух фірми — інакше в березні «ростуть» усі групи одразу.
+   *
+   * Індекс групи чесно включає й загальний підйом: у 2026-му березень був
+   * найкращим місяцем фірми (6,3 млн проти 2,8–4,7), і кожна група в
+   * ньому виглядає сезонною. Для закупівлі це правильно — замовити
+   * справді треба більше. Але питання «що зараз сезонне» вимагає іншого:
+   * зростає ГРУПА чи просто місяць удався в усіх.
+   *
+   * Нормування на профіль фірми й дає цю різницю. Саме воно колись
+   * показало, що klimat у березні падає до ×0,09, а sad у травні росте
+   * до ×2,05 — попри те, що березень був найкращим місяцем загалом.
+   */
+  const firmIdx = company?.amountIndex ?? FLAT;
+  const relative = (idx: MonthIndex, m: number) => {
+    const f = firmIdx[m] || 1;
+    return f > 0 ? idx[m] / f : idx[m];
+  };
 
   const out = rows
     .map((r) => {
       const idx = r.qtyIndex;
-      const now = idx[(input.month - 1) % 12] || 1;
+      const now = relative(idx, (input.month - 1) % 12) || 1;
       let sum = 0;
-      for (let i = 1; i <= ahead; i++) sum += idx[(input.month - 1 + i) % 12];
+      for (let i = 1; i <= ahead; i++) sum += relative(idx, (input.month - 1 + i) % 12);
       const next = sum / ahead;
       return { key: r.key, label: r.label, factor: now > 0 ? next / now : 1, index: idx, years: r.years };
     })

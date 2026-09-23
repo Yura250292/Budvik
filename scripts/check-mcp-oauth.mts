@@ -42,6 +42,11 @@ async function rejects(name: string, p: Promise<unknown>, errorCode: string) {
   } catch (e) {
     const code = (e as { errorCode?: string }).errorCode;
     check(name, code === errorCode, `${code}: ${(e as Error).message}`);
+    // invalid_token іде в заголовок WWW-Authenticate: кирилиця там валить Node
+    // (ERR_INVALID_CHAR) — і замість 401 клієнт бачить 500 без повторного входу.
+    if (errorCode === "invalid_token") {
+      check(`${name}: повідомлення придатне для заголовка`, /^[\x20-\x7e]*$/.test((e as Error).message), (e as Error).message);
+    }
   }
 }
 

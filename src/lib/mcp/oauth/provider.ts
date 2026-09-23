@@ -260,11 +260,14 @@ export class BudvikOAuthProvider implements OAuthServerProvider {
       include: { user: { select: { role: true, name: true, email: true } } },
     });
     const now = new Date();
+    // Повідомлення invalid_token — лише ASCII: SDK кладе їх у заголовок
+    // WWW-Authenticate, а кирилиця там валить Node (ERR_INVALID_CHAR) — і
+    // замість 401, на який Claude/ChatGPT запускають повторний вхід, виходить 500.
     if (!row || row.kind !== "ACCESS" || row.revokedAt || row.expiresAt < now) {
-      throw new InvalidTokenError("Токен недійсний або прострочений");
+      throw new InvalidTokenError("Invalid or expired token");
     }
-    if (row.resource && !this.isOurResource(row.resource)) throw new InvalidTokenError("Токен виданий для іншого ресурсу");
-    if (!(MCP_ROLES as readonly string[]).includes(row.user.role)) throw new InvalidTokenError("Немає доступу");
+    if (row.resource && !this.isOurResource(row.resource)) throw new InvalidTokenError("Token was issued for another resource");
+    if (!(MCP_ROLES as readonly string[]).includes(row.user.role)) throw new InvalidTokenError("Access denied");
 
     // Для ока адміна («коли востаннє ходив Claude»), не частіше разу на хвилину.
     if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() > 60_000) {

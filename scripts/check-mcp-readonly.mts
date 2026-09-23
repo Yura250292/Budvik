@@ -78,7 +78,8 @@ const SECRETS: [string, string][] = [
 ];
 for (const [label, sql] of SECRETS) {
   const code = await sqlstate(() => db.$queryRawUnsafe(sql));
-  check(`${label} → 42501`, code === "42501", code);
+  // 42P01 — таблиці в цій базі немає взагалі (напр., модель без міграції): читати нічого.
+  check(`${label} → 42501`, code === "42501" || code === "42P01", code);
 }
 check("несекретні колонки User читаються", (await sqlstate(() => db.$queryRawUnsafe('SELECT id, name, role FROM "User" LIMIT 1'))) === "ok", "ok");
 

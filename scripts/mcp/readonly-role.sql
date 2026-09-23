@@ -13,6 +13,12 @@
 
 \set ON_ERROR_STOP on
 
+-- Усе однією транзакцією. Без неї psql комітить кожну команду окремо, і
+-- падіння посередині (напр., таблиці зі схеми немає в базі) лишало б роль
+-- уже з GRANT SELECT ON ALL TABLES, але ще без REVOKE секретів — тобто з
+-- доступом до паролів. Тепер падіння = нічого не змінено.
+BEGIN;
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'budvik_mcp_ro') THEN
@@ -40,24 +46,28 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM budvik_mcp_ro;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM budvik_mcp_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO budvik_mcp_ro;
 
--- Таблиці, які цілком — секрет.
-REVOKE SELECT ON
-  "PasswordResetToken",   -- скидання пароля
-  "DeviceToken",          -- токени робочої збірки й застосунку покупця
-  "PushToken",            -- адреси пушів
-  "CalendarConnection",   -- refresh-токени Google Calendar
-  "McpClient",            -- секрети OAuth-клієнтів MCP
-  "McpAuthCode",
-  "McpToken",
-  "RateLimit"
-FROM budvik_mcp_ro;
-
--- Історія міграцій — моделі ні до чого (і її може не бути в базі, зробленій db push).
+-- Таблиці, які цілком — секрет. Кожну — лише якщо вона є в цій базі: модель
+-- у schema.prisma ще не означає таблицю (CalendarConnection з'явилась у схемі
+-- раніше за свою міграцію), а _prisma_migrations немає в базі з db push.
 DO $$
+DECLARE
+  t text;
 BEGIN
-  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
-    REVOKE SELECT ON "_prisma_migrations" FROM budvik_mcp_ro;
-  END IF;
+  FOREACH t IN ARRAY ARRAY[
+    'PasswordResetToken',  -- скидання пароля
+    'DeviceToken',         -- токени робочої збірки й застосунку покупця
+    'PushToken',           -- адреси пушів
+    'CalendarConnection',  -- refresh-токени Google Calendar
+    'McpClient',           -- секрети OAuth-клієнтів MCP
+    'McpAuthCode',
+    'McpToken',
+    'RateLimit',
+    '_prisma_migrations'   -- історія міграцій — моделі ні до чого
+  ] LOOP
+    IF to_regclass(format('public.%I', t)) IS NOT NULL THEN
+      EXECUTE format('REVOKE SELECT ON %I FROM budvik_mcp_ro', t);
+    END IF;
+  END LOOP;
 END
 $$;
 
@@ -85,5 +95,7 @@ BEGIN
   END LOOP;
 END
 $$;
+
+COMMIT;
 
 \echo 'budvik_mcp_ro: done. Changed only this role and CREATE on schema public for PUBLIC; no data touched.'

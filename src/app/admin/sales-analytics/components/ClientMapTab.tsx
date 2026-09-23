@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -9,7 +9,8 @@ import type { Period } from "@/components/ui/PeriodPicker";
 import { CLIENT_STATE, PROSPECT_IMPORT, type ClientStateKey } from "@/lib/analytics/colors";
 import { colorForRep } from "@/lib/routes/colors";
 import type { OverviewRoute } from "@/components/map/RoutesOverviewMap";
-import type { ClientPoint, MapAction, MapMode, ProspectPoint } from "@/components/map/ClientMap";
+import type { CandidateMark, ClientPoint, MapAction, MapMode, ProspectPoint } from "@/components/map/ClientMap";
+import type { PinCandidatesResult } from "@/lib/routes/pin-candidates";
 import { useApi } from "@/components/ui/useApi";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ClientCommentsModal } from "./ClientCommentsModal";
@@ -107,6 +108,27 @@ export function ClientMapTab({ period }: { period: Period }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [pickedIndex, setPickedIndex] = useState(-1);
   const [focus, setFocus] = useState<{ lat: number; lng: number; id?: string; nonce: number } | null>(null);
+  /**
+   * «Де стояв торговий»: кандидати на точку одного клієнта з треку. Людина
+   * вибирає сама — автомат тут промахувався на кілометри (див.
+   * lib/routes/pin-candidates.ts).
+   */
+  const [cand, setCand] = useState<{
+    id: string;
+    loading: boolean;
+    error: string | null;
+    data: PinCandidatesResult | null;
+  } | null>(null);
+  const [placing, setPlacing] = useState<string | null>(null);
+  const candBlockRef = useRef<HTMLDivElement>(null);
+  // Панель і карта з мітками мають бути на екрані разом: інакше людина
+  // бачить список A/B/C, а куди він указує — ні (карта лишалась нижче краю).
+  // Низ карти — до низу вікна: верх сторінки закриває липка шапка вкладок,
+  // і «start» ховав під нею заголовок панелі.
+  const candReady = !!cand?.data;
+  useEffect(() => {
+    if (candReady) candBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [candReady]);
   const [commentsFor, setCommentsFor] = useState<{ id: string; name: string } | null>(null);
   const [orderFor, setOrderFor] = useState<{
     id: string;
@@ -360,6 +382,21 @@ export function ClientMapTab({ period }: { period: Period }) {
 
   const handleAction = useCallback(
     (action: MapAction) => {
+      if (action.kind === "trackCandidates") {
+        setMode("view");
+        setMovingId(null);
+        setCand({ id: action.id, loading: true, error: null, data: null });
+        fetch(`/api/admin/client-map/${action.id}/track-candidates`)
+          .then(async (res) => {
+            const json = await res.json().catch(() => null);
+            if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+            setCand({ id: action.id, loading: false, error: null, data: json as PinCandidatesResult });
+          })
+          .catch((e) =>
+            setCand({ id: action.id, loading: false, error: e instanceof Error ? e.message : "Не вдалося", data: null })
+          );
+        return;
+      }
       if (action.kind === "moveClient") {
         setMovingId({ kind: "client", id: action.id });
         setMode("movePin");
@@ -394,6 +431,40 @@ export function ClientMapTab({ period }: { period: Period }) {
       });
     },
     [data]
+  );
+
+  /** Людина обрала місце з треку — це її рішення, тож точка ручна, з автором. */
+  const placeCandidate = async (lat: number, lng: number, label: string) => {
+    if (!cand) return;
+    setPlacing(label);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/admin/client-map/${cand.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lng }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+      setCand(null);
+      reload();
+      setFocus({ lat, lng, id: cand.id, nonce: Date.now() });
+    } catch (e) {
+      setActionError(e instanceof Error ? `Точку не збережено: ${e.message}` : "Точку не збережено");
+    } finally {
+      setPlacing(null);
+    }
+  };
+
+  const candidateMarks: CandidateMark[] | null = useMemo(
+    () =>
+      cand?.data?.candidates.map((c) => ({
+        label: c.label,
+        lat: c.lat,
+        lng: c.lng,
+        title: `${c.label}: ${c.clientDays} з ${c.clientDaysInTown} візитів у дні документів`,
+      })) ?? null,
+    [cand]
   );
 
   const saveProspect = async () => {
@@ -658,6 +729,72 @@ export function ClientMapTab({ period }: { period: Period }) {
           </div>
         )}
 
+        <div ref={candBlockRef}>
+        {cand && (
+          <div
+            className="mb-3 rounded-[var(--radius-card)] border px-3 py-2 text-sm"
+            style={{ borderColor: "#C4B5FD", background: "#F5F3FF" }}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gr">Де стояв торговий у дні документів:</span>
+              <strong className="text-bk">{cand.data?.name ?? "…"}</strong>
+              <button type="button" onClick={() => setCand(null)} className="ml-auto text-xs underline text-gr">
+                Закрити
+              </button>
+            </div>
+            {cand.loading && <p className="mt-1 text-gr">Рахую стоянки з треку…</p>}
+            {cand.error && <p className="mt-1" style={{ color: "#B91C1C" }}>{cand.error}</p>}
+            {cand.data?.note && <p className="mt-1 text-gr">{cand.data.note}</p>}
+            {!!cand.data?.candidates.length && (
+              <>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {cand.data.candidates.map((c) => (
+                    <li key={c.label} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
+                        style={{ background: "#7C3AED" }}
+                      >
+                        {c.label}
+                      </span>
+                      <span className="text-bk">
+                        <strong>{c.clientDays} з {c.clientDaysInTown}</strong> візитів у дні документів
+                      </span>
+                      <span className="text-gr">
+                        {c.repName} · {c.minutesMin === c.minutesMax ? c.minutesMin : `${c.minutesMin}–${c.minutesMax}`} хв ·{" "}
+                        {c.distanceM} м від нинішньої
+                        {c.allDays > c.clientDays ? ` · ще ${c.allDays - c.clientDays} дн. — інші клієнти` : ""}
+                      </span>
+                      <span className="ml-auto flex gap-2">
+                        <a
+                          href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${c.lat},${c.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs underline text-gr"
+                        >
+                          Панорама
+                        </a>
+                        <button
+                          type="button"
+                          disabled={placing !== null}
+                          onClick={() => placeCandidate(c.lat, c.lng, c.label)}
+                          className="rounded-md px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                          style={{ background: "#7C3AED" }}
+                        >
+                          {placing === c.label ? "Ставлю…" : "Поставити сюди"}
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-gr">
+                  Місце з найбільшою часткою — найімовірніше, але в одному місті торговий заходить до кількох
+                  клієнтів у ті самі дні. Обирайте за адресою в картці; точка стане ручною, як «Перемістити пін».
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         <ClientMap
           clients={visibleClients}
           prospects={visibleProspects}
@@ -666,7 +803,9 @@ export function ClientMapTab({ period }: { period: Period }) {
           onMapClick={handleMapClick}
           onAction={handleAction}
           focus={focus}
+          candidates={candidateMarks}
         />
+        </div>
 
         {/* Покриття і геокодування */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gr">

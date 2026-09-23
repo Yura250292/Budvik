@@ -60,7 +60,11 @@ export type MapAction =
   | { kind: "comments"; id: string }
   | { kind: "orderCard"; id: string }
   | { kind: "editProspect"; id: string }
-  | { kind: "moveProspect"; id: string };
+  | { kind: "moveProspect"; id: string }
+  | { kind: "trackCandidates"; id: string };
+
+/** Місце, де торговий стояв у дні документів клієнта (lib/routes/pin-candidates). */
+export type CandidateMark = { label: string; lat: number; lng: number; title: string };
 
 function escapeHtml(value: string): string {
   return value
@@ -164,7 +168,31 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
     <button data-action="moveClient" data-id="${escapeHtml(c.counterpartyId)}"
       style="margin-top:7px;margin-left:5px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
       background:#fff;cursor:pointer;font-size:12px">Перемістити пін</button>
+    ${
+      // Точку, яку ставила людина, трек не уточнить — лише зіб'є.
+      c.geoSource !== "MANUAL"
+        ? `<button data-action="trackCandidates" data-id="${escapeHtml(c.counterpartyId)}"
+      style="margin-top:7px;margin-left:5px;padding:3px 9px;border:1px solid #C4B5FD;border-radius:6px;
+      background:#F5F3FF;color:#5B21B6;cursor:pointer;font-size:12px;font-weight:600">Де стояв торговий</button>`
+        : ""
+    }
   </div>`;
+}
+
+/** Мітка кандидата: фіолетове коло з літерою — не плутається ні з клієнтом, ні з ромбом бази. */
+function candidatePin(label: string): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    html: `<div style="
+      width:26px;height:26px;border-radius:50%;
+      background:#7C3AED;color:#fff;border:2px solid #fff;
+      box-shadow:0 1px 6px rgba(0,0,0,0.4);
+      display:flex;align-items:center;justify-content:center;
+      font:700 13px system-ui;
+    ">${label}</div>`,
+  });
 }
 
 function prospectPopup(p: ProspectPoint): string {
@@ -199,6 +227,7 @@ export default function ClientMap({
   onMapClick,
   onAction,
   focus = null,
+  candidates = null,
   height = "clamp(300px, 52vh, 460px)",
 }: {
   clients: ClientPoint[];
@@ -210,6 +239,8 @@ export default function ClientMap({
   /** Куди підлетіти: пошук передає знайденого клієнта разом із nonce, щоб
    *  повторний вибір того самого теж спрацював. */
   focus?: { lat: number; lng: number; id?: string; nonce: number } | null;
+  /** Кандидати на точку одного клієнта — показуються поверх, поки відкрита панель вибору. */
+  candidates?: CandidateMark[] | null;
   height?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -363,6 +394,30 @@ export default function ClientMap({
     // Перемальовуємо за змістовим ключем, не за посиланнями на масиви
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentKey]);
+
+  // Кандидати — окремим шаром: вони живуть, поки відкрита панель, і не
+  // повинні перемальовувати сотні клієнтів.
+  const candidatesRef = useRef<L.LayerGroup | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Карту могли перестворити (у розробці React монтує двічі) — тоді старий
+    // шар висить на мертвій карті, і мітки не видно, хоча вигляд підлітає.
+    if (!candidatesRef.current || !map.hasLayer(candidatesRef.current)) {
+      candidatesRef.current = L.layerGroup().addTo(map);
+    }
+    const layer = candidatesRef.current;
+    layer.clearLayers();
+    if (!candidates?.length) return;
+    const b = L.latLngBounds([]);
+    for (const c of candidates) {
+      L.marker([c.lat, c.lng], { icon: candidatePin(c.label), zIndexOffset: 1000 })
+        .bindTooltip(c.title, { direction: "top" })
+        .addTo(layer);
+      b.extend([c.lat, c.lng]);
+    }
+    map.fitBounds(b.pad(0.4), { maxZoom: 17 });
+  }, [candidates]);
 
   // Політ до знайденого пошуком клієнта.
   useEffect(() => {

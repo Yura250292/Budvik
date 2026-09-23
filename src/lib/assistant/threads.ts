@@ -131,6 +131,14 @@ export async function appendMessage(input: {
    * накочених міграцій паралельної роботи. Читає її лише GET розмови.
    */
   model?: string | null;
+  /**
+   * Які виправлення керівника діяли в момент цієї відповіді.
+   *
+   * Потрібні лише для розбору: коли через тиждень прилетить 👎, на картці
+   * буде перелік підозрюваних правил, а не здогадки, чому помічник почав
+   * відповідати інакше.
+   */
+  lessonIds?: string[];
 }) {
   return prisma.assistantMessage.create({
     data: {
@@ -145,6 +153,7 @@ export async function appendMessage(input: {
       completionTokens: input.completionTokens ?? 0,
       durationMs: input.durationMs ?? null,
       error: input.error ?? null,
+      lessonIds: input.lessonIds ?? [],
     },
     select: { id: true, createdAt: true },
   });

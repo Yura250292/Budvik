@@ -36,6 +36,7 @@ export const TOP_ITEMS: NavItem[] = [
   // розділи питанням — швидший шлях, ніж згадувати, у якій вкладці цифра.
   { href: "/admin/assistant", title: "Помічник", desc: "Спитати про фірму: продажі, борги, водії, склад", iconKey: "star", roles: AM },
   { href: "/admin/assistant/review", title: "Розбір помічника", desc: "Невдалі відповіді: ваші оцінки й те, що він помітив сам", iconKey: "report", roles: AM },
+  { href: "/admin/assistant/lessons", title: "Правила помічника", desc: "Виправлення, які він памʼятає, і чим вони перевіряються", iconKey: "report", roles: AM },
   { href: "/admin/users", title: "Користувачі", desc: "Ролі, доступи, Telegram", iconKey: "clients", roles: AM },
   // Поруч із помічником: обидва — не звіт, а спосіб щось спитати. Тільки
   // тут відповідає людина, і саме тому пункт нагорі, а не в групі.

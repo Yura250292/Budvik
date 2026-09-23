@@ -18,6 +18,7 @@ import useSWR from "swr";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { ReviewRow } from "@/lib/assistant/feedback";
+import LessonForm from "./LessonForm";
 
 const FILTERS = [
   { key: "NEW", label: "Нові" },
@@ -56,6 +57,10 @@ export default function ReviewScreen() {
   const [verdict, setVerdict] = useState("");
   const [codeOnly, setCodeOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  /** Чия картка зараз заводить правило. */
+  const [ruling, setRuling] = useState<string | null>(null);
+  /** Що вже поїхало в регресію цього сеансу — щоб кнопка не кликала двічі. */
+  const [inSuite, setInSuite] = useState<Set<string>>(new Set());
 
   const params = new URLSearchParams();
   if (status) params.set("status", status);
@@ -74,6 +79,25 @@ export default function ReviewScreen() {
     void mutate();
   }
 
+  /**
+   * У регресійний набір.
+   *
+   * Кейс складає сервер зі знімка ходу: які інструменти відпрацювали, чи
+   * йшло через модель, які блоки намалювались. Очікування описують ФОРМУ,
+   * а не числа, — завтрашня дебіторка інша, ніж сьогоднішня.
+   */
+  async function toSuite(id: string, golden: boolean) {
+    const res = await fetch("/api/admin/assistant/eval-cases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedbackId: id, golden }),
+    });
+    if (res.ok) {
+      setInSuite((prev) => new Set(prev).add(id));
+      void mark(id, "TEST");
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <div>
@@ -82,6 +106,9 @@ export default function ReviewScreen() {
           Відповіді, які ви позначили як невдалі, і ті, де помічник сам помітив проблему: не знайшов даних, упав
           інструмент, назвав числа, яких немає у видачі. З розібраного народжуються правила.
         </p>
+        <a href="/admin/assistant/lessons" className="mt-1 inline-block text-[13px] font-semibold text-bk underline">
+          Правила помічника →
+        </a>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -174,12 +201,37 @@ export default function ReviewScreen() {
                   Повернути в чергу
                 </button>
               )}
+              {r.viaModel && ruling !== r.id && (
+                <button type="button" onClick={() => setRuling(r.id)} className={CHIP(false)}>
+                  Завести правило
+                </button>
+              )}
+              {!inSuite.has(r.id) && (
+                <button type="button" onClick={() => void toSuite(r.id, r.verdict === "GOOD")} className={CHIP(false)}>
+                  {r.verdict === "GOOD" ? "В еталони" : "У регресію"}
+                </button>
+              )}
+              {inSuite.has(r.id) && <span className="self-center text-[12px] text-g500">у наборі ✓</span>}
               {r.threadId && (
                 <a href={`/admin/assistant?t=${r.threadId}`} className={CHIP(false)}>
                   Відкрити розмову
                 </a>
               )}
             </div>
+
+            {ruling === r.id && (
+              <LessonForm
+                feedbackId={r.id}
+                question={r.question}
+                expected={r.expected}
+                kind={r.kind}
+                onDone={() => {
+                  setRuling(null);
+                  void mark(r.id, "RULED");
+                }}
+                onCancel={() => setRuling(null)}
+              />
+            )}
           </div>
         </Card>
       ))}

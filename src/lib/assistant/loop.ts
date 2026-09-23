@@ -61,6 +61,7 @@ import { collectEntities, entityIdList, rewriteLinks, verifyNumbers } from "@/li
 import { isClarification } from "@/lib/assistant/md";
 import { recordNumberCheck } from "@/lib/assistant/number-guard";
 import { markReaskIfRepeat, recordSignals, type TurnSignal } from "@/lib/assistant/feedback";
+import { pickLessons, markLessonsUsed } from "@/lib/assistant/lessons";
 import { ToolArgError } from "@/lib/assistant/validate";
 import {
   addUsage,
@@ -248,6 +249,16 @@ export async function runTurn(input: RunTurnInput) {
     }
   }
 
+  /*
+   * Виправлення керівника — лише для ходів, які веде модель.
+   *
+   * Сюди ми потрапляємо вже після tryDirectAnswer, тож кодові відповіді
+   * цього запиту не платять. Це не економія на дрібниці, а межа самої
+   * фічі: правило не може виправити відповідь, яку склав роутер, і саме
+   * тому екран розбору не дає завести правило на кодову відповідь.
+   */
+  const lessons = await pickLessons(input.ctx.kind, input.userText);
+
   const context = buildTurnContext({
     today: input.ctx.today,
     scope: input.ctx.scope,
@@ -256,6 +267,7 @@ export async function runTurn(input: RunTurnInput) {
     clientHint: input.clientHint,
     codeMiss: direct?.miss ?? null,
     voice: input.voice ?? false,
+    lessons: lessons.block,
   });
 
   // Історія вже містить щойно збережене питання — беремо її як є, а
@@ -601,7 +613,11 @@ export async function runTurn(input: RunTurnInput) {
       // Рівень — через «·» у тому ж полі: колонки під нього немає, а міграція
       // заради підпису не варта. modelLabel розбирає обидві частини.
       model: level ? `${activeModel}·${level}` : activeModel,
+      // Які правила діяли в момент відповіді. Коли через тиждень прилетить
+      // 👎, на картці буде перелік підозрюваних, а не здогадки.
+      lessonIds: lessons.ids,
     });
+    void markLessonsUsed(lessons.ids);
     await Promise.all([
       touchThread(input.threadId, null),
       addUsage(input.threadId, promptTokens + completionTokens),

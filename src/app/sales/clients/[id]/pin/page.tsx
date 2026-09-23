@@ -10,6 +10,13 @@
  * Головний сценарій — стоячи біля магазину натиснути «Я зараз тут»: це
  * точніше за будь-яке тягання пальцем по мапі. Тягання лишається запасним
  * шляхом для тих, хто уточнює ввечері за столом.
+ *
+ * «Я зараз тут» із точним GPS ЗБЕРІГАЄ одразу. Раніше він лише ставив пін
+ * на екрані, а кнопка «Зберегти» тієї ж миті ставала зеленою з галочкою —
+ * виглядало як «готово», і торговий ішов. 19.09.2026 Олександр так
+ * «уточнив» Скалоцьку в Бібрці: на екрані точка стояла, у базі — нічого, і
+ * маршрут потім повіз до центру міста. Зелений і галочка тепер лише ПІСЛЯ
+ * запису, а незбережена точка підписана прямо.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,6 +35,13 @@ const PinPicker = dynamic(() => import("@/components/map/PinPicker"), {
     />
   ),
 });
+
+/**
+ * GPS, точніший за це, зберігаємо без другого натиску. Грубіший — лишаємо
+ * на екрані, щоб людина посунула пін пальцем: ±266 м (так буває в селі між
+ * будинками) — це вже інша вулиця.
+ */
+const AUTO_SAVE_M = 100;
 
 /** Львів — якщо в клієнта немає взагалі нічого, починаємо звідси. */
 const FALLBACK = { lat: 49.8397, lng: 24.0297 };
@@ -82,7 +96,7 @@ export default function ClientPinPage() {
     };
   }, [id]);
 
-  const useMyLocation = useCallback(() => {
+  const useMyLocation = () => {
     if (!navigator.geolocation) {
       setError("Телефон не дає доступу до GPS");
       return;
@@ -91,11 +105,15 @@ export default function ClientPinPage() {
     setError(null);
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+        const here = { lat: p.coords.latitude, lng: p.coords.longitude };
+        setPos(here);
         setAccuracy(p.coords.accuracy);
         setMoved(true);
         setSaved(false);
         setBusy(null);
+        // Людина стоїть біля дверей і GPS точний — другий натиск лише
+        // шанс піти, не зберігши. Див. шапку.
+        if (p.coords.accuracy <= AUTO_SAVE_M) void save({ ...here, accuracyM: p.coords.accuracy });
       },
       (e) => {
         setBusy(null);
@@ -110,7 +128,7 @@ export default function ClientPinPage() {
       // від яких ми тікаємо.
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
-  }, []);
+  };
 
   const onPick = useCallback((lat: number, lng: number) => {
     setPos({ lat, lng });
@@ -119,8 +137,10 @@ export default function ClientPinPage() {
     setSaved(false);
   }, []);
 
-  const save = async () => {
-    if (!pos) return;
+  const save = async (at?: { lat: number; lng: number; accuracyM: number | null }) => {
+    // «Я зараз тут» передає точку явно: setPos ще не встиг оновити стан.
+    const point = at ?? (pos ? { ...pos, accuracyM: accuracy } : null);
+    if (!point) return;
     setBusy("save");
     setError(null);
     try {
@@ -129,7 +149,11 @@ export default function ClientPinPage() {
         headers: { "Content-Type": "application/json" },
         // accuracyM їде разом із точкою: за ним у звіті видно, чи торговий
         // стояв біля дверей («Я зараз тут»), чи посунув пін пальцем.
-        body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracyM: accuracy }),
+        body: JSON.stringify({
+          lat: point.lat,
+          lng: point.lng,
+          accuracyM: point.accuracyM == null ? null : Math.round(point.accuracyM),
+        }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
@@ -138,7 +162,13 @@ export default function ClientPinPage() {
       // Трохи затримки, щоб торговий побачив підтвердження, а не миготіння.
       setTimeout(() => router.push(`/sales/clients/${id}`), 900);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося зберегти точку");
+      // «Failed to fetch» людині нічого не каже, а в селі це майже завжди зв'язок.
+      const msg = e instanceof Error ? e.message : "";
+      setError(
+        /fetch|network|load failed/i.test(msg)
+          ? "Точку НЕ збережено: немає зв'язку. Не виходьте з екрана — натисніть «Зберегти точку», щойно зʼявиться мережа."
+          : `Точку НЕ збережено: ${msg || "невідома помилка"}`
+      );
     } finally {
       setBusy(null);
     }
@@ -181,6 +211,16 @@ export default function ClientPinPage() {
           {!!data.address && <Note>{data.address}</Note>}
         </Card>
 
+        {/* Над картою, а не під нею: під картою його закриває нижня панель,
+            і без прокрутки людина бачила лише пін на місці. */}
+        {moved && !saved && busy !== "save" && !error && (
+          <Card tone="warn">
+            <p className="text-[13px]">
+              Точку ще <b>не збережено</b> — натисніть «Зберегти точку» під картою.
+            </p>
+          </Card>
+        )}
+
         <PinPicker lat={pos.lat} lng={pos.lng} onChange={onPick} />
 
         {accuracy != null && (
@@ -202,6 +242,7 @@ export default function ClientPinPage() {
           </Card>
         )}
 
+
         {/* Кнопки внизу: великою мішенню під палець, у зоні великого пальця.
             «Зберегти» лишається неактивною, поки пін не зрушив, — інакше
             людина зберігає ту саму здогадку геокодера й вважає, що уточнила. */}
@@ -210,14 +251,16 @@ export default function ClientPinPage() {
           {busy === "gps" ? "Визначаю…" : "Я зараз тут"}
         </Button>
 
+        {/* Зелений і галочка — лише коли точка вже в базі: до запису вони
+            читалися як «готово». */}
         <Button
-          tone={moved ? "ok" : "outline"}
-          onClick={save}
+          tone={saved ? "ok" : moved ? "brand" : "outline"}
+          onClick={() => void save()}
           disabled={busy !== null || !moved}
           className="w-full"
         >
-          {moved && <Check size={18} />}
-          {busy === "save" ? "Зберігаю…" : "Зберегти точку"}
+          {saved && <Check size={18} />}
+          {busy === "save" ? "Зберігаю…" : saved ? "Збережено" : "Зберегти точку"}
         </Button>
 
         <Note>Точка лишиться всім — і торговому, і офісу, і водієві на маршруті.</Note>

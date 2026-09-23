@@ -88,14 +88,19 @@ ChatGPT — Python).
 Anthropic і OpenAI саме такі. І не у воркері: деплой конектора не має
 перезапускати прийом обміну з 1С.
 
-Порядок першого запуску:
+**Розгорнуто 23.09.2026.** Як це було зроблено (і як повторити):
 
-1. `npm run db:migrate:prod` — таблиці `McpClient`, `McpAuthCode`, `McpToken`, `McpCall`.
-2. Роль: `psql <адмінська адреса прод-бази> -v pwd=<випадковий> -f scripts/mcp/readonly-role.sql`,
-   потім `MCP_READONLY_DATABASE_URL=… npx tsx --env-file=.env scripts/check-mcp-readonly.mts`.
-3. Сервіс `budvik-mcp`: Config file `/mcp/railway.json`, змінні з [mcp/README.md](../mcp/README.md),
-   `railway up --service budvik-mcp --detach` з кореня.
-4. Домен `mcp.budvik27.com` → CNAME на Railway.
+1. Міграція `20260923160000_mcp_oauth` — `psql -1 -f …/migration.sql` по прод-базі, потім
+   `prisma migrate resolve --applied 20260923160000_mcp_oauth` (історія міграцій проду
+   розходилась із гілкою: там уже була `20260922190000_calendar_connector`).
+2. Роль: `psql <адмінська адреса прод-бази> -v pwd=<пароль> -f scripts/mcp/readonly-role.sql`
+   (пароль спершу згенерувати й зберегти — він іде в `MCP_READONLY_DATABASE_URL`), потім
+   `MCP_READONLY_DATABASE_URL=… npx tsx scripts/check-mcp-readonly.mts` — на проді зелено.
+3. Сервіс `budvik-mcp`, змінні з [mcp/README.md](../mcp/README.md)
+   (`MCP_READONLY_DATABASE_URL` — через `${{Postgres.RAILWAY_PRIVATE_DOMAIN}}`),
+   деплой — **лише `bash scripts/mcp/deploy.sh`**: Railway для нових сервісів ігнорує
+   `railway.json` і збирав би весь сайт.
+4. Домен `mcp.budvik27.com` — CNAME на `mjut9dfp.up.railway.app` у Cloudflare, **DNS only**.
 5. `MCP_CHECK_EMAIL=… MCP_CHECK_PASSWORD=… npx tsx scripts/check-mcp-http.mts https://mcp.budvik27.com`.
 
 **Після кожної міграції, що додає таблицю, яку читає вид `query_db`,** —

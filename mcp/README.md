@@ -47,11 +47,20 @@ npx @modelcontextprotocol/inspector                      # вручну: http://
 Окремий сервіс `budvik-mcp` у проєкті Railway «Budvik», поруч із
 `budvik-sync-worker` (його деплой MCP не зачіпає).
 
-1. У налаштуваннях сервісу: **Config file** → `/mcp/railway.json`.
-2. З кореня репозиторію: `railway up --service budvik-mcp --detach`.
-3. Міграцію Prisma на прод накочувати руками (`npm run db:migrate:prod`) тим
-   самим рухом.
-4. Перевірка: `MCP_CHECK_EMAIL=… MCP_CHECK_PASSWORD=… npx tsx scripts/check-mcp-http.mts https://mcp.budvik27.com`.
+1. `railway login`, потім з кореня репозиторію: **`bash scripts/mcp/deploy.sh`**.
+   **Не `railway up` з кореня:** Railway для нових сервісів ігнорує `railway.json`
+   (Config as Code застарів, шлях до конфігу через API вже не ставиться) і
+   збирає весь сайт (`npm run build`) — 23.09.2026 перший деплой так і впав.
+   Скрипт вивантажує знімок HEAD, у якому `build` = `mcp:build`, `start` =
+   `node dist/mcp.cjs`. `mcp/railway.json` лишився як довідка про команди.
+2. Міграцію Prisma на прод накочувати руками тим самим рухом (для MCP вона
+   одна — `20260923160000_mcp_oauth`, накочена 23.09.2026).
+3. Перевірка: `MCP_CHECK_EMAIL=… MCP_CHECK_PASSWORD=… npx tsx scripts/check-mcp-http.mts https://mcp.budvik27.com`.
+
+Домен: `mcp.budvik27.com` — CNAME на `mjut9dfp.up.railway.app` у Cloudflare,
+**без проксі (сіра хмарка)**: з проксі Railway не видасть сертифікат, а захист
+Cloudflare різав би Claude/ChatGPT. Службова адреса Railway:
+`budvik-mcp-production.up.railway.app`.
 
 **Відкат:** зупинити сервіс у Railway — конектор перестає працювати, сайт і
 обмін з 1С не зачеплено.

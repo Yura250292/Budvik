@@ -36,6 +36,7 @@ import {
 import { resolveRouteForDay } from "@/lib/routes/resolve";
 import { kyivDate, kyivDaySql } from "@/lib/date/kyiv";
 import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
+import { OPEN_PROSPECT } from "@/lib/prospects/converted";
 
 export const dynamic = "force-dynamic";
 
@@ -189,9 +190,10 @@ export async function GET(req: NextRequest) {
     resolveRouteForDay(repId, day),
     // Точки для розпрацювання (ручні й імпортовані списки) — спільні для
     // всіх торгових, як і клієнти в режимі «всі»: розпрацьовує той, хто
-    // поруч. Закриті й ті, що вже стали клієнтами, торговому не потрібні.
+    // поруч. Закриті й розпрацьовані (є замовлення від торгового) торговому
+    // не потрібні — див. lib/prospects/converted.ts.
     prisma.prospectClient.findMany({
-      where: { status: { in: ["NEW", "IN_PROGRESS"] } },
+      where: OPEN_PROSPECT,
       select: {
         id: true,
         name: true,
@@ -202,6 +204,8 @@ export async function GET(req: NextRequest) {
         status: true,
         source: true,
         details: true,
+        counterpartyId: true,
+        counterparty: { select: { name: true } },
       },
     }),
   ]);
@@ -236,7 +240,11 @@ export async function GET(req: NextRequest) {
   const clients: Array<Base & { lat: number; lng: number; approximate: boolean }> = [];
   const unmapped: Base[] = [];
 
+  // Контрагент, прив'язаний до ще не розпрацьованої точки, — поки ромб.
+  const asProspect = new Set(prospects.map((p) => p.counterpartyId).filter(Boolean));
+
   for (const r of rows) {
+    if (asProspect.has(r.id)) continue;
     const state = classify(r);
     const point: Base = {
       id: r.id,

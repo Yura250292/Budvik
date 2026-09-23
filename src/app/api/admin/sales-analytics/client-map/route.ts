@@ -16,6 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePeriod } from "@/lib/analytics/period";
 import { clientPortfolioAll } from "@/lib/analytics/clients";
+import { OPEN_PROSPECT } from "@/lib/prospects/converted";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   const [portfolio, prospectRows, repRows] = await Promise.all([
     clientPortfolioAll(period),
     prisma.prospectClient.findMany({
-      where: allProspects ? {} : { status: { in: ["NEW", "IN_PROGRESS"] } },
+      where: allProspects ? {} : OPEN_PROSPECT,
       select: {
         id: true,
         name: true,
@@ -49,6 +50,7 @@ export async function GET(req: NextRequest) {
         createdAt: true,
         source: true,
         details: true,
+        counterpartyId: true,
         assignedRep: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -66,7 +68,14 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const mapped = portfolio.clients.filter((c) => c.lat != null && c.lng != null);
+  // Прив'язаний до ще не розпрацьованої точки контрагент — поки ромб, не
+  // кружок: інакше один магазин стояв би на карті двічі.
+  const asProspect = new Set(
+    prospectRows.filter((p) => p.status === "NEW" || p.status === "IN_PROGRESS").map((p) => p.counterpartyId).filter(Boolean)
+  );
+  const mapped = portfolio.clients.filter(
+    (c) => c.lat != null && c.lng != null && !asProspect.has(c.counterpartyId)
+  );
   const unmapped = portfolio.clients.filter((c) => c.lat == null || c.lng == null);
 
   return NextResponse.json({
@@ -95,6 +104,7 @@ export async function GET(req: NextRequest) {
       assignedRep: p.assignedRep,
       source: p.source,
       details: p.details,
+      counterpartyId: p.counterpartyId,
       createdAt: p.createdAt.toISOString(),
     })),
     reps: repRows,

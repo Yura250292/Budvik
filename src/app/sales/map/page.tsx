@@ -117,7 +117,12 @@ export default function SalesMapPage() {
     nonce: number;
   } | null>(null);
   /** Кому зараз ставимо пін; поки не null — тап по карті зберігає координати. */
-  const [pinFor, setPinFor] = useState<{ id: string; name: string } | null>(null);
+  const [pinFor, setPinFor] = useState<{ id: string; name: string; prospect?: boolean } | null>(null);
+  /** Точка для розпрацювання, яку прив'язуємо до контрагента 1С. */
+  const [linkFor, setLinkFor] = useState<SalesProspectPoint | null>(null);
+  const [linkQuery, setLinkQuery] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
 
@@ -288,13 +293,34 @@ export default function SalesMapPage() {
       setPinBusy(true);
       setPinError(null);
       try {
-        const res = await fetch(`/api/admin/client-map/${pinFor.id}`, {
+        const res = await fetch(
+          pinFor.prospect ? `/api/sales/prospects/${pinFor.id}` : `/api/admin/client-map/${pinFor.id}`,
+          {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ lat, lng, accuracyM: accuracyM ?? null }),
-        });
+          }
+        );
         const json = await res.json().catch(() => null);
         if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+
+        if (pinFor.prospect) {
+          await mutate(
+            (prev) =>
+              prev && {
+                ...prev,
+                prospects: prev.prospects?.map((p) =>
+                  p.id === pinFor.id
+                    ? { ...p, lat, lng, details: { ...(p.details ?? {}), precision: "MANUAL" as const } }
+                    : p
+                ),
+              },
+            { revalidate: false }
+          );
+          setPinFor(null);
+          setFocus({ lat, lng, nonce: Date.now() });
+          return;
+        }
 
         // Переносимо клієнта з «без піна» на карту тут же: перезапит забрав
         // би секунди й скинув би вигляд карти, а нових даних, крім координат,
@@ -330,6 +356,54 @@ export default function SalesMapPage() {
       }
     },
     [pinFor, mutate]
+  );
+
+  /**
+   * Кандидати на прив'язку: спершу «схожий у 1С» з імпорту, далі пошук по
+   * всій базі, яка вже в пам'яті (scope=all), — без запиту на кожну літеру.
+   */
+  const linkCandidates = useMemo(() => {
+    if (!linkFor || !data) return [];
+    const all = [...data.clients, ...data.unmapped];
+    const q = linkQuery.trim().toLowerCase();
+    const out: Array<{ id: string; name: string; hint: string }> = [];
+    const sim = linkFor.details?.similarClient;
+    if (sim && !q) out.push({ id: sim.id, name: sim.name, hint: "схожий у 1С" });
+    if (q.length >= 2) {
+      for (const c of all) {
+        if (out.length >= 15) break;
+        if (`${c.name} ${c.address ?? ""}`.toLowerCase().includes(q)) {
+          out.push({ id: c.id, name: c.name, hint: c.address ?? "" });
+        }
+      }
+    }
+    return out;
+  }, [linkFor, linkQuery, data]);
+
+  const saveLink = useCallback(
+    async (counterpartyId: string | null) => {
+      if (!linkFor) return;
+      setLinkBusy(true);
+      setLinkError(null);
+      try {
+        const res = await fetch(`/api/sales/prospects/${linkFor.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ counterpartyId }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? `Помилка ${res.status}`);
+        setLinkFor(null);
+        // Повний перезапит: від прив'язки залежить, ромб це чи вже кружок
+        // (якщо в клієнта є замовлення), і чи ховати його кружок.
+        await mutate();
+      } catch (e) {
+        setLinkError(e instanceof Error ? e.message : "Не вдалося прив'язати");
+      } finally {
+        setLinkBusy(false);
+      }
+    },
+    [linkFor, mutate]
   );
 
   /** «Я зараз тут» — пін по власному GPS. */
@@ -485,6 +559,19 @@ export default function SalesMapPage() {
           // коли торговий стоїть біля магазину й дивиться на карту.
           extras={{ clientCardHref: "/sales/clients/", pin: true, comments: true }}
           onAction={(a) => {
+            if (a.kind === "pinProspect" || a.kind === "linkProspect") {
+              const p = data?.prospects?.find((x) => x.id === a.id);
+              if (!p) return;
+              if (a.kind === "pinProspect") {
+                setPinError(null);
+                setPinFor({ id: p.id, name: p.name, prospect: true });
+              } else {
+                setLinkError(null);
+                setLinkQuery("");
+                setLinkFor(p);
+              }
+              return;
+            }
             const c = data?.clients.find((x) => x.id === a.id);
             if (!c) return;
             if (a.kind === "pin") {
@@ -759,8 +846,10 @@ export default function SalesMapPage() {
               style={{
                 minHeight: "48px",
                 border: "none",
-                background: showProspects ? PROSPECT_IMPORT.color : "#fff",
-                color: showProspects ? "#fff" : "#374151",
+                // Блідий фон, а не суцільний малиновий: шар і так тихий, і
+                // яскрава кнопка над ним знову тягнула б око.
+                background: showProspects ? "#FCE7F3" : "#fff",
+                color: showProspects ? "#9D174D" : "#374151",
                 boxShadow: "0 1px 6px rgba(0,0,0,0.12)",
                 fontSize: "13px",
                 fontWeight: 700,
@@ -769,7 +858,7 @@ export default function SalesMapPage() {
               <span
                 aria-hidden
                 className="prospect-import-dot"
-                style={{ "--pin-color": showProspects ? "#fff" : PROSPECT_IMPORT.color } as CSSProperties}
+                style={{ "--pin-color": PROSPECT_IMPORT.color } as CSSProperties}
               />
               {PROSPECT_IMPORT.label}{" "}
               <span style={{ fontWeight: 400, opacity: 0.75 }}>{data.prospects!.length}</span>
@@ -913,6 +1002,80 @@ export default function SalesMapPage() {
               })
             )}
           </ul>
+          </div>
+        </>
+      )}
+
+      {/* Прив'язка точки для розпрацювання до контрагента 1С. */}
+      {linkFor && (
+        <>
+          <div className="absolute inset-0 z-[640]" onClick={() => setLinkFor(null)} aria-hidden />
+          <div
+            className="absolute inset-x-3 z-[650] flex flex-col rounded-2xl"
+            style={{
+              top: "110px",
+              maxHeight: "62vh",
+              background: "#fff",
+              boxShadow: "0 8px 26px rgba(0,0,0,0.22)",
+              overflow: "hidden",
+            }}
+          >
+            <div className="px-3 pt-3">
+              <p style={{ fontSize: "13px", fontWeight: 700, color: "#0A0A0A", margin: 0 }}>{linkFor.name}</p>
+              <p style={{ fontSize: "12px", color: "#6B7280", margin: "3px 0 0", lineHeight: 1.4 }}>
+                Який це клієнт у 1С? Після першого замовлення від торгового точка стане звичайним кружком.
+              </p>
+              <input
+                value={linkQuery}
+                onChange={(e) => setLinkQuery(e.target.value)}
+                placeholder="Пошук клієнта: назва, адреса…"
+                className="mt-2 w-full rounded-xl px-3 py-2"
+                style={{ border: "1px solid #E5E7EB", fontSize: "14px" }}
+              />
+              {linkError && <p style={{ fontSize: "12px", color: "#B91C1C", margin: "6px 0 0" }}>{linkError}</p>}
+            </div>
+            <ul className="mt-2 flex-1 overflow-y-auto">
+              {linkCandidates.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    disabled={linkBusy}
+                    onClick={() => saveLink(c.id)}
+                    className="flex w-full flex-col px-3 py-2.5 text-left"
+                    style={{ borderTop: "1px solid #F3F4F6", background: "none", minHeight: "48px" }}
+                  >
+                    <span style={{ fontSize: "14px", color: "#0A0A0A", fontWeight: 600 }}>{c.name}</span>
+                    {c.hint && <span style={{ fontSize: "12px", color: "#9CA3AF" }}>{c.hint}</span>}
+                  </button>
+                </li>
+              ))}
+              {linkCandidates.length === 0 && (
+                <li className="px-3 py-3" style={{ fontSize: "12px", color: "#9CA3AF" }}>
+                  {linkQuery.trim().length < 2 ? "Почніть вводити назву клієнта." : "Нічого не знайдено."}
+                </li>
+              )}
+            </ul>
+            <div className="flex gap-2 px-3 py-2.5" style={{ borderTop: "1px solid #F3F4F6" }}>
+              {linkFor.counterpartyId && (
+                <button
+                  type="button"
+                  disabled={linkBusy}
+                  onClick={() => saveLink(null)}
+                  className="rounded-full px-3 py-2"
+                  style={{ background: "none", border: "1px solid #E5E7EB", fontSize: "13px", color: "#B91C1C" }}
+                >
+                  Відв&apos;язати
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setLinkFor(null)}
+                className="ml-auto rounded-full px-3 py-2"
+                style={{ background: "none", border: "1px solid #E5E7EB", fontSize: "13px", color: "#374151" }}
+              >
+                Закрити
+              </button>
+            </div>
           </div>
         </>
       )}

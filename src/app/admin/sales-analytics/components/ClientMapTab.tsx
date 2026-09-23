@@ -590,7 +590,8 @@ export function ClientMapTab({ period }: { period: Period }) {
 
         {/* Легенда-фільтр: клік ховає стан */}
         <div className="mb-3 flex flex-wrap gap-2">
-          {[...STATE_ORDER, "PROSPECT" as const].map((key) => {
+          {/* Ручних точок може не бути зовсім — тоді й пункт «0» ні до чого. */}
+          {[...STATE_ORDER, ...(counts.PROSPECT ? ["PROSPECT" as const] : [])].map((key) => {
             const meta = CLIENT_STATE[key];
             const hidden = hiddenStates.has(key);
             return (

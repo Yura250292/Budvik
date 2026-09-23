@@ -102,7 +102,8 @@ export default function AssistantScreen({
    * Перемикач моделі — лише в кабінеті керівника.
    *
    * Памʼятається в браузері: це звичка людини, а не властивість розмови.
-   * null — як вирішив сервер (Gemini з запасною DeepSeek). Сервер однаково
+   * null — «Авто»: модель обирає сервер за складністю питання (прості —
+   * DeepSeek, складні — Gemini, див. LEVELS у config.ts). Сервер однаково
    * звіряє вибір зі своїм списком і ігнорує його для розмов «як торговий».
    */
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
@@ -116,8 +117,8 @@ export default function AssistantScreen({
       // сховище недоступне — лишаємо вибір сервера
     }
   }, [embedded]);
-  const pickModel = (choice: ModelChoice) => {
-    setModelChoice(choice);
+  const pickModel = (choice: ModelChoice | "auto") => {
+    setModelChoice(choice === "auto" ? null : choice);
     try {
       localStorage.setItem(MODEL_KEY, choice);
     } catch {
@@ -291,7 +292,7 @@ export default function AssistantScreen({
         // вона не знає: чиї дані читає розмова й дві дії над нею.
         <div className="flex items-center gap-2 border-b border-cab-line bg-white px-4 py-1.5">
           <span className="min-w-0 flex-1 truncate text-[13px] text-cab-t2">{subtitle}</span>
-          {!activeRep && !clientName && <ModelSwitch value={modelChoice ?? "gemini"} onChange={pickModel} />}
+          {!activeRep && !clientName && <ModelSwitch value={modelChoice ?? "auto"} onChange={pickModel} />}
           {toolbarButtons}
         </div>
       ) : (
@@ -481,8 +482,15 @@ export default function AssistantScreen({
  * Дві кнопки, а не список: вибір із двох, і він має бути видно без
  * відкривання. Вузько, щоб на телефоні поруч лишився підпис розмови.
  */
-function ModelSwitch({ value, onChange }: { value: ModelChoice; onChange: (v: ModelChoice) => void }) {
-  const options: Array<{ id: ModelChoice; label: string }> = [
+function ModelSwitch({
+  value,
+  onChange,
+}: {
+  value: ModelChoice | "auto";
+  onChange: (v: ModelChoice | "auto") => void;
+}) {
+  const options: Array<{ id: ModelChoice | "auto"; label: string }> = [
+    { id: "auto", label: "Авто" },
     { id: "gemini", label: "Gemini" },
     { id: "deepseek", label: "DeepSeek" },
   ];

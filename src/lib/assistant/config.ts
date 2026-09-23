@@ -204,6 +204,87 @@ export const THINKING_ENABLED = process.env.ASSISTANT_THINKING !== "off";
 export const MAX_TOKENS_THINKING = 10_000;
 
 /**
+ * Скільки думати — рішення за питанням, а не за видом помічника.
+ *
+ * До 23.09.2026 керівник думав однаково на все: «покажи залишок Bosch»
+ * платив за роздум стільки ж, скільки «знайди причини падіння прибутку», а
+ * складному питанню не лишалось ні раундів, ні стелі. Тепер рівень обирає
+ * difficulty.ts (правила, без моделі), а таблиця нижче каже, що він означає.
+ *
+ * Рівні й модель — рішення власника 23.09.2026, «розумний і не дорогий»:
+ * прості й середні питання веде DeepSeek (вп'ятеро дешевша), складні —
+ * Gemini з високим думанням. Друга модель лишається запасною на тому ж рівні.
+ *
+ * Проба scripts/probe-thinking-levels.mts 23.09.2026 на питанні про
+ * середній чек (токенів роздуму):
+ *   DeepSeek  disabled 0 · low 1306 · high 3093 · max 4588
+ *   Gemini    none 0 · low 793 · medium 1131 · high 1271
+ * DeepSeek приймає reasoning_effort none…max (xhigh, ultra теж), Gemini 3.6
+ * через OpenAI-вхід — none…high. Вище high у Gemini немає, тож «max» для неї
+ * — це той самий high, але з більшим запасом раундів, стелі й часу.
+ */
+export type ThinkLevel = "none" | "low" | "high" | "max";
+export type Effort = "off" | "low" | "high" | "max";
+
+export type LevelSpec = {
+  /** Хто відповідає першим, коли керівник не обрав модель сам. */
+  flavor: LlmFlavor;
+  effort: Effort;
+  rounds: number;
+  toolCalls: number;
+  maxTokens: number;
+  /** Увесь хід; роут живе maxDuration = 200 с. */
+  deadlineMs: number;
+  /** Один похід до моделі: глибокий роздум DeepSeek на max іде довше 40 с. */
+  callMs: number;
+};
+
+export const LEVELS: Record<ThinkLevel, LevelSpec> = {
+  none: { flavor: "deepseek", effort: "off", rounds: 4, toolCalls: 10, maxTokens: 1_600, deadlineMs: 100_000, callMs: 40_000 },
+  low: { flavor: "deepseek", effort: "low", rounds: 4, toolCalls: 10, maxTokens: 6_000, deadlineMs: 100_000, callMs: 40_000 },
+  high: { flavor: "gemini", effort: "high", rounds: 5, toolCalls: 12, maxTokens: 12_000, deadlineMs: 120_000, callMs: 50_000 },
+  max: { flavor: "gemini", effort: "max", rounds: 6, toolCalls: 16, maxTokens: 16_000, deadlineMs: 170_000, callMs: 70_000 },
+};
+
+/** Торговий, водій, склад — як було: DeepSeek без роздуму. */
+export const BASE_LEVEL: LevelSpec = {
+  flavor: "deepseek",
+  effort: "off",
+  rounds: 4,
+  toolCalls: 10,
+  maxTokens: MAX_TOKENS_FINAL,
+  deadlineMs: 100_000,
+  callMs: 40_000,
+};
+
+/** Для ручних проб: ASSISTANT_LEVEL_FORCE=high — усі ходи керівника на цьому рівні. */
+export const LEVEL_FORCE = (["none", "low", "high", "max"] as const).find(
+  (l) => l === process.env.ASSISTANT_LEVEL_FORCE
+);
+
+/**
+ * Ціни за мільйон токенів, $ — одна правда для журналу й assistant-eval.
+ *
+ * DeepSeek — поза піком (з 10.09.2026); у пік (09:00–13:00 за Києвом у
+ * будні) удвічі дорожче, тож це нижня оцінка. Gemini 3.x Flash — до
+ * 31.12.2026; кеш-знижку не рахуємо, оцінка зверху. Токени роздуму
+ * оплачуються як вихід.
+ */
+export const PRICES: Record<LlmFlavor, { input: number; cached: number; output: number }> = {
+  deepseek: { input: 0.15, cached: 0.003, output: 0.6 },
+  gemini: { input: 0.75, cached: 0.75, output: 3.75 },
+};
+
+export function costUsd(
+  model: string,
+  usage: { prompt: number; cached?: number; completion: number }
+): number {
+  const p = PRICES[providerFor(model).flavor];
+  const cached = Math.min(usage.cached ?? 0, usage.prompt);
+  return ((usage.prompt - cached) * p.input + cached * p.cached + usage.completion * p.output) / 1e6;
+}
+
+/**
  * Менше цього часу до дедлайну ходу — міркування вимикаємо.
  *
  * Думання відкладає перший видимий символ на секунди. Якщо хід уже на

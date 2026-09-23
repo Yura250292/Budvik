@@ -14,6 +14,10 @@
  *
  *   npx tsx --env-file=.env scripts/assistant-eval.mts
  *   npx tsx --env-file=.env scripts/assistant-eval.mts --models=gemini,deepseek --only=1,3 --keep
+ *   npx tsx --env-file=.env scripts/assistant-eval.mts --models=auto --only=11,12,13,14,15
+ *
+ * «auto» — як перемикач «Авто» в кабінеті: модель і глибину думання обирає
+ * рівень питання (difficulty.ts → LEVELS у config.ts).
  *
  * Звіт: output/assistant-eval/<дата>/report.md і report.json.
  */
@@ -24,15 +28,12 @@ import { runTurn } from "../src/lib/assistant/loop";
 import { createThread, deleteThread } from "../src/lib/assistant/threads";
 import { kyivDate } from "../src/lib/date/kyiv";
 import { assistantKeys, type LlmFlavor } from "../src/lib/assistant/config";
+import { levelFor } from "../src/lib/assistant/difficulty";
 import type { TurnEvent } from "../src/lib/assistant/types";
 
 const OWNER = process.env.ADMIN_EMAIL ?? "ufedishin@gmail.com";
 
-/** Ціна за 1 млн токенів, $: [вхід, вихід]. Звірено 16.09.2026. */
-const PRICE: Record<LlmFlavor, [number, number]> = {
-  deepseek: [0.15, 0.6],
-  gemini: [0.75, 3.75],
-};
+type Choice = LlmFlavor | "auto";
 
 /**
  * Питання — ті, з якими власник справді приходить. Друге в парі — очікування,
@@ -52,11 +53,19 @@ const QUESTIONS: Array<{ q: string; expect: { kpi?: boolean; chart?: boolean; tr
   { q: "Сформуй Excel: що замовити по бренду APRO на наступний місяць", expect: { file: true } },
   { q: "Дай PDF боржників із простроченим боргом", expect: { file: true } },
   { q: "Що робити з мертвим складом на 13 мільйонів — розпродаж чи роздати торговим? Дай план на місяць", expect: { kpi: true } },
+  // 11–15 — таблиця рівнів власника 23.09.2026: none, low, high, high, max.
+  { q: "Покажи залишок Bosch", expect: {} },
+  { q: "Скільки продали за місяць?", expect: {} },
+  { q: "Порівняй продажі та маржу", expect: {} },
+  { q: "Знайди причини падіння прибутку", expect: {} },
+  { q: "Побудуй складний аналіз закупівель", expect: { kpi: true } },
 ];
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
-const models = (flag("models") ?? "gemini,deepseek").split(",").filter((m): m is LlmFlavor => m === "gemini" || m === "deepseek");
+const models = (flag("models") ?? "gemini,deepseek")
+  .split(",")
+  .filter((m): m is Choice => m === "gemini" || m === "deepseek" || m === "auto");
 const only = flag("only")?.split(",").map(Number);
 const keep = args.includes("--keep");
 
@@ -69,7 +78,8 @@ const keys = assistantKeys();
 
 type Row = {
   n: number;
-  model: LlmFlavor;
+  model: Choice;
+  level: string;
   answeredBy: string | null;
   ok: boolean;
   error?: string;
@@ -109,12 +119,10 @@ for (const c of cases) {
         userText: c.q,
         isFirstMessage: true,
         keys,
-        modelChoice: model,
+        modelChoice: model === "auto" ? null : model,
         emit,
       });
       const answeredBy = out.model ?? null;
-      const flavor: LlmFlavor = answeredBy?.startsWith("gemini") ? "gemini" : "deepseek";
-      const [pin, pout] = PRICE[flavor];
       const blocks = {
         kpi: text.includes("```budvik-kpi"),
         chart: text.includes("```budvik-chart"),
@@ -126,6 +134,7 @@ for (const c of cases) {
       rows.push({
         n: c.n,
         model,
+        level: (out as { level?: string | null }).level ?? "-",
         answeredBy,
         ok: true,
         seconds: Math.round((Date.now() - started) / 100) / 10,
@@ -133,7 +142,7 @@ for (const c of cases) {
         prompt: out.usage.prompt,
         completion: out.usage.completion,
         reasoning: out.usage.reasoning,
-        costUsd: Math.round(((out.usage.prompt * pin + out.usage.completion * pout) / 1e6) * 10000) / 10000,
+        costUsd: (out.usage as { costUsd?: number }).costUsd ?? 0,
         unverified: numbers?.unverified.length ?? 0,
         checked: numbers?.checked ?? 0,
         blocks,
@@ -143,14 +152,14 @@ for (const c of cases) {
       });
     } catch (e) {
       rows.push({
-        n: c.n, model, answeredBy: null, ok: false, error: (e as Error).message, seconds: Math.round((Date.now() - started) / 100) / 10,
+        n: c.n, model, level: levelFor(c.q), answeredBy: null, ok: false, error: (e as Error).message, seconds: Math.round((Date.now() - started) / 100) / 10,
         rounds: 0, prompt: 0, completion: 0, reasoning: 0, costUsd: 0, unverified: 0, checked: 0,
         blocks: { kpi: false, chart: false, tree: false, file: false }, met: false, switched, preview: "",
       });
     }
     const r = rows[rows.length - 1];
     console.log(
-      `#${c.n} ${model.padEnd(8)} → ${r.ok ? r.answeredBy : "ПОМИЛКА"} · ${r.seconds} с · раундів ${r.rounds} · $${r.costUsd} · незвірених ${r.unverified}/${r.checked} · очікування ${r.met ? "так" : "НІ"}${r.switched ? ` · ${r.switched}` : ""}${r.error ? ` · ${r.error}` : ""}`
+      `#${c.n} ${model.padEnd(8)} [${r.level}] → ${r.ok ? r.answeredBy : "ПОМИЛКА"} · ${r.seconds} с · раундів ${r.rounds} · $${r.costUsd} · незвірених ${r.unverified}/${r.checked} · очікування ${r.met ? "так" : "НІ"}${r.switched ? ` · ${r.switched}` : ""}${r.error ? ` · ${r.error}` : ""}`
     );
     if (!keep) await deleteThread(thread.id).catch(() => {});
   }
@@ -185,11 +194,11 @@ const md = [
   "",
   "## По питаннях",
   "",
-  "| # | Модель | Відповіла | с | Раунди | $ | Плитки / діаграма / схема / файл | Очікування |",
-  "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  "| # | Модель | Рівень | Відповіла | с | Раунди | Роздум, ток. | $ | Плитки / діаграма / схема / файл | Очікування |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ...rows.map(
     (r) =>
-      `| ${r.n} | ${r.model} | ${r.ok ? r.answeredBy : `помилка: ${r.error}`} | ${r.seconds} | ${r.rounds} | ${r.costUsd} | ${[r.blocks.kpi, r.blocks.chart, r.blocks.tree, r.blocks.file].map((b) => (b ? "✓" : "·")).join(" ")} | ${r.met ? "✓" : "✗"} |`
+      `| ${r.n} | ${r.model} | ${r.level} | ${r.ok ? r.answeredBy : `помилка: ${r.error}`} | ${r.seconds} | ${r.rounds} | ${r.reasoning} | ${r.costUsd} | ${[r.blocks.kpi, r.blocks.chart, r.blocks.tree, r.blocks.file].map((b) => (b ? "✓" : "·")).join(" ")} | ${r.met ? "✓" : "✗"} |`
   ),
   "",
   "## Питання",

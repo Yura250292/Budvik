@@ -115,11 +115,13 @@ export type TurnEvent =
       event: "done";
       data: {
         messageId: string;
-        usage: { prompt: number; completion: number; reasoning: number; total: number };
+        usage: { prompt: number; completion: number; reasoning: number; total: number; costUsd?: number };
         rounds: number;
         strippedLinks: number;
         /** Хто дав остаточну відповідь; null — відповідь склав код. */
         model?: string | null;
+        /** Рівень думання керівника (difficulty.ts); null — інші види й кодові відповіді. */
+        level?: string | null;
       };
     }
   | { event: "error"; data: { message: string } };

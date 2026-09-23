@@ -27,13 +27,12 @@
 import pLimitLike from "@/lib/assistant/concurrency";
 import {
   ADMIN_MODEL,
-  CALL_TIMEOUT_MS,
+  BASE_LEVEL,
   FALLBACK_MODEL,
   FINAL_ONLY_BELOW_MS,
-  MAX_ROUNDS,
-  MAX_TOKENS_FINAL,
+  LEVELS,
+  LEVEL_FORCE,
   MAX_TOKENS_THINKING,
-  MAX_TOOL_CALLS_PER_TURN,
   MIN_CALL_MS,
   MODEL,
   RETRY_DELAY_MS,
@@ -43,10 +42,15 @@ import {
   THINKING_MIN_MS,
   TOOL_CONCURRENCY,
   TURN_DEADLINE_MS,
+  costUsd,
   modelForFlavor,
   providerFor,
+  type Effort,
+  type LevelSpec,
   type LlmFlavor,
+  type ThinkLevel,
 } from "@/lib/assistant/config";
+import { levelFor } from "@/lib/assistant/difficulty";
 import { streamChat, stripSignature, LlmError, type ChatResult } from "@/lib/assistant/llm";
 import { isPaused, keySlot, markQuotaExhausted } from "@/lib/assistant/model-health";
 import { block, blockNumbersText, withoutBlocks } from "@/lib/assistant/blocks";
@@ -78,19 +82,25 @@ export type ModelRoute = { primary: string; fallback: string | null };
 /**
  * Хто відповідає в цьому ході й хто підхоплює.
  *
- * Керівник — обрана ним модель (перемикач у кабінеті) або ADMIN_MODEL, а
+ * Керівник — обрана ним модель (перемикач у кабінеті), а на «Авто» —
+ * модель рівня думання (LEVELS: прості питання DeepSeek, складні Gemini);
  * запасна — друга з пари. Торговий, водій і склад — DeepSeek без запасної:
  * рішення власника «Gemini тільки для помічника адміна», а подвоювати їм
  * витрати на випадок збою немає потреби.
  *
  * null — немає жодного ключа, і хід моделі неможливий.
  */
-export function modelRouteFor(kind: AssistantKind, choice: LlmFlavor | null | undefined, keys: ModelKeys): ModelRoute | null {
+export function modelRouteFor(
+  kind: AssistantKind,
+  choice: LlmFlavor | null | undefined,
+  keys: ModelKeys,
+  level: ThinkLevel | null = null
+): ModelRoute | null {
   const has = (model: string) => (keys[providerFor(model).flavor]?.length ?? 0) > 0;
 
   if (kind !== "ADMIN") return has(MODEL) ? { primary: MODEL, fallback: null } : null;
 
-  const wanted = choice ? modelForFlavor(choice) : ADMIN_MODEL;
+  const wanted = choice ? modelForFlavor(choice) : level ? modelForFlavor(LEVELS[level].flavor) : ADMIN_MODEL;
   const other = providerFor(wanted).flavor === providerFor(FALLBACK_MODEL).flavor ? modelForFlavor("gemini") : FALLBACK_MODEL;
   const backup = other !== wanted && has(other) ? other : null;
 
@@ -121,7 +131,7 @@ export type RunTurnInput = {
 };
 
 /**
- * Чи думати в цьому ході. Рішення ухвалюється ОДИН РАЗ і на всі раунди.
+ * Скільки думати в цьому ході. Рішення ухвалюється ОДИН РАЗ і на всі раунди.
  *
  * Спокуса зекономити й увімкнути міркування лише з другого раунду — коли
  * інструменти вже щось віддали і є над чим думати — коштувала бойового
@@ -135,10 +145,13 @@ export type RunTurnInput = {
  * і весь хід падає на другому раунді. Вмикати посеред розмови не можна:
  * або з першого слова, або ніяк.
  *
- * Дві умови, обидві перевіряються до циклу.
+ * Три умови, усі перевіряються до циклу.
  *
  * ВИД. Лише ті, що в THINKING_KINDS, — сьогодні це керівник. Решті
  * міркування додають секунди, не додаючи правильності.
+ *
+ * ПИТАННЯ. Рівень (none/low/high/max) дає difficulty.ts; від нього залежать
+ * і глибина роздуму, і модель, і раунди, і час ходу (LEVELS у config.ts).
  *
  * ЧАС. Якщо хід уже з'їв більшу частину свого бюджету на спробі відповісти
  * без моделі, на думання його не лишилось: швидка відповідь краща за
@@ -146,19 +159,23 @@ export type RunTurnInput = {
  *
  * Окремий запобіжник — ASSISTANT_THINKING=off: вимикає все це без деплою.
  */
-function thinkingForTurn(input: {
+function levelForTurn(input: {
   kind: ToolContext["kind"];
   timeLeftMs: number;
-}): "enabled" | "disabled" {
-  if (!THINKING_ENABLED) return "disabled";
-  if (!THINKING_KINDS.includes(input.kind)) return "disabled";
-  if (input.timeLeftMs < THINKING_MIN_MS) return "disabled";
-  return "enabled";
+  userText: string;
+  history: ChatMessage[];
+}): { level: ThinkLevel | null; spec: LevelSpec } {
+  if (!THINKING_KINDS.includes(input.kind)) return { level: null, spec: BASE_LEVEL };
+  const level: ThinkLevel =
+    !THINKING_ENABLED || input.timeLeftMs < THINKING_MIN_MS ? "none" : LEVEL_FORCE ?? levelFor(input.userText, input.history);
+  return { level, spec: LEVELS[level] };
 }
 
 export async function runTurn(input: RunTurnInput) {
   const startedAt = Date.now();
-  const timeLeft = () => TURN_DEADLINE_MS - (Date.now() - startedAt);
+  // До вибору рівня — звичайний дедлайн; рівень max потім подовжує хід.
+  let deadlineMs = TURN_DEADLINE_MS;
+  const timeLeft = () => deadlineMs - (Date.now() - startedAt);
 
   /**
    * Чи не перепитує керівник те саме. Дивимось ДО збереження нового
@@ -249,12 +266,25 @@ export async function runTurn(input: RunTurnInput) {
   const tools = toolSchemas(input.ctx.kind);
   const limit = pLimitLike(TOOL_CONCURRENCY);
 
-  const route = modelRouteFor(input.ctx.kind, input.modelChoice, input.keys);
+  /**
+   * Рівень — на весь хід, бо змінити режим міркувань посеред розмови API не
+   * дає. Історія без щойно збереженого питання: короткому продовженню
+   * («а у вересні?») рівень дає попереднє.
+   */
+  const { level, spec } = levelForTurn({
+    kind: input.ctx.kind,
+    timeLeftMs: timeLeft(),
+    userText: input.userText,
+    history: history.slice(0, -1),
+  });
+  deadlineMs = spec.deadlineMs;
+
+  const route = modelRouteFor(input.ctx.kind, input.modelChoice, input.keys, level);
   if (!route) {
     throw new LlmError("Помічник не налаштований: немає ключа до моделі. Повідомте керівника.", 503);
   }
   if (input.ctx.kind === "ADMIN") {
-    const wantedFlavor = input.modelChoice ?? providerFor(ADMIN_MODEL).flavor;
+    const wantedFlavor = input.modelChoice ?? (level ? LEVELS[level].flavor : providerFor(ADMIN_MODEL).flavor);
     const primary = providerFor(route.primary);
     if (primary.flavor !== wantedFlavor) {
       // Обрана модель поза чергою (квота чи немає ключа) — кажемо одразу,
@@ -271,21 +301,18 @@ export async function runTurn(input: RunTurnInput) {
   }
 
   /**
-   * Режим міркувань — на весь хід, бо змінити його посеред розмови API не дає.
-   *
-   * Стеля відповіді залежить від нього: токени роздуму йдуть у той самий
-   * `max_tokens`, що й текст, тож у режимі міркувань її треба підняти —
+   * Стеля відповіді — з рівня: токени роздуму йдуть у той самий
+   * `max_tokens`, що й текст, тож чим глибше думання, тим вища стеля —
    * інакше роздум зʼїсть відповідь, і користувач отримає позначку «обірвано»
    * замість тексту.
+   *
+   * Gemini думає завжди (у нас щонайменше low), тож їй — не менше
+   * MAX_TOKENS_THINKING навіть на рівні none, де основна DeepSeek має 1600.
+   * Рахується на кожен виклик: запасна модель може бути іншою.
    */
-  let thinking = thinkingForTurn({ kind: input.ctx.kind, timeLeftMs: timeLeft() });
-  /**
-   * Gemini завжди думає — вимкнути думання в Gemini 3 не можна, можна лише
-   * зменшити. А токени думки, як і в DeepSeek, їдять ту саму стелю, що й
-   * текст, тож 1600 їй замало навіть на «low».
-   */
-  const maxTokens =
-    thinking === "enabled" || providerFor(route.primary).flavor === "gemini" ? MAX_TOKENS_THINKING : MAX_TOKENS_FINAL;
+  let effort: Effort = spec.effort;
+  const maxTokensFor = (model: string) =>
+    providerFor(model).flavor === "gemini" ? Math.max(spec.maxTokens, MAX_TOKENS_THINKING) : spec.maxTokens;
 
   let activeModel = route.primary;
   let switched = false;
@@ -324,7 +351,7 @@ export async function runTurn(input: RunTurnInput) {
       while (keyIndex < providerKeys.length - 1 && isPaused(keySlot(activeModel, keyIndex))) keyIndex++;
       const canFallBack = !switched && route.fallback != null;
       const left = timeLeft() - SAVE_RESERVE_MS;
-      const budget = Math.min(CALL_TIMEOUT_MS, canFallBack ? Math.floor(left / 2) : left);
+      const budget = Math.min(spec.callMs, canFallBack ? Math.floor(left / 2) : left);
       if (budget < MIN_CALL_MS) {
         throw new LlmError("Не встиг скласти відповідь вчасно. Спробуйте простіше питання.", 504, "timeout");
       }
@@ -337,8 +364,8 @@ export async function runTurn(input: RunTurnInput) {
           messages,
           tools,
           toolChoice: args.toolChoice,
-          maxTokens,
-          thinking,
+          maxTokens: maxTokensFor(activeModel),
+          effort,
           timeoutMs: budget,
           signal: input.signal,
           onDelta: (text) => {
@@ -394,7 +421,7 @@ export async function runTurn(input: RunTurnInput) {
           keyIndex = 0;
           const next = providerFor(activeModel);
           const hasForeignCalls = messages.some((m) => m.role === "assistant" && (m.tool_calls?.length ?? 0) > 0);
-          if (next.flavor === "deepseek" && hasForeignCalls) thinking = "disabled";
+          if (next.flavor === "deepseek" && hasForeignCalls) effort = "off";
           console.warn(
             `[assistant] ${provider.label} відмовила (${e.upstream}: ${e.message}) — відповідає ${next.label} · розмова ${input.threadId}`
           );
@@ -427,15 +454,17 @@ export async function runTurn(input: RunTurnInput) {
    * «помічник керівника став думати» лишається словами.
    */
   let reasoningTokens = 0;
+  /** Ціна ходу, $ — рахується на кожен виклик, бо запасна модель має свою ціну. */
+  let cost = 0;
   let toolCallsUsed = 0;
   let rounds = 0;
   let nudged = false;
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  for (let round = 0; round < spec.rounds; round++) {
     rounds = round + 1;
 
-    const allowTools = timeLeft() > FINAL_ONLY_BELOW_MS && toolCallsUsed < MAX_TOOL_CALLS_PER_TURN;
-    const isFinalRound = round === MAX_ROUNDS - 1;
+    const allowTools = timeLeft() > FINAL_ONLY_BELOW_MS && toolCallsUsed < spec.toolCalls;
+    const isFinalRound = round === spec.rounds - 1;
     const toolsOff = !allowTools || isFinalRound;
 
     /**
@@ -476,6 +505,11 @@ export async function runTurn(input: RunTurnInput) {
     promptTokens += result.usage?.prompt_tokens ?? 0;
     completionTokens += result.usage?.completion_tokens ?? 0;
     reasoningTokens += result.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+    cost += costUsd(activeModel, {
+      prompt: result.usage?.prompt_tokens ?? 0,
+      cached: result.usage?.prompt_cache_hit_tokens ?? 0,
+      completion: result.usage?.completion_tokens ?? 0,
+    });
 
     if (result.toolCalls.length > 0) {
       // Вступ на кшталт «зараз подивлюся борги» вже показаний — прибираємо
@@ -500,7 +534,7 @@ export async function runTurn(input: RunTurnInput) {
       });
 
       const jobs = result.toolCalls.map((call) =>
-        limit(() => runOneTool(call, input, seen, toolCallsUsed >= MAX_TOOL_CALLS_PER_TURN))
+        limit(() => runOneTool(call, input, seen, toolCallsUsed >= spec.toolCalls))
       );
       toolCallsUsed += result.toolCalls.length;
 
@@ -561,7 +595,9 @@ export async function runTurn(input: RunTurnInput) {
       promptTokens,
       completionTokens,
       durationMs: Date.now() - startedAt,
-      model: activeModel,
+      // Рівень — через «·» у тому ж полі: колонки під нього немає, а міграція
+      // заради підпису не варта. modelLabel розбирає обидві частини.
+      model: level ? `${activeModel}·${level}` : activeModel,
     });
     await Promise.all([
       touchThread(input.threadId, null),
@@ -587,6 +623,12 @@ export async function runTurn(input: RunTurnInput) {
     if (direct?.miss) signals.push("codeMiss");
     void recordSignals(saved.id, signals);
 
+    console.info(
+      `[assistant] ${input.ctx.kind} level=${level ?? "-"} model=${activeModel} rounds=${rounds} ` +
+        `tok=${promptTokens}+${completionTokens} reasoning=${reasoningTokens} $${cost.toFixed(4)} ` +
+        `${Math.round((Date.now() - startedAt) / 100) / 10}s · розмова ${input.threadId}`
+    );
+
     return {
       messageId: saved.id,
       usage: {
@@ -594,7 +636,9 @@ export async function runTurn(input: RunTurnInput) {
         completion: completionTokens,
         reasoning: reasoningTokens,
         total: promptTokens + completionTokens,
+        costUsd: Math.round(cost * 1e5) / 1e5,
       },
+      level,
       rounds,
       strippedLinks: final.stripped,
       numbers,

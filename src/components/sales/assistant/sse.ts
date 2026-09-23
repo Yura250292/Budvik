@@ -30,10 +30,16 @@ function parseBlock(block: string): SseEvent | null {
   }
 }
 
+/**
+ * `onBytes` — будь-які байти з сервера, пульс теж. Сторож зависання дивиться
+ * на нього, а не лише на події: на рівні «max» модель може думати понад
+ * хвилину, не віддавши жодної події, а пульс каже, що хід живий.
+ */
 export async function readSse(
   res: Response,
   onEvent: (e: SseEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onBytes?: () => void
 ): Promise<void> {
   if (!res.body) {
     const text = await res.text();
@@ -53,6 +59,7 @@ export async function readSse(
       if (signal?.aborted) break;
       const { done, value } = await reader.read();
       if (done) break;
+      onBytes?.();
 
       buffer += decoder.decode(value, { stream: true });
       const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");

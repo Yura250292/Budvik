@@ -29,8 +29,11 @@ import { kyivDate } from "@/lib/date/kyiv";
 import type { TurnEvent } from "@/lib/assistant/types";
 
 export const dynamic = "force-dynamic";
-/** Хід обмежений 100 секундами (TURN_DEADLINE_MS) — тут запас на збереження. */
-export const maxDuration = 120;
+/**
+ * Хід обмежений дедлайном рівня (LEVELS.deadlineMs: 100 с звичайно, 170 с на
+ * «max» у керівника) — тут запас на збереження.
+ */
+export const maxDuration = 200;
 
 function json(body: unknown, status: number) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

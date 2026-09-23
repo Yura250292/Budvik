@@ -27,12 +27,25 @@ export type Verdict = "GOOD" | "BAD";
 /** Перемикач керівника: провайдер, а не назва моделі (див. config.ts). */
 export type ModelChoice = "gemini" | "deepseek";
 
-/** «gemini-3.8-flash» → «Gemini 3.8 Flash» — для підпису під відповіддю. */
+/** Рівень думання керівника — у підписі словами, а не none/low/high/max. */
+const LEVEL_LABEL: Record<string, string> = {
+  none: "швидко",
+  low: "коротко подумав",
+  high: "думав",
+  max: "думав глибоко",
+};
+
+/**
+ * «gemini-3.8-flash» → «Gemini 3.8 Flash» — для підпису під відповіддю.
+ * З рівнем («gemini-3.6-flash·high», див. loop.ts) — «Gemini 3.6 Flash · думав».
+ */
 export function modelLabel(model: string): string {
-  return model
+  const [name, level] = model.split("·");
+  const label = name
     .split("-")
     .map((part) => (part === "deepseek" ? "DeepSeek" : part.charAt(0).toUpperCase() + part.slice(1)))
     .join(" ");
+  return level && LEVEL_LABEL[level] ? `${label} · ${LEVEL_LABEL[level]}` : label;
 }
 
 export type ThreadSummary = {

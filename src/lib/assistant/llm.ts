@@ -25,7 +25,7 @@
  * ризикує впасти по таймауту проксі.
  */
 
-import { TEMPERATURE, providerFor, type LlmFlavor } from "@/lib/assistant/config";
+import { TEMPERATURE, providerFor, type Effort, type LlmFlavor } from "@/lib/assistant/config";
 import type { ChatMessage, ToolCall, ToolSchema, Usage } from "@/lib/assistant/types";
 
 /**
@@ -151,17 +151,20 @@ export async function streamChat(opts: {
   toolChoice: "auto" | "none";
   maxTokens: number;
   /**
-   * Чи думати перед відповіддю. Вирішує цикл ходу, а не цей файл.
+   * Скільки думати перед відповіддю. Вирішує цикл ходу, а не цей файл.
    *
-   * DeepSeek: поле `thinking`. Проба 11.09.2026 підтвердила, що в режимі
-   * міркувань працюють і інструменти зі стрімом, і `tool_choice: "none"`, а
-   * `temperature` мовчки не діє.
+   * DeepSeek: `thinking` вмикає роздум, `reasoning_effort` задає глибину
+   * (проба 23.09.2026: low 1,3 тис. токенів роздуму, high 3,1, max 4,6).
+   * Проба 11.09.2026 підтвердила, що в режимі міркувань працюють і
+   * інструменти зі стрімом, і `tool_choice: "none"`, а `temperature` мовчки
+   * не діє.
    *
-   * Gemini: `reasoning_effort`. Вимкнути думання в Gemini 3 не можна, тож
-   * «вимкнено» означає `low`, а «увімкнено» — `medium`: проба 16.09.2026
-   * показала, скільки це коштує в секундах (scripts/probe-gemini-openai.mts).
+   * Gemini: `reasoning_effort`. «off» лишається `low`, як було з 16.09:
+   * `none` у 3.6 справді вимикає думку, але з інструментами й підписами
+   * думки його бойовим прогоном не перевіряли. Вище `high` у Gemini рівня
+   * немає — «max» іде як `high`.
    */
-  thinking: "enabled" | "disabled";
+  effort: Effort;
   /** Стеля на весь виклик — цикл ходу рахує її від дедлайну. */
   timeoutMs: number;
   signal?: AbortSignal;
@@ -201,9 +204,10 @@ export async function streamChat(opts: {
      * секунд і токенів, тож помічник торгового, водія й складовщика
      * просить вимкнути.
      */
-    body.thinking = { type: opts.thinking };
+    body.thinking = { type: opts.effort === "off" ? "disabled" : "enabled" };
+    if (opts.effort !== "off") body.reasoning_effort = opts.effort;
   } else {
-    body.reasoning_effort = opts.thinking === "enabled" ? "medium" : "low";
+    body.reasoning_effort = opts.effort === "off" ? "low" : opts.effort === "max" ? "high" : opts.effort;
   }
 
   let res: Response;

@@ -201,7 +201,10 @@ export function useAssistantThread(threadId: string | null) {
               failure = (e.data as { message: string }).message;
             }
           },
-          controller.signal
+          controller.signal,
+          () => {
+            lastEventRef.current = Date.now();
+          }
         );
 
         clearInterval(watchdog);

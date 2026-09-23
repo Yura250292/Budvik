@@ -202,7 +202,10 @@ export const buildRouteTool: ToolDef = {
         })),
         без_координат: plan.noPin.map((p) => p.name),
         не_наша_розвозка: plan.outOfZone.map((p) => p.name),
-        без_контрагента: plan.noCounterparty.map((p) => p.salesDocumentId),
+        // Саме номер, а не технічний ідентифікатор: для документа без
+        // контрагента це єдина зачіпка, за якою його знайдуть у 1С.
+        без_контрагента: plan.noCounterparty.map((p) => p.number),
+        свої_не_розвозка: plan.internal.map((p) => `${p.name} (${p.number})`),
         посилання: `/admin/logistics/delivery?tab=plan&day=${plan.date}`,
         примітка: [
           ...dayNotes,

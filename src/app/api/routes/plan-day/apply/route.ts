@@ -93,38 +93,52 @@ export async function POST(req: NextRequest) {
 
     const number = await getNextDocumentNumber("DR");
 
-    const route = await prisma.$transaction(async (tx) => {
-      const createdRoute = await tx.deliveryRoute.create({
-        data: {
-          number,
-          driverId: r.driverId,
-          date: new Date(body.date!),
-          status: "PLANNED",
-          totalDistanceKm: r.distanceKm ?? null,
-          routeGeometry: lineStringOrNothing(r.geometry),
-          createdById: me.userId,
-          notes: "Склав помічник",
-        },
-      });
-
-      let sequence = 0;
-      for (const id of ids) {
-        const doc = byId.get(id);
-        if (!doc) continue;
-        sequence += 1;
-        await tx.deliveryStop.create({
+    let route: { id: string; number: string; stops: number };
+    try {
+      route = await prisma.$transaction(async (tx) => {
+        const createdRoute = await tx.deliveryRoute.create({
           data: {
-            deliveryRouteId: createdRoute.id,
-            salesDocumentId: doc.id,
-            counterpartyId: doc.counterpartyId,
-            sequence,
-            address: doc.counterparty?.deliveryAddress || doc.counterparty?.address || null,
+            number,
+            driverId: r.driverId,
+            date: new Date(body.date!),
+            status: "PLANNED",
+            totalDistanceKm: r.distanceKm ?? null,
+            routeGeometry: lineStringOrNothing(r.geometry),
+            createdById: me.userId,
+            notes: "Склав помічник",
           },
         });
-      }
 
-      return { id: createdRoute.id, number: createdRoute.number, stops: sequence };
-    });
+        let sequence = 0;
+        for (const id of ids) {
+          const doc = byId.get(id);
+          if (!doc) continue;
+          sequence += 1;
+          await tx.deliveryStop.create({
+            data: {
+              deliveryRouteId: createdRoute.id,
+              salesDocumentId: doc.id,
+              counterpartyId: doc.counterpartyId,
+              sequence,
+              address: doc.counterparty?.deliveryAddress || doc.counterparty?.address || null,
+            },
+          });
+        }
+
+        return { id: createdRoute.id, number: createdRoute.number, stops: sequence };
+      });
+    } catch (e) {
+      /*
+       * DeliveryStop.salesDocumentId унікальний, тож два одночасні натиски
+       * «Створити маршрути» з тим самим документом не задублять точку —
+       * другий просто впаде. Без цієї гілки людина бачила б голий 500
+       * замість пояснення, що маршрут уже створив хтось інший.
+       */
+      const message = e instanceof Error && e.message.includes("Unique constraint")
+        ? "Частину цих документів щойно розібрав хтось інший — складіть план заново"
+        : "Не вдалося створити маршрут";
+      return NextResponse.json({ error: message, created, skipped }, { status: 409 });
+    }
 
     created.push({ ...route, driverId: r.driverId });
   }

@@ -107,6 +107,32 @@ check(
   res.internal.length
 );
 
+/*
+ * Жоден документ не зникає між кошиками.
+ *
+ * Кожна перевірка вище дивиться на свій кошик окремо, тож регрес типу
+ * «LEFT JOIN знову став INNER» — саме той, через який документи без
+ * контрагента колись зникали безслідно, — жодна з них не зловить: рядок
+ * просто випаде з вибірки, і всі перевірки лишаться зеленими. Тому звіряємо
+ * суму кошиків із незалежним підрахунком по тій самій умові.
+ */
+const total: Array<{ n: number }> = await prisma.$queryRawUnsafe(`
+  SELECT count(*)::int AS n
+  FROM "SalesDocument" d
+  WHERE d."docType" = 'REALIZATION'
+    AND d.status = 'CONFIRMED'
+    AND d."createdAt" >= now() - interval '14 days'
+    AND NOT EXISTS (SELECT 1 FROM "RouteSheetStop" s WHERE s."salesDocumentId" = d.id AND s.hidden = false)
+    AND NOT EXISTS (SELECT 1 FROM "DeliveryStop" ds WHERE ds."salesDocumentId" = d.id)
+`);
+const inBaskets =
+  res.points.length + res.noPin.length + res.outOfZone.length + res.internal.length + res.noCounterparty.length;
+check(
+  "сума кошиків дорівнює всім непривезеним реалізаціям",
+  inBaskets === total[0].n,
+  `${inBaskets} проти ${total[0].n}`
+);
+
 await prisma.$disconnect();
 
 if (fails.length) {

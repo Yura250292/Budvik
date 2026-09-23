@@ -9,8 +9,15 @@
  * Джерело — листи з 1С, а не маршрути сайту: листів 139 проти 9, і вся
  * фактична розвозка живе саме в них.
  *
- * Водій береться з `driverId`, а коли обмін його не прив'язав (17 листів зі
- * 139) — через `driverExternalId1C`, бо Ref_Key стабільніший за ім'я.
+ * Водій береться з `driverId`, а коли обмін його не прив'язав — через
+ * `driverExternalId1C` (Ref_Key стабільніший за ім'я), а як і його немає —
+ * за іменем.
+ *
+ * Ім'я додалося 23.09.2026, коли тест показав частку «свого» водія 0.96
+ * замість звичних 0.6–0.75. Це був не успіх, а втрата: у Пайди немає Ref_Key
+ * у картці, у Ткаченка взагалі немає акаунта, тож їхні листи давали NULL і
+ * вся їхня історія випадала з профілів — лишався майже один Піцишин, і
+ * «свій водій» сходився сам собою.
  *
  * Усе рахується одним запитом і згортається в пам'яті: 2157 точок — обсяг,
  * на якому окрема таблиця профілів коштувала б більше, ніж економила.
@@ -85,14 +92,19 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
   const rows = await prisma.$queryRaw<HistoryRow[]>`
     SELECT rs.id AS sheet_id,
            rs."distanceKm" AS distance_km,
-           COALESCE(rs."driverId", u.id) AS driver_id,
+           COALESCE(
+             rs."driverId",
+             (SELECT u.id FROM "User" u WHERE u."driver1CExternalId" = rs."driverExternalId1C" LIMIT 1),
+             (SELECT u2.id FROM "User" u2
+               WHERE u2.role = 'DRIVER'
+                 AND lower(btrim(u2.name)) = lower(btrim(rs."driverName1C"))
+               LIMIT 1)
+           ) AS driver_id,
            rs.date AS sheet_date,
            s."counterpartyId" AS cp
     FROM "RouteSheet" rs
     JOIN "RouteSheetStop" s
       ON s."routeSheetId" = rs.id AND s.hidden = false
-    LEFT JOIN "User" u
-      ON u."driver1CExternalId" = rs."driverExternalId1C"
     WHERE rs.date >= ${since}
       AND s."counterpartyId" IS NOT NULL
   `;

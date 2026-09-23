@@ -262,6 +262,20 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
         reason: "склад визначив менеджер",
       }))
       .filter((r) => r.points.length > 0);
+
+    /*
+     * Те, що лишилося поза маршрутами, і далі відкладене.
+     *
+     * Без цього «Перерахувати порядок» спустошувало секцію «Відкладені» на
+     * екрані: у маршрути йшли лише точки з `fixed`, а решта зникала з
+     * відповіді зовсім — і менеджер бачив хибну картину «все розподілено»,
+     * хоча в базу ще нічого не писалося й документи нікуди не поділися.
+     */
+    const inRoutes = new Set(input.fixed.flatMap((f) => f.salesDocumentIds));
+    const leftOut = points.filter((p) => !inRoutes.has(p.id));
+    if (leftOut.length > 0) {
+      deferred = [{ points: leftOut, reason: "не увійшло в маршрути після правки складу", suggestWeekday: null }];
+    }
   } else {
     // 0 = понеділок, як у профілях.
     const weekday = (new Date(`${input.date}T12:00:00Z`).getUTCDay() + 6) % 7;

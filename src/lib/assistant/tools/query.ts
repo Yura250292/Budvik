@@ -58,7 +58,8 @@ function viewCard(v: View) {
   };
 }
 
-function describe(names: string[]) {
+/** Список видів з правилами або картки названих — спільне для query_db і MCP describe_data. */
+export function describeViews(names: string[]) {
   if (names.length === 0) {
     return {
       представлення: VIEWS.map((v) => ({ назва: v.name, про_що: v.purpose })),
@@ -102,7 +103,7 @@ export const queryDbTool: ToolDef = {
       throw new ToolArgError("Вкажи describe (список представлень) або sql (SELECT), можна обидва разом");
     }
 
-    const out: Record<string, unknown> = names === null ? {} : describe(names);
+    const out: Record<string, unknown> = names === null ? {} : describeViews(names);
     if (sql === null) return out;
 
     const result = await runReadOnlyQuery(sql, { timeoutMs: TIMEOUT_MS, maxRows: MAX_ROWS });

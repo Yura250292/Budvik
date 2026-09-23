@@ -11,6 +11,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
 import { searchPatterns } from "@/lib/assistant/facts/search-words";
+import { clientQuery, LOOSE_CHARS } from "@/lib/search/client-words";
+
+// Правило чистки спільне для всіх пошуків контрагента — див. search/client-words.ts.
+export { clientQuery };
 
 export type ClientHit = {
   id: string;
@@ -40,44 +44,6 @@ export function pickOneClient(hits: ClientHit[]): ClientHit | null {
   if (mine.length >= 1) return mine[0];
   const withDocs = hits.filter((h) => h.lastDocAt);
   return withDocs.length >= 1 ? withDocs[0] : null;
-}
-
-/**
- * Букви, які людина й 1С пишуть по-різному: мʼякий знак і апостроф.
- *
- * «Яцків» не є підрядком «Яцьків», а апостроф у 1С стоїть трьома різними
- * символами («Мар'яна», «Мар`ян», «Марʼяна»). Прибираємо їх з ОБОХ боків
- * порівняння — і з запиту, і з назви в SQL: тоді збіг не залежить від
- * того, як саме написали.
- *
- * Лише для клієнтів. У товарному пошуку мʼякий знак — частина слова
- * («Кельма»), і та сама чистка там зламала б те, що працює.
- */
-const LOOSE_CHARS = "ьЬ'ʼ`’";
-const LOOSE_RE = /[ьЬ'ʼ`’]/g;
-
-/**
- * Позначки населеного пункту. У назві 1С вони є не завжди («(м.Перемишляни)»,
- * «(Перемишляни)», «(смт Жовтанці)»), тож обовʼязковим словом бути не можуть:
- * «смт» у запиті відкидало клієнта, у якого в назві «смт.» не написали.
- */
-const SETTLEMENT = new Set(["м", "с", "смт", "сел", "село", "місто", "селище", "пгт", "р-н", "район", "обл"]);
-
-/**
- * Запит про клієнта → слова, які справді є в назві.
- *
- * Людина копіює клієнта у форматі 1С — «Яцків Іван Теодорович
- * (Перемишляни)» — і дужка прилипала до слова: шукалося «(Перемишлян», а в
- * назві стоїть «(м.Перемишляни)». Крапка між буквами — теж межа слова:
- * «м.Перемишляни» це позначка й місто, а не одне слово.
- */
-export function clientQuery(query: string): string {
-  return query
-    .replace(LOOSE_RE, "")
-    .replace(/[()[\]«»"“”„,;:!?.]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w && !SETTLEMENT.has(w.toLowerCase()))
-    .join(" ");
 }
 
 export async function findClients(

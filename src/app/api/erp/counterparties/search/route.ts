@@ -21,6 +21,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles, CABINET_ROLES } from "@/lib/app/identity";
 import { settlementFromAddress } from "@/lib/routes/zone";
+import { clientQuery, counterpartyIdsByWords, loose } from "@/lib/search/client-words";
+import { stem } from "@/lib/assistant/facts/search-words";
 
 export const dynamic = "force-dynamic";
 
@@ -30,18 +32,6 @@ const MAX_LIMIT = 50;
 const CANDIDATES = 200;
 /** Більше п'яти слів у запиті — це вже речення, а не «прізвище + село». */
 const MAX_TOKENS = 5;
-
-// Той самий апостроф у 1С і з клавіатури пишеться різними символами, а
-// ILIKE порівнює коди. Для test() окремий регексп без /g: глобальний
-// тримає lastIndex між викликами й через раз відповідає «не знайшов».
-const APOSTROPHE = /['’ʼ`´]/;
-const APOSTROPHE_G = /['’ʼ`´]/g;
-
-/** «Мар'ян» і «Мар’ян» — те саме слово, різні коди символу. */
-function variants(token: string): string[] {
-  if (!APOSTROPHE.test(token)) return [token];
-  return ["'", "’"].map((a) => token.replace(APOSTROPHE_G, a));
-}
 
 /** Слово на межі слова важить більше, ніж будь-де всередині рядка. */
 function startsWord(haystack: string, token: string): boolean {
@@ -63,51 +53,49 @@ export async function GET(req: NextRequest) {
       ? Math.min(limitRaw, MAX_LIMIT)
       : DEFAULT_LIMIT;
 
-  const tokens = q
+  /*
+   * Слова — після тієї ж чистки, що й у помічника (search/client-words.ts):
+   * «Яцків» знаходить «Яцьків», «Мар'ян» — «Мар`ян», «у Перемишлянах» —
+   * «(м.Перемишляни)». Раніше тут були лише два види апострофа з трьох і
+   * жодного мʼякого знака, і на «Яцків Перемишляни» редактор маршрутів
+   * відповідав порожнім списком.
+   */
+  const tokens = clientQuery(q)
     .split(/\s+/)
-    .map((t) => t.replace(/[«»"(),.;:]/g, "").trim())
     .filter((t) => t.length >= 2)
     .slice(0, MAX_TOKENS);
 
   // Один символ шукати немає сенсу: під «К» підпадає пів бази.
   if (tokens.length === 0) return NextResponse.json({ items: [] });
 
-  const and = tokens.map((t) => ({
-    OR: variants(t).flatMap((v) => [
-      { name: { contains: v, mode: "insensitive" as const } },
-      { address: { contains: v, mode: "insensitive" as const } },
-      { deliveryAddress: { contains: v, mode: "insensitive" as const } },
-      { contactPerson: { contains: v, mode: "insensitive" as const } },
-      { code: { contains: v, mode: "insensitive" as const } },
-    ]),
-  }));
+  const candidateIds = await counterpartyIdsByWords(tokens.join(" "), CANDIDATES);
+  const found = candidateIds.length
+    ? await prisma.counterparty.findMany({
+        where: { id: { in: candidateIds } },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          phone: true,
+          type: true,
+          isActive: true,
+          address: true,
+          deliveryAddress: true,
+          deliveryLat: true,
+          deliveryLng: true,
+          geoSource: true,
+          deliveryZone: true,
+          receivableBalance: true,
+        },
+      })
+    : [];
 
-  const found = await prisma.counterparty.findMany({
-    where: { AND: and },
-    take: CANDIDATES,
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      phone: true,
-      type: true,
-      isActive: true,
-      address: true,
-      deliveryAddress: true,
-      deliveryLat: true,
-      deliveryLng: true,
-      geoSource: true,
-      deliveryZone: true,
-      receivableBalance: true,
-    },
-  });
-
-  const lower = tokens.map((t) => t.toLowerCase());
+  // Порівнюємо так само, як шукали: без мʼякого знака й апострофа, по основі.
+  const lower = tokens.map((t) => stem(loose(t)));
 
   const scored = found.map((c) => {
-    const name = c.name.toLowerCase();
-    const addr = `${c.address ?? ""} ${c.deliveryAddress ?? ""}`.toLowerCase();
+    const name = loose(c.name);
+    const addr = loose(`${c.address ?? ""} ${c.deliveryAddress ?? ""}`);
 
     let score = 0;
     for (const t of lower) {

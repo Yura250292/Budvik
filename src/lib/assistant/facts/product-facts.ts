@@ -11,7 +11,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE, myClientsCte } from "@/lib/assistant/facts/sql";
-import { LETTER, queryWords, stem, wordVariants } from "@/lib/assistant/facts/search-words";
+import { APOSTROPHES, LETTER, mayHaveApostrophe, queryWords, stem, withoutApostrophe, wordVariants } from "@/lib/assistant/facts/search-words";
 import { SECTION_BY_ID, SECTIONS } from "@/lib/catalog/classify";
 
 export type ProductHit = {
@@ -127,14 +127,18 @@ async function searchProductsOnce(
    * лишаються обовʼязковими. Спіймали на голосовому питанні: «SOMA FIX»
    * не знаходився ЖОДНОЮ буквою (07.09.2026).
    */
+  // Слова ті самі й у тому ж порядку, що й у wordVariants (обидва — words()).
+  const rawWords = queryWords(query, 6);
   const byWord = Prisma.join(
-    wordVariants(query, 6, cut).map(
-      (variants) =>
-        Prisma.sql`(${Prisma.join(
-          variants.map((v) => Prisma.sql`p.name ILIKE ${v}`),
-          " OR "
-        )})`
-    ),
+    wordVariants(query, 6, cut).map((variants, i) => {
+      const plain = variants.map((v) => Prisma.sql`p.name ILIKE ${v}`);
+      // «мясорубка», «зʼєднувальна» → назва без апострофа (див. APOSTROPHES).
+      const word = rawWords[i] ?? "";
+      const loose = mayHaveApostrophe(word)
+        ? [Prisma.sql`translate(p.name, ${APOSTROPHES}, '') ILIKE ${`%${stem(withoutApostrophe(word), cut)}%`}`]
+        : [];
+      return Prisma.sql`(${Prisma.join([...plain, ...loose], " OR ")})`;
+    }),
     " AND "
   );
   const like = `%${query.replace(/[%_]/g, "")}%`;

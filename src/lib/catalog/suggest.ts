@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { skuSearchConditions } from "@/lib/catalog/sku-search";
-import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
+import { searchTerms, termVariants, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
 import { TYPE_LABELS } from "@/lib/catalog/classify";
 
@@ -87,12 +87,7 @@ export type SuggestRow = {
 
 /** Слова запиту, стемлені — те, за чим шукаємо і чим рахуємо уточнення. */
 function queryTerms(q: string): string[] {
-  return q
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 1)
-    .map(stemTerm);
+  return searchTerms(q);
 }
 
 /**
@@ -143,13 +138,13 @@ export async function suggestProducts(raw: string): Promise<SuggestRow[]> {
 
   /** Усі слова запиту в назві. */
   const nameConditions = terms.map((term) => ({
-    name: { contains: term, mode: "insensitive" as const },
+    OR: termVariants(term).map((v) => ({ name: { contains: v, mode: "insensitive" as const } })),
   }));
 
   /** Ширше: кожне слово в назві або в категорії. */
   const broadConditions = terms.map((term) => ({
     OR: [
-      { name: { contains: term, mode: "insensitive" as const } },
+      ...termVariants(term).map((v) => ({ name: { contains: v, mode: "insensitive" as const } })),
       { category: { name: { contains: term, mode: "insensitive" as const } } },
     ],
   }));
@@ -211,10 +206,12 @@ export async function suggestProducts(raw: string): Promise<SuggestRow[]> {
  */
 function rankByPosition(rows: SuggestRow[], terms: string[]): SuggestRow[] {
   const score = (r: SuggestRow) => {
-    const name = r.name.toLowerCase();
+    // Латинську «i» зводимо до «і», як і в умові пошуку (див. termVariants),
+    // інакше «полiр» знаходилось, але вважалося «без збігу» й падало вниз.
+    const name = r.name.toLowerCase().replace(/i/g, "і");
     let worst = 0;
     for (const t of terms) {
-      const at = name.indexOf(t);
+      const at = name.indexOf(t.replace(/i/g, "і"));
       worst = Math.max(worst, at < 0 ? name.length : at);
     }
     return worst;
@@ -252,7 +249,9 @@ async function suggestFacets(terms: string[]): Promise<{ brands: SuggestFacet[];
   const rows = await prisma.product.findMany({
     where: {
       ...SHOWABLE,
-      AND: terms.map((t) => ({ name: { contains: t, mode: "insensitive" as const } })),
+      AND: terms.map((t) => ({
+        OR: termVariants(t).map((v) => ({ name: { contains: v, mode: "insensitive" as const } })),
+      })),
     },
     select: { typeKey: true, brand: { select: { name: true, slug: true } } },
     orderBy: [{ stock: "desc" }],

@@ -15,7 +15,7 @@
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { Prisma } from "@prisma/client";
-import { LETTER, searchPatterns, stem } from "@/lib/assistant/facts/search-words";
+import { APOSTROPHES, LETTER, searchPatterns, stem, withoutApostrophe } from "@/lib/assistant/facts/search-words";
 import { uah, ymd } from "@/lib/assistant/format";
 
 type LineRow = {
@@ -72,12 +72,18 @@ async function purchasesOnce(
   limit: number,
   strictWord: boolean
 ) {
-  const patterns = searchPatterns(query);
+  // Без апострофа з обох боків: «мясорубка» знаходить «М'ясорубка» (див. APOSTROPHES).
+  // Вибірка по товарах ОДНОГО клієнта — індекс тут не потрібен.
+  const patterns = searchPatterns(withoutApostrophe(query));
   const like = `%${query.replace(/[%_]/g, "")}%`;
-  const first = (query.match(new RegExp(`[${LETTER}]{3,}`)) ?? [])[0] ?? "";
+  // Слово шукаємо в тій самій назві без апострофа, що й шаблони вище:
+  // інакше «зєднань» проходило шаблон, а тут розбивалося об «з'єднань».
+  const first = (withoutApostrophe(query).match(new RegExp(`[${LETTER}]{3,}`)) ?? [])[0] ?? "";
   const wordStart = first ? `(^|[^${LETTER}])${stem(first)}` : null;
   const strictCond =
-    strictWord && wordStart ? Prisma.sql`AND p.name ~* ${wordStart}` : Prisma.empty;
+    strictWord && wordStart
+      ? Prisma.sql`AND translate(p.name, ${APOSTROPHES}, '') ~* ${wordStart}`
+      : Prisma.empty;
   const match = { patterns, like };
 
   const [lines, totals] = await Promise.all([
@@ -93,7 +99,7 @@ async function purchasesOnce(
       LEFT JOIN "Brand" b ON b.id = p."brandId"
       WHERE ${SOURCE_FILTER}
         AND s."counterpartyId" = ${counterpartyId}
-        AND (p.name ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
+        AND (translate(p.name, ${APOSTROPHES}, '') ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
         ${strictCond}
       ORDER BY s."createdAt" DESC
       LIMIT ${limit}
@@ -111,7 +117,7 @@ async function purchasesOnce(
       WHERE ${SOURCE_FILTER}
         AND s."counterpartyId" = ${counterpartyId}
         AND s."docType" <> 'RETURN'
-        AND (p.name ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
+        AND (translate(p.name, ${APOSTROPHES}, '') ILIKE ALL(${match.patterns}::text[]) OR p.sku ILIKE ${match.like})
         ${strictCond}
     `,
   ]);

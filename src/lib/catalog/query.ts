@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CATALOG_CACHE_TAG } from "@/lib/catalog/brand-tree";
 import { skuSearchConditions, looksLikeSku } from "@/lib/catalog/sku-search";
-import { stemTerm, translitVariants } from "@/lib/catalog/normalize";
+import { searchTerms, termVariants, translitVariants } from "@/lib/catalog/normalize";
 import { trigramSearchIds, reorderByIds } from "@/lib/catalog/fuzzy";
 import { FACETS, FACET_BY_KEY, facetsFor, type FacetDef } from "@/lib/catalog/facets";
 
@@ -163,19 +163,14 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
 
     // Стемимо саме запит, а не базу: скорочений терм лишається підрядком
     // усіх форм слова, тож «валики» тепер знаходять «Валик малярний».
-    const terms = f.search
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 1)
-      .map(stemTerm);
+    const terms = searchTerms(f.search);
 
     const byText: Prisma.ProductWhereInput[] =
       terms.length > 1
         ? // Кілька слів — потрібні всі, інакше «ключ ріжковий» видає всі ключі.
           terms.map((t) => ({
             OR: [
-              { name: { contains: t, mode: "insensitive" as const } },
+              ...termVariants(t).map((v) => ({ name: { contains: v, mode: "insensitive" as const } })),
               { sku: { contains: t, mode: "insensitive" as const } },
             ],
           }))
@@ -184,7 +179,9 @@ export async function buildWhere(f: CatalogFilters): Promise<Prisma.ProductWhere
               OR: [
                 // terms[0] — те саме слово, але без закінчення; сирий рядок
                 // лишається запасним для запитів на кшталт «GR-30030»
-                { name: { contains: terms[0] ?? f.search, mode: "insensitive" as const } },
+                ...termVariants(terms[0] ?? f.search).map((v) => ({
+                  name: { contains: v, mode: "insensitive" as const },
+                })),
                 { sku: { contains: f.search, mode: "insensitive" as const } },
               ],
             },

@@ -110,7 +110,31 @@ export async function resolveStaff(query: string, roles: StaffRole[]): Promise<S
     if (found.length > 1) return { ok: false, reason: "ambiguous", candidates: found.slice(0, 8) };
   }
 
+  /*
+   * Третя спроба — «на слух», коли дві точні не дали нікого.
+   *
+   * «Пицишин» замість «Піцишин» не знаходив нікого: і/и — найчастіша
+   * описка (і голосового вводу теж), а транслітерація розводить їх на «i» і
+   * «y». Тут голосні, які плутають, зводимо до однієї, мʼякий знак і
+   * апостроф прибираємо. Кілька збігів — це уточнення, а не вибір навмання.
+   */
+  const soundHit = (person: Staff) => {
+    const parts = person.name.toLowerCase().split(/\s+/).filter(Boolean).map(sound);
+    return words.some((w) => {
+      const base = sound(stem(w));
+      return base.length >= 3 && parts.some((part) => part.startsWith(base));
+    });
+  };
+  const bySound = pool.filter(soundHit);
+  if (bySound.length === 1) return { ok: true, user: bySound[0] };
+  if (bySound.length > 1) return { ok: false, reason: "ambiguous", candidates: bySound.slice(0, 8) };
+
   return { ok: false, reason: "none", candidates: [] };
+}
+
+/** «Пицишин» і «Піцишин» — одне прізвище: і/и/ї/й, е/є, без ь і апострофа. */
+function sound(word: string): string {
+  return word.replace(/[іиїй]/g, "и").replace(/є/g, "е").replace(/[ь'ʼ`’]/g, "");
 }
 
 /**

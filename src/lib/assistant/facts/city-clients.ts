@@ -20,7 +20,8 @@ import { prisma } from "@/lib/prisma";
 import { NOT_INTERNAL, SOURCE_FILTER } from "@/lib/analytics/facts";
 import { agingByCounterparty } from "@/lib/analytics/money-facts";
 import { myClientsCte } from "@/lib/assistant/facts/sql";
-import { stem } from "@/lib/assistant/facts/search-words";
+import { searchPatterns } from "@/lib/assistant/facts/search-words";
+import { clientQuery, LOOSE_CHARS } from "@/lib/search/client-words";
 
 /** Скільки днів мовчання вважати сном. */
 const SLEEP_DAYS = 90;
@@ -53,7 +54,13 @@ export type CityClients = {
 };
 
 export async function clientsInCity(city: string, repId: string, limit = 40): Promise<CityClients> {
-  const like = `%${stem(city.trim())}%`;
+  /*
+   * Місто — тими самими словами, що й клієнт (search/client-words.ts).
+   * Раніше весь рядок ішов одним підрядком, і «м. Перемишляни» знаходило 9
+   * клієнтів із 25 (у назвах «(м.Перемишляни)» без пробілу), а
+   * «(Перемишляни)» — одного.
+   */
+  const patterns = searchPatterns(clientQuery(city) || city, 3, 0);
 
   const rows = await prisma.$queryRaw<Row[]>`
     WITH ${myClientsCte(repId)}
@@ -77,7 +84,10 @@ export async function clientsInCity(city: string, repId: string, limit = 40): Pr
     FROM "Counterparty" c
     WHERE c."isActive"
       AND ${NOT_INTERNAL}
-      AND (c.address ILIKE ${like} OR c.name ILIKE ${like})
+      AND (
+        translate(c.address, ${LOOSE_CHARS}, '') ILIKE ALL(${patterns}::text[])
+        OR translate(c.name, ${LOOSE_CHARS}, '') ILIKE ALL(${patterns}::text[])
+      )
     ORDER BY revenue DESC NULLS LAST
     LIMIT ${limit}
   `;

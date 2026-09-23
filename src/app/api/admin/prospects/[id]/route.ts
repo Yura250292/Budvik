@@ -97,6 +97,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       notes: true,
       status: true,
       createdAt: true,
+      source: true,
+      details: true,
       assignedRep: { select: { id: true, name: true } },
     },
   });

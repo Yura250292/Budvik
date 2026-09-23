@@ -12,15 +12,15 @@
  * рамки — це мінус видима територія.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
-import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
+import { CLIENT_STATE, PROSPECT_IMPORT, type ClientStateKey } from "@/lib/analytics/colors";
 import { useTrackRecorder } from "@/hooks/useTrackRecorder";
 import { ClientOrderModal } from "@/app/admin/sales-analytics/components/ClientOrderModal";
 import { ClientCommentsModal } from "@/app/admin/sales-analytics/components/ClientCommentsModal";
-import type { SalesClientPoint, SalesRoute } from "@/components/map/SalesClientsMap";
+import type { SalesClientPoint, SalesProspectPoint, SalesRoute } from "@/components/map/SalesClientsMap";
 
 const SalesClientsMap = dynamic(() => import("@/components/map/SalesClientsMap"), {
   ssr: false,
@@ -38,6 +38,8 @@ type Resp = {
   route: SalesRoute;
   approximateCount: number;
   mineCount: number;
+  /** Точки для розпрацювання; старий сервер поля не віддає. */
+  prospects?: SalesProspectPoint[];
 };
 
 /**
@@ -91,6 +93,7 @@ const HIDDEN_KEY = "budvik.sales.map.hidden.v1";
 export default function SalesMapPage() {
   const [hidden, setHidden] = useState<Set<string>>(new Set(HIDDEN_BY_DEFAULT));
   const [scope, setScope] = useState<Scope>("all");
+  const [showProspects, setShowProspects] = useState(true);
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -472,6 +475,7 @@ export default function SalesMapPage() {
             лише коли запис вимкнено. */}
         <SalesClientsMap
           clients={visible}
+          prospects={showProspects ? (data?.prospects ?? []) : []}
           route={data?.route ?? null}
           me={track.position ?? me}
           pinning={!!pinFor}
@@ -707,8 +711,9 @@ export default function SalesMapPage() {
             два сегменти поруч із пошуком не влазять. Той самий елемент, що
             в карті водія, — щоб перехід між кабінетами нічого не переучував. */}
         {data && (
+          <div className="mt-2 flex gap-2">
           <div
-            className="mt-2 flex gap-1 rounded-full p-1"
+            className="flex flex-1 gap-1 rounded-full p-1"
             style={{ background: "#fff", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
           >
             {(
@@ -741,6 +746,35 @@ export default function SalesMapPage() {
                 </button>
               );
             })}
+          </div>
+          {/* Точки для розпрацювання — окремий перемикач, а не третій
+              сегмент: це не обсяг клієнтів, а шар поверх них. */}
+          {(data.prospects?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowProspects((v) => !v)}
+              aria-pressed={showProspects}
+              title={PROSPECT_IMPORT.hint}
+              className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 transition-colors duration-200"
+              style={{
+                minHeight: "48px",
+                border: "none",
+                background: showProspects ? PROSPECT_IMPORT.color : "#fff",
+                color: showProspects ? "#fff" : "#374151",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.12)",
+                fontSize: "13px",
+                fontWeight: 700,
+              }}
+            >
+              <span
+                aria-hidden
+                className="prospect-import-dot"
+                style={{ "--pin-color": showProspects ? "#fff" : PROSPECT_IMPORT.color } as CSSProperties}
+              />
+              {PROSPECT_IMPORT.label}{" "}
+              <span style={{ fontWeight: 400, opacity: 0.75 }}>{data.prospects!.length}</span>
+            </button>
+          )}
           </div>
         )}
       </div>

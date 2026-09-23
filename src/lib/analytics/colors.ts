@@ -114,6 +114,19 @@ export const CLIENT_STATE = {
 
 export type ClientStateKey = keyof typeof CLIENT_STATE;
 
+/**
+ * Точки для розпрацювання з імпортованого списку (ProspectClient.source).
+ *
+ * Не ключ CLIENT_STATE: це не стан активності, і лічильники станів з API
+ * про нього не знають. Малиновий — єдиний хю, якого на карті ще немає;
+ * крім кольору точку відрізняють ромб і пульсація (див. globals.css).
+ */
+export const PROSPECT_IMPORT = {
+  label: "База Львів",
+  color: "#e6007e",
+  hint: "точки зі списку «База Львів», які треба розпрацювати",
+} as const;
+
 /** Стан поїздки за її статусом у боті. */
 export function tripStatus(status: string): StatusKey {
   if (status === "OPEN") return "info";

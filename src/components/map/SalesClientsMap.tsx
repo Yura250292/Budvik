@@ -12,7 +12,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CLIENT_STATE } from "@/lib/analytics/colors";
+import { CLIENT_STATE, PROSPECT_IMPORT } from "@/lib/analytics/colors";
+import { importedInfoHtml, importedPin, type ProspectDetails } from "./prospect-pin";
 import { clampToUkraine } from "@/components/map/MapFrame";
 import { planCore } from "@/lib/maps/plan-core";
 import { clusterPins } from "@/lib/maps/pin-clusters";
@@ -22,6 +23,42 @@ export type SalesMapAction =
   | { kind: "orderCard"; id: string }
   | { kind: "comments"; id: string }
   | { kind: "pin"; id: string };
+
+/** Точка для розпрацювання: ще не клієнт, у 1С її немає. */
+export type SalesProspectPoint = {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  notes: string | null;
+  status: string;
+  /** null — поставлена керівником на карті; інакше імпорт списку. */
+  source: string | null;
+  details: ProspectDetails | null;
+};
+
+/**
+ * Попап точки для розпрацювання. Дій із карткою клієнта тут немає — картки
+ * ще немає; є лише дорога туди. Посилання на Google Maps, як у кабінеті
+ * водія: навігатор телефона веде краще за нашу лінію.
+ */
+function prospectPopupHtml(p: SalesProspectPoint): string {
+  const imported = !!p.source;
+  const meta = imported ? PROSPECT_IMPORT : CLIENT_STATE.PROSPECT;
+  return `<div style="font-family:system-ui;font-size:14px;min-width:190px;max-width:250px">
+    <strong style="font-size:15px">${escapeHtml(p.name)}</strong><br/>
+    <span style="display:inline-block;margin:5px 0;padding:2px 8px;border-radius:10px;
+      background:${meta.color};color:#fff;font-size:11px;font-weight:700">${escapeHtml(meta.label)}</span>
+    <div style="color:#6B7280;font-size:12px">Ще не клієнт — розпрацювати</div>
+    ${p.address ? `<div style="color:#6B7280;font-size:12px;margin-top:3px">${escapeHtml(p.address)}</div>` : ""}
+    ${imported ? importedInfoHtml(p.details ?? {}) : ""}
+    ${p.notes ? `<div style="color:#4B5563;font-size:12px;margin-top:3px">${escapeHtml(p.notes)}</div>` : ""}
+    <a href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}" target="_blank" rel="noreferrer"
+       style="display:block;margin-top:8px;padding:9px;text-align:center;background:#0A0A0A;color:#fff;
+       border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Прокласти дорогу</a>
+  </div>`;
+}
 
 export type SalesClientPoint = {
   id: string;
@@ -364,6 +401,7 @@ export function popupHtml(c: SalesClientPoint, extras: PopupExtras): string {
 
 export default function SalesClientsMap({
   clients,
+  prospects = [],
   route,
   plan = null,
   me,
@@ -375,6 +413,8 @@ export default function SalesClientsMap({
   focus = null,
 }: {
   clients: SalesClientPoint[];
+  /** Точки для розпрацювання — лише в торгового; водій їх не отримує. */
+  prospects?: SalesProspectPoint[];
   route: SalesRoute;
   /** Відкритий маршрутний лист: номерні піни, лінія плану, стан точок. */
   plan?: DayPlan;
@@ -468,8 +508,10 @@ export default function SalesClientsMap({
       // Масштаб теж: від нього залежить, які номери злипаються в один
       // значок. Без нього водій, віддаливши карту, бачив би ту саму кашу
       // з накладених номерів, поки не перемкне лист.
-      `#z${zoom}`,
-    [clients, route, plan, zoom]
+      `#z${zoom}` +
+      "#" +
+      prospects.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join("|"),
+    [clients, prospects, route, plan, zoom]
   );
 
   useEffect(() => {
@@ -578,6 +620,29 @@ export default function SalesClientsMap({
         .addTo(group);
       markersRef.current.set(c.id, marker);
       bounds.extend([c.lat, c.lng]);
+    });
+
+    // Ромби — у шарі маркерів, тобто над колами клієнтів: це те, заради чого
+    // торговий їх і вмикає. У межі вікна не додаємо: карта відкривається на
+    // своїх клієнтах, а не на всій області зі списку.
+    spread(prospects).forEach((p) => {
+      const marker = L.marker([p.lat, p.lng], {
+        // Імпортовані — пульсуючі ромби; поставлені керівником вручну —
+        // фіолетові квадрати, як на його карті.
+        icon: p.source
+          ? importedPin(p.id, p.details?.precision === "CITY", 20) // під палець
+          : L.divIcon({
+              className: "",
+              iconSize: [18, 18],
+              iconAnchor: [9, 9],
+              popupAnchor: [0, -9],
+              html: `<div style="width:18px;height:18px;border-radius:3px;background:${CLIENT_STATE.PROSPECT.color};
+                border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)"></div>`,
+            }),
+      })
+        .bindPopup(prospectPopupHtml(p), { minWidth: 190 })
+        .addTo(group);
+      markersRef.current.set(`pr:${p.id}`, marker);
     });
 
     /**

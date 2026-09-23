@@ -680,6 +680,97 @@ input:focus, select:focus, textarea:focus {
 }
 
 /*
+ * Імпортовані точки для розпрацювання («База Львів»): малиновий ромб із
+ * кільцем, що розходиться. Рух тут — навмисний сигнал «це ще не клієнт,
+ * з цим треба працювати», тож він мусить відрізняти точку від сотень
+ * нерухомих клієнтів навіть краєм ока.
+ *
+ * Анімуються лише transform і opacity кільця: їх малює компоновщик, тож
+ * кілька сотень маркерів не перераховують розкладку. Затримку розкидаємо
+ * інлайном по точках — синхронний спалах усієї карти рябить в очах.
+ */
+@keyframes prospect-import-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.75;
+  }
+  80%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.prospect-import-pin {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.prospect-import-pin::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--pin-color);
+  animation: prospect-import-ring 2.2s ease-out infinite;
+  animation-delay: var(--pin-delay, 0s);
+}
+
+.prospect-import-pin > span {
+  position: absolute;
+  inset: 2px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  background: var(--pin-color);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* Лише приблизне місце (знайдено тільки населений пункт) — порожнистий ромб,
+   як і порожнисті кола клієнтів: суцільний пін брехав би про адресу. */
+.prospect-import-pin--approx > span {
+  background: #fff;
+  border-color: var(--pin-color);
+}
+
+/* Точка в легенді й підказках пошуку — те саме кільце, менше. */
+.prospect-import-dot {
+  position: relative;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.prospect-import-dot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--pin-color);
+  animation: prospect-import-ring 2.2s ease-out infinite;
+}
+
+.prospect-import-dot::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  transform: rotate(45deg);
+  border-radius: 1px;
+  background: var(--pin-color);
+}
+
+/* Без руху ромб лишається — форма й колір і так відрізняють точку. */
+@media (prefers-reduced-motion: reduce) {
+  .prospect-import-pin::before,
+  .prospect-import-dot::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/*
  * Ручки правки межі. Курсор-хапалка — єдина підказка, що кружечок можна
  * тягнути: без неї межа виглядає просто як пунктир із крапками.
  */

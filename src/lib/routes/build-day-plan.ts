@@ -155,18 +155,62 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
 
   const since = new Date(Date.now() - ACTIVE_DRIVER_DAYS * 86_400_000);
 
-  const driverRows = await prisma.user.findMany({
-    where: input.driverIds?.length
-      ? { id: { in: input.driverIds } }
-      : {
-          role: "DRIVER",
-          // Relation зветься routeSheets (@relation("driverRouteSheets")),
-          // поля isActive у User немає — активність міряємо листами.
-          routeSheets: { some: { date: { gte: since } } },
-        },
-    select: { id: true, name: true, color: true },
-    orderBy: { name: "asc" },
-  });
+  let driverRows: Array<{ id: string; name: string; color: string | null }>;
+
+  if (input.driverIds?.length) {
+    driverRows = await prisma.user.findMany({
+      where: { id: { in: input.driverIds } },
+      select: { id: true, name: true, color: true },
+      orderBy: { name: "asc" },
+    });
+  } else {
+    /*
+     * Хто возив за останні два тижні — за листами, а не за прив'язкою в них.
+     *
+     * Прямий фільтр `routeSheets: { some: … }` спирається на RouteSheet.driverId,
+     * який обмін проставляє не завжди: 23.09.2026 з трьох водіїв, що реально
+     * їздили, прив'язаний був лише Піцишин, і план роздав йому всі 24 точки, а
+     * 98 поклав у відкладені — при живих Пайді й Ткаченку. Тому зіставляємо
+     * так само, як профілі: спершу прив'язка, далі Ref_Key 1С, далі ім'я.
+     */
+    const sheets = await prisma.routeSheet.findMany({
+      where: { date: { gte: since } },
+      select: { driverId: true, driverExternalId1C: true, driverName1C: true },
+    });
+
+    const staff = await prisma.user.findMany({
+      where: { role: "DRIVER" },
+      select: { id: true, name: true, color: true, driver1CExternalId: true },
+    });
+
+    const byId = new Map(staff.map((u) => [u.id, u]));
+    const byRef = new Map(staff.filter((u) => u.driver1CExternalId).map((u) => [u.driver1CExternalId!, u]));
+    const byName = new Map(staff.map((u) => [u.name.replace(/\s+/g, " ").trim().toLowerCase(), u]));
+
+    const picked = new Map<string, { id: string; name: string; color: string | null }>();
+    const unmatched = new Map<string, number>();
+
+    for (const sheet of sheets) {
+      const found =
+        (sheet.driverId ? byId.get(sheet.driverId) : undefined) ??
+        (sheet.driverExternalId1C ? byRef.get(sheet.driverExternalId1C) : undefined) ??
+        (sheet.driverName1C ? byName.get(sheet.driverName1C.replace(/\s+/g, " ").trim().toLowerCase()) : undefined);
+
+      if (found) {
+        picked.set(found.id, { id: found.id, name: found.name, color: found.color });
+      } else if (sheet.driverName1C) {
+        unmatched.set(sheet.driverName1C, (unmatched.get(sheet.driverName1C) ?? 0) + 1);
+      }
+    }
+
+    // Водій без акаунта — це не наша помилка, але мовчати про неї не можна:
+    // його листи є, а поставити йому точки план не може.
+    for (const [name, count] of unmatched) {
+      notes.push(`${name} возив ${count} лист(ів) за два тижні, але акаунта водія на сайті немає — у план не ставимо`);
+    }
+
+    driverRows = [...picked.values()].sort((a, b) => a.name.localeCompare(b.name, "uk"));
+  }
 
   if (driverRows.length === 0) {
     return { error: "Не знайшов водіїв: за два тижні ні в кого немає маршрутних листів" };

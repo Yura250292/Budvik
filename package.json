@@ -30,6 +30,7 @@
     "bcryptjs": "^3.0.3",
     "esbuild": "^0.28.2",
     "exceljs": "^4.4.0",
+    "express": "^5.2.1",
     "fast-xml-parser": "^5.4.2",
     "fix-webm-duration": "^1.0.6",
     "iconv-lite": "^0.7.2",
@@ -57,6 +58,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
+    "@types/express": "^5.0.6",
     "@types/google.maps": "^3.66.2",
     "@types/node": "^20",
     "@types/pdfmake": "^0.3.3",

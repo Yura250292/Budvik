@@ -135,6 +135,20 @@ export type PlanInput = {
   weekday: number;
 };
 
+/**
+ * Відмінок числівника. Свій, а не з `@/lib/utils`: той модуль тягне
+ * `@prisma/client`, а ядро мусить запускатися без бази — разом зі своїм тестом.
+ */
+function plural(n: number, forms: [string, string, string]): string {
+  const abs = Math.abs(Math.trunc(n));
+  const tens = abs % 100;
+  if (tens > 10 && tens < 20) return forms[2];
+  const ones = abs % 10;
+  if (ones === 1) return forms[0];
+  if (ones >= 2 && ones <= 4) return forms[1];
+  return forms[2];
+}
+
 function km(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   return haversineM(a.lat, a.lng, b.lat, b.lng) / 1000;
 }
@@ -255,8 +269,18 @@ export function planDay(input: PlanInput): DayPlan {
   const { points, drivers, habits, depot, options } = input;
 
   const routes = new Map<string, PlanRoute>();
+  /*
+   * Підставу збираємо числами й формулюємо ОДИН раз у кінці.
+   *
+   * Поки текст склеювався на кожному гроні, менеджер бачив у шапці маршруту
+   * «23 доставок цим клієнтам в історії; 13 доставок цим клієнтам в історії;
+   * 34 доставок цим клієнтам в історії» — три однакові фрази поспіль, та ще
+   * й у неправильному відмінку.
+   */
+  const tally = new Map<string, { history: number; pinned: number; noHistory: number }>();
   for (const d of drivers) {
     routes.set(d.id, { driverId: d.id, points: [], reason: "" });
+    tally.set(d.id, { history: 0, pinned: 0, noHistory: 0 });
   }
   const free = new Map(drivers.map((d) => [d.id, d.maxStops]));
   const deferred: DeferredCluster[] = [];
@@ -269,7 +293,7 @@ export function planDay(input: PlanInput): DayPlan {
     if (route) {
       route.points.push(p);
       free.set(route.driverId, (free.get(route.driverId) ?? 0) - 1);
-      route.reason = route.reason || "закріплено менеджером";
+      tally.get(route.driverId)!.pinned++;
     } else {
       rest.push(p);
     }
@@ -313,8 +337,9 @@ export function planDay(input: PlanInput): DayPlan {
       free.set(driver.id, room - take.length);
 
       const aff = affinity(take, driver.id, habits);
-      const line = aff > 0 ? `${aff} доставок цим клієнтам в історії` : "вільний день, історії по цих клієнтах немає";
-      route.reason = route.reason ? `${route.reason}; ${line}` : line;
+      const counters = tally.get(driver.id)!;
+      if (aff > 0) counters.history += aff;
+      else counters.noHistory += take.length;
     }
 
     if (left.length > 0) {
@@ -324,6 +349,23 @@ export function planDay(input: PlanInput): DayPlan {
         suggestWeekday: usualWeekday(left, habits),
       });
     }
+  }
+
+  for (const route of routes.values()) {
+    const t = tally.get(route.driverId)!;
+    const parts: string[] = [];
+    if (t.history > 0) {
+      parts.push(`${t.history} ${plural(t.history, ["доставка", "доставки", "доставок"])} цим клієнтам в історії`);
+    }
+    if (t.noHistory > 0) {
+      parts.push(
+        `${t.noHistory} ${plural(t.noHistory, ["точка", "точки", "точок"])} без історії в цього водія`
+      );
+    }
+    if (t.pinned > 0) {
+      parts.push(`${t.pinned} ${plural(t.pinned, ["закріплена", "закріплені", "закріплених"])} менеджером`);
+    }
+    route.reason = parts.join(", ") || "історії по цих клієнтах немає";
   }
 
   return {

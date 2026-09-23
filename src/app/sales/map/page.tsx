@@ -216,7 +216,13 @@ export default function SalesMapPage() {
         name: c.name,
         // Пошук іде по ВСІЙ базі незалежно від перемикача: людина шукає
         // конкретного клієнта, а не «клієнта в поточному фільтрі».
-        hint: c.mine === false ? "не ваш" : c.approximate ? "точка приблизна" : CLIENT_STATE[c.state].label,
+        // «Закріплений за іншим» — це підказка, а не межа: точку, фото й
+        // нотатку тут ставить будь-хто з торгових, бо клієнти спільні.
+        hint: c.mine === false
+          ? "закріплений за іншим"
+          : c.approximate
+            ? "точка приблизна"
+            : CLIENT_STATE[c.state].label,
         state: c.state,
         lat: c.lat,
         lng: c.lng,
@@ -373,12 +379,7 @@ export default function SalesMapPage() {
     }
   };
 
-  const inScope = (data?.clients ?? [])
-    .filter((c) => scope === "all" || c.mine !== false)
-    // Чужому клієнту точку можна поставити, лише поки вона здогад геокодера:
-    // пересувати те, що вже уточнила людина, сервер не дасть (403), тож і
-    // кнопки бути не повинно.
-    .map((c) => ({ ...c, canPin: c.mine !== false || c.approximate }));
+  const inScope = (data?.clients ?? []).filter((c) => scope === "all" || c.mine !== false);
   const visible = inScope.filter((c) => !hidden.has(c.state));
 
   /**
@@ -399,11 +400,11 @@ export default function SalesMapPage() {
    * Порядок відповідає роботі: спершу ті, кого на карті немає, далі
    * приблизні, наприкінці вже уточнені. Всередині кожної групи свої вгорі.
    *
-   * `canPin` повторює правило сервера (PATCH /api/admin/client-map/[id]):
-   * чужому клієнту точку можна ПОСТАВИТИ, поки вона здогад геокодера, і не
-   * можна ПЕРЕСУНУТИ ту, яку вже уточнила людина. Рядок, який гарантовано
-   * поверне 403, показуємо, але не даємо тапнути — інакше єдиною відповіддю
-   * була б помилка вже після вибору.
+   * Тапнути можна будь-який рядок: клієнти в компанії спільні, і точку
+   * посуває той, хто зараз біля дверей, а не той, за ким вона записана.
+   * Раніше тут стояло дзеркало серверного правила — чужий уточнений пін
+   * був сірим і не тапався, — і торговий не міг виправити навіть той, що
+   * сам же поставив учора.
    */
   const placeable: Array<{
     id: string;
@@ -412,7 +413,6 @@ export default function SalesMapPage() {
     mine: boolean;
     /** 0 — немає точки, 1 — приблизна, 2 — уточнена людиною. */
     rank: 0 | 1 | 2;
-    canPin: boolean;
   }> = [
     ...(data?.unmapped ?? []).map((u) => ({
       id: u.id,
@@ -420,8 +420,6 @@ export default function SalesMapPage() {
       address: u.address,
       mine: u.mine !== false,
       rank: 0 as const,
-      // Піна немає взагалі — поставити може будь-хто зі своїх ролей.
-      canPin: true,
     })),
     ...(data?.clients ?? []).map((c) => ({
       id: c.id,
@@ -429,7 +427,6 @@ export default function SalesMapPage() {
       address: c.address,
       mine: c.mine !== false,
       rank: (c.approximate ? 1 : 2) as 1 | 2,
-      canPin: c.mine !== false || c.approximate,
     })),
   ];
 
@@ -843,25 +840,18 @@ export default function SalesMapPage() {
                     ? { text: "немає на карті", color: "#D97706" }
                     : u.rank === 1
                       ? { text: "точка приблизна", color: "#D97706" }
-                      : u.canPin
-                        ? { text: "точка уточнена", color: "#059669" }
-                        : { text: "уточнив інший", color: "#9CA3AF" };
+                      : { text: "точка уточнена", color: "#059669" };
                 return (
                   <li key={u.id}>
                     <button
                       type="button"
-                      disabled={!u.canPin}
                       onClick={() => {
                         setAddOpen(false);
                         setPinError(null);
                         setPinFor({ id: u.id, name: u.name });
                       }}
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        opacity: u.canPin ? 1 : 0.5,
-                      }}
+                      style={{ background: "none", border: "none" }}
                     >
                       <span className="min-w-0 flex-1">
                         <span

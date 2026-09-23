@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { FeedRow, groupByDay, useFeedPages, type FeedRowData } from "@/components/feed/FeedList";
-import { FEED_FILTERS, REP_FEED_TYPES } from "@/lib/rep-feed/types";
+import { ADMIN_FEED_SEEN_EVENT, FEED_FILTERS, REP_FEED_TYPES } from "@/lib/rep-feed/types";
+import AdminFeedPushPrefs from "./AdminFeedPushPrefs";
 
 /**
  * Стрічка подій усієї команди — те саме, що торгові бачать у себе, але
@@ -13,8 +14,9 @@ import { FEED_FILTERS, REP_FEED_TYPES } from "@/lib/rep-feed/types";
  *
  * Навіщо керівникові. Дашборд показує суми, а тут видно, що відбувається
  * просто зараз: хто з клієнтів заплатив, які накладні провели й зібрали, у
- * кого повернення, біля кого стоїть торговий. Пушів керівник не отримує —
- * це сторінка, куди заходять самі.
+ * кого повернення, біля кого стоїть торговий. Пушів керівник типово не
+ * отримує — вмикає сам потрібні категорії (AdminFeedPushPrefs). Нове з
+ * минулого відкриття підсвічене; скільки його — цифра в меню.
  *
  * Посилання: документ — у картку продажу адмінки; клієнт — у картку
  * кабінету торгового, куди пускають лише ADMIN (MANAGER туди не пройде,
@@ -63,6 +65,19 @@ export default function AdminFeedScreen() {
 
   const groups = groupByDay(feed.rows);
 
+  /**
+   * Позначка минулого перегляду — з першої відповіді й більше не
+   * міняється: сервер на кожній першій сторінці ставить нову, і після
+   * перемикання фільтра підсвітка інакше зникала б.
+   */
+  const [seenAt, setSeenAt] = useState<string | null | undefined>(undefined);
+  if (seenAt === undefined && "seenAt" in feed.extra) setSeenAt((feed.extra.seenAt as string | null) ?? null);
+  useEffect(() => {
+    if (seenAt !== undefined) window.dispatchEvent(new Event(ADMIN_FEED_SEEN_EVENT));
+  }, [seenAt]);
+  // Хто відкрив уперше — без підсвітки: «нове» тоді означало б «усе».
+  const isNew = (createdAt: string) => typeof seenAt === "string" && createdAt > seenAt;
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <div>
@@ -72,6 +87,8 @@ export default function AdminFeedScreen() {
           торгових. Те саме кожен торговий бачить у себе і отримує пушем.
         </p>
       </div>
+
+      <AdminFeedPushPrefs />
 
       <div className="flex flex-wrap items-center gap-2">
         {FEED_FILTERS.map((f) => (
@@ -113,7 +130,11 @@ export default function AdminFeedScreen() {
           <ul className="divide-y divide-cab-line">
             {g.rows.map((row) => (
               <li key={row.id}>
-                <FeedRow row={row} href={adminHref(row, isAdmin)} rep={row.rep?.name ?? null} highlightUnread={false} />
+                <FeedRow
+                  row={{ ...row, isRead: !isNew(row.createdAt) }}
+                  href={adminHref(row, isAdmin)}
+                  rep={row.rep?.name ?? null}
+                />
               </li>
             ))}
           </ul>

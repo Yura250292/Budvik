@@ -37,8 +37,11 @@ type Tap =
  * `warehouse` — відколи склад отримує пуш «у накладній нова позиція»: без
  * цього дотик по сповіщенню мовчки нічого не робив би, а виглядало б це як
  * зламане сповіщення.
+ *
+ * `admin` — керівник сам вмикає пуші про події команди (стрічка подій,
+ * src/lib/rep-feed/admin-push.ts), і тап веде на /admin/feed.
  */
-const CABINET_TARGET = /^\/(sales|driver|warehouse)(\/[\w\-/]*)?$/;
+const CABINET_TARGET = /^\/(sales|driver|warehouse|admin)(\/[\w\-/]*)?$/;
 
 function targetFor(response: Notifications.NotificationResponse | null): Tap | null {
   const data = response?.notification.request.content.data ?? {};

@@ -90,6 +90,7 @@ export async function collectRouteSheetEvents(now: Date): Promise<FeedEvent[]> {
     events.push({
       type: REP_FEED_TYPES.ROUTE,
       repId,
+      own: doc.salesRepId === repId,
       dedupKey: key,
       relatedId: doc.id,
       target: `/sales/orders/${doc.id}`,

@@ -162,6 +162,7 @@ async function posted(since: Date, docFloor: Date): Promise<FeedEvent[]> {
     return [{
     type: REP_FEED_TYPES.DOC_POSTED,
     repId,
+    own: d.salesRepId === repId,
     dedupKey: `${REP_FEED_TYPES.DOC_POSTED}:${d.id}`,
     relatedId: d.id,
     target: `/sales/orders/${d.id}`,
@@ -209,6 +210,7 @@ async function picked(since: Date, docFloor: Date): Promise<FeedEvent[]> {
     events.push({
       type: REP_FEED_TYPES.DOC_PICKED,
       repId,
+      own: d.salesRepId === repId,
       dedupKey: `${REP_FEED_TYPES.DOC_PICKED}:${d.id}`,
       relatedId: d.id,
       target: `/sales/orders/${d.id}`,
@@ -245,6 +247,7 @@ async function returns(since: Date, docFloor: Date): Promise<FeedEvent[]> {
     return [{
     type: REP_FEED_TYPES.RETURN,
     repId,
+    own: d.salesRepId === repId,
     dedupKey: `${REP_FEED_TYPES.RETURN}:${d.id}`,
     relatedId: d.id,
     target: `/sales/orders/${d.id}`,
@@ -283,6 +286,7 @@ async function delivered(since: Date): Promise<FeedEvent[]> {
     events.push({
       type: REP_FEED_TYPES.DOC_DELIVERED,
       repId,
+      own: d.salesRepId === repId,
       dedupKey: `${REP_FEED_TYPES.DOC_DELIVERED}:${d.id}`,
       relatedId: d.id,
       target: `/sales/orders/${d.id}`,

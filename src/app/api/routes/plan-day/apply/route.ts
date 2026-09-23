@@ -25,6 +25,23 @@ type ApplyRoute = {
   geometry?: unknown;
 };
 
+/**
+ * Геометрія маршруту — або справжній LineString, або нічого.
+ *
+ * Перевірка сувора саме тут, бо це єдине місце підсистеми, яке пише в базу,
+ * а значення приходить у тілі запиту, тобто з-за меж нашого коду. Каст без
+ * перевірки пропустив би будь-який об'єкт чи масив, і крива геометрія
+ * виявилася б лише тоді, коли планшет водія спробує намалювати лінію.
+ *
+ * Маршрут без лінії — стан робочий: карта покаже пунктир по прямій.
+ */
+function lineStringOrNothing(value: unknown): Prisma.InputJsonValue | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const geometry = value as { type?: unknown; coordinates?: unknown };
+  if (geometry.type !== "LineString" || !Array.isArray(geometry.coordinates)) return undefined;
+  return value as Prisma.InputJsonValue;
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireRoles(req, OFFICE_ROLES);
   if (!auth.ok) return auth.response;
@@ -84,9 +101,7 @@ export async function POST(req: NextRequest) {
           date: new Date(body.date!),
           status: "PLANNED",
           totalDistanceKm: r.distanceKm ?? null,
-          routeGeometry: typeof r.geometry === "object" && r.geometry !== null
-            ? (r.geometry as Prisma.InputJsonValue)
-            : undefined,
+          routeGeometry: lineStringOrNothing(r.geometry),
           createdById: me.userId,
           notes: "Склав помічник",
         },

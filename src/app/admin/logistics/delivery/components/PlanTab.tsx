@@ -86,6 +86,21 @@ export default function PlanTab({ day }: { day: string }) {
     [day, pins]
   );
 
+  /*
+   * Меню «Дії» закривається кліком у будь-яке інше місце.
+   *
+   * Без цього воно лишалося відкритим, поки не тапнути саме по кнопці, —
+   * на телефоні це найдужче заважає, а вкладку відкривають і в дорозі.
+   * Слухач вішаємо лише поки меню відкрите, і сам клік по кнопці до нього
+   * не доходить (вона зупиняє розповсюдження).
+   */
+  useEffect(() => {
+    if (menuFor === null) return;
+    const close = () => setMenuFor(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [menuFor]);
+
   // Зміна дня скидає план — старий рахувався на інший день, показувати
   // його далі означало б видавати вчорашній розподіл за сьогоднішній.
   // Автоматичного перерахунку тут немає навмисно: див. шапку файлу.
@@ -94,10 +109,29 @@ export default function PlanTab({ day }: { day: string }) {
     setError(null);
     setStale(false);
     setMenuFor(null);
+    // Закріплення теж скидаємо: «цей їде завтра» не має сенсу для іншої
+    // дати, а документ належить своєму дню.
+    setPins({});
   }, [day]);
 
-  /** Перекинути точку іншому водію. Кілометри обох маршрутів після цього не чинні. */
+  /**
+   * Перекинути точку іншому водію.
+   *
+   * Кілометри обох маршрутів після цього не чинні — і геометрія теж. Стару
+   * лінію ОБОВ'ЯЗКОВО обнуляємо: вона малювала б обʼїзд через точку, якої в
+   * маршруті вже немає, і саме вона поїхала б у базу при «Створити
+   * маршрути». Порожня геометрія чесніша: карта покаже пунктир по прямій.
+   */
   const moveStop = (salesDocumentId: string, toDriverId: string) => {
+    // Закріплення за старим водієм знімаємо, інакше мітка показувала б
+    // «закріплено» в новій колонці, а наступне «Скласти заново» тихо
+    // повернуло б точку туди, звідки її щойно забрали руками.
+    setPins((prev) => {
+      if (!prev[salesDocumentId] || prev[salesDocumentId] === toDriverId) return prev;
+      const next = { ...prev };
+      delete next[salesDocumentId];
+      return next;
+    });
     setPlan((prev) => {
       if (!prev) return prev;
       let moved: PlanStopOut | null = null;
@@ -111,6 +145,7 @@ export default function PlanTab({ day }: { day: string }) {
           distanceKm: null,
           durationMin: null,
           fuelCost: null,
+          geometry: null,
         };
       });
       if (!moved) return prev;
@@ -124,6 +159,7 @@ export default function PlanTab({ day }: { day: string }) {
                 distanceKm: null,
                 durationMin: null,
                 fuelCost: null,
+                geometry: null,
               }
             : r
         ),
@@ -138,6 +174,26 @@ export default function PlanTab({ day }: { day: string }) {
     setPins((prev) => ({ ...prev, [salesDocumentId]: driverId }));
     setMenuFor(null);
   };
+
+  /** Зняти закріплення: закріпити помилково легко, і відчепити має бути так само легко. */
+  const unpinStop = (salesDocumentId: string) => {
+    setPins((prev) => {
+      const next = { ...prev };
+      delete next[salesDocumentId];
+      return next;
+    });
+    setMenuFor(null);
+  };
+
+  /**
+   * Ім'я водія за id — для мітки «закріплено за …».
+   *
+   * Беремо з `plan.drivers`, а не з маршрутів: закріплення може вказувати на
+   * водія, у якого в поточному плані не лишилося жодної точки, і мітка
+   * однаково мусить називати його ім'ям, а не технічним id.
+   */
+  const driverName = (driverId: string) =>
+    plan?.drivers.find((d) => d.id === driverId)?.name ?? "невідомого водія";
 
   const reorder = () =>
     load(plan?.routes.map((r) => ({ driverId: r.driverId, salesDocumentIds: r.stops.map((s) => s.salesDocumentId) })));
@@ -183,6 +239,10 @@ export default function PlanTab({ day }: { day: string }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Не вдалося створити маршрути");
       setPlan(null);
+      // Плану на екрані більше немає — тож і попередження про застарілі
+      // кілометри не має висіти над порожнім місцем.
+      setStale(false);
+      setMenuFor(null);
       setError(
         data.skipped?.length
           ? `Створено маршрутів: ${data.created.length}. Пропущено ${data.skipped.length} документів — вони вже потрапили в лист 1С.`
@@ -261,7 +321,9 @@ export default function PlanTab({ day }: { day: string }) {
                     setMenuFor={setMenuFor}
                     onMove={moveStop}
                     onPin={pinStop}
+                    onUnpin={unpinStop}
                     pins={pins}
+                    driverName={driverName}
                   />
                 ))}
               </div>
@@ -320,8 +382,8 @@ export default function PlanTab({ day }: { day: string }) {
             <Card>
               <CardHeader title={`Без контрагента — ${plan.noCounterparty.length}`} />
               <div className="text-sm text-g600">
-                У документі немає контрагента — ставити пін нема кому, це видно лише в 1С:{" "}
-                {plan.noCounterparty.map((x) => x.salesDocumentId).join(", ")}
+                У документі немає контрагента — ставити пін нема кому, шукати в 1С за номером:{" "}
+                {plan.noCounterparty.map((x) => x.number).join(", ")}
               </div>
             </Card>
           )}
@@ -363,7 +425,9 @@ function RouteColumn({
   setMenuFor,
   onMove,
   onPin,
+  onUnpin,
   pins,
+  driverName,
 }: {
   route: PlanRouteOut;
   others: PlanRouteOut[];
@@ -371,7 +435,10 @@ function RouteColumn({
   setMenuFor: (id: string | null) => void;
   onMove: (salesDocumentId: string, toDriverId: string) => void;
   onPin: (salesDocumentId: string, driverId: string) => void;
+  onUnpin: (salesDocumentId: string) => void;
   pins: Record<string, string>;
+  /** Ім'я водія за його id — мітка мусить казати, ЗА КИМ закріплено */
+  driverName: (driverId: string) => string;
 }) {
   const total = route.stops.reduce((s, x) => s + x.amount, 0);
 
@@ -405,13 +472,21 @@ function RouteColumn({
                 <span className="text-g600">{s.sequence}. </span>
                 {s.name}
                 <span className="text-g600"> · {formatPrice(s.amount)}</span>
-                {pins[s.salesDocumentId] && <span className="text-xs text-primary-dark"> · закріплено</span>}
+                {pins[s.salesDocumentId] && (
+                  <span className="text-xs text-primary-dark">
+                    {" · закріплено за "}
+                    {driverName(pins[s.salesDocumentId])}
+                  </span>
+                )}
                 {s.neverDelivered && <span className="text-xs text-g600"> · у листах не бував</span>}
               </span>
               <span className="relative shrink-0">
                 <button
                   type="button"
-                  onClick={() => setMenuFor(menuFor === s.salesDocumentId ? null : s.salesDocumentId)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor(menuFor === s.salesDocumentId ? null : s.salesDocumentId);
+                  }}
                   className="cursor-pointer text-xs text-primary-dark"
                 >
                   Дії
@@ -428,13 +503,23 @@ function RouteColumn({
                         Перекинути до {o.driverName}
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => onPin(s.salesDocumentId, route.driverId)}
-                      className="cursor-pointer whitespace-nowrap border-t border-g200 px-3 py-2 text-left text-xs hover:bg-g50"
-                    >
-                      Закріпити за {route.driverName}
-                    </button>
+                    {pins[s.salesDocumentId] ? (
+                      <button
+                        type="button"
+                        onClick={() => onUnpin(s.salesDocumentId)}
+                        className="cursor-pointer whitespace-nowrap border-t border-g200 px-3 py-2 text-left text-xs hover:bg-g50"
+                      >
+                        Зняти закріплення
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onPin(s.salesDocumentId, route.driverId)}
+                        className="cursor-pointer whitespace-nowrap border-t border-g200 px-3 py-2 text-left text-xs hover:bg-g50"
+                      >
+                        Закріпити за {route.driverName}
+                      </button>
+                    )}
                   </span>
                 )}
               </span>

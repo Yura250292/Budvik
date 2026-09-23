@@ -59,6 +59,13 @@ export type PlanRouteOut = {
 
 export type PlanWaiting = {
   salesDocumentId: string;
+  /**
+   * Номер документа — те, за чим людина знайде його в 1С.
+   *
+   * Для документа без контрагента це ЄДИНА зачіпка: ні імені, ні адреси в
+   * нього немає, а технічний ідентифікатор у 1С не шукається.
+   */
+  number: string;
   counterpartyId: string;
   name: string;
   address: string | null;
@@ -90,7 +97,13 @@ export type BuildDayPlanInput = {
 };
 
 function waiting(c: PlanCandidate): PlanWaiting {
-  return { salesDocumentId: c.salesDocumentId, counterpartyId: c.counterpartyId, name: c.name, address: c.address };
+  return {
+    salesDocumentId: c.salesDocumentId,
+    number: c.number,
+    counterpartyId: c.counterpartyId,
+    name: c.name,
+    address: c.address,
+  };
 }
 
 export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayResponse | { error: string }> {

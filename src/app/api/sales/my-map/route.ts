@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
   const day = url.searchParams.get("day") || kyivDate(new Date());
   const scopeAll = url.searchParams.get("scope") === "all";
 
-  const [rows, route] = await Promise.all([
+  const [rows, route, prospects] = await Promise.all([
     prisma.$queryRaw<Row[]>`
       WITH portfolio AS (
         SELECT c.id, c.name, c.address, c."deliveryLat" AS lat, c."deliveryLng" AS lng,
@@ -187,6 +187,23 @@ export async function GET(req: NextRequest) {
       ORDER BY p.name
     `,
     resolveRouteForDay(repId, day),
+    // Точки для розпрацювання (ручні й імпортовані списки) — спільні для
+    // всіх торгових, як і клієнти в режимі «всі»: розпрацьовує той, хто
+    // поруч. Закриті й ті, що вже стали клієнтами, торговому не потрібні.
+    prisma.prospectClient.findMany({
+      where: { status: { in: ["NEW", "IN_PROGRESS"] } },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        lat: true,
+        lng: true,
+        notes: true,
+        status: true,
+        source: true,
+        details: true,
+      },
+    }),
   ]);
 
   /**
@@ -272,5 +289,6 @@ export async function GET(req: NextRequest) {
         }
       : null,
     approximateCount: clients.filter((c) => c.approximate).length,
+    prospects,
   });
 }

@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { money } from "@/components/ui/Stat";
 import type { Period } from "@/components/ui/PeriodPicker";
-import { CLIENT_STATE, type ClientStateKey } from "@/lib/analytics/colors";
+import { CLIENT_STATE, PROSPECT_IMPORT, type ClientStateKey } from "@/lib/analytics/colors";
 import { colorForRep } from "@/lib/routes/colors";
 import type { OverviewRoute } from "@/components/map/RoutesOverviewMap";
 import type { ClientPoint, MapAction, MapMode, ProspectPoint } from "@/components/map/ClientMap";
@@ -139,10 +139,12 @@ export function ClientMapTab({ period }: { period: Period }) {
   }, [data, hiddenStates, repFilter]);
 
   const visibleProspects = useMemo(() => {
-    if (!data || !showProspects || hiddenStates.has("PROSPECT")) return [];
-    return data.prospects.filter(
-      (p) => repFilter === "all" || p.assignedRep?.id === repFilter
-    );
+    if (!data || !showProspects) return [];
+    return data.prospects.filter((p) => {
+      // Ручні й імпортовані ховаються окремо: це два різні пункти легенди.
+      if (hiddenStates.has(p.source ? "IMPORT" : "PROSPECT")) return false;
+      return repFilter === "all" || p.assignedRep?.id === repFilter;
+    });
   }, [data, showProspects, hiddenStates, repFilter]);
 
   /**
@@ -168,6 +170,7 @@ export function ClientMapTab({ period }: { period: Period }) {
       lat: number | null;
       lng: number | null;
       rank: number;
+      imported?: boolean;
     };
 
     const rank = (haystack: string) => {
@@ -209,8 +212,9 @@ export function ClientMapTab({ period }: { period: Period }) {
         kind: "prospect",
         id: p.id,
         name: p.name,
-        hint: "для розпрацювання",
+        hint: p.source ? PROSPECT_IMPORT.label : "для розпрацювання",
         state: "PROSPECT",
+        imported: !!p.source,
         lat: p.lat,
         lng: p.lng,
         rank: r,
@@ -473,7 +477,11 @@ export function ClientMapTab({ period }: { period: Period }) {
       : (data.clients.find((c) => c.counterpartyId === movingId.id)?.name ??
         data.unmapped.find((u) => u.counterpartyId === movingId.id)?.name ??
         null);
-  const counts: Record<string, number> = { ...data.counts, PROSPECT: data.prospects.length };
+  const importedCount = data.prospects.filter((p) => p.source).length;
+  const counts: Record<string, number> = {
+    ...data.counts,
+    PROSPECT: data.prospects.length - importedCount,
+  };
 
   return (
     <div className="space-y-4">
@@ -511,14 +519,22 @@ export function ClientMapTab({ period }: { period: Period }) {
                       i === pickedIndex ? "bg-bg2" : "hover:bg-bg2"
                     }`}
                   >
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0"
-                      style={{
-                        background: CLIENT_STATE[s.state].color,
-                        borderRadius: s.kind === "prospect" ? "2px" : "9999px",
-                      }}
-                    />
+                    {s.imported ? (
+                      <span
+                        aria-hidden
+                        className="prospect-import-dot"
+                        style={{ "--pin-color": PROSPECT_IMPORT.color } as CSSProperties}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0"
+                        style={{
+                          background: CLIENT_STATE[s.state].color,
+                          borderRadius: s.kind === "prospect" ? "2px" : "9999px",
+                        }}
+                      />
+                    )}
                     <span className="min-w-0 flex-1 truncate text-bk">{s.name}</span>
                     <span className="shrink-0 truncate text-xs text-gr">
                       {s.hint}
@@ -600,6 +616,24 @@ export function ClientMapTab({ period }: { period: Period }) {
               </button>
             );
           })}
+          {importedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => toggleState("IMPORT")}
+              title={PROSPECT_IMPORT.hint}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
+                hiddenStates.has("IMPORT") ? "border-line bg-bg2 text-gr opacity-60" : "border-line bg-white text-bk"
+              }`}
+            >
+              <span
+                aria-hidden
+                className="prospect-import-dot"
+                style={{ "--pin-color": PROSPECT_IMPORT.color } as CSSProperties}
+              />
+              <span className="font-medium">{PROSPECT_IMPORT.label}</span>
+              <span className="text-gr">{importedCount}</span>
+            </button>
+          )}
         </div>
 
         {actionError && <div className="mb-3"><ErrorBox message={actionError} /></div>}

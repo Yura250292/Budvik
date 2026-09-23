@@ -11,12 +11,14 @@
  *
  * Точки для розпрацювання навмисно квадратні: колір не може бути єдиною
  * відмінністю — і через дальтонізм, і бо їх плутали б із клієнтами.
+ * Імпортовані зі списку («База Львів») — малинові ромби, що пульсують.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CLIENT_STATE } from "@/lib/analytics/colors";
+import { CLIENT_STATE, PROSPECT_IMPORT } from "@/lib/analytics/colors";
+import { importedInfoHtml, importedPin, type ProspectDetails } from "./prospect-pin";
 import type { OverviewRoute } from "./RoutesOverviewMap";
 import { FRAMED_MAP_OPTIONS, closeWheelGateOn, useWheelGate } from "./MapFrame";
 
@@ -44,7 +46,12 @@ export type ProspectPoint = {
   notes: string | null;
   status: string;
   assignedRep: { id: string; name: string } | null;
+  /** null — поставлена людиною на карті; інакше імпорт списку. */
+  source?: string | null;
+  details?: ProspectDetails | null;
 };
+
+export type { ProspectDetails };
 
 export type MapMode = "view" | "addProspect" | "movePin";
 
@@ -161,7 +168,9 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
 }
 
 function prospectPopup(p: ProspectPoint): string {
-  const meta = CLIENT_STATE.PROSPECT;
+  const imported = !!p.source;
+  const meta = imported ? PROSPECT_IMPORT : CLIENT_STATE.PROSPECT;
+  const importedInfo = imported ? importedInfoHtml(p.details ?? {}) : "";
   return `<div style="font-family:system-ui;font-size:13px;min-width:210px;max-width:280px">
     <strong>${escapeHtml(p.name)}</strong><br/>
     <span style="display:inline-block;margin:4px 0;padding:1px 7px;border-radius:9px;
@@ -171,6 +180,7 @@ function prospectPopup(p: ProspectPoint): string {
     <span style="color:#6B7280;font-size:11px"> · ${escapeHtml(PROSPECT_STATUS_LABEL[p.status] ?? p.status)}</span><br/>
     <span style="color:#6B7280">Доручено: </span>${p.assignedRep ? escapeHtml(p.assignedRep.name) : "нікому"}
     ${p.address ? `<br/><span style="color:#9CA3AF;font-size:11px">${escapeHtml(p.address)}</span>` : ""}
+    ${importedInfo}
     ${p.notes ? `<br/><span style="color:#4B5563;font-size:12px">${escapeHtml(p.notes)}</span>` : ""}
     <br/><button data-action="editProspect" data-id="${escapeHtml(p.id)}"
       style="margin-top:7px;padding:3px 9px;border:1px solid #D1D5DB;border-radius:6px;
@@ -329,8 +339,13 @@ export default function ClientMap({
       bounds.extend([c.lat, c.lng]);
     });
 
-    prospects.forEach((p) => {
-      L.marker([p.lat, p.lng], { icon: prospectPin(CLIENT_STATE.PROSPECT.color) })
+    // Імпортовані точки часто геокодуються лише до міста — розводимо їх так
+    // само, як клієнтів, інакше пів Дрогобича ляже одним ромбом.
+    spreadOverlaps(prospects).forEach((p) => {
+      const icon = p.source
+        ? importedPin(p.id, p.details?.precision === "CITY")
+        : prospectPin(CLIENT_STATE.PROSPECT.color);
+      L.marker([p.lat, p.lng], { icon })
         .bindPopup(prospectPopup(p))
         .bindTooltip(p.name, { direction: "top" })
         .addTo(group);

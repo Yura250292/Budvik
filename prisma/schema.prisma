@@ -2655,6 +2655,16 @@ model ProspectClient {
   /// Заповнюється при конверсії в реального клієнта
   counterpartyId String? @unique
 
+  /// Звідки точка: null — нанесена людиною на карті; інакше імпорт списку
+  /// («baza-lviv-2026-09»). Імпортовані точки на карті пульсують, щоб їх
+  /// не плутали ні з клієнтами, ні з точками, поставленими вручну.
+  source       String?
+  /// Код точки у джерелі — ключ повторного імпорту без дублів.
+  externalCode String?
+  /// Поля джерела як є (категорія, спеціалізація, тип ТТ, точність
+  /// геокодування, схожий контрагент 1С) — показуються в попапі.
+  details      Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2662,6 +2672,7 @@ model ProspectClient {
   createdBy    User?         @relation("prospectAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   counterparty Counterparty? @relation(fields: [counterpartyId], references: [id], onDelete: SetNull)
 
+  @@unique([source, externalCode])
   @@index([status])
   @@index([assignedRepId])
 }

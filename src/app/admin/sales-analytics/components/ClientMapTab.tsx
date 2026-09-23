@@ -462,7 +462,7 @@ export function ClientMapTab({ period }: { period: Period }) {
         label: c.label,
         lat: c.lat,
         lng: c.lng,
-        title: `${c.label}: ${c.clientDays} з ${c.clientDaysInTown} візитів у дні документів`,
+        title: `${c.label}: ${Math.round(c.share * 100)}% замовлень набито тут`,
       })) ?? null,
     [cand]
   );
@@ -736,13 +736,18 @@ export function ClientMapTab({ period }: { period: Period }) {
             style={{ borderColor: "#C4B5FD", background: "#F5F3FF" }}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-gr">Де стояв торговий у дні документів:</span>
+              <span className="text-gr">Де стояв торговий, коли набивав замовлення:</span>
               <strong className="text-bk">{cand.data?.name ?? "…"}</strong>
               <button type="button" onClick={() => setCand(null)} className="ml-auto text-xs underline text-gr">
                 Закрити
               </button>
             </div>
-            {cand.loading && <p className="mt-1 text-gr">Рахую стоянки з треку…</p>}
+            {cand.loading && <p className="mt-1 text-gr">Звіряю замовлення зі стоянками в треку…</p>}
+            {cand.data?.confident && (
+              <p className="mt-1 text-bk">
+                Місце <strong>A</strong> однозначне: {Math.round(cand.data.candidates[0].share * 100)}% із {cand.data.votedDocs} замовлень.
+              </p>
+            )}
             {cand.error && <p className="mt-1" style={{ color: "#B91C1C" }}>{cand.error}</p>}
             {cand.data?.note && <p className="mt-1 text-gr">{cand.data.note}</p>}
             {!!cand.data?.candidates.length && (
@@ -757,12 +762,11 @@ export function ClientMapTab({ period }: { period: Period }) {
                         {c.label}
                       </span>
                       <span className="text-bk">
-                        <strong>{c.clientDays} з {c.clientDaysInTown}</strong> візитів у дні документів
+                        <strong>{Math.round(c.share * 100)}%</strong> замовлень набито тут
                       </span>
                       <span className="text-gr">
-                        {c.repName} · {c.minutesMin === c.minutesMax ? c.minutesMin : `${c.minutesMin}–${c.minutesMax}`} хв ·{" "}
+                        {c.repName} · {c.days} дн. · {c.minutesMin === c.minutesMax ? c.minutesMin : `${c.minutesMin}–${c.minutesMax}`} хв ·{" "}
                         {c.distanceM} м від нинішньої
-                        {c.allDays > c.clientDays ? ` · ще ${c.allDays - c.clientDays} дн. — інші клієнти` : ""}
                       </span>
                       <span className="ml-auto flex gap-2">
                         <a
@@ -787,8 +791,8 @@ export function ClientMapTab({ period }: { period: Period }) {
                   ))}
                 </ul>
                 <p className="mt-2 text-xs text-gr">
-                  Місце з найбільшою часткою — найімовірніше, але в одному місті торговий заходить до кількох
-                  клієнтів у ті самі дні. Обирайте за адресою в картці; точка стане ручною, як «Перемістити пін».
+                  Кожне замовлення «голосує» за стоянку, під час якої його набили (з поправкою на те, що
+                  набивають і за пів години після входу). Точка стане ручною, як «Перемістити пін».
                 </p>
               </>
             )}

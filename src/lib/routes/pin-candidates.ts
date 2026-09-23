@@ -1,44 +1,60 @@
 /**
- * Де торговий стояв у дні документів клієнта — кандидати на його точку.
+ * Де стоїть магазин клієнта — за тим, де стояв торговий, коли набивав його замовлення.
  *
  * Навіщо. Сотні клієнтів стоять у центрі міста (geoSource CITY): адреса в
  * картці чітка — «м.Бібрка, Крушельницької 3», — а OpenStreetMap такої
- * вулиці в малому місті не знає. Торговий же фізично стоїть біля магазину
- * в дні, коли в клієнта зʼявляється документ. Скалоцька: 4 дні з треком у
- * Бібрці — і всі 4 рази Олександр по 13–17 хв стояв в одному місці.
+ * вулиці в малому місті не знає. Торговий же набиває замовлення в Impuls,
+ * стоячи в магазині, і його трек знає, де він тоді стояв.
  *
- * Чому кандидати, а не відповідь. Торговий за один виїзд заходить до
- * кількох клієнтів міста, і дні їхніх документів збігаються: у тієї ж
- * Скалоцької поруч із «4 з 4» стоїть місце «3 з 4» — інший клієнт. Автомат
- * тут промахувався на кілометри (scripts/pins-from-track.mts, самоперевірка
- * на ручних точках), а людина, яка знає клієнта, вибирає за секунду.
+ * Час документа з 1С — київський, але збережений як UTC (див. kyivMoment):
+ * без поправки замовлення «відставало» від стоянки на рівні 3 години плюс
+ * хвилини. З поправкою його набивають через 0–80 хв після початку стоянки,
+ * найчастіше — через ~36 хв (виміряно 23.09.2026 на 211 замовленнях біля
+ * ручних точок).
  *
- * Лише читання: точку ставить звичайний PATCH /api/admin/client-map/[id].
+ * Одне замовлення стоянку не визначає: за 80 хв торговий встигає побувати ще
+ * у 2–3 магазинах, і вгадування «по документу» влучало в половині випадків.
+ * Тому кожне замовлення ГОЛОСУЄ за стоянки свого дня з вагою за зсувом у
+ * часі. Правильне місце щоразу те саме й набирає голоси, хибні — щоразу
+ * інші сусіди. Самоперевірка на 67 клієнтах із ручною точкою: коли лідер
+ * має ≥60% голосів — 30 із 31 у межах 120 м; із умовою ≥3 замовлень
+ * промахів не лишилося (scripts/pins-from-track.mts).
+ *
+ * Лише читання. Точку ставить або людина (попап карти), або скрипт — лише
+ * для впевнених.
  */
 
 import { prisma } from "@/lib/prisma";
-import { findStops } from "@/lib/track/stops";
+import { findStops, type TrackStop } from "@/lib/track/stops";
 
 /** Скільки днів назад дивимось. */
 const PERIOD_DAYS = 90;
 /** Радіус «того самого міста» довкола нинішньої приблизної точки. */
-const TOWN_RADIUS_KM = 6;
+const TOWN_RADIUS_KM = 8;
 /** Стоянки ближче за це — одне місце. */
 const CLUSTER_M = 70;
-/** Скільки кандидатів показувати: більше — людина вже не вибирає, а гортає. */
+/** Скільки кандидатів показувати. */
 const MAX_CANDIDATES = 4;
+/** Трек, у якому менше точок, — уривок, а не робочий день. */
+const MIN_DAY_POINTS = 40;
+
+/** Зсув «замовлення − початок стоянки», хв: пік і ширина (виміряно). */
+const LAG_PEAK = 36;
+const LAG_WIDTH = 30;
+
+/** Коли місцю можна вірити без людини. */
+export const AUTO_MIN_SHARE = 0.6;
+export const AUTO_MIN_DOCS = 3;
 
 export type PinCandidate = {
   /** Мітка на карті й у списку: A, B, C… */
   label: string;
   lat: number;
   lng: number;
-  /** У скільки днів документів цього клієнта торговий тут стояв… */
-  clientDays: number;
-  /** …із тих днів документів, коли він узагалі був у місті. */
-  clientDaysInTown: number;
-  /** Скільки всього різних днів він тут стояв (і для інших клієнтів теж). */
-  allDays: number;
+  /** Частка голосів замовлень клієнта за це місце, 0–1. */
+  share: number;
+  /** Скільки різних днів сюди йшли голоси. */
+  days: number;
   minutesMin: number;
   minutesMax: number;
   repName: string;
@@ -50,8 +66,11 @@ export type PinCandidate = {
 export type PinCandidatesResult = {
   name: string;
   current: { lat: number; lng: number } | null;
+  /** Скільки замовлень проголосували (мали стоянки в потрібний час). */
+  votedDocs: number;
   candidates: PinCandidate[];
-  /** Чому кандидатів немає — людською мовою. */
+  /** Лідер настільки однозначний, що його можна ставити без людини. */
+  confident: boolean;
   note: string | null;
 };
 
@@ -60,136 +79,148 @@ const meters = (a: Pt, b: Pt) =>
   111_320 * Math.hypot(a.lat - b.lat, (a.lng - b.lng) * Math.cos((a.lat * Math.PI) / 180));
 const kyivDay = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: "Europe/Kyiv" });
 
-export async function pinCandidates(counterpartyId: string): Promise<PinCandidatesResult | null> {
+/**
+ * Справжній момент документа 1С.
+ *
+ * Обмін кладе «12:24» з 1С як 12:24 UTC, хоча в 1С це київські 12:24 —
+ * тобто 09:24 UTC улітку. Віднімаємо київський зсув саме цієї дати: взимку
+ * він 2 години, влітку 3.
+ */
+export function kyivMoment(stored: Date): Date {
+  const kyiv = new Date(stored.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+  const utc = new Date(stored.toLocaleString("en-US", { timeZone: "UTC" }));
+  return new Date(stored.getTime() - (kyiv.getTime() - utc.getTime()));
+}
+
+/** Вага стоянки для замовлення за зсувом, хв: дзвін довкола піку, поза вікном — нуль. */
+function lagWeight(lagMin: number): number {
+  if (lagMin < -10 || lagMin > 150) return 0;
+  return Math.exp(-((lagMin - LAG_PEAK) ** 2) / (2 * LAG_WIDTH * LAG_WIDTH));
+}
+
+/** Стоянки торгового за день — спільний кеш на один виклик (і на пакет у скрипті). */
+export type StopsCache = Map<string, TrackStop[]>;
+
+async function dayStops(rep: string, day: string, cache: StopsCache): Promise<TrackStop[]> {
+  const key = `${rep}|${day}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const from = new Date(`${day}T00:00:00+03:00`);
+  const pts = await prisma.trackPoint.findMany({
+    where: { userId: rep, recordedAt: { gte: new Date(from.getTime() - 3_600_000), lt: new Date(from.getTime() + 25 * 3_600_000) } },
+    orderBy: { recordedAt: "asc" },
+    select: { lat: true, lng: true, recordedAt: true, speedKmh: true },
+  });
+  const stops = pts.length >= MIN_DAY_POINTS ? findStops(pts) : [];
+  cache.set(key, stops);
+  return stops;
+}
+
+/**
+ * @param around центр пошуку. За замовчуванням — нинішня точка клієнта;
+ *   самоперевірка передає справжню ручну точку.
+ */
+export async function pinCandidates(
+  counterpartyId: string,
+  opts: { around?: Pt; cache?: StopsCache } = {}
+): Promise<PinCandidatesResult | null> {
+  const cache = opts.cache ?? new Map();
   const client = await prisma.counterparty.findUnique({
     where: { id: counterpartyId },
     select: { name: true, deliveryLat: true, deliveryLng: true },
   });
   if (!client) return null;
-  if (client.deliveryLat == null || client.deliveryLng == null) {
-    return { name: client.name, current: null, candidates: [], note: "У клієнта немає навіть приблизної точки — нема від чого шукати місто." };
-  }
-  const center = { lat: client.deliveryLat, lng: client.deliveryLng };
-  const since = new Date(Date.now() - PERIOD_DAYS * 86_400_000);
+  const current = client.deliveryLat != null && client.deliveryLng != null ? { lat: client.deliveryLat, lng: client.deliveryLng } : null;
+  const center = opts.around ?? current;
+  const empty = (note: string): PinCandidatesResult => ({ name: client.name, current, votedDocs: 0, candidates: [], confident: false, note });
+  if (!center) return empty("У клієнта немає навіть приблизної точки — нема від чого шукати місто.");
 
-  const docs = await prisma.salesDocument.findMany({
-    where: { counterpartyId, createdAt: { gte: since }, salesRepId: { not: null }, docType: { not: "RETURN" } },
+  const since = new Date(Date.now() - PERIOD_DAYS * 86_400_000);
+  // Замовлення — те, що торговий набиває в магазині. Реалізація з тим самим
+  // часом дала б кожному візиту другий голос; беремо її лише без замовлень.
+  let docs = await prisma.salesDocument.findMany({
+    where: { counterpartyId, docType: "ORDER", createdAt: { gte: since }, salesRepId: { not: null } },
     select: { salesRepId: true, createdAt: true },
   });
-  const docDays = new Map<string, Set<string>>();
-  for (const d of docs) {
-    const set = docDays.get(d.salesRepId!) ?? new Set<string>();
-    set.add(kyivDay(d.createdAt));
-    docDays.set(d.salesRepId!, set);
+  if (docs.length === 0) {
+    docs = await prisma.salesDocument.findMany({
+      where: { counterpartyId, docType: "REALIZATION", createdAt: { gte: since }, salesRepId: { not: null } },
+      select: { salesRepId: true, createdAt: true },
+    });
   }
-  if (docDays.size === 0) {
-    return { name: client.name, current: center, candidates: [], note: `За ${PERIOD_DAYS} днів у клієнта немає документів торгового — нема з чим звіряти трек.` };
-  }
+  if (docs.length === 0) return empty(`За ${PERIOD_DAYS} днів у клієнта немає документів торгового — нема з чим звіряти трек.`);
 
-  const dLat = TOWN_RADIUS_KM / 111;
-  const dLng = TOWN_RADIUS_KM / (111 * Math.cos((center.lat * Math.PI) / 180));
-  const repNames = new Map(
-    (await prisma.user.findMany({ where: { id: { in: [...docDays.keys()] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name.trim()])
+  type Vote = Pt & { v: number; day: string; minutes: number; rep: string };
+  const votes: Vote[] = [];
+  let voted = 0;
+  for (const d of docs) {
+    const t = kyivMoment(d.createdAt);
+    const day = kyivDay(t);
+    /*
+     * Лише стоянки в цьому місті. Нормування по всіх стоянках дня здавалося
+     * чеснішим («набили вже в сусідньому місті — хай голос іде туди»), але
+     * на ручних точках дало 7 упевнених відповідей замість 31: замовлення,
+     * які торговий добиває в дорозі чи ввечері, розмивали частку правильного
+     * місця. Що клієнт у цьому місті — ми й так знаємо з адреси.
+     */
+    const stops = (await dayStops(d.salesRepId!, day, cache)).filter((s) => meters(s, center) <= TOWN_RADIUS_KM * 1000);
+    const w = stops.map((s) => lagWeight((t.getTime() - s.from.getTime()) / 60_000));
+    const sum = w.reduce((a, b) => a + b, 0);
+    if (sum <= 0) continue;
+    voted++;
+    stops.forEach((s, i) => {
+      if (w[i] > 0) votes.push({ lat: s.lat, lng: s.lng, v: w[i] / sum, day, minutes: s.minutes, rep: d.salesRepId! });
+    });
+  }
+  if (voted === 0) return empty("У дні замовлень трек торгового не показує стоянок поблизу часу замовлення — або трек тоді ще не писався.");
+  if (votes.length === 0) return empty("Замовлення цього клієнта набивали, коли торговий стояв деінде поза цим містом.");
+
+  const clusters: Array<{ c: Pt; members: Vote[]; v: number }> = [];
+  for (const x of [...votes].sort((a, b) => b.v - a.v)) {
+    const k = clusters.find((k) => meters(k.c, x) <= CLUSTER_M);
+    if (k) {
+      k.members.push(x);
+      k.v += x.v;
+      const n = k.members.length;
+      k.c = { lat: k.members.reduce((a, m) => a + m.lat, 0) / n, lng: k.members.reduce((a, m) => a + m.lng, 0) / n };
+    } else clusters.push({ c: { lat: x.lat, lng: x.lng }, members: [x], v: x.v });
+  }
+  clusters.sort((a, b) => b.v - a.v);
+
+  const repIds = [...new Set(votes.map((v) => v.rep))];
+  const names = new Map(
+    (await prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name.trim()])
   );
 
-  type Stop = Pt & { day: string; minutes: number; rep: string };
-  const stops: Stop[] = [];
-  for (const rep of docDays.keys()) {
-    // Лише точки в межах міста: цього досить, щоб знайти стоянки в ньому,
-    // і в рази менше, ніж увесь трек за три місяці.
-    const pts = await prisma.trackPoint.findMany({
-      where: {
-        userId: rep,
-        recordedAt: { gte: since },
-        lat: { gte: center.lat - dLat, lte: center.lat + dLat },
-        lng: { gte: center.lng - dLng, lte: center.lng + dLng },
-      },
-      orderBy: { recordedAt: "asc" },
-      select: { lat: true, lng: true, recordedAt: true, speedKmh: true },
-    });
-    const byDay = new Map<string, typeof pts>();
-    for (const p of pts) {
-      const d = kyivDay(p.recordedAt);
-      const list = byDay.get(d) ?? [];
-      list.push(p);
-      byDay.set(d, list);
-    }
-    for (const [day, list] of byDay) {
-      for (const s of findStops(list)) {
-        if (meters(s, center) <= TOWN_RADIUS_KM * 1000) stops.push({ lat: s.lat, lng: s.lng, day, minutes: s.minutes, rep });
-      }
-    }
-  }
-  if (stops.length === 0) {
-    return { name: client.name, current: center, candidates: [], note: "Трек торгового не показує жодної стоянки в цьому місті — або він ще не писав трек, коли тут бував." };
-  }
-
-  // Місця: жадібно, довші стоянки першими — вони точніші.
-  const clusters: Array<{ c: Pt; members: Stop[] }> = [];
-  for (const s of [...stops].sort((a, b) => b.minutes - a.minutes)) {
-    const hit = clusters.find((k) => meters(k.c, s) <= CLUSTER_M);
-    if (hit) {
-      hit.members.push(s);
-      const n = hit.members.length;
-      hit.c = { lat: hit.members.reduce((a, m) => a + m.lat, 0) / n, lng: hit.members.reduce((a, m) => a + m.lng, 0) / n };
-    } else clusters.push({ c: { lat: s.lat, lng: s.lng }, members: [s] });
-  }
-
-  // «Дні клієнта в місті» — окремо для кожного торгового: телефонне
-  // замовлення не свідчить ні за, ні проти місця.
-  const inTownByRep = new Map<string, Set<string>>();
-  for (const s of stops) {
-    const set = inTownByRep.get(s.rep) ?? new Set<string>();
-    set.add(s.day);
-    inTownByRep.set(s.rep, set);
-  }
-
-  const scored = clusters.map((k) => {
-    // Місце належить тому торговому, який стояв тут найчастіше.
-    const byRep = new Map<string, number>();
-    for (const m of k.members) byRep.set(m.rep, (byRep.get(m.rep) ?? 0) + 1);
-    const rep = [...byRep.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    const days = new Set(k.members.filter((m) => m.rep === rep).map((m) => m.day));
-    const cd = docDays.get(rep) ?? new Set<string>();
-    const inTown = [...cd].filter((d) => inTownByRep.get(rep)?.has(d));
-    const clientDays = [...days].filter((d) => cd.has(d)).length;
-    const minutes = k.members.map((m) => m.minutes);
-    return {
-      k,
-      rep,
-      clientDays,
-      clientDaysInTown: inTown.length,
-      allDays: days.size,
-      minutesMin: Math.round(Math.min(...minutes)),
-      minutesMax: Math.round(Math.max(...minutes)),
-      lastDay: [...days].sort().at(-1)!,
-    };
-  });
-
-  const candidates = scored
-    .filter((s) => s.clientDays > 0)
-    .sort((a, b) => b.clientDays - a.clientDays || a.allDays - b.allDays)
+  const candidates = clusters
+    .filter((k) => k.v / voted >= 0.05)
     .slice(0, MAX_CANDIDATES)
-    .map((s, i) => ({
-      label: String.fromCharCode(65 + i),
-      lat: s.k.c.lat,
-      lng: s.k.c.lng,
-      clientDays: s.clientDays,
-      clientDaysInTown: s.clientDaysInTown,
-      allDays: s.allDays,
-      minutesMin: s.minutesMin,
-      minutesMax: s.minutesMax,
-      repName: repNames.get(s.rep) ?? "торговий",
-      lastDay: s.lastDay,
-      distanceM: Math.round(meters(s.k.c, center)),
-    }));
+    .map((k, i) => {
+      const byRep = new Map<string, number>();
+      for (const m of k.members) byRep.set(m.rep, (byRep.get(m.rep) ?? 0) + m.v);
+      const rep = [...byRep.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const minutes = k.members.map((m) => m.minutes);
+      const days = [...new Set(k.members.map((m) => m.day))].sort();
+      return {
+        label: String.fromCharCode(65 + i),
+        lat: k.c.lat,
+        lng: k.c.lng,
+        share: k.v / voted,
+        days: days.length,
+        minutesMin: Math.round(Math.min(...minutes)),
+        minutesMax: Math.round(Math.max(...minutes)),
+        repName: names.get(rep) ?? "торговий",
+        lastDay: days.at(-1)!,
+        distanceM: current ? Math.round(meters(k.c, current)) : 0,
+      };
+    });
 
   return {
     name: client.name,
-    current: center,
+    current,
+    votedDocs: voted,
     candidates,
-    note: candidates.length
-      ? null
-      : "Торговий бував у місті, але в дні документів цього клієнта не зупинявся ніде надовше за 5 хвилин.",
+    confident: !!candidates[0] && candidates[0].share >= AUTO_MIN_SHARE && voted >= AUTO_MIN_DOCS,
+    note: candidates.length ? null : "Голоси замовлень розпорошені — жодне місце не набрало помітної частки.",
   };
 }

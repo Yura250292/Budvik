@@ -228,11 +228,11 @@ model User {
   /// (src/lib/rep-feed/prefs.ts). NULL — усе ввімкнено.
   notificationPrefs Json?
   /// Запити торгового «повідомити, коли приїде» (src/lib/rep-feed/watches.ts).
-  productWatches ProductWatch[] @relation("productWatchUser")
+  productWatches    ProductWatch[]   @relation("productWatchUser")
   /// Заявки торгового в офіс (src/lib/office-requests).
-  officeRequests OfficeRequest[] @relation("officeRequestAuthor")
+  officeRequests    OfficeRequest[]  @relation("officeRequestAuthor")
   /// Пропозиції клієнтам, які написав торговий (src/lib/outreach).
-  outreaches     ClientOutreach[] @relation("outreachRep")
+  outreaches        ClientOutreach[] @relation("outreachRep")
 
   /// Торговий, чий QR привів цього клієнта. Ставиться один раз (перший виграє)
   /// і далі не перезаписується — інакше чужий QR «перехоплював» би клієнта.
@@ -357,6 +357,10 @@ model User {
   staffTasksCreated  StaffTask[] @relation("staffTaskCreator")
   staffTasksAssigned StaffTask[] @relation("staffTaskAssignee")
 
+  // Календар Google (src/lib/calendar)
+  calendarConnection CalendarConnection? @relation("calendarConnectionUser")
+  calendarEventLinks CalendarEventLink[] @relation("calendarEventLinkUser")
+
   trackEvents TrackEvent[]
 
   @@index([referredBySalesRepId])
@@ -409,21 +413,21 @@ model Category {
 }
 
 model Product {
-  id             String   @id @default(cuid())
-  sku            String?  @unique
+  id             String         @id @default(cuid())
+  sku            String?        @unique
   name           String
-  slug           String   @unique
+  slug           String         @unique
   description    String
   price          Float
   wholesalePrice Float?
   /// Роздріб не з 1С, а розрахований з опту (× Brand.retailMarkup): у 1С для
   /// цього товару немає ціни «6.МАГАЗИНИ». Скидається, щойно вона зʼявиться.
-  priceDerived   Boolean  @default(false)
+  priceDerived   Boolean        @default(false)
   image          String?
-  stock          Int      @default(0)
-  isActive       Boolean  @default(true)
-  priority       Int      @default(0)
-  isPromo        Boolean  @default(false)
+  stock          Int            @default(0)
+  isActive       Boolean        @default(true)
+  priority       Int            @default(0)
+  isPromo        Boolean        @default(false)
   promoPrice     Float?
   promoLabel     String?
   // Кратність: товар продається пачками, замовляти можна лише 10, 20, 30...
@@ -437,7 +441,7 @@ model Product {
   // Масив, а не одне поле: в 1С у номенклатури буває кілька штрихкодів
   // (упаковка, ящик, старий код постачальника), і будь-який із них може
   // виявитись саме тим, що надрукований на коробці в руках у покупця.
-  barcodes       String[] @default([])
+  barcodes       String[]       @default([])
   // Tool specification fields (optional)
   powerWatts     Int? // Потужність (Вт)
   rpm            Int? // Обороти (об/хв)
@@ -1001,19 +1005,19 @@ model SalesDocument {
 
   externalId String? @unique // Ref_Key документа в 1С (унікальний незалежно від типу)
 
-  counterparty    Counterparty?       @relation(fields: [counterpartyId], references: [id])
-  salesRep        User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
-  createdBy       User                @relation("salesDocCreator", fields: [createdById], references: [id])
-  items           SalesDocumentItem[]
-  pickMarks       PickMark[]          @relation("pickMarkDocument")
-  pickSeenLines   PickSeenLine[]      @relation("pickSeenDocument")
-  invoice         Invoice?
-  commissions     CommissionRecord[]
-  reservations    StockReservation[]
-  deliveryStop    DeliveryStop?
-  routeSheetStops RouteSheetStop[]    @relation("routeSheetStops")
+  counterparty     Counterparty?       @relation(fields: [counterpartyId], references: [id])
+  salesRep         User?               @relation("salesRepSales", fields: [salesRepId], references: [id])
+  createdBy        User                @relation("salesDocCreator", fields: [createdById], references: [id])
+  items            SalesDocumentItem[]
+  pickMarks        PickMark[]          @relation("pickMarkDocument")
+  pickSeenLines    PickSeenLine[]      @relation("pickSeenDocument")
+  invoice          Invoice?
+  commissions      CommissionRecord[]
+  reservations     StockReservation[]
+  deliveryStop     DeliveryStop?
+  routeSheetStops  RouteSheetStop[]    @relation("routeSheetStops")
   /// Пропозиції, які закрились цією накладною (ClientOutreach.outcome=ORDERED).
-  outreachOutcomes ClientOutreach[]   @relation("outreachOutcome")
+  outreachOutcomes ClientOutreach[]    @relation("outreachOutcome")
   // Є ще частковий індекс "SalesDocument_client_recent_idx"
   // ("counterpartyId", "createdAt" DESC) з умовою SOURCE_FILTER — під картку
   // останніх замовлень клієнта. Prisma часткові індекси не вміє описувати,
@@ -1493,7 +1497,7 @@ model Notification {
   /// Унікальність тут — замок: детектор у воркері читає джерела з перекриттям
   /// у хвилину, і без ключа кожен тік дописував би ті самі події вдруге.
   /// Старі сповіщення без ключа (NULL) між собою не конфліктують.
-  dedupKey String? @unique
+  dedupKey String?   @unique
   /// Коли про рядок надіслали пуш. NULL — лише в стрічці (тихі години, стеля
   /// на день). Саме по цьому полю рахується денна стеля пушів.
   pushedAt DateTime?
@@ -3198,28 +3202,28 @@ model OfficeRequest {
 /// цілком (apply-contacts.ts); рядки, внесені на сайті (source=SITE), обмін
 /// не чіпає.
 model CounterpartyContact {
-  id              String    @id @default(cuid())
-  counterpartyId  String
+  id               String    @id @default(cuid())
+  counterpartyId   String
   /// PHONE | MOBILE | EMAIL | ADDRESS | OTHER — виводить сервер (contacts/kinds.ts).
-  kind            String
+  kind             String
   /// ПРЕДСТАВЛЕНИЕ(Вид) як у 1С: «Телефон контрагента», «Адрес доставки»…
-  kind1C          String?
+  kind1C           String?
   /// ПРЕДСТАВЛЕНИЕ(Тип): «Телефон», «Адрес», «Адрес электронной почты»…
-  type1C          String?
-  value           String
+  type1C           String?
+  value            String
   /// +380XXXXXXXXX для телефонів, lower-case для пошти, NULL для решти.
-  valueNormalized String?
+  valueNormalized  String?
   personExternalId String?
-  personName      String?
+  personName       String?
   /// ONE_C | SITE
-  source          String    @default("SITE")
+  source           String    @default("SITE")
   /// Ключ ідемпотентності 1С-рядка: контрагент | особа | вид | хеш значення.
-  externalKey     String?   @unique
-  ordinal         Int?
-  isPrimary       Boolean   @default(false)
-  syncedAt        DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  externalKey      String?   @unique
+  ordinal          Int?
+  isPrimary        Boolean   @default(false)
+  syncedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
 
@@ -3512,6 +3516,8 @@ model Shift {
    * /**
    * /**
    * /**
+   * /**
+   * /**
    * Коли автоматично (або заднім числом) закриту зміну визнали правдою.
    * Потрібне саме окреме поле, а не статус: пробіг такої зміни доїжджає
    * зранку зі стартового фото, тобто вона вже «закрита», але ще не
@@ -3656,6 +3662,99 @@ model SiteEvent {
 /// Живе вічно, тоді як сирі SiteEvent чистяться через 180 днів: графік
 /// «скільки людей заходило торік» мусить лишитися, а мільйони рядків
 /// заради нього тримати нема сенсу.
+/// На якому рівні порахований сезонний профіль.
+///
+/// Драбина успадкування: товар → група каталогу → розділ → уся фірма.
+/// Кожна сходинка спрацьовує, коли попередня не набрала довіри, тож
+/// значення визначене ЗАВЖДИ і жодне не вигадане — у відповіді прямо
+/// пишеться «сезон групи, не товару».
+enum SeasonLevel {
+  SKU
+  TYPE
+  SECTION
+  BRAND
+  COMPANY
+}
+
+/// Наскільки можна вірити цьому профілю.
+///
+/// HIGH пускається в закупівлю й міняє числа заявки; MEDIUM показується
+/// з застереженням, але замовлення не рухає; LOW означає «беремо рівень
+/// вище по драбині».
+enum SeasonConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// Сезонний профіль: як розподіляється рік усередині групи товарів.
+///
+/// ГОЛОВНЕ: індекс лише ВІДНОСНИЙ — частка місяця в році, нормована так,
+/// що 1,0 означає звичайний місяць. Абсолютні гривні сюди не кладуться
+/// ніколи. Без нормування «сезонність» виродилась би в загальний рівень
+/// продажів і в інфляцію: на пробі без неї пік виходив у березні одразу
+/// в УСІХ розділів, бо березень просто був найкращим місяцем фірми.
+///
+/// Кожен рік ділиться на власний підсумок, тож зростання фірми зникає без
+/// жодного дефлятора. Пулити абсолютні суми 2024+2025 не можна: якби 2025
+/// був у півтора раза більший, профіль став би просто профілем 2025.
+///
+/// Неповний рік у профіль не входить узагалі — саме тому є `years`.
+///
+/// Чому таблиця, а не розрахунок на льоту. Заміряно на живій базі: повний
+/// помісячний профіль на 52 тис. рядків — 111 мс, після бекфілу орієнтовно
+/// 0,3–1,0 с. Для помічника це по кишені, але сторінка закупівель
+/// перебудовує звіт на КОЖЕН клік фільтра, і секунда там відчутна.
+/// Результат мізерний — кількасот рядків, тож таблиця дешева. Це рівно
+/// патерн SiteDailyStat: агрегат плюс upsert за розкладом.
+model SeasonProfile {
+  id    String      @id @default(cuid())
+  level SeasonLevel
+  /// typeKey / sectionId / brandId / productId; для COMPANY — "all".
+  key   String
+  /// Людська назва — щоб екран не ходив за нею в чотири різні таблиці.
+  label String
+
+  /// Які роки СПРАВДІ увійшли. Неповний рік не входить, і цей масив —
+  /// єдиний чесний доказ, на чому саме побудований індекс.
+  years Int[]
+
+  /// Дванадцять індексів, січень→грудень. 1,0 = звичайний місяць.
+  /// Група — у штуках (однорідна, штуки складаються осмислено), розділ і
+  /// бренд — у грошах (додавати штуки саморізів і бензопил безглуздо).
+  qtyIndex    Float[]
+  amountIndex Float[]
+
+  /// Сирі помісячні числа по роках — щоб людина могла побачити, звідки
+  /// узявся індекс, а не вірити йому на слово.
+  monthly Json
+
+  /// Кореляція між дванадцятьма частками різних років. Разовий сплеск,
+  /// що не повторився (відключення світла, один великий об'єкт), обвалює
+  /// її — і група чесно не називається сезонною.
+  yearAgreement Float?
+  /// Відношення піку до провалу: наскільки сезон узагалі виражений.
+  amplitude     Float   @default(1)
+  /// Хоч один місяць тримався на одному документі (понад 30% місяця).
+  /// Такий профіль у закупівлю не пускається.
+  lumpy         Boolean @default(false)
+
+  /// Обсяг, на якому все це пораховано.
+  docs   Int   @default(0)
+  qty    Float @default(0)
+  amount Float @default(0)
+
+  confidence SeasonConfidence @default(LOW)
+
+  /// Коли порахований. Потрібна не для порядку: typeKey рахується з назви
+  /// товару, тож перекласифікація каталогу мовчки переписує історію.
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([level, key])
+  @@index([level, confidence])
+}
+
 model SiteDailyStat {
   id   String   @id @default(cuid())
   date DateTime @unique @db.Date
@@ -3773,7 +3872,7 @@ model AssistantMessage {
   /// підозрюваних на момент ходу, а не здогад заднім числом.
   lessonIds String[] @default([])
 
-  thread AssistantThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  thread   AssistantThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
   /// Куди цю відповідь пересилали в чат персоналу.
   forwards StaffMessage[]
   /// Оцінка керівника або автосигнал про цю відповідь.
@@ -3839,8 +3938,8 @@ model AssistantFeedback {
   expected String?
 
   // ── знімок ходу ────────────────────────────────────────────────
-  question String
-  answer   String
+  question  String
+  answer    String
   /// [{ name, label, ms, ok }] — той самий слід, що показує ToolTrace.
   toolTrace Json
   /// Хто відповів; null — відповідь склав код без моделі.
@@ -3851,16 +3950,16 @@ model AssistantFeedback {
   intent    String?
   rounds    Int     @default(0)
 
-  promptTokens     Int @default(0)
-  completionTokens Int @default(0)
+  promptTokens     Int  @default(0)
+  completionTokens Int  @default(0)
   durationMs       Int?
 
   /// Числовий вартовий, перерахований на знімку: TOOL-рядки зберігають
   /// повний JSON інструмента, тож перевірку можна відтворити заднім числом.
-  numbersChecked    Int @default(0)
-  numbersUnverified Int @default(0)
+  numbersChecked    Int      @default(0)
+  numbersUnverified Int      @default(0)
   /// Скільки посилань довелося зняти як вигадані.
-  strippedLinks     Int @default(0)
+  strippedLinks     Int      @default(0)
   /// Які правила діяли на момент відповіді — копія з AssistantMessage.
   lessonIds         String[] @default([])
 
@@ -3926,7 +4025,7 @@ model AssistantLesson {
   /// Що вище, те раніше в списку й тим більше шансів пережити стелю ходу.
   priority Int                   @default(0)
 
-  authorId String?
+  authorId   String?
   /// З якої саме поганої відповіді це народилось.
   feedbackId String?
 
@@ -3935,8 +4034,8 @@ model AssistantLesson {
   usedCount  Int       @default(0)
   lastUsedAt DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   /// М'яке вимкнення, як у ClientMemory: «хто це стер і чому» питають тоді,
   /// коли відповіді вже немає.
   archivedAt DateTime?
@@ -3958,18 +4057,18 @@ model AssistantEvalCase {
   kind     String @default("ADMIN")
 
   /// Які інструменти мали бути викликані, а які — ні.
-  expectTools String[] @default([])
-  forbidTools String[] @default([])
+  expectTools  String[] @default([])
+  forbidTools  String[] @default([])
   /// kpi / chart / tree / file — які блоки має намалювати відповідь.
   expectBlocks String[] @default([])
   /// "MODEL" — має піти до моделі, "CODE" — має відповісти роутер,
   /// null — байдуже.
-  expectVia String?
+  expectVia    String?
 
   mustContain    String[] @default([])
   mustNotContain String[] @default([])
   /// Стеля чисел, яких немає в даних. null — не перевіряємо.
-  maxUnverified Int?
+  maxUnverified  Int?
 
   /// «Як правильно» словами керівника — для людини й для судді-моделі.
   rubric String?
@@ -4158,7 +4257,7 @@ model StaffMessage {
 
 /// Фото в повідомленні: до 4, у порядку position.
 model StaffMessagePhoto {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   messageId String
   /// Ключ у R2: chat/<yyyy>/<mm>/<userId>-<cuid>.jpg — id автора в ключі і є
   /// перевіркою власності: чужий ключ до повідомлення не пришиєш.
@@ -4167,7 +4266,7 @@ model StaffMessagePhoto {
   width     Int
   height    Int
   bytes     Int
-  position  Int    @default(0)
+  position  Int      @default(0)
   createdAt DateTime @default(now())
 
   message StaffMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -4309,13 +4408,13 @@ model Price1C {
 
 /// Ціна того самого товару на чужому сайті.
 model MarketPrice {
-  id        String   @id @default(cuid())
-  productId String
+  id         String   @id @default(cuid())
+  productId  String
   /// Хост джерела («apro.ua»). Реєстр — src/lib/pricing/market/sources.ts.
-  source    String
-  url       String
-  price     Float
-  inStock   Boolean?
+  source     String
+  url        String
+  price      Float
+  inStock    Boolean?
   /// Заголовок сторінки — щоб адмін бачив, що саме знайдено.
   title      String?
   /// Як пройшла остання перевірка: ok | out_of_stock | no_price | http_404 | error.
@@ -4323,12 +4422,12 @@ model MarketPrice {
   /// Хто знайшов сторінку: vendor_crawl (обхід сайту виробника) | agent.
   foundBy    String?
   /// Коли ціну востаннє вдалося прочитати.
-  seenAt    DateTime @default(now())
+  seenAt     DateTime @default(now())
   /// Коли сторінку востаннє пробували читати — черга нічної переперевірки.
-  checkedAt DateTime @default(now())
-  changedAt DateTime @default(now())
+  checkedAt  DateTime @default(now())
+  changedAt  DateTime @default(now())
   /// Скільки спроб поспіль ціну не прочитано.
-  failCount Int      @default(0)
+  failCount  Int      @default(0)
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -4511,4 +4610,92 @@ model StaffTask {
   @@index([meetingId])
   @@index([status, pushedAt])
   @@index([createdById, status, createdAt(sort: Desc)])
+}
+
+// ========== Календар Google (src/lib/calendar) ==========
+// Конектор навмисно знімний: у бізнес-моделях немає жодної його колонки, а
+// вимкнути його цілком можна, прибравши CALENDAR_TOKEN_KEY зі змінних.
+
+/// Підключення Google-акаунту людини до календаря «Budvik».
+///
+/// Окремо від next-auth: GoogleProvider у src/lib/auth.ts — це вхід покупця
+/// на вітрину, і додавати туди календарний дозвіл означало б питати згоду на
+/// календар у кожного роздрібного клієнта. Плюс сесія там jwt, а PrismaAdapter
+/// з таблицею Account потягнув би за собою всі 172 файли з getServerSession.
+model CalendarConnection {
+  id     String @id @default(cuid())
+  /// Одна людина — один календар. Двох акаунтів Google нікому не треба, а
+  /// унікальність робить апсерт підключення тривіальним.
+  userId String @unique
+
+  /// Який саме акаунт підключено — людина мусить бачити, бо їх у неї кілька.
+  googleEmail String
+
+  /// refresh_token, зашифрований AES-256-GCM (src/lib/calendar/crypto.ts).
+  /// Перший секрет у проєкті, який зберігається з можливістю розшифрувати:
+  /// решта (паролі, токени пристроїв) лягає однобічним хешем.
+  refreshTokenEnc String
+  /// Версія ключа шифрування — щоб ротація не вимагала простою.
+  keyVersion      Int    @default(1)
+  /// Дозвіл, який Google реально видав. Звузили набір — треба перепідключити.
+  scope           String
+
+  /// Календар «Budvik», створений застосунком. NULL — ще не створено.
+  calendarId String?
+
+  /// ACTIVE | NEEDS_RECONNECT | DISABLED.
+  /// NEEDS_RECONNECT — не аварія: людина змінила пароль або відкликала доступ.
+  status String @default("ACTIVE")
+
+  lastError      String?
+  lastErrorAt    DateTime?
+  lastSyncAt     DateTime?
+  connectedAt    DateTime  @default(now())
+  disconnectedAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation("calendarConnectionUser", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Мапінг «запис на сайті ↔ подія в календарі».
+///
+/// Окрема таблиця, а не колонка googleEventId у кожній моделі: розклад
+/// напрямків торгового не має одного запису на одну подію — правило «щосереди
+/// Радехів» це N подій на вікні, і ключ там складений («<assignmentId>:2026-09-24»).
+/// Плюс воркеру потрібен один дешевий запит «що не доїхало» замість сканів по
+/// великих таблицях ERP. Зв'язку по FK тут свідомо немає (як у Notification.relatedId):
+/// осиротілі рядки прибирає саме звірення — подія, якої немає в бажаному стані,
+/// зникає і з Google, і звідси.
+model CalendarEventLink {
+  id     String @id @default(cuid())
+  userId String
+
+  /// STAFF_TASK | DELIVERY_ROUTE | ASSISTANT_REMINDER | REP_ROUTE_DAY.
+  entity   String
+  /// Ідентифікатор запису на сайті; для розкладу — «<assignmentId>:<день>».
+  entityId String
+
+  /// Ідентифікатор події в Google. Задаємо самі (src/lib/calendar/render.ts):
+  /// сталий id перетворює повторну вставку на 409 «вже є» замість дубля.
+  googleEventId String
+  calendarId    String
+  /// Відбиток змісту: збігся — жодного виклику API на цьому тіку.
+  contentHash   String
+
+  /// PENDING | SYNCED | FAILED.
+  state         String    @default("PENDING")
+  attempts      Int       @default(0)
+  /// Замок від другої копії воркера (під час railway up їх дві). Протухає за 10 хв.
+  lockedAt      DateTime?
+  nextAttemptAt DateTime?
+  lastError     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("calendarEventLinkUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entity, entityId])
+  @@index([state, nextAttemptAt])
+  @@index([userId, entity])
 }

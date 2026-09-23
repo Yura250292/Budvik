@@ -358,6 +358,10 @@ model User {
   staffTasksAssigned StaffTask[] @relation("staffTaskAssignee")
 
 
+  // MCP-конектор для Claude/ChatGPT (src/lib/mcp)
+  mcpAuthCodes McpAuthCode[]
+  mcpTokens    McpToken[]
+
   trackEvents TrackEvent[]
 
   @@index([referredBySalesRepId])
@@ -4609,3 +4613,95 @@ model StaffTask {
   @@index([createdById, status, createdAt(sort: Desc)])
 }
 
+// ─── MCP-конектор (claude.ai, ChatGPT) ─────────────────────────────────────
+//
+// Власний маленький OAuth 2.1 сервер для віддаленого MCP (src/lib/mcp, сервіс
+// mcp/ на Railway). Клієнти реєструються самі (DCR), адмін входить логіном
+// сайту, токени й коди зберігаються лише як SHA-256 — як DeviceToken.
+// Докладно: docs/mcp-connector.md.
+
+/// Зареєстрований через DCR клієнт: claude.ai, ChatGPT, Claude Code.
+model McpClient {
+  /// client_id — видаємо самі.
+  id           String    @id
+  /// client_secret для confidential-клієнтів. SDK порівнює його як є, тож
+  /// хеш тут не годиться; основний захист однаково — PKCE і вхід адміна.
+  secret       String?
+  name         String?
+  redirectUris String[]
+  /// Повна відповідь RFC 7591 — SDK віддає її назад при кожному getClient.
+  metadata     Json
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  codes  McpAuthCode[]
+  tokens McpToken[]
+}
+
+/// Одноразовий код авторизації (5 хв). Повтор — ознака крадіжки: родина відкликається.
+model McpAuthCode {
+  id            String    @id @default(cuid())
+  codeHash      String    @unique
+  clientId      String
+  client        McpClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  codeChallenge String
+  scopes        String[]
+  resource      String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  /// Спільний з токенами, виданими за цим кодом.
+  familyId      String
+  createdAt     DateTime  @default(now())
+
+  @@index([familyId])
+}
+
+enum McpTokenKind {
+  ACCESS
+  REFRESH
+}
+
+/// Токен доступу або оновлення. Одне підключення = одна родина (familyId);
+/// відкликання — завжди цілою родиною.
+model McpToken {
+  id         String       @id @default(cuid())
+  kind       McpTokenKind
+  tokenHash  String       @unique
+  familyId   String
+  clientId   String
+  client     McpClient    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes     String[]
+  resource   String?
+  expiresAt  DateTime
+  /// Для REFRESH: коли обміняли. Повторне пред'явлення = крадіжка.
+  usedAt     DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([familyId])
+  @@index([userId, kind])
+}
+
+/// Журнал викликів інструментів MCP (90 днів): хто, що, скільки рядків, помилки.
+model McpCall {
+  id        String   @id @default(cuid())
+  userId    String
+  clientId  String?
+  tool      String
+  /// Аргументи як прийшли; для query_db — сам SQL.
+  args      Json
+  ok        Boolean
+  rows      Int?
+  ms        Int
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}

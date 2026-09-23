@@ -17,6 +17,13 @@ import { verifyParams } from "@/lib/mcp/oauth/signed";
 
 /** 5 спроб на 15 хвилин для пари «адреса + email»: підбір пароля, а не опечатка. */
 const LOGIN_LIMIT = 5;
+/**
+ * І 10 на 15 хвилин на сам email, звідки б не йшли: інакше той, хто міняє
+ * адресу (ботнет, IPv6), щоразу отримує нові 5 спроб. Так само два відра
+ * тримає вхід застосунку (/api/v1/auth/login). Ціна — справжній адмін після
+ * чужого перебору чекає 15 хвилин.
+ */
+const EMAIL_LIMIT = 10;
 const LOGIN_WINDOW_S = 900;
 
 const field = (req: Request, name: string): string => {
@@ -44,8 +51,12 @@ export function makeLoginHandler(provider: BudvikOAuthProvider): RequestHandler 
       const email = field(req, "email");
       const password = field(req, "password");
 
-      const limit = await rateLimit(`mcp-login:${req.ip ?? "unknown"}:${email.trim().toLowerCase()}`, LOGIN_LIMIT, LOGIN_WINDOW_S);
-      if (!limit.allowed) {
+      const key = email.trim().toLowerCase();
+      const [byIp, byEmail] = await Promise.all([
+        rateLimit(`mcp-login:${req.ip ?? "unknown"}:${key}`, LOGIN_LIMIT, LOGIN_WINDOW_S),
+        rateLimit(`mcp-login-email:${key}`, EMAIL_LIMIT, LOGIN_WINDOW_S),
+      ]);
+      if (!byIp.allowed || !byEmail.allowed) {
         renderLogin(res, p, name, "Забагато спроб. Спробуйте за 15 хвилин.", 429);
         return;
       }

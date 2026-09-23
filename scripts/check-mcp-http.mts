@@ -227,6 +227,31 @@ try {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
   check("після повтору refresh новий access теж мертвий", dead.status === 401, dead.status);
+
+  /* ── 10. Підбір пароля зі зміною адреси (лише на тимчасовому адміні) ── */
+  // Стеля «адреса + email» сама по собі не рятує: хто міняє IP, отримує нові
+  // 5 спроб щоразу. Має спрацювати й стеля на сам email. Локально Express
+  // бере req.ip з X-Forwarded-For (trust proxy 1) — так і імітуємо ботнет.
+  if (cleanup) {
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const r = await fetch(`${BASE}/login`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": `203.0.113.${10 + i}` },
+        body: form({ req, email, password: `не-той-${i}` }),
+      });
+      statuses.push(r.status);
+    }
+    check("з різних адрес: після 10 спроб на email — 429", statuses.slice(10).every((s) => s === 429), statuses.join(","));
+    const right = await fetch(`${BASE}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "203.0.113.99" },
+      body: form({ req, email, password }),
+    });
+    check("і правильний пароль з нової адреси не пускає, поки діє стеля", right.status === 429, right.status);
+  }
 } finally {
   if (cleanup) await cleanup();
 }

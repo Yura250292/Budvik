@@ -65,6 +65,7 @@ const dt = new Intl.DateTimeFormat("uk-UA", {
 const REASON_TITLE: Record<RecoReason, string> = {
   REPLENISH: "Пора повторити",
   DROPPED: "Перестав брати",
+  SEASON: "Бере саме в цей місяць",
   SIMILAR_CLIENTS: "Беруть схожі клієнти",
 };
 

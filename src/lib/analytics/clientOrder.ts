@@ -22,7 +22,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER } from "@/lib/analytics/facts";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
-import { kyivDayStart } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayStart, kyivTsSql } from "@/lib/date/kyiv";
 
 const DAY_MS = 86_400_000;
 
@@ -131,7 +131,7 @@ export type LastOrder = {
   items: LastOrderItem[];
 };
 
-export type RecoReason = "REPLENISH" | "DROPPED" | "SIMILAR_CLIENTS";
+export type RecoReason = "REPLENISH" | "DROPPED" | "SIMILAR_CLIENTS" | "SEASON";
 
 export type Recommendation = {
   key: string;
@@ -532,8 +532,111 @@ async function similarClients(counterpartyId: string): Promise<Recommendation[]>
 const REASON_ORDER: Record<RecoReason, number> = {
   REPLENISH: 0,
   DROPPED: 1,
-  SIMILAR_CLIENTS: 2,
+  // Сезон перед «схожими клієнтами»: це факт про САМОГО клієнта, а не
+  // здогад по чужій поведінці, тож і вагоміший.
+  SEASON: 2,
+  SIMILAR_CLIENTS: 3,
 };
+
+/**
+ * Що цей клієнт брав у ЦЬОМУ ж місяці попередніх років.
+ *
+ * Найсильніше, що дає бекфіл історії. Решта трьох причин дивиться на
+ * останні місяці; ця — на той самий календарний місяць торік і
+ * позаторік, тобто відповідає на питання, якого система не могла
+ * поставити взагалі: «а що він бере саме в жовтні».
+ *
+ * Свідомі обмеження:
+ *
+ *   — лише попередні роки, поточний виключено: те, що клієнт брав цього
+ *     місяця, і так побачить поповнення, а дубль у списку з шести рядків
+ *     коштує дорого;
+ *   — те, що він брав за останні 60 днів, теж викидаємо — інакше сезонна
+ *     порада повторить поповнення іншими словами;
+ *   — лише те, що є на складі й має ціну: пообіцяти й не привезти гірше,
+ *     ніж не пропонувати.
+ *
+ * До бекфілу функція просто повертає порожньо — минулих років у базі
+ * немає, і жодна порада не з'являється.
+ */
+async function seasonalForClient(counterpartyId: string, month: number): Promise<Recommendation[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      productId: string;
+      name: string;
+      sku: string | null;
+      brand: string | null;
+      brandColor: string | null;
+      price: number;
+      freeStock: number;
+      docs: number;
+      years: number;
+      qty: number;
+    }>
+  >`
+    WITH hist AS (
+      SELECT
+        i."productId",
+        COUNT(DISTINCT s.id)::int AS docs,
+        COUNT(DISTINCT EXTRACT(YEAR FROM ${Prisma.raw(kyivTsSql('s."createdAt"'))}))::int AS years,
+        SUM(i.quantity)::float AS qty
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."counterpartyId" = ${counterpartyId}
+        AND s."externalId" IS NOT NULL
+        AND s.status = 'CONFIRMED'
+        AND s."docType" = 'REALIZATION'
+        AND EXTRACT(MONTH FROM ${Prisma.raw(kyivTsSql('s."createdAt"'))}) = ${month}
+        -- Лише минулі роки: поточний уже покриває поповнення.
+        AND EXTRACT(YEAR FROM ${Prisma.raw(kyivTsSql('s."createdAt"'))})
+            < EXTRACT(YEAR FROM ${Prisma.raw(kyivTsSql("NOW()"))})
+      GROUP BY 1
+    ),
+    recent AS (
+      SELECT DISTINCT i."productId"
+      FROM "SalesDocumentItem" i
+      JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
+      WHERE s."counterpartyId" = ${counterpartyId}
+        AND s."createdAt" >= NOW() - INTERVAL '60 days'
+    )
+    SELECT
+      h."productId",
+      p.name,
+      p.sku,
+      b.name AS brand,
+      b.color AS "brandColor",
+      p.price::float AS price,
+      st.free AS "freeStock",
+      h.docs,
+      h.years,
+      h.qty
+    FROM hist h
+    JOIN "Product" p ON p.id = h."productId"
+    LEFT JOIN "Brand" b ON b.id = p."brandId"
+    ${FREE_STOCK("p")}
+    WHERE p."isActive" AND p.price > 0 AND st.free > 0
+      AND h."productId" NOT IN (SELECT "productId" FROM recent)
+    ORDER BY h.years DESC, h.docs DESC, h.qty DESC
+    LIMIT 5
+  `;
+
+  return rows.map((r) => ({
+    key: `product:${r.productId}`,
+    reason: "SEASON" as const,
+    name: r.name,
+    sku: r.sku,
+    brand: r.brand,
+    brandColor: r.brandColor,
+    price: r.price,
+    stock: r.freeStock,
+    why:
+      r.years > 1
+        ? `торік і позаторік у цьому місяці брав, ${times(r.docs)}`
+        : `торік у цьому місяці брав, ${times(r.docs)}`,
+    // Два роки поспіль важать більше за кількість накладних одного року.
+    score: r.years * 100 + r.docs,
+  }));
+}
 
 /**
  * Підсумковий список порад.
@@ -543,19 +646,36 @@ const REASON_ORDER: Record<RecoReason, number> = {
  * ніколи не побачить, чим розширити асортимент.
  */
 export async function recommendations(counterpartyId: string): Promise<Recommendation[]> {
-  const [own, peers] = await Promise.all([
+  const month = Number(kyivDate(new Date()).slice(5, 7));
+  const [own, peers, seasonal] = await Promise.all([
     replenishment(counterpartyId),
     similarClients(counterpartyId),
+    seasonalForClient(counterpartyId, month),
   ]);
 
   const byScore = (a: Recommendation, b: Recommendation) => b.score - a.score;
   own.sort(byScore);
   peers.sort(byScore);
+  seasonal.sort(byScore);
 
-  const picked = own.slice(0, peers.length ? MAX_RECOMMENDATIONS - 1 : MAX_RECOMMENDATIONS);
+  /*
+   * Сезону резервуємо рівно ОДИН слот, як і «схожим клієнтам».
+   *
+   * Причина та сама, що й там: у клієнта з багатою історією поповнення
+   * інакше забирає всі шість рядків. Але й віддати сезону більше не
+   * можна — список порад не повинен перетворитися на календар.
+   */
+  const reserved = (peers.length ? 1 : 0) + (seasonal.length ? 1 : 0);
+  const picked = own.slice(0, Math.max(1, MAX_RECOMMENDATIONS - reserved));
+  if (seasonal.length) picked.push(seasonal[0]);
   picked.push(...peers.slice(0, MAX_RECOMMENDATIONS - picked.length));
 
-  return picked.sort(
+  // Той самий товар міг прийти і поповненням, і сезоном — лишаємо одну
+  // згадку, ту, що вище за порядком причин.
+  const seen = new Set<string>();
+  const unique = picked.filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true)));
+
+  return unique.sort(
     (a, b) => REASON_ORDER[a.reason] - REASON_ORDER[b.reason] || b.score - a.score
   );
 }

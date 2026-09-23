@@ -122,6 +122,13 @@ export type DigestFacts = {
     top: Array<{ name: string; overdue: number; days: number | null }>;
   };
   stock: { urgent: number; toOrder: number; orderCost: number } | null;
+  /**
+   * Сезон, що ось-ось почнеться, і порожня під нього полиця.
+   *
+   * null — або профілю ще немає, або зараз не те вікно. Показується НЕ
+   * щодня: правило проєкту — день без подій листа не творить.
+   */
+  season: { label: string; factor: number; items: number; qty: number; cost: number } | null;
   sync: { alive: boolean; minutesAgo: number | null; stale: string[] };
   siteOrders: { pending: number; oldestHours: number };
 };
@@ -141,6 +148,53 @@ const ROLE_WORD: Record<string, ShiftRow["role"]> = {
   DRIVER: "водій",
   WAREHOUSE: "склад",
 };
+
+/**
+ * Вікно, у якому доречно нагадувати про сезон: 20–26 число.
+ *
+ * До початку наступного місяця лишається тиждень — саме стільки, щоб
+ * устигнути замовити. Раніше нагадування забудеться, пізніше вже нічого
+ * не змінить: постачальник не привезе за три дні.
+ */
+const SEASON_WINDOW = [20, 26] as const;
+
+/** Від якого підйому сезон вартий окремого рядка в листі. */
+const SEASON_MIN_FACTOR = 1.25;
+
+/**
+ * Сезонний рядок — і умова, за якої він узагалі з'являється.
+ *
+ * Не «зараз осінь», а «сезон іде, а полиця порожня»: потрібен і підйом, і
+ * дефіцит під нього. Без другої половини це була б рубрика «цікаві факти
+ * про календар», яку перестають читати на третьому листі.
+ *
+ * Нового важкого запиту не додається: дефіцит уже порахований вище, і
+ * список «готуватися до сезону» приїжджає разом із ним.
+ */
+function seasonLine(
+  today: string,
+  low: Awaited<ReturnType<typeof buildLowStockReport>> | null
+): DigestFacts["season"] {
+  const dayOfMonth = Number(today.slice(8, 10));
+  if (dayOfMonth < SEASON_WINDOW[0] || dayOfMonth > SEASON_WINDOW[1]) return null;
+
+  const watch = low?.seasonWatch ?? [];
+  if (watch.length === 0) return null;
+
+  // Беремо найсильнішу групу: лист має називати один напрям, а не список
+  // із восьми, кожен по рядку.
+  const top = watch[0];
+  if (!top || top.seasonFactor < SEASON_MIN_FACTOR) return null;
+
+  const same = watch.filter((i) => i.seasonFrom === top.seasonFrom);
+  return {
+    label: top.name.split(" ").slice(0, 3).join(" "),
+    factor: top.seasonFactor,
+    items: same.length,
+    qty: same.reduce((s, i) => s + i.suggested, 0),
+    cost: Math.round(same.reduce((s, i) => s + i.suggested * i.price, 0)),
+  };
+}
 
 /**
  * Зібрати зведення за вчорашній день і поточний стан.
@@ -276,6 +330,7 @@ export async function buildDigest(today: string = kyivDate(new Date())): Promise
     stock: lowStock
       ? { urgent: lowStock.urgent, toOrder: lowStock.toOrder, orderCost: lowStock.orderCost }
       : null,
+    season: seasonLine(today, lowStock),
     sync: {
       alive: !sync.agent.silent,
       minutesAgo: sync.agent.minutesAgo,
@@ -298,6 +353,7 @@ export function digestHasNews(f: DigestFacts): boolean {
     f.shifts.noTrack.length > 0 ||
     f.debts.overduePct >= OVERDUE_ALARM_PCT ||
     (f.stock?.urgent ?? 0) > 0 ||
+    f.season !== null ||
     !f.sync.alive ||
     f.sync.stale.length > 0 ||
     f.siteOrders.pending > 0
@@ -454,6 +510,14 @@ export function renderTelegram(f: DigestFacts): string {
       `📦 Склад: скінчилось ${f.stock.urgent} ходових, до замовлення ${f.stock.toOrder} на ${money(f.stock.orderCost)}`
     );
   }
+  if (f.season) {
+    // Звичайний рядок без таблиці й без <pre>: це обходить і обмеження
+    // ширини моноширинного блоку, і заборону емодзі всередині нього.
+    tail.push(
+      `🌡 Сезон: ${esc(f.season.label)} (×${f.season.factor}) — ${f.season.items} позицій на нулі, ` +
+        `замовити ${num(f.season.qty)} на ${money(f.season.cost)}`
+    );
+  }
   if (f.siteOrders.pending > 0) {
     tail.push(`🛒 Сайт: ${f.siteOrders.pending} замовл. чекають, найстаріше ${f.siteOrders.oldestHours} год`);
   }
@@ -544,6 +608,12 @@ export function renderMarkdown(f: DigestFacts): string {
   if (f.stock && f.stock.urgent > 0) {
     tail.push(
       `- 📦 Скінчилось ${f.stock.urgent} ходових позицій, до замовлення ${f.stock.toOrder} на ${money(f.stock.orderCost)}`
+    );
+  }
+  if (f.season) {
+    tail.push(
+      `- 🌡 Сезон: **${f.season.label}** (×${f.season.factor}) — ${f.season.items} позицій на нулі, ` +
+        `замовити ${num(f.season.qty)} на ${money(f.season.cost)}`
     );
   }
   if (f.siteOrders.pending > 0) {

@@ -937,6 +937,7 @@ export async function answerRecommend(ctx: ToolContext, subject: string): Promis
   const label = {
     REPLENISH: "🔁 пора повторити",
     DROPPED: "⚠️ перестав брати",
+    SEASON: "🌡 бере в цей місяць",
     SIMILAR_CLIENTS: "👥 беруть схожі",
   };
 

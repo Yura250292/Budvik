@@ -21,7 +21,7 @@ import type { ExportColumn, ExportDataset, RowTone } from "@/lib/assistant/expor
 import { XLSX_MAX_ROWS } from "@/lib/assistant/exports/types";
 import { ToolArgError, bool, enumOf, int, str } from "@/lib/assistant/validate";
 import { brandProblem, resolveBrand } from "@/lib/assistant/facts/brands";
-import { resolveStaff, staffProblem, listStaff } from "@/lib/assistant/facts/staff";
+import { resolveStaff, staffProblem, listStaff, repKinds } from "@/lib/assistant/facts/staff";
 import { buildLowStockReport, DEFAULT_PARAMS } from "@/lib/procurement/low-stock";
 import { deadStockItems } from "@/lib/assistant/facts/product-facts";
 import { DEAD_STOCK_DAYS } from "@/lib/assistant/config";
@@ -224,15 +224,29 @@ async function receivables(args: Record<string, unknown>): Promise<Built> {
     repName = match.user.name;
   }
   const overdueOnly = bool(args.overdue_only, false);
-  const [rows, verdicts, staff] = await Promise.all([receivableRowsByRep(repId), payerVerdicts(), listStaff(["SALES"])]);
+  // Свої рахунки (працівники, склади) — не клієнти; як і в team_receivables.
+  const includeInternal = bool(args.include_internal, false);
+  const [allRows, verdicts, staff, kinds] = await Promise.all([
+    receivableRowsByRep(repId),
+    payerVerdicts(),
+    listStaff(["SALES"]),
+    repKinds(),
+  ]);
+  const rows = includeInternal ? allRows : allRows.filter((r) => !r.internal);
   const nameOf = new Map(staff.map((s) => [s.id, s.name]));
   const repOf = new Map(rows.map((r) => [r.counterpartyId, r.repId]));
-  const debtors = toDebtorList(rows).filter((d) => (overdueOnly ? d.overdue > 0 : true)).slice(0, XLSX_MAX_ROWS);
+  const repOfClient = (id: string) => nameOf.get(repOf.get(id) ?? "") ?? "";
+  // Згруповано по торговому — «дебіторка по торгових і їх клієнтах» читається блоками.
+  const debtors = toDebtorList(rows)
+    .filter((d) => (overdueOnly ? d.overdue > 0 : true))
+    .sort((a, b) => (repOfClient(a.counterpartyId) || "яяя").localeCompare(repOfClient(b.counterpartyId) || "яяя", "uk") || b.overdue - a.overdue || b.debt - a.debt)
+    .slice(0, XLSX_MAX_ROWS);
 
   const out = debtors.map((d) => ({
     client: d.name,
     code: d.code ?? "",
-    rep: nameOf.get(repOf.get(d.counterpartyId) ?? "") ?? "",
+    rep: repOfClient(d.counterpartyId),
+    repKind: kinds.get(repOf.get(d.counterpartyId) ?? "") ?? "",
     debt: Math.round(d.debt * 100) / 100,
     overdue: Math.round(d.overdue * 100) / 100,
     oldest: d.oldestDays,
@@ -257,6 +271,7 @@ async function receivables(args: Record<string, unknown>): Promise<Built> {
           { key: "client", header: "Клієнт", width: 44 },
           { key: "code", header: "Код 1С", width: 12 },
           { key: "rep", header: "Торговий", width: 22 },
+          { key: "repKind", header: "Тип торгового", width: 12 },
           { key: "debt", header: "Борг", kind: "money", width: 13 },
           { key: "overdue", header: "Прострочено", kind: "money", width: 13 },
           { key: "oldest", header: "Найстаріший, дн", kind: "int", width: 11 },
@@ -267,7 +282,11 @@ async function receivables(args: Record<string, unknown>): Promise<Built> {
         tones: debtors.map((d) => (d.overdue > 0 && (d.oldestDays ?? 0) > 60 ? "urgent" : d.overdue > 0 ? "warn" : null)),
       },
     ],
-    notes: ["Вік боргу відновлено з наших відвантажень: 1С строків оплати не передає, тому «прострочено» — оцінка."],
+    notes: [
+      "Вік боргу відновлено з наших відвантажень: 1С строків оплати не передає, тому «прострочено» — оцінка.",
+      "Тип торгового: польовий — їздить до клієнтів; офіс — виписує документи на себе; власник — бере клієнтів на себе.",
+      ...(includeInternal ? [] : ["Свої рахунки (працівники, склади, ФОП торгових) не включено."]),
+    ],
   };
 }
 

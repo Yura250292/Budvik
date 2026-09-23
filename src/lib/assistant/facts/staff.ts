@@ -63,6 +63,49 @@ export async function listStaff(roles: StaffRole[]): Promise<Staff[]> {
 /** Скинути кеш — для скриптів і тестів. */
 export function resetStaffCache() {
   cache = null;
+  repKindCache = null;
+}
+
+/**
+ * Хто з «торгових» справді в полі.
+ *
+ * Ознаки в базі немає (див. шапку файла), тож судимо за роботою: польовий
+ * відкриває зміни в застосунку. Заміряно 23.09.2026 за 60 днів: п'ятеро
+ * підтверджених власником польових — 18–23 зміни, Кавецький — 4, офіс — 0.
+ * Поріг 8 розводить їх із запасом і сам підхопить нового торгового, щойно
+ * той почне їздити.
+ *
+ * ВЛАСНИК. Кавецький Віктор — власник фірми: він бере клієнтів і документи
+ * на себе (слова власника 23.09.2026), тож його «портфель» — не показник
+ * роботи торгового і в рейтингах поруч із польовими лише плутає.
+ */
+export type RepKind = "польовий" | "офіс" | "власник";
+
+const FIELD_MIN_SHIFTS = 8;
+const FIELD_WINDOW_DAYS = 60;
+const OWNER_NAME = /кавецьк/i;
+
+let repKindCache: { at: number; map: Map<string, RepKind> } | null = null;
+
+export async function repKinds(): Promise<Map<string, RepKind>> {
+  if (repKindCache && Date.now() - repKindCache.at < CACHE_MS) return repKindCache.map;
+  const [reps, shifts] = await Promise.all([
+    listStaff(["SALES"]),
+    prisma.shift.groupBy({
+      by: ["userId"],
+      where: { startedAt: { gte: new Date(Date.now() - FIELD_WINDOW_DAYS * 86_400_000) } },
+      _count: { _all: true },
+    }),
+  ]);
+  const count = new Map(shifts.map((s) => [s.userId, s._count._all]));
+  const map = new Map<string, RepKind>(
+    reps.map((r) => [
+      r.id,
+      OWNER_NAME.test(r.name) ? "власник" : (count.get(r.id) ?? 0) >= FIELD_MIN_SHIFTS ? "польовий" : "офіс",
+    ])
+  );
+  repKindCache = { at: Date.now(), map };
+  return map;
 }
 
 export type StaffMatch =

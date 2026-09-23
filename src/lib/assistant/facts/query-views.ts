@@ -968,22 +968,25 @@ export const VIEWS: View[] = [
   },
   {
     name: "debt_snapshots",
-    purpose: "щоденні зрізи дебіторки по клієнтах — як мінявся борг у часі",
+    /*
+     * Колонок віку боргу (not_due, overdue_30…) тут більше немає: 1С їх не
+     * надсилає, і в усіх 2256 знімках вони NULL (перевірено 23.09.2026).
+     * 22.09 модель двічі фільтрувала «overdue_30 + … > 0», отримала нуль рядків
+     * і вигадала «інструмент недоступний». Прострочку рахує team_receivables
+     * з відвантажень — туди й посилає опис.
+     */
+    purpose:
+      "щоденні зрізи сальдо по клієнтах — як мінявся борг у часі; balance < 0 — переплата або ми винні (не дебіторка). ПРОСТРОЧКИ й віку боргу тут немає — їх дає лише інструмент team_receivables",
     columns: [
       col("client_id", ID, "клієнт"),
       col("client", T, "назва клієнта"),
       col("day", D, "день зрізу"),
-      col("balance", N, "борг разом, грн"),
-      col("not_due", N, "строк ще не настав"),
-      col("overdue_30", N, "прострочено до 30 днів"),
-      col("overdue_60", N, "31–60"),
-      col("overdue_90", N, "61–90"),
-      col("overdue_90_plus", N, "понад 90"),
+      col("balance", N, "сальдо, грн: > 0 — клієнт винен"),
+      col("internal", B, "свій, а не клієнт: склад, співробітник, ФОП торгового"),
     ],
     sql: `
       SELECT d."counterpartyId" AS client_id, c.name AS client, ${KYIV_DAY("d.day")} AS day,
-             d.balance, d.current AS not_due, d.overdue30 AS overdue_30, d.overdue60 AS overdue_60,
-             d.overdue90 AS overdue_90, d."overdue90Plus" AS overdue_90_plus
+             d.balance, c."isInternal" AS internal
       FROM "DebtSnapshot" d
       JOIN "Counterparty" c ON c.id = d."counterpartyId"`,
   },

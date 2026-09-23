@@ -158,6 +158,12 @@ export type ReceivableRow = {
   /** null — борг не вдалося віднести до жодного торгового */
   repId: string | null;
   /**
+   * Свій рахунок, а не клієнт: склад, співробітник, ФОП торгового
+   * (`Counterparty.isInternal`). Борг справжній, але в списках боржників
+   * керівникові він шум — «не враховуй працівників» (22.09.2026).
+   */
+  internal: boolean;
+  /**
    * Розкладка боргу за віком, порахована з наших відвантажень (див.
    * `spreadDebtOverShipments`). Порожня, якщо документів під борг немає.
    */
@@ -261,6 +267,7 @@ export async function receivableRowsByRep(
       c."balanceSyncedAt"    AS "syncedAt",
       sd."createdAt"         AS "lastDocAt",
       COALESCE(rc."salesRepId", sd."salesRepId") AS "repId",
+      c."isInternal"         AS internal,
       COALESCE(sh.shipments, '[]'::json) AS shipments
     FROM "Counterparty" c
     LEFT JOIN LATERAL (
@@ -556,6 +563,12 @@ export type DebtDelta = {
  * Прив'язка клієнта до торгового — поточна, не історична: якщо клієнта
  * передали іншому торговому, весь його борг поїде за ним. Так і має
  * бути — відповідає той, хто веде клієнта зараз.
+ *
+ * Лише ДОДАТНІ сальдо і без своїх рахунків — так само, як рахується сама
+ * дебіторка (receivableRowsByRep). Знімки несуть і від'ємні сальдо:
+ * переплати й наш борг постачальникам. 22.09.2026 у Кавецького через них
+ * вийшло «Δ боргу −2,57 млн» при боргу 172 тис.: у його портфель
+ * потрапили власний ФОП (−8 млн) і «МЕТРУМ ГРУП» (−1,8 млн).
  */
 export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, DebtDelta>> {
   const hasDocType = await hasDocTypeColumn();
@@ -570,6 +583,7 @@ export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, 
   >`
     WITH client_rep AS (
       SELECT c.id AS "counterpartyId",
+             c."isInternal" AS internal,
              COALESCE(rc."salesRepId", sd."salesRepId") AS "repId"
       FROM "Counterparty" c
       LEFT JOIN LATERAL (
@@ -584,13 +598,13 @@ export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, 
       ) sd ON TRUE
     ),
     opening AS (
-      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", s.balance
+      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", GREATEST(s.balance, 0) AS balance
       FROM "DebtSnapshot" s
       WHERE s.day < ${from}
       ORDER BY s."counterpartyId", s.day DESC
     ),
     closing AS (
-      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", s.balance
+      SELECT DISTINCT ON (s."counterpartyId") s."counterpartyId", GREATEST(s.balance, 0) AS balance
       FROM "DebtSnapshot" s
       WHERE s.day <= ${to}
       ORDER BY s."counterpartyId", s.day DESC
@@ -604,6 +618,7 @@ export async function debtDeltaByRep(from: Date, to: Date): Promise<Map<string, 
     LEFT JOIN opening o  ON o."counterpartyId"  = cr."counterpartyId"
     LEFT JOIN closing cl ON cl."counterpartyId" = cr."counterpartyId"
     WHERE cr."repId" IS NOT NULL
+      AND NOT cr.internal
       AND (o."counterpartyId" IS NOT NULL OR cl."counterpartyId" IS NOT NULL)
     GROUP BY cr."repId"
   `;

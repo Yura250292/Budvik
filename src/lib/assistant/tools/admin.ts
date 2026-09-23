@@ -21,7 +21,7 @@ import { bool, day as validDay, enumOf, int, str } from "@/lib/assistant/validat
 import { uah, pct, ymd } from "@/lib/assistant/format";
 import { periodFacts, periodFromArgs } from "@/lib/assistant/period";
 import { kyivTime } from "@/lib/date/kyiv";
-import { listStaff, resolveStaff, staffProblem } from "@/lib/assistant/facts/staff";
+import { listStaff, repKinds, resolveStaff, staffProblem, type RepKind } from "@/lib/assistant/facts/staff";
 import { teamBenchmark } from "@/lib/analytics/benchmark";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
 import {
@@ -32,6 +32,8 @@ import {
   receivableRowsByRep,
   sumAging,
   toDebtorList,
+  type DebtorClient,
+  type ReceivableRow,
 } from "@/lib/analytics/money-facts";
 import { revenueByRepBrand, shiftFactsByUser, fuelCost } from "@/lib/analytics/facts";
 import { payerVerdicts, verdictLabel } from "@/lib/assistant/facts/discipline-cache";
@@ -232,62 +234,113 @@ export const teamReceivablesTool: ToolDef = {
   label: "Дивлюся дебіторку фірми",
   kinds: ["ADMIN"],
   description:
-    "Дебіторка всієї фірми: скільки винні й скільки прострочено, розклад по торгових із приростом боргу, найбільші боржники з вердиктом платника й віком боргу, скільки зібрано за період. Параметр rep звужує до одного торгового. Викликай на «дебіторка», «борги», «хто винен», «прострочка», «найбільші боржники».",
+    "Дебіторка всієї фірми: скільки винні й скільки прострочено, розклад по торгових (польові окремо від офісу й власника) із приростом боргу, найбільші боржники-клієнти з вердиктом платника й віком боргу, скільки зібрано за період. Свої рахунки (працівники, склади, ФОП торгових) у списках не рахуються — їх видно окремим рядком. clients_per_rep > 0 дає по кожному торговому його клієнтів-боржників: так відповідай на «дебіторка по торгових і їх клієнтах», «розбий по торгових», «топ N клієнтів кожного». Викликай на «дебіторка», «борги», «хто винен», «прострочка», «найбільші боржники».",
   parameters: {
     type: "object",
     properties: {
-      rep: { type: "string", description: "Прізвище торгового. Без нього — вся фірма." },
+      rep: {
+        type: "string",
+        description: "Прізвище торгового або кілька через кому («Кулик, Передрій, Валентин»). Без нього — вся фірма.",
+      },
+      clients_per_rep: {
+        type: "integer",
+        description: "Скільки клієнтів-боржників показати по КОЖНОМУ торговому, до 25. 0 — без розкладу по клієнтах. «Топ 5–7» = 7.",
+      },
+      older_than_days: {
+        type: "integer",
+        description:
+          "Прострочено = частина боргу, старша за стільки днів від відвантаження. За замовчуванням 15 (робоча відстрочка фірми). «Прострочили понад 30 днів» = 30.",
+      },
       overdue_only: { type: "boolean", description: "true — лише клієнти з простроченим боргом." },
-      top: { type: "integer", description: "Скільки боржників показати, до 25. За замовчуванням 15." },
-      days: { type: "integer", description: "За скільки днів рахувати зібрані гроші. За замовчуванням 30." },
+      include_internal: { type: "boolean", description: "true — показати й свої рахунки (працівники, склади). За замовчуванням ні." },
+      top: {
+        type: "integer",
+        description:
+          "Скільки найбільших боржників фірми показати одним списком (клієнт → торговий → борг → дні), до 50. За замовчуванням 15. «По клієнтах», «які торгові з ними працюють» — 30.",
+      },
+      days: { type: "integer", description: "За скільки днів рахувати зібрані гроші й приріст боргу. За замовчуванням 30." },
     },
   },
   async run(ctx, args) {
-    const top = int(args.top, "top", { min: 3, max: 25, fallback: 15 });
+    const top = int(args.top, "top", { min: 3, max: 50, fallback: 15 });
     const window = int(args.days, "days", { min: 1, max: 365, fallback: 30 });
+    const olderThan = int(args.older_than_days, "older_than_days", { min: 15, max: 365, fallback: 15 });
     const overdueOnly = bool(args.overdue_only, false);
+    const includeInternal = bool(args.include_internal, false);
     const period = periodFromArgs(ctx.today, { days: window });
 
-    let onlyRep: { id: string; name: string } | null = null;
-    if (typeof args.rep === "string" && args.rep.trim()) {
-      const match = await resolveStaff(str(args.rep, "rep", { min: 2, max: 60 }), ["SALES"]);
+    /*
+     * Кілька торгових одним викликом: «по Олександру, Валентину, Джумазі».
+     * Раніше це було п'ять викликів, і модель на третьому впиралась у стелю.
+     */
+    const wanted =
+      typeof args.rep === "string" && args.rep.trim()
+        ? str(args.rep, "rep", { min: 2, max: 200 })
+            .split(/\s*[,;]\s*|\s+(?:і|й|та)\s+/)
+            .map((w) => w.trim())
+            .filter((w) => w.length >= 2)
+        : [];
+    const onlyReps: Array<{ id: string; name: string }> = [];
+    for (const w of wanted) {
+      const match = await resolveStaff(w, ["SALES"]);
       if (!match.ok) return staffProblem(match, "торгового");
-      onlyRep = { id: match.user.id, name: match.user.name };
+      if (!onlyReps.some((r) => r.id === match.user.id)) onlyReps.push({ id: match.user.id, name: match.user.name });
     }
+    const repFilter = onlyReps.length > 0 ? new Set(onlyReps.map((r) => r.id)) : null;
+    const perRep = int(args.clients_per_rep, "clients_per_rep", {
+      min: 0,
+      max: 25,
+      fallback: onlyReps.length > 0 ? 10 : 0,
+    });
 
-    const [rows, verdicts, collected, delta, staff] = await Promise.all([
-      receivableRowsByRep(onlyRep?.id ?? null),
+    const [allRows, verdicts, collected, delta, staff, kinds] = await Promise.all([
+      receivableRowsByRep(onlyReps.length === 1 ? onlyReps[0].id : null),
       payerVerdicts(),
-      collectedByRepBrand(period.from, period.to, onlyRep?.id ?? null),
+      collectedByRepBrand(period.from, period.to, onlyReps.length === 1 ? onlyReps[0].id : null),
       debtDeltaByRep(period.from, period.to),
       listStaff(["SALES"]),
+      repKinds(),
     ]);
+
+    const scoped = repFilter ? allRows.filter((r) => r.repId && repFilter.has(r.repId)) : allRows;
+    const own = scoped.filter((r) => r.internal);
+    // Копійчані залишки («Ремонт Rewolt 0 ₴») — не боржники, а округлення 1С.
+    const rows = (includeInternal ? scoped : scoped.filter((r) => !r.internal)).filter((r) => r.debt >= 1);
 
     const nameOf = new Map(staff.map((s) => [s.id, s.name]));
     const total = sumAging(rows);
     const byRep = agingByRep(rows);
     const collectedMap = collectedTotals(collected);
 
+    /** Прострочка за порогом запиту: 15 днів збігається з sumAging, інший поріг — перерахунок. */
+    const overdueOf = (r: ReceivableRow) =>
+      r.unknownDebt + r.aged.filter((sl) => sl.ageDays > olderThan).reduce((sum, sl) => sum + sl.amount, 0);
+    const debtorOf = (d: DebtorClient, r: ReceivableRow) => ({
+      клієнт_id: d.counterpartyId,
+      клієнт: d.name,
+      борг: uah(d.debt),
+      прострочено: uah(overdueOf(r)),
+      найстаріше_днів: d.oldestDays,
+      платник: verdictLabel(verdicts.verdicts.get(d.counterpartyId)),
+    });
+    const rowOf = new Map(rows.map((r) => [r.counterpartyId, r]));
     const debtors = toDebtorList(rows)
-      .filter((d) => (overdueOnly ? d.overdue > 0 : true))
-      .slice(0, top);
-    const repOfClient = new Map(rows.map((r) => [r.counterpartyId, r.repId]));
+      .map((d) => ({ d, r: rowOf.get(d.counterpartyId)!, overdue: overdueOf(rowOf.get(d.counterpartyId)!) }))
+      .filter((x) => (overdueOnly ? x.overdue > 0.5 : true))
+      .sort((a, b) => b.overdue - a.overdue || b.d.debt - a.d.debt);
 
-    return {
-      разом: {
-        борг: uah(total.total),
-        прострочено: uah(total.overdue),
-        прострочено_відсотків: pct(total.overdueRatio),
-        боржників: new Set(rows.map((r) => r.counterpartyId)).size,
-        без_торгового: uah(rows.filter((r) => !r.repId).reduce((s, r) => s + r.debt, 0)),
-      },
-      по_торгових: [...byRep.entries()]
-        .map(([repId, aging]) => ({
+    const KIND_ORDER: Record<RepKind, number> = { польовий: 0, офіс: 1, власник: 2 };
+    const repRows = [...byRep.entries()]
+      .map(([repId, aging]) => {
+        const mine = debtors.filter((x) => x.r.repId === repId);
+        return {
           торговий_id: repId,
           торговий: nameOf.get(repId) ?? "—",
+          тип: kinds.get(repId) ?? "офіс",
           борг: uah(aging.total),
-          прострочено: uah(aging.overdue),
-          прострочено_відсотків: pct(aging.overdueRatio),
+          прострочено: uah(mine.reduce((s, x) => s + x.overdue, 0)),
+          прострочено_відсотків: pct(aging.total > 0 ? (mine.reduce((s, x) => s + x.overdue, 0) / aging.total) * 100 : 0),
+          клієнтів_з_боргом: mine.length,
           зібрано_за_період: uah(collectedMap.get(repId)?.amount ?? 0),
           /**
            * Приріст рахується різницею двох знімків сальдо. Немає знімка
@@ -295,21 +348,62 @@ export const teamReceivablesTool: ToolDef = {
            * означали б не рух боргу, а брак історії.
            */
           приріст_боргу: delta.get(repId)?.hasOpening ? uah(delta.get(repId)!.delta) : null,
-        }))
-        .sort((a, b) => b.борг - a.борг),
-      найбільші_боржники: debtors.map((d) => ({
-        клієнт_id: d.counterpartyId,
-        клієнт: d.name,
-        торговий: nameOf.get(repOfClient.get(d.counterpartyId) ?? "") ?? null,
-        борг: uah(d.debt),
-        прострочено: uah(d.overdue),
-        найстаріше_днів: d.oldestDays,
-        платник: verdictLabel(verdicts.verdicts.get(d.counterpartyId)),
-        останнє_відвантаження: d.lastDocAt,
+        };
+      })
+      .sort((a, b) => KIND_ORDER[a.тип] - KIND_ORDER[b.тип] || b.борг - a.борг);
+
+    /*
+     * Клієнти по кожному торговому — те, чого бракувало 22.09.2026: модель
+     * шукала прострочку по клієнтах у query_db, де віку боргу немає, і
+     * вигадала «інструмент недоступний». Стеля на весь розклад — щоб
+     * відповідь влізла у вікно інструмента (~12 тис. символів).
+     */
+    const groups = perRep > 0 ? [...repRows.map((r) => r.торговий_id), ...(repFilter ? [] : [null])] : [];
+    const cap = groups.length > 0 ? Math.max(3, Math.min(perRep, Math.floor(80 / groups.length))) : 0;
+    const clientsByRep = groups
+      .map((repId) => {
+        const list = debtors.filter((x) => x.r.repId === repId);
+        const shown = list.slice(0, cap);
+        const rest = list.slice(cap);
+        return {
+          торговий: repId ? (nameOf.get(repId) ?? "—") : "без торгового",
+          тип: repId ? (kinds.get(repId) ?? "офіс") : null,
+          клієнтів_з_боргом: list.length,
+          клієнти: shown.map((x) => debtorOf(x.d, x.r)),
+          ...(rest.length > 0
+            ? { ще_не_показано: { клієнтів: rest.length, борг: uah(rest.reduce((s, x) => s + x.d.debt, 0)) } }
+            : {}),
+        };
+      })
+      .filter((g) => g.клієнтів_з_боргом > 0);
+
+    return {
+      разом: {
+        борг_клієнтів: uah(total.total),
+        прострочено: uah(debtors.reduce((s, x) => s + x.overdue, 0)),
+        прострочено_відсотків: pct(total.total > 0 ? (debtors.reduce((s, x) => s + x.overdue, 0) / total.total) * 100 : 0),
+        прострочено_це: `частина боргу, старша за ${olderThan} днів від відвантаження`,
+        боржників: rows.length,
+        без_торгового: uah(rows.filter((r) => !r.repId).reduce((s, r) => s + r.debt, 0)),
+        ...(!includeInternal && own.length > 0
+          ? { свої_рахунки_не_враховано: { рахунків: own.length, борг: uah(own.reduce((s, r) => s + r.debt, 0)) } }
+          : {}),
+      },
+      по_торгових: repRows,
+      ...(clientsByRep.length > 0 ? { клієнти_по_торгових: clientsByRep } : {}),
+      найбільші_боржники: debtors.slice(0, clientsByRep.length > 0 ? Math.min(top, 10) : top).map((x) => ({
+        ...debtorOf(x.d, x.r),
+        торговий: nameOf.get(x.r.repId ?? "") ?? null,
+        тип_торгового: x.r.repId ? (kinds.get(x.r.repId) ?? "офіс") : null,
+        // Довгий список і так на межі вікна інструмента — дата лише для короткого.
+        ...(top <= 25 ? { останнє_відвантаження: x.d.lastDocAt } : {}),
       })),
       зібрано_за_період: { ...periodFacts(period), сума: uah([...collectedMap.values()].reduce((s, c) => s + c.amount, 0)) },
       примітка:
-        "Вік боргу відновлено з наших відвантажень: 1С строків оплати не передає, тому «прострочено» — оцінка.",
+        "Вік боргу відновлено з наших відвантажень: 1С строків оплати не передає, тому «прострочено» — оцінка. " +
+        "Тип торгового: «польовий» — їздить до клієнтів (зміни в застосунку); «офіс» — виписує документи на себе; " +
+        "«власник» — Кавецький Віктор, бере клієнтів і документи на себе, тож його борг — не показник роботи торгового. " +
+        "Повний список без обмежень — export_file dataset receivables.",
     };
   },
 };

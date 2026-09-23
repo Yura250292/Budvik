@@ -67,7 +67,12 @@ export type Intent =
   /* ── Наміри керівника: те саме питання, але про всю фірму ───────────── */
   | { kind: "STAFF_NOW"; who: string | null; role: "SALES" | "DRIVER" | null }
   | { kind: "TEAM_SALES"; period: PeriodSpec; who: string | null }
-  | { kind: "TEAM_DEBTS"; who: string | null }
+  /**
+   * view: «reps» — під кожним торговим його боржники («по торгових і їх
+   * клієнтах»); «clients» — одна таблиця клієнт → торговий → сума → дні
+   * («по клієнтах», «які торгові з ними працюють»).
+   */
+  | { kind: "TEAM_DEBTS"; who: string | null; view?: "reps" | "clients" }
   | { kind: "TEAM_COLLECTED"; period: PeriodSpec }
   | { kind: "TEAM_RETURNS"; period: PeriodSpec }
   | { kind: "TEAM_FORECAST" }
@@ -449,7 +454,7 @@ const COMPOSE =
  * діаграмою).
  */
 const ADMIN_ANALYSIS =
-  /(підкажи[а-яіїєґ]*\s+(що|як|кого|чи|де)|порадь|спрогноз[а-яіїєґ]*|прогноз[а-яіїєґ]*\s+на\s+наступн|сезонн[а-яіїєґ]*|врахуй|враховуючи|на\s+наступн[а-яіїєґ]*\s+(місяць|тиждень|квартал|сезон)|залежн[а-яіїєґ]*|зв.?язок|зв.?язку|кореляц[а-яіїєґ]*|проаналізуй\s+(продаж|оборот|склад|попит|залишк|закупів))/i;
+  /(підкажи[а-яіїєґ]*\s+(що|як|кого|чи|де)|порадь|спрогноз[а-яіїєґ]*|прогноз[а-яіїєґ]*\s+на\s+наступн|сезонн[а-яіїєґ]*|врахуй|враховуючи|на\s+наступн[а-яіїєґ]*\s+(місяць|тиждень|квартал|сезон)|залежн[а-яіїєґ]*|зв.?язок|зв.?язку|кореляц[а-яіїєґ]*|проаналізуй\s+(продаж|оборот|склад|попит|залишк|закупів)|(повн|детальн|глибок|ґрунтовн)[а-яіїєґ]*\s+(аналіз|розбір)|аналіз[а-яіїєґ]*\s+(дебіторк|борг|прострочк)|проаналізуй\s+(дебіторк|борг)|в\s+розрізі|топ[\s-]*\d+|не\s+врахову[а-яіїєґ]*|крім\s+|без\s+(працівник|співробітник|своїх))/i;
 
 /**
  * Просять файл — це модель і export_file, а не кодова відповідь.
@@ -1154,10 +1159,23 @@ function adminIntent(
     return { kind: "TEAM_DEBTS", who: null };
   }
   if (/(^|\s)(дебіторк|борг|прострочк|прострочен|заборгован)/i.test(text)) {
+    /*
+     * «Дебіторка по торгових та їх клієнтах» — таблиця клієнтів під кожним
+     * торговим, а не одне зведення. 22.09.2026 без цього прапорця код
+     * віддавав лише зведення, і керівник три ходи вибивав з моделі список.
+     */
+    const mentionsClients = /(^|\s)(клієнт[а-яіїєґ]*|боржник[а-яіїєґ]*)(\s|$|[,.:!?])/i.test(text);
+    const view: "reps" | "clients" | undefined = !mentionsClients
+      ? undefined
+      : /(торгов[а-яіїєґ]*\s+(і|та|й)\s+(їх|їхні[а-яіїєґ]*)?\s*клієнт|їх[а-яіїєґ]*\s+клієнт|клієнт[а-яіїєґ]*\s+(кожного|по\s+торгов))/i.test(text)
+        ? "reps"
+        : "clients";
     const after = subjectAfter(text, /(дебіторк[а-яіїєґ]*|борг[а-яіїєґ]*|прострочк[а-яіїєґ]*)\s+(по\s+|у\s+|в\s+)/i);
-    if (after && teamWord.test(after)) return { kind: "TEAM_DEBTS", who: null };
-    if (after) return { kind: "TEAM_DEBTS", who: stripPeriodTail(after) };
-    if (teamWord.test(text)) return { kind: "TEAM_DEBTS", who: null };
+    // «Дебіторка по клієнтах» — це розріз, а не ім'я клієнта «клієнтах».
+    if (after && /^(клієнт|боржник)/i.test(after)) return { kind: "TEAM_DEBTS", who: null, view: "clients" };
+    if (after && teamWord.test(after)) return { kind: "TEAM_DEBTS", who: null, view };
+    if (after) return { kind: "TEAM_DEBTS", who: stripPeriodTail(after), view };
+    if (teamWord.test(text) || view) return { kind: "TEAM_DEBTS", who: null, view };
   }
 
   /* ── Повернення ───────────────────────────────────────────────────── */

@@ -207,7 +207,7 @@ export async function tryDirectAnswer(
       return answerTeamSales(ctx, intent.period, intent.who);
 
     case "TEAM_DEBTS":
-      return answerTeamDebts(ctx, intent.who);
+      return answerTeamDebts(ctx, intent.who, intent.view ?? null);
 
     case "TEAM_COLLECTED":
       return answerTeamCollected(ctx, intent.period);

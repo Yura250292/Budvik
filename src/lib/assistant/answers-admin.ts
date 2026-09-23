@@ -438,7 +438,50 @@ export async function answerTeamSales(
 
 /* ── 💰 Дебіторка фірми ───────────────────────────────────────────────── */
 
-export async function answerTeamDebts(ctx: ToolContext, who: string | null): Promise<DirectAnswer> {
+type DebtorFact = {
+  клієнт_id: string;
+  клієнт: string;
+  торговий?: string | null;
+  тип_торгового?: string | null;
+  борг: number;
+  прострочено: number;
+  найстаріше_днів: number | null;
+  платник: string | null;
+};
+
+/** Позначка типу торгового в таблиці: польові без позначки — їх більшість. */
+const REP_KIND_MARK: Record<string, string> = { польовий: "", офіс: " 🏢", власник: " 👑" };
+
+/** Один рядок боржника: прострочка, вік і платник — по колонках, а не в одному рядку тексту. */
+function debtorCells(d: DebtorFact): Array<string | number> {
+  return [
+    clientLink(d.клієнт_id, short(d.клієнт, 34)),
+    money(d.борг),
+    d.прострочено > 0 ? `🔴 ${money(d.прострочено)}` : "—",
+    d.найстаріше_днів == null ? "старе" : d.найстаріше_днів,
+    d.платник ? `${payerIcon(d.платник)} ${d.платник}` : "—",
+  ];
+}
+
+/**
+ * Рядок «клієнт → торговий → сума → дні» — формат, який попросив власник
+ * 23.09.2026. Платник — значком перед назвою, щоб таблиця влізла в телефон.
+ */
+function clientRepCells(d: DebtorFact): Array<string | number> {
+  return [
+    `${d.платник ? `${payerIcon(d.платник)} ` : ""}${clientLink(d.клієнт_id, short(d.клієнт, 34))}`,
+    d.торговий ? short(d.торговий, 18) + (REP_KIND_MARK[d.тип_торгового ?? ""] ?? "") : "—",
+    money(d.борг),
+    d.прострочено > 0 ? money(d.прострочено) : "—",
+    d.найстаріше_днів == null ? "старе" : `${d.найстаріше_днів} дн.`,
+  ];
+}
+
+export async function answerTeamDebts(
+  ctx: ToolContext,
+  who: string | null,
+  view: "reps" | "clients" | null = null
+): Promise<DirectAnswer> {
   const tools: DirectAnswer["tools"] = [];
 
   if (who) {
@@ -448,95 +491,122 @@ export async function answerTeamDebts(ctx: ToolContext, who: string | null): Pro
     if (!match.ok) return answerClientCard(ctx, who);
   }
 
-  const facts = await callTool(teamReceivablesTool, ctx, who ? { rep: who } : {}, tools);
+  /*
+   * Один торговий — завжди з його клієнтами: зведення з одного рядка
+   * нічого не каже. Уся фірма — клієнти лише на прохання («і їх клієнтах»).
+   */
+  const perRep = who ? 15 : view === "reps" ? 7 : 0;
+  const flat = !who && view === "clients";
+  const facts = await callTool(
+    teamReceivablesTool,
+    ctx,
+    {
+      ...(who ? { rep: who } : {}),
+      ...(perRep > 0 ? { clients_per_rep: perRep } : {}),
+      ...(flat ? { top: 40 } : {}),
+    },
+    tools
+  );
 
   const total = facts.разом as {
-    борг: number;
+    борг_клієнтів: number;
     прострочено: number;
     прострочено_відсотків: number;
     боржників: number;
     без_торгового: number;
+    свої_рахунки_не_враховано?: { рахунків: number; борг: number };
   };
   const byRep = (facts.по_торгових ?? []) as Array<{
     торговий_id: string;
     торговий: string;
+    тип: string;
     борг: number;
     прострочено: number;
     прострочено_відсотків: number;
+    клієнтів_з_боргом: number;
     зібрано_за_період: number;
     приріст_боргу: number | null;
   }>;
-  const debtors = (facts.найбільші_боржники ?? []) as Array<{
-    клієнт_id: string;
-    клієнт: string;
-    торговий: string | null;
-    борг: number;
-    прострочено: number;
-    найстаріше_днів: number | null;
-    платник: string | null;
+  const groups = (facts.клієнти_по_торгових ?? []) as Array<{
+    торговий: string;
+    тип: string | null;
+    клієнтів_з_боргом: number;
+    клієнти: DebtorFact[];
+    ще_не_показано?: { клієнтів: number; борг: number };
   }>;
+  const debtors = (facts.найбільші_боржники ?? []) as DebtorFact[];
 
-  if (total.борг <= 0) {
+  if (total.борг_клієнтів <= 0) {
     return { markdown: "## 💰 Дебіторка фірми\n\nБоргів немає — усе закрито.", tools };
   }
 
-  const ratioLight = light(
-    total.прострочено_відсотків < 10 ? "good" : total.прострочено_відсотків <= 25 ? "mid" : "bad"
-  );
+  const tone = (ratio: number) => light(ratio < 10 ? "good" : ratio <= 25 ? "mid" : "bad");
   const hasDelta = byRep.some((r) => r.приріст_боргу != null);
+  const repTable = (list: typeof byRep) =>
+    table(
+      hasDelta
+        ? ["Торговий", "Борг", "Прострочено", "Клієнтів", "Зібрано", "Δ боргу"]
+        : ["Торговий", "Борг", "Прострочено", "Клієнтів", "Зібрано"],
+      list.map((r) => {
+        const row: Array<string | number> = [
+          repLink(r.торговий_id, short(r.торговий, 20)) + (REP_KIND_MARK[r.тип] ?? ""),
+          money(r.борг),
+          `${tone(r.прострочено_відсотків)} ${money(r.прострочено)} · ${percent(r.прострочено_відсотків)}`,
+          r.клієнтів_з_боргом,
+          money(r.зібрано_за_період),
+        ];
+        return hasDelta ? [...row, r.приріст_боргу == null ? "—" : money(r.приріст_боргу)] : row;
+      })
+    );
+  const field = byRep.filter((r) => r.тип === "польовий");
+  const office = byRep.filter((r) => r.тип !== "польовий");
+  const own = total.свої_рахунки_не_враховано;
+  const DEBTOR_HEAD = ["Клієнт", "Борг", "Прострочено", "Днів", "Платник"];
 
   return {
     markdown: md([
       who ? `## 💰 Дебіторка · ${byRep[0]?.торговий ?? who}` : "## 💰 Дебіторка фірми",
+      `_Станом на ${ctx.today} · прострочено = старше 15 днів від відвантаження_`,
       "",
-      ...table(
-        ["💼 Усього", "🔴 Прострочено", "👥 Боржників", "❔ Без торгового"],
-        [[
-          money(total.борг),
-          `${ratioLight} ${money(total.прострочено)} (${percent(total.прострочено_відсотків)})`,
-          total.боржників,
-          money(total.без_торгового),
-        ]]
-      ),
+      kpi([
+        { label: "Борг клієнтів", value: moneyShort(total.борг_клієнтів), hint: `${total.боржників} боржників` },
+        {
+          label: "Прострочено",
+          value: moneyShort(total.прострочено),
+          hint: `${tone(total.прострочено_відсотків)} ${percent(total.прострочено_відсотків)} боргу`,
+        },
+        ...(!who ? [{ label: "Без торгового", value: moneyShort(total.без_торгового) }] : []),
+        ...(own ? [{ label: "Свої рахунки", value: moneyShort(own.борг), hint: `${own.рахунків} не враховано` }] : []),
+      ]),
       "",
-      !who && byRep.length > 1 ? "### По торгових" : null,
-      /*
-       * Колонка «Δ боргу» зʼявляється лише тоді, коли є з чим порівнювати.
-       * Знімків сальдо на початок періоду може не бути взагалі, і стовпчик
-       * із самих прочерків лише забирає ширину на телефоні.
-       */
-      ...(!who && byRep.length > 1
-        ? table(
-            hasDelta
-              ? ["Торговий", "Борг", "Простр.", "Зібрано", "Δ боргу"]
-              : ["Торговий", "Борг", "Простр.", "Зібрано"],
-            byRep.map((r) => {
-              const row = [
-                short(r.торговий, 20),
-                money(r.борг),
-                `${light(r.прострочено_відсотків < 10 ? "good" : r.прострочено_відсотків <= 25 ? "mid" : "bad")} ${percent(r.прострочено_відсотків)}`,
-                money(r.зібрано_за_період),
-              ];
-              return hasDelta ? [...row, r.приріст_боргу == null ? "—" : money(r.приріст_боргу)] : row;
-            })
-          )
+      // Плоский розріз «по клієнтах» — без таблиць торгових: торговий стоїть у рядку клієнта.
+      ...(!who && !flat && field.length > 0 ? ["### 🧑‍💼 Польові торгові", ...repTable(field), ""] : []),
+      ...(!who && !flat && office.length > 0 ? ["### 🏢 Офіс і власник", ...repTable(office), ""] : []),
+      ...groups.flatMap((g) => [
+        `### ${g.тип === "власник" ? "👑" : g.тип === "офіс" ? "🏢" : g.тип ? "🧑‍💼" : "❔"} ${g.торговий} · ${g.клієнтів_з_боргом} ${g.клієнтів_з_боргом === 1 ? "клієнт" : "клієнтів"} з боргом`,
+        ...table(DEBTOR_HEAD, g.клієнти.map(debtorCells)),
+        g.ще_не_показано
+          ? `_…і ще ${g.ще_не_показано.клієнтів} на ${money(g.ще_не_показано.борг)} — повний список у файлі._`
+          : null,
+        "",
+      ]),
+      ...(groups.length === 0
+        ? [
+            flat ? `### 🏪 Боржники по клієнтах · ${debtors.length} найбільших із ${total.боржників}` : "### Найбільші боржники",
+            ...table(["Клієнт", "Торговий", "Борг", "Прострочено", "Вік боргу"], debtors.slice(0, flat ? 40 : 10).map(clientRepCells)),
+            flat && total.боржників > debtors.length ? `_Решта ${total.боржників - debtors.length} — у файлі Excel._` : null,
+            "",
+          ]
         : []),
+      `_Вік боргу відновлено з наших відвантажень: 1С строків оплати не передає, тому «прострочено» — оцінка. «Старе» — борг, старший за нашу історію документів. ${
+        own ? "Свої рахунки (працівники, склади) у списках не рахуються. " : ""
+      }🏢 — офіс виписує документи на себе, 👑 — власник бере клієнтів на себе: це не показник роботи торгового. Платник: 🟢 надійний · 🟡 помірний · 🟠 ризиковий · 🔴 лише передоплата._`,
       "",
-      "### Найбільші боржники",
-      ...debtors.slice(0, 10).map((d) => {
-        const age = d.найстаріше_днів != null ? ` · ${daysWord(d.найстаріше_днів)}` : "";
-        const rep = d.торговий ? ` · ${d.торговий}` : "";
-        const verdict = d.платник ? ` · ${payerIcon(d.платник)} ${d.платник}` : "";
-        return `- ${d.прострочено > 0 ? "🔴" : "🟡"} ${clientLink(d.клієнт_id, d.клієнт)} — ${
-          d.прострочено > 0
-            ? `прострочено **${money(d.прострочено)}** із ${money(d.борг)}`
-            : `борг ${money(d.борг)} робочий`
-        }${age}${rep}${verdict}`;
-      }),
-      "",
-      `_${String(facts.примітка ?? "")} Платник: 🟢 надійний · 🟡 помірний · 🟠 ризиковий · 🔴 лише передоплата._`,
-      "",
-      followUps("Хто скільки зібрав за тиждень", "Продажі по торгових", "Хто де зараз"),
+      followUps(
+        groups.length > 0 ? "Зроби Excel цього списку" : "Дебіторка по торгових і їх клієнтах",
+        "Хто скільки зібрав за тиждень",
+        "Продажі по торгових"
+      ),
     ]),
     tools,
   };

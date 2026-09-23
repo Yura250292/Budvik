@@ -30,6 +30,10 @@
 | `MCP_STATE_SECRET` | випадковий рядок (підпис форми входу) |
 | `PORT` | ставить Railway |
 
+Сервіс **відмовляється стартувати** (код 1, причина в лозі), якщо адреса
+публічна, а `MCP_READONLY_DATABASE_URL` немає, або якщо `NODE_ENV=production`
+без `MCP_ISSUER_URL` — перевірка `scripts/check-mcp-startup.mts`.
+
 ## Локально
 
 ```bash

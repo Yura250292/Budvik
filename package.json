@@ -14,7 +14,7 @@
     "worker:prepare": "prisma generate",
     "worker:build": "esbuild worker/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/worker.cjs --external:@prisma/client --external:fast-xml-parser",
     "mcp": "tsx --env-file=.env mcp/index.ts",
-    "check:mcp": "tsx --env-file=.env scripts/check-mcp-oauth.mts && tsx --env-file=.env scripts/check-mcp-tools.mts && tsx --env-file=.env scripts/check-mcp-grants.mts",
+    "check:mcp": "tsx --env-file=.env scripts/check-mcp-oauth.mts && tsx --env-file=.env scripts/check-mcp-tools.mts && tsx --env-file=.env scripts/check-mcp-grants.mts && tsx --env-file=.env scripts/check-mcp-startup.mts",
     "mcp:build": "esbuild mcp/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/mcp.cjs --external:@prisma/client",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"

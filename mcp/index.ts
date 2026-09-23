@@ -30,14 +30,32 @@ import { createMcpServer } from "@/lib/mcp/server";
 import { purgeOldCalls } from "@/lib/mcp/audit";
 
 const PORT = Number(process.env.PORT) || 3002;
+
+/*
+ * Небезпечна конфігурація — відмова на старті, і без надії на NODE_ENV (його
+ * виставляє збирач, а не ми): публічна адреса без читальної ролі означала б
+ * query_db від superuser, а прод без MCP_ISSUER_URL — метадані OAuth з
+ * http://localhost, до яких жоден клієнт не підключиться.
+ */
+function refuse(why: string): never {
+  console.error(`[mcp] відмовляюсь стартувати: ${why}`);
+  process.exit(1);
+}
+if (!process.env.MCP_STATE_SECRET) refuse("MCP_STATE_SECRET не задано");
+if (!process.env.MCP_ISSUER_URL && process.env.NODE_ENV === "production") {
+  refuse("MCP_ISSUER_URL не задано (у проді — https://mcp.budvik27.com)");
+}
 const issuerRaw = process.env.MCP_ISSUER_URL ?? `http://localhost:${PORT}`;
-if (!process.env.MCP_STATE_SECRET) throw new Error("MCP_STATE_SECRET не задано");
 
 /** Без хвостового слеша в змінній, але issuer.href — зі слешем, як його віддає SDK. */
 const issuer = new URL(issuerRaw.replace(/\/+$/, "") + "/");
 const resource = new URL("/mcp", issuer);
 const SCOPES = ["budvik.read", "offline_access"];
 
+const isLocal = ["localhost", "127.0.0.1"].includes(issuer.hostname);
+if (!isLocal && !process.env.MCP_READONLY_DATABASE_URL) {
+  refuse("MCP_READONLY_DATABASE_URL не задано — на публічній адресі довільний SQL лише під роллю budvik_mcp_ro");
+}
 // Упасти на старті, а не на першому query_db, якщо в проді немає читальної ролі.
 readonlyDb();
 

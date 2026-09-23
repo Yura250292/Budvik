@@ -104,6 +104,18 @@ export async function issueCode(p: AuthorizeParams, userId: string): Promise<str
   return code;
 }
 
+/**
+ * Гасить підключення цілком: токени й ще не обміняні коди родини.
+ * Спільне для ознак крадіжки, /revoke і кнопки «Відключити» в профілі.
+ */
+export async function revokeFamily(familyId: string): Promise<void> {
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.mcpToken.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: now } }),
+    prisma.mcpAuthCode.updateMany({ where: { familyId, usedAt: null }, data: { usedAt: now } }),
+  ]);
+}
+
 /** Порівняння адрес без хвостового слеша й регістру хоста. */
 function sameUrl(a: URL | string, b: URL | string): boolean {
   try {
@@ -301,11 +313,7 @@ export class BudvikOAuthProvider implements OAuthServerProvider {
 
   /** Гасить підключення цілком: токени й ще не обміняні коди родини. */
   async revokeFamily(familyId: string): Promise<void> {
-    const now = new Date();
-    await prisma.$transaction([
-      prisma.mcpToken.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: now } }),
-      prisma.mcpAuthCode.updateMany({ where: { familyId, usedAt: null }, data: { usedAt: now } }),
-    ]);
+    await revokeFamily(familyId);
   }
 
   private async requireAdmin(userId: string, Err: new (message: string) => Error): Promise<void> {

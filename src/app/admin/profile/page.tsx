@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/roles";
+import { McpGrantsCard } from "@/components/admin/McpGrantsCard";
 import type { Role } from "@prisma/client";
 
 /**
@@ -405,6 +406,9 @@ export default function AdminProfilePage() {
               </>
             )}
           </div>
+
+          {/* Конектор видає дані всієї фірми — керує ним лише адмін. */}
+          {profile.role === "ADMIN" && <McpGrantsCard />}
 
           <div className="flex justify-end">
             <button

@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, createThread, type ModelChoice, type ToolTrace, type UiMessage } from "./api";
 import { readSse } from "./sse";
 import { COPY, NETWORK_ERROR, STALL_ERROR, errorCopy } from "./copy";
+import { hereForMessage } from "./here";
 
 /** Скільки чекати подій, перш ніж вважати потік зависшим. */
 const STALL_MS = 60_000;
@@ -145,6 +146,8 @@ export function useAssistantThread(threadId: string | null) {
       }, 5_000);
 
       try {
+        // Маршрут стартує від людини — див. here.ts. Помилка тут не зупиняє питання.
+        const here = await hereForMessage(trimmed).catch(() => null);
         const res = await fetch(`/api/sales/assistant/threads/${id}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -152,6 +155,7 @@ export function useAssistantThread(threadId: string | null) {
             text: trimmed,
             ...(opts.counterpartyId ? { counterpartyId: opts.counterpartyId } : {}),
             ...(opts.model ? { model: opts.model } : {}),
+            ...(here ? { here } : {}),
           }),
           signal: controller.signal,
         });

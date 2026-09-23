@@ -19,7 +19,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { defaultDepot } from "@/lib/routes/depot";
-import { findClients, pickOneClient } from "@/lib/assistant/facts/client-search";
+import { clientQuery, findClients, pickOneClient } from "@/lib/assistant/facts/client-search";
+import { queryWords } from "@/lib/assistant/facts/search-words";
 import { geocodeAddress } from "@/lib/geo/nominatim";
 import { humanText } from "@/lib/assistant/format";
 
@@ -46,6 +47,15 @@ export type RouteStopsResult = {
    * по цифрі в назві, чи це адреса, чи клієнт без піна.
    */
   geocodeSkipped: string[];
+  /**
+   * Для кожного невпізнаного — до трьох схожих клієнтів за прізвищем.
+   *
+   * «Не знайдено в базі» людина чує як «такого клієнта немає» і йде
+   * шукати його в 1С, хоча він був за одну букву. Варіанти дають моделі
+   * змогу перепитати: «Може, Яцьків Іван Теодорович (м.Перемишляни)?» —
+   * і людина відповідає одним тапом, а не диктує перелік заново.
+   */
+  suggestions: Array<{ asked: string; options: string[] }>;
 };
 
 /**
@@ -182,5 +192,35 @@ export async function resolveRouteStops(
     });
   }
 
-  return { picked, unclear, noPin, geocodeSkipped };
+  const suggestions = await suggestFor(unclear, repId);
+
+  return { picked, unclear, noPin, geocodeSkipped, suggestions };
+}
+
+/** Номер будинку або вулиця — це адреса, а не забуте імʼя клієнта. */
+const STREET_LIKE = /\d|(^|\s)(вул|просп|пл)/i;
+
+/** Скільки варіантів пропонувати на одне невпізнане імʼя. */
+const SUGGEST_MAX = 3;
+
+/**
+ * Схожі клієнти для невпізнаних імен — пошук лише за першим значущим словом.
+ *
+ * Повний пошук вимагає ВСІХ слів, тож одна зайва чи перекручена деталь
+ * («Теодорович» замість «Федорович», чуже місто) відкидає клієнта
+ * повністю. Прізвище ж людина майже завжди називає правильно, і саме за
+ * ним варто показати, хто є. Адреси з номером будинку чи вулицею сюди не
+ * йдуть: серед клієнтів їм шукати нічого. Саме «м.» адресою НЕ вважаємо —
+ * клієнта називають «Яцків (м. Перемишляни)», і це найчастіший випадок.
+ */
+async function suggestFor(unclear: string[], repId: string): Promise<RouteStopsResult["suggestions"]> {
+  const out: RouteStopsResult["suggestions"] = [];
+  for (const asked of unclear) {
+    if (STREET_LIKE.test(asked)) continue;
+    const surname = queryWords(clientQuery(asked))[0];
+    if (!surname || surname.length < 3) continue;
+    const hits = await findClients(surname, repId, { limit: SUGGEST_MAX });
+    if (hits.length) out.push({ asked, options: hits.map((h) => h.name) });
+  }
+  return out;
 }

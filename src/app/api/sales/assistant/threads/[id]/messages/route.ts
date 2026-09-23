@@ -22,6 +22,7 @@ import { DAILY_TURN_CAP, MODEL_FLAVORS, USER_TEXT_MAX, assistantKeys, type LlmFl
 import { modelRouteFor, runTurn, type ModelKeys } from "@/lib/assistant/loop";
 import { acquireBusy, getThreadForUser, releaseBusy } from "@/lib/assistant/threads";
 import { kindForThread, scopeOf } from "@/lib/assistant/scope";
+import { hereFromBody, hereFromTrack } from "@/lib/assistant/here";
 import { encodeEvent, keepAlive } from "@/lib/assistant/sse";
 import { LlmError } from "@/lib/assistant/llm";
 import { kyivDate } from "@/lib/date/kyiv";
@@ -56,7 +57,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
   }
 
-  let body: { text?: unknown; counterpartyId?: unknown; model?: unknown };
+  let body: { text?: unknown; counterpartyId?: unknown; model?: unknown; here?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -103,12 +104,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // Перемикач моделі — лише керівникові й лише зі списку провайдерів.
   const modelChoice =
     kind === "ADMIN" && MODEL_FLAVORS.includes(body.model as LlmFlavor) ? (body.model as LlmFlavor) : null;
+  // Де людина — лише для маршруту «від мене»; див. assistant/here.ts.
+  // Пристрій надсилає координати тільки з маршрутним питанням, тож трек
+  // питаємо лише тоді, коли пристрій промовчав.
+  const here = hereFromBody(body.here) ?? (await hereFromTrack(guard.me.userId).catch(() => null));
   const ctx = {
     userId: guard.me.userId,
     role: guard.me.role,
     kind,
     scope,
     today: kyivDate(new Date()),
+    ...(here ? { here } : {}),
   };
 
   const stream = new ReadableStream<Uint8Array>({

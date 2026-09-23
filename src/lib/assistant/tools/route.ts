@@ -13,9 +13,9 @@
  * зупиняють роботу, а перелічуються внизу. Кілометри й хвилини — лише від
  * OSRM; коли дороги немає, чесно віддаємо порядок за відстанню й порожні
  * числа, а не «приблизно» по прямій: саме з вигаданих кілометрів колись
- * починалися суперечки про пробіг. Старт — склад, якщо не сказано інакше:
- * у керівника немає «своєї останньої точки треку», а розвозка виїжджає
- * зі складу.
+ * починалися суперечки про пробіг. Старт — там, де людина зараз (див.
+ * assistant/here.ts), бо маршрут у чаті власник будує собі: він сам їде
+ * по точках. Склад — коли так сказано, або коли місця людини не знаємо.
  *
  * mode="day_plan" — керівник не називає точок сам, а просить «розкинути
  * доставку по водіях» чи «скласти маршрути на завтра». Ядро для цього вже
@@ -30,6 +30,7 @@
 import type { ToolDef } from "@/lib/assistant/types";
 import { day as validDay, enumOf, str, ToolArgError } from "@/lib/assistant/validate";
 import { resolveRouteStops, type RouteStop } from "@/lib/assistant/facts/route-build";
+import { accuracyLabel, HERE_MAX_ACCURACY_M } from "@/lib/assistant/here";
 import { orderStops, type RouteLeg } from "@/lib/assistant/facts/day-plan";
 import { WEEKDAY_ACCUSATIVE } from "@/lib/assistant/facts/route-habits";
 import { defaultDepot } from "@/lib/routes/depot";
@@ -43,6 +44,12 @@ const MIN_STOPS = 2;
 const MAX_STOPS = 20;
 const NAME_MIN = 2;
 const NAME_MAX = 80;
+
+/**
+ * Старт «від мене»: так модель передає прохання людини почати з її місця.
+ * Лише цілі фрази — «Яремче» чи «Ямпіль» не повинні стати геолокацією.
+ */
+const HERE_WORD = /^(я|мене|від мене|звідси|тут|де я|моє місце|моя (гео)?локація|поточна (гео)?локація|геолокація|з мого місця)$/i;
 
 /** Скільки адрес геокодуємо за один виклик (Nominatim ~1,1 с на запит). */
 const MAX_GEOCODE = 5;
@@ -133,7 +140,7 @@ export const buildRouteTool: ToolDef = {
       },
       start: {
         type: "string",
-        description: "Тільки для mode=stops. Звідки виїжджати: клієнт, адреса або «склад». Без цього — склад.",
+        description: "Тільки для mode=stops. Звідки виїжджати: клієнт, адреса, «склад» або «я» (поточна геолокація людини). Без цього поля старт — поточна геолокація людини, якщо пристрій її дав, інакше склад. НЕ питай людину, де вона: місце інструмент бере сам.",
       },
       date: {
         type: "string",
@@ -222,12 +229,47 @@ export const buildRouteTool: ToolDef = {
 
     /* ── Старт ─────────────────────────────────────────────────────── */
 
-    let start: (Point & { source: RouteStop["source"] }) | null = null;
-    if (startName) {
+    let start: (Point & { source: RouteStop["source"] | "геолокація" }) | null = null;
+
+    /*
+     * Де людина — якщо пристрій чи трек це знають і похибка придатна.
+     * Грубу позицію (ноутбук за IP) не беремо: перший рукав «+3 км» від
+     * точки, якої насправді немає, гірший за чесний старт зі складу.
+     */
+    const here = ctx.here;
+    const hereUsable = here && (here.accuracyM === null || here.accuracyM <= HERE_MAX_ACCURACY_M) ? here : null;
+    const hereWhy = !here
+      ? "вашого місця не знаю — пристрій не дав геолокацію"
+      : !hereUsable
+        ? `геолокація надто груба (${accuracyLabel(here.accuracyM)}: пристрій визначив місце за мережею, а не GPS)`
+        : null;
+    const fromHere = (): Point & { source: "геолокація" } => ({
+      name: "Ваша геолокація",
+      lat: hereUsable!.lat,
+      lng: hereUsable!.lng,
+      id: null,
+      source: "геолокація",
+    });
+    const hereNote = () =>
+      `Старт — ваша поточна геолокація (${accuracyLabel(hereUsable!.accuracyM)}, ${hereUsable!.source === "трек" ? "з треку застосунку" : "з пристрою"}). Щоб рахувати від складу, скажіть «від складу».`;
+
+    if (startName && HERE_WORD.test(startName.trim())) {
+      if (hereUsable) {
+        start = fromHere();
+        notes.push(hereNote());
+      } else {
+        notes.push(`Старт «від мене» не вийшов: ${hereWhy}. Виїжджаємо зі складу.`);
+      }
+    } else if (startName) {
       const found = await resolveRouteStops([startName], repId, { geocode: true, maxGeocode: 1 });
       const s = found.picked[0];
       if (s) start = { name: s.name, lat: s.lat, lng: s.lng, id: s.id, source: s.source };
       else notes.push(`Старт «${startName}» не впізнав — виїжджаємо зі складу.`);
+    } else if (hereUsable) {
+      start = fromHere();
+      notes.push(hereNote());
+    } else {
+      notes.push(`Старт — склад: ${hereWhy}.`);
     }
     if (!start) {
       const depot = await defaultDepot();
@@ -270,6 +312,19 @@ export const buildRouteTool: ToolDef = {
       );
     }
 
+    /*
+     * Невпізнаний клієнт — привід перепитати, а не сказати «немає в базі».
+     *
+     * 23.09.2026 модель відповіла власникові «Яцків не знайдено, перевірте
+     * назву в 1С», хоча клієнт був — «Яцьків». Тепер разом із невпізнаним
+     * іменем іде список схожих, і модель має запропонувати їх людині.
+     */
+    if (resolved.suggestions.length) {
+      notes.push(
+        "Невпізнаних НЕ називай відсутніми в базі: для них є схожі клієнти в «можливо_мали_на_увазі» — запитай людину, котрого з них вона мала на увазі, і запропонуй ці назви як варіанти відповіді."
+      );
+    }
+
     if (resolved.geocodeSkipped.length) {
       notes.push(
         `Адрес геокодую не більше ${MAX_GEOCODE} за раз — ${resolved.geocodeSkipped.map((n) => `«${n}»`).join(", ")} назвіть окремим викликом.`
@@ -283,6 +338,9 @@ export const buildRouteTool: ToolDef = {
           : "Жодну з названих точок не вдалося поставити на карту: не знайшли або в картці немає координат",
         старт: start ? { назва: start.name, широта: start.lat, довгота: start.lng } : null,
         нерозпізнані: resolved.unclear,
+        можливо_мали_на_увазі: resolved.suggestions.length
+          ? resolved.suggestions.map((x) => ({ ви_назвали: x.asked, варіанти: x.options }))
+          : undefined,
         без_координат: resolved.noPin,
         примітка: notes.join(" ") || undefined,
       };
@@ -334,6 +392,9 @@ export const buildRouteTool: ToolDef = {
       джерело: source === "osrm" ? "OSRM" : "за відстанню",
       посилання_google: links.map((l) => ({ url: l.url, точок: l.points })),
       нерозпізнані: resolved.unclear,
+      можливо_мали_на_увазі: resolved.suggestions.length
+        ? resolved.suggestions.map((x) => ({ ви_назвали: x.asked, варіанти: x.options }))
+        : undefined,
       без_координат: resolved.noPin,
       примітка: notes.join(" "),
     };

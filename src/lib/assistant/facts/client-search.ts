@@ -42,6 +42,44 @@ export function pickOneClient(hits: ClientHit[]): ClientHit | null {
   return withDocs.length >= 1 ? withDocs[0] : null;
 }
 
+/**
+ * Букви, які людина й 1С пишуть по-різному: мʼякий знак і апостроф.
+ *
+ * «Яцків» не є підрядком «Яцьків», а апостроф у 1С стоїть трьома різними
+ * символами («Мар'яна», «Мар`ян», «Марʼяна»). Прибираємо їх з ОБОХ боків
+ * порівняння — і з запиту, і з назви в SQL: тоді збіг не залежить від
+ * того, як саме написали.
+ *
+ * Лише для клієнтів. У товарному пошуку мʼякий знак — частина слова
+ * («Кельма»), і та сама чистка там зламала б те, що працює.
+ */
+const LOOSE_CHARS = "ьЬ'ʼ`’";
+const LOOSE_RE = /[ьЬ'ʼ`’]/g;
+
+/**
+ * Позначки населеного пункту. У назві 1С вони є не завжди («(м.Перемишляни)»,
+ * «(Перемишляни)», «(смт Жовтанці)»), тож обовʼязковим словом бути не можуть:
+ * «смт» у запиті відкидало клієнта, у якого в назві «смт.» не написали.
+ */
+const SETTLEMENT = new Set(["м", "с", "смт", "сел", "село", "місто", "селище", "пгт", "р-н", "район", "обл"]);
+
+/**
+ * Запит про клієнта → слова, які справді є в назві.
+ *
+ * Людина копіює клієнта у форматі 1С — «Яцків Іван Теодорович
+ * (Перемишляни)» — і дужка прилипала до слова: шукалося «(Перемишлян», а в
+ * назві стоїть «(м.Перемишляни)». Крапка між буквами — теж межа слова:
+ * «м.Перемишляни» це позначка й місто, а не одне слово.
+ */
+export function clientQuery(query: string): string {
+  return query
+    .replace(LOOSE_RE, "")
+    .replace(/[()[\]«»"“”„,;:!?.]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !SETTLEMENT.has(w.toLowerCase()))
+    .join(" ");
+}
+
 export async function findClients(
   query: string,
   repId: string,
@@ -66,8 +104,14 @@ async function search(
   { limit = 8, onlyMine = false }: { limit?: number; onlyMine?: boolean },
   cut: number
 ): Promise<ClientHit[]> {
-  // Послівно й по основах — див. search-words.ts.
-  const patterns = searchPatterns(query, 5, cut);
+  /*
+   * Послівно й по основах — див. search-words.ts. Шість слів, а не пʼять:
+   * «ФОП Скалоцька Марʼяна Любомирівна (м. Бібрка)» — це пʼять слів ДО
+   * міста, і місто випадало з пошуку. Вибір між Бібркою й Перемишлянами
+   * тоді робило сортування за датою, а не запит.
+   */
+  const cleaned = clientQuery(query) || query;
+  const patterns = searchPatterns(cleaned, 6, cut);
   const whole = `%${query.replace(/[%_]/g, "")}%`;
 
   return prisma.$queryRaw<ClientHit[]>`
@@ -79,12 +123,12 @@ async function search(
         WHERE s."counterpartyId" = c.id AND s."docType" <> 'RETURN') AS "lastDocAt"
     FROM "Counterparty" c
     WHERE (
-        c.name ILIKE ALL(${patterns}::text[])
+        translate(c.name, ${LOOSE_CHARS}, '') ILIKE ALL(${patterns}::text[])
         OR c.code ILIKE ${whole}
         OR c."contactPerson" ILIKE ${whole}
         -- Адреса теж: місто в 1С пишуть де завгодно, і «Сокільники»
         -- частіше стоїть саме там, а не в назві.
-        OR c.address ILIKE ALL(${patterns}::text[])
+        OR translate(c.address, ${LOOSE_CHARS}, '') ILIKE ALL(${patterns}::text[])
       )
       ${onlyMine ? Prisma.sql`AND c.id IN (SELECT id FROM my_clients)` : Prisma.empty}
     ORDER BY

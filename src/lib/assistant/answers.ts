@@ -48,6 +48,7 @@ import { shiftDay } from "@/lib/analytics/period";
 import type { PeriodSpec } from "@/lib/assistant/router";
 import { orderStops, planDay } from "@/lib/assistant/facts/day-plan";
 import { resolveRouteStops } from "@/lib/assistant/facts/route-build";
+import { HERE_MAX_ACCURACY_M } from "@/lib/assistant/here";
 import { defaultDepot } from "@/lib/routes/depot";
 import {
   MAX_POINTS_PER_LINK,
@@ -1720,7 +1721,13 @@ export async function answerRouteTo(
     tools
   );
   const picked = found.picked.map((s, i) => ({ id: s.id ?? `addr-${i}`, name: s.name, lat: s.lat, lng: s.lng }));
-  const { unclear, noPin } = found;
+  const { unclear, noPin, suggestions } = found;
+
+  // «Не впізнав» без варіантів людина чує як «такого немає»; з варіантами —
+  // бачить, що клієнт був за одну букву (Яцків / Яцьків).
+  const maybe = suggestions.length
+    ? `_Можливо, мали на увазі: ${suggestions.map((x) => `${x.asked} → ${x.options.join(" / ")}`).join("; ")}._`
+    : null;
 
   if (picked.length === 0) {
     return {
@@ -1729,21 +1736,32 @@ export async function answerRouteTo(
         "",
         "Жодного з названих клієнтів не вдалося поставити на карту: або не знайшли, або в картці немає координат.",
         unclear.length ? `_Не впізнав: ${unclear.join(", ")}._` : null,
+        maybe,
         noPin.length ? `_Без точки на карті: ${noPin.join(", ")}._` : null,
       ]),
       tools,
     };
   }
 
-  /* Торговий їде від себе; керівник — від складу, бо власного треку не має. */
-  const depot = startFrom === "depot" ? await defaultDepot() : null;
+  /*
+   * Звідки їхати. Спершу — де людина зараз (геолокація пристрою або свіжий
+   * трек, див. assistant/here.ts), якщо похибка придатна. Керівник без
+   * свого місця їде від складу: треку він не пише, а «остання точка» в
+   * нього — випадковий фікс тижневої давнини. Торговий без геолокації — від
+   * останньої точки треку, як і було.
+   */
+  const here = ctx.here && (ctx.here.accuracyM === null || ctx.here.accuracyM <= HERE_MAX_ACCURACY_M) ? ctx.here : null;
+  const useDepot = startFrom === "depot" || (!here && ctx.kind === "ADMIN");
+  const depot = useDepot ? await defaultDepot() : null;
   const start = depot
     ? { lat: depot.lat, lng: depot.lng }
-    : await prisma.trackPoint.findFirst({
-        where: { userId: ctx.scope.repId },
-        orderBy: { recordedAt: "desc" },
-        select: { lat: true, lng: true },
-      });
+    : here
+      ? { lat: here.lat, lng: here.lng }
+      : await prisma.trackPoint.findFirst({
+          where: { userId: ctx.scope.repId },
+          orderBy: { recordedAt: "desc" },
+          select: { lat: true, lng: true },
+        });
 
   const route = await timed(
     { name: "route_order", label: "Шикую порядок обʼїзду" },
@@ -1754,7 +1772,7 @@ export async function answerRouteTo(
 
   return {
     markdown: md([
-      depot ? "## 🧭 Маршрут · від складу" : "## 🧭 Маршрут",
+      depot ? "## 🧭 Маршрут · від складу" : here ? "## 🧭 Маршрут · від вас" : "## 🧭 Маршрут",
       route?.km
         ? `${pointsWord(order.length)} · ${route.km} км · ~${hoursMinutes(route.minutes ?? 0)} у дорозі`
         : pointsWord(order.length),
@@ -1766,6 +1784,7 @@ export async function answerRouteTo(
       ),
       noPin.length ? `\n_Без точки на карті, у порядок не стали: ${noPin.join(", ")}._` : null,
       unclear.length ? `_Не впізнав: ${unclear.join(", ")} — скажіть точніше._` : null,
+      maybe,
       "",
       route?.source === "osrm"
         ? depot

@@ -1,9 +1,9 @@
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java
 new file mode 100644
-index 0000000..7915321
+index 0000000..0c88eba
 --- /dev/null
 +++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/BudvikTaskDiag.java
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,216 @@
 +package expo.modules.taskManager;
 +
 +import android.content.Context;
@@ -195,6 +195,14 @@ index 0000000..7915321
 +      out.put("emitFailed", emitFailed.get());
 +      out.put("takeovers", takeovers.get());
 +      out.put("rejected", rejected.get());
++      /**
++       * Скільки разів порція координат доливалася в роботу, що вже чекає, і
++       * скільки разів термін її очікування вже був вичерпаний. Друге число
++       * більше нуля означає, що система тримає роботу довше за хвилину — саме
++       * так виглядає Android 16 на планшеті Олександра.
++       */
++      out.put("jobMerges", TaskManagerUtils.budvikMerges.get());
++      out.put("jobOverdue", TaskManagerUtils.budvikOverdue.get());
 +      out.put("lastDirectAt", lastDirectAt);
 +      out.put("lastDirectTask", lastDirectTask);
 +      out.put("lastQueuedAt", lastQueuedAt);
@@ -212,6 +220,20 @@ index 0000000..7915321
 +    return out.toString();
 +  }
 +}
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskJobService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskJobService.java
+index abc6d90..eb82826 100644
+--- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskJobService.java
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskJobService.java
+@@ -10,6 +10,9 @@ public class TaskJobService extends JobService {
+     Context context = getApplicationContext();
+     TaskService taskService = new TaskService(context);
+ 
++    // ПАТЧ Budvik: робота дочекалася запуску — відлік її терміну починається наново.
++    TaskManagerUtils.budvikJobStarted(params.getJobId());
++
+     return taskService.handleJob(this, params);
+   }
+ 
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java
 index e8df881..61849e0 100644
 --- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerInternalModule.java
@@ -482,6 +504,137 @@ index 294cd71..1248190 100644
          },
          1000
        )
+diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerUtils.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerUtils.java
+index c54fb7d..5aabb92 100644
+--- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerUtils.java
++++ b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskManagerUtils.java
+@@ -17,6 +17,7 @@ import android.util.Log;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.Comparator;
++import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+@@ -39,9 +40,63 @@ public class TaskManagerUtils implements TaskManagerUtilsInterface {
+   private static final int PENDING_INTENT_REQUEST_CODE = 5055;
+ 
+   private static final int DEFAULT_OVERRIDE_DEADLINE = 60 * 1000; // 1 minute
++  /** Найменший термін, який ще безпечно віддати системі (див. budvikRemainingDeadline). */
++  private static final long MIN_OVERRIDE_DEADLINE = 1000;
+ 
+   private static final Set<TaskInterface> sTasksReschedulingJob = new ArraySet<>();
+ 
++  /**
++   * ПАТЧ Budvik: коли роботу доставки поставлено ВПЕРШЕ, за jobId.
++   *
++   * Кожна нова порція координат скасовує роботу, що чекає, і ставить її наново
++   * зі свіжим терміном у хвилину. Координати приходять раз на десять секунд,
++   * тож термін відсувається щоразу й не настає ніколи. До Android 15 це не
++   * проявлялося: система запускала роботу задовго до терміну. Android 16 чекає
++   * саме терміну — і 23.09.2026 на новому планшеті Олександра (Lenovo TB336ZU,
++   * Android 16) з 510 поставлених робіт виконалося 24, тоді як на решті
++   * планшетів виконуються всі до одної.
++   *
++   * Тому термін рахуємо від ПЕРШОГО планування, а не від останнього злиття:
++   * робота однаково збирає дані далі, але зобов'язання системи не зсувається.
++   */
++  private static final Map<Integer, Long> sBudvikJobFirstScheduledAt = new HashMap<>();
++  /** Скільки разів термін збережено, і скільки робіт пішло з нульовим терміном. */
++  static final java.util.concurrent.atomic.AtomicLong budvikMerges = new java.util.concurrent.atomic.AtomicLong();
++  static final java.util.concurrent.atomic.AtomicLong budvikOverdue = new java.util.concurrent.atomic.AtomicLong();
++
++  /** Робота пішла в роботу — відлік для неї починається наново. */
++  static void budvikJobStarted(int jobId) {
++    synchronized (sBudvikJobFirstScheduledAt) {
++      sBudvikJobFirstScheduledAt.remove(jobId);
++    }
++  }
++
++  /** Скільки мілісекунд лишилося до терміну цієї роботи. */
++  private static long budvikRemainingDeadline(int jobId) {
++    long now = System.currentTimeMillis();
++    long first;
++    synchronized (sBudvikJobFirstScheduledAt) {
++      Long stored = sBudvikJobFirstScheduledAt.get(jobId);
++      if (stored == null) {
++        sBudvikJobFirstScheduledAt.put(jobId, now);
++        return DEFAULT_OVERRIDE_DEADLINE;
++      }
++      first = stored;
++    }
++    long left = DEFAULT_OVERRIDE_DEADLINE - (now - first);
++    if (left <= MIN_OVERRIDE_DEADLINE) {
++      budvikOverdue.incrementAndGet();
++      /**
++       * Не нуль навмисно: JobInfo забороняє термін, не більший за затримку, а
++       * затримка тут нульова. Секунда означає те саме «якнайшвидше», але не
++       * дає системі підстав відкинути роботу винятком — а виняток тут летів би
++       * із шляху доставки координат, тобто вбивав би трек замість лікувати.
++       */
++      return MIN_OVERRIDE_DEADLINE;
++    }
++    return left;
++  }
++
+   //region TaskManagerUtilsInterface
+ 
+   @Override
+@@ -143,7 +198,9 @@ public class TaskManagerUtils implements TaskManagerUtilsInterface {
+       int jobId = jobInfo.getId();
+ 
+       if (isJobInfoRelatedToTask(jobInfo, task)) {
+-        JobInfo mergedJobInfo = createJobInfoByAddingData(jobInfo, data);
++        // ПАТЧ Budvik: термін рахуємо від першого планування (див. поле вище).
++        budvikMerges.incrementAndGet();
++        JobInfo mergedJobInfo = createJobInfoByAddingData(jobInfo, data, budvikRemainingDeadline(jobId));
+ 
+         // Add the task to the list of rescheduled tasks.
+         sTasksReschedulingJob.add(task);
+@@ -173,7 +230,7 @@ public class TaskManagerUtils implements TaskManagerUtilsInterface {
+     }
+   }
+ 
+-  private JobInfo createJobInfoByAddingData(JobInfo jobInfo, List<PersistableBundle> data) {
++  private JobInfo createJobInfoByAddingData(JobInfo jobInfo, List<PersistableBundle> data, long overrideDeadline) {
+     PersistableBundle mergedExtras = jobInfo.getExtras();
+     int dataSize = mergedExtras.getInt("dataSize", 0);
+ 
+@@ -184,7 +241,7 @@ public class TaskManagerUtils implements TaskManagerUtilsInterface {
+         mergedExtras.putPersistableBundle(String.valueOf(dataSize + i), data.get(i));
+       }
+     }
+-    return createJobInfo(jobInfo.getId(), jobInfo.getService(), mergedExtras);
++    return createJobInfo(jobInfo.getId(), jobInfo.getService(), mergedExtras, overrideDeadline);
+   }
+ 
+   private PendingIntent createTaskIntent(Context context, String appScopeKey, String taskName, int flags) {
+@@ -214,16 +271,22 @@ public class TaskManagerUtils implements TaskManagerUtilsInterface {
+     return createTaskIntent(context, appScopeKey, taskName, flags);
+   }
+ 
+-  private JobInfo createJobInfo(int jobId, ComponentName jobService, PersistableBundle extras) {
++  private JobInfo createJobInfo(int jobId, ComponentName jobService, PersistableBundle extras, long overrideDeadline) {
+     return new JobInfo.Builder(jobId, jobService)
+       .setExtras(extras)
+       .setMinimumLatency(0)
+-      .setOverrideDeadline(DEFAULT_OVERRIDE_DEADLINE)
++      .setOverrideDeadline(overrideDeadline)
+       .build();
+   }
+ 
+   private JobInfo createJobInfo(Context context, TaskInterface task, int jobId, List<PersistableBundle> data) {
+-    return createJobInfo(jobId, new ComponentName(context, TaskJobService.class), createExtrasForTask(task, data));
++    // Нова робота: відлік терміну починається тут (budvikRemainingDeadline її й запам'ятає).
++    return createJobInfo(
++      jobId,
++      new ComponentName(context, TaskJobService.class),
++      createExtrasForTask(task, data),
++      budvikRemainingDeadline(jobId)
++    );
+   }
+ 
+   private PersistableBundle createExtrasForTask(TaskInterface task, List<PersistableBundle> data) {
 diff --git a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java b/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java
 index 2b6c2fa..e5b44fd 100644
 --- a/node_modules/expo-task-manager/android/src/main/java/expo/modules/taskManager/TaskService.java

@@ -12,6 +12,7 @@
 
 import { planCandidates, DELIVERY_BBOX } from "../src/lib/routes/plan-candidates";
 import { prisma } from "../src/lib/prisma";
+import { isInternalClient, loadInternalContext } from "../src/lib/rep-feed/internal";
 
 const fails: string[] = [];
 const skipped: string[] = [];
@@ -87,6 +88,24 @@ if (ids.length) {
 
 // Дублів документів бути не може: один документ — одна точка.
 check("без дублів", new Set(ids).size === ids.length, `${new Set(ids).size} / ${ids.length}`);
+
+/*
+ * Свої в план не потрапляють.
+ *
+ * Перший живий прогін 23.09.2026 поставив «Склад ( Дубляни)» другою, третьою
+ * і четвертою точкою маршруту, а «Передрій Дмитро (співробітник)» — першою.
+ * Перевірка сувора саме тому: у складу є і пін, і адреса, тож без відсіву він
+ * виглядає як звичайний клієнт, і жоден інший рядок цього не зловить.
+ */
+const internalCtx = await loadInternalContext();
+const leaked = res.points.filter((c) => isInternalClient({ id: c.counterpartyId, name: c.name }, internalCtx));
+check("своїх у points немає", leaked.length === 0, leaked.length ? leaked.map((c) => c.name).join(", ") : 0);
+
+check(
+  "усі, хто в кошику internal, справді свої",
+  res.internal.every((c) => isInternalClient({ id: c.counterpartyId, name: c.name }, internalCtx)),
+  res.internal.length
+);
 
 await prisma.$disconnect();
 

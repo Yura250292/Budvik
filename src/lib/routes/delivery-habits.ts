@@ -23,6 +23,18 @@ import { prisma } from "@/lib/prisma";
 import { pairKey, type DriverHabit } from "@/lib/routes/plan-day";
 
 export type DriverCapacity = {
+  /**
+   * Звична денна норма кілометрів, медіана по листах цього водія.
+   *
+   * Спочатку цього поля не було, бо памʼять проєкту казала, що кілометраж у
+   * листах 1С не ведуть. Станом на 23.09.2026 він заповнений у 128 зі 139
+   * листів, і норми водіїв різняться вдвічі: у Пайди медіана 277 км, у
+   * Піцишина — 206. Без цього числа план не мав чим відрізнити довгий, але
+   * робочий день від фізично неможливого.
+   */
+  medianKm: number | null;
+  /** Верхня межа звичного: 80-й процентиль денних кілометрів */
+  p80Km: number | null;
   /** Скільки точок брати за межу дня: 80-й процентиль по історії */
   maxStops: number;
   medianStops: number;
@@ -54,6 +66,7 @@ export const DEFAULT_MAX_STOPS = 16;
 
 type HistoryRow = {
   sheet_id: string;
+  distance_km: number | null;
   driver_id: string | null;
   sheet_date: Date;
   cp: string;
@@ -71,6 +84,7 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
 
   const rows = await prisma.$queryRaw<HistoryRow[]>`
     SELECT rs.id AS sheet_id,
+           rs."distanceKm" AS distance_km,
            COALESCE(rs."driverId", u.id) AS driver_id,
            rs.date AS sheet_date,
            s."counterpartyId" AS cp
@@ -85,14 +99,17 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
 
   /* Лист → його водій, день і склад клієнтів. Клієнти в множині: три рядки
      на одну адресу — це одна точка, і для пар та місткості вони не троїться. */
-  const sheets = new Map<string, { driverId: string | null; weekday: number; clients: Set<string> }>();
+  const sheets = new Map<
+    string,
+    { driverId: string | null; weekday: number; clients: Set<string>; distanceKm: number | null }
+  >();
 
   for (const row of rows) {
     let sheet = sheets.get(row.sheet_id);
     if (!sheet) {
       // getUTCDay(): 0 = неділя. Нам треба 0 = понеділок.
       const weekday = (row.sheet_date.getUTCDay() + 6) % 7;
-      sheet = { driverId: row.driver_id, weekday, clients: new Set() };
+      sheet = { driverId: row.driver_id, weekday, clients: new Set(), distanceKm: row.distance_km };
       sheets.set(row.sheet_id, sheet);
     }
     sheet.clients.add(row.cp);
@@ -103,6 +120,7 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
   const pairs = new Map<string, number>();
   const deliveriesByClient = new Map<string, number>();
   const stopsPerDay = new Map<string, number[]>();
+  const kmPerDay = new Map<string, number[]>();
 
   for (const sheet of sheets.values()) {
     const clients = [...sheet.clients];
@@ -132,6 +150,13 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
       const list = stopsPerDay.get(sheet.driverId) ?? [];
       list.push(clients.length);
       stopsPerDay.set(sheet.driverId, list);
+
+      // Нульовий кілометраж — це «не заповнили», а не «нікуди не їхав».
+      if (sheet.distanceKm !== null && sheet.distanceKm > 0) {
+        const km = kmPerDay.get(sheet.driverId) ?? [];
+        km.push(sheet.distanceKm);
+        kmPerDay.set(sheet.driverId, km);
+      }
     }
   }
 
@@ -146,9 +171,12 @@ export async function deliveryHabits(sinceDays = DEFAULT_SINCE_DAYS): Promise<De
   const capacity = new Map<string, DriverCapacity>();
   for (const [driverId, list] of stopsPerDay) {
     const sorted = [...list].sort((a, b) => a - b);
+    const km = [...(kmPerDay.get(driverId) ?? [])].sort((a, b) => a - b);
     capacity.set(driverId, {
       maxStops: percentile(sorted, CAPACITY_PERCENTILE) ?? DEFAULT_MAX_STOPS,
       medianStops: percentile(sorted, 0.5) ?? DEFAULT_MAX_STOPS,
+      medianKm: percentile(km, 0.5),
+      p80Km: percentile(km, CAPACITY_PERCENTILE),
       days: list.length,
     });
   }

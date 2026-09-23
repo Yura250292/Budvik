@@ -116,6 +116,26 @@ for (const row of weekdaySample) {
   );
 }
 
+/*
+ * Денна норма кілометрів.
+ *
+ * Поле зʼявилось 23.09.2026, коли виявилось, що distanceKm заповнений у 128
+ * зі 139 листів (стара памʼять проєкту казала, що його не ведуть). Норми
+ * водіїв різняться вдвічі — 277 км проти 206 — тому перевіряємо не конкретне
+ * число, а що воно взагалі є і не абсурдне.
+ */
+let withKm = 0;
+for (const [driverId, cap] of habits.capacity) {
+  if (cap.medianKm === null) continue;
+  withKm++;
+  check(
+    `норма км водія ${driverId} у 30..600`,
+    cap.medianKm >= 30 && cap.medianKm <= 600 && (cap.p80Km ?? 0) >= cap.medianKm,
+    `медіана ${cap.medianKm}, p80 ${cap.p80Km}`
+  );
+}
+check("хоч в одного водія є норма км", withKm > 0, withKm);
+
 await prisma.$disconnect();
 
 if (fails.length) {

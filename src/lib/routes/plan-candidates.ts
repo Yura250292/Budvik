@@ -25,6 +25,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { isInternalClient, loadInternalContext } from "@/lib/rep-feed/internal";
 
 export type PlanCandidate = {
   salesDocumentId: string;
@@ -40,6 +41,16 @@ export type PlanCandidate = {
 };
 
 export type CandidatesResult = {
+  /**
+   * Внутрішні контрагенти: склад, співробітники, торгові.
+   *
+   * У 1С вони живуть поруч зі справжніми клієнтами й мають такі самі
+   * реалізації — перший же живий план поставив «Склад ( Дубляни)» другою,
+   * третьою і четвертою точкою маршруту, а «Передрій Дмитро (співробітник)»
+   * першою. Возити їх нікуди не треба, але й ховати не можна: документ,
+   * який зник без сліду, менеджер шукає довше, ніж викреслює зайвий рядок.
+   */
+  internal: PlanCandidate[];
   /** Готові до планування: пін є, зона наша */
   points: PlanCandidate[];
   /** Клієнт у базі є, координат немає — менеджер має показати на карті */
@@ -110,6 +121,11 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
   const points: PlanCandidate[] = [];
   const noPin: PlanCandidate[] = [];
   const outOfZone: PlanCandidate[] = [];
+  const internal: PlanCandidate[] = [];
+
+  // Ручна ознака людини плюс евристика за назвою — той самий відсів, яким
+  // стрічка торгового відкидає своїх (src/lib/rep-feed/internal.ts).
+  const internalCtx = await loadInternalContext();
   const noCounterparty: PlanCandidate[] = [];
 
   for (const r of rows) {
@@ -144,6 +160,13 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
       createdAt: r.created_at,
     };
 
+    // Внутрішніх відсіюємо ПЕРШИМИ: у складу є і пін, і адреса, тож інакше
+    // він осів би просто в points як звичайний клієнт.
+    if (r.counterpartyId !== null && isInternalClient({ id: r.counterpartyId, name: r.name ?? "" }, internalCtx)) {
+      internal.push(c);
+      continue;
+    }
+
     if (c.lat === null || c.lng === null) {
       noPin.push(c);
       continue;
@@ -158,5 +181,5 @@ export async function planCandidates(days = CANDIDATE_DAYS): Promise<CandidatesR
     points.push(c);
   }
 
-  return { points, noPin, outOfZone, noCounterparty };
+  return { points, noPin, internal, outOfZone, noCounterparty };
 }

@@ -55,6 +55,13 @@ export type PlanRouteOut = {
   reason: string;
   /** Порядок дала пряма, а не дорога: OSRM не відповів */
   orderFromDistance: boolean;
+  /**
+   * Звична денна норма цього водія, км (медіана по його листах) — або null,
+   * коли історії немає. Потрібна, щоб людина бачила довгий маршрут як довгий:
+   * норми різняться вдвічі, і 300 км для одного водія буденність, а для
+   * іншого — півтори норми.
+   */
+  normalKm: number | null;
 };
 
 export type PlanWaiting = {
@@ -81,6 +88,8 @@ export type PlanDayResponse = {
   outOfZone: PlanWaiting[];
   /** Документи без контрагента — пін ставити нема кому, дивитись у 1С */
   noCounterparty: PlanWaiting[];
+  /** Внутрішні: склад, співробітники, торгові. Не розвозка, але видно, що вони є */
+  internal: PlanWaiting[];
   notes: string[];
 };
 
@@ -137,6 +146,7 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       noPin: candidates.noPin.map(waiting),
       outOfZone: candidates.outOfZone.map(waiting),
       noCounterparty: candidates.noCounterparty.map(waiting),
+      internal: candidates.internal.map(waiting),
       notes: [...notes, "Непривезених реалізацій з координатами не знайшлося"],
     };
   }
@@ -233,6 +243,12 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
     };
   };
 
+  if (candidates.internal.length > 0) {
+    notes.push(
+      `${candidates.internal.length} документів на своїх (склад, співробітники) у план не пішли — це не розвозка`
+    );
+  }
+
   const routes: PlanRouteOut[] = [];
   for (const r of planRoutes) {
     const driver = driverRows.find((d) => d.id === r.driverId);
@@ -272,6 +288,14 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       notes.push(`${driver.name}: ${selfPickup} точ. — клієнти, яких у листах ще не було, перевірте, чи не самовивіз`);
     }
 
+    const normalKm = habits.capacity.get(r.driverId)?.medianKm ?? null;
+    const p80Km = habits.capacity.get(r.driverId)?.p80Km ?? null;
+    if (distanceKm !== null && p80Km !== null && distanceKm > p80Km) {
+      notes.push(
+        `${driver.name}: ${Math.round(distanceKm)} км — більше за звичні ${Math.round(p80Km)} км його дня; перевірте, чи влізе`
+      );
+    }
+
     routes.push({
       driverId: r.driverId,
       driverName: driver.name,
@@ -283,6 +307,7 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       geometry,
       reason: r.reason,
       orderFromDistance,
+      normalKm,
     });
   }
 
@@ -304,6 +329,7 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
     noPin: candidates.noPin.map(waiting),
     outOfZone: candidates.outOfZone.map(waiting),
     noCounterparty: candidates.noCounterparty.map(waiting),
+    internal: candidates.internal.map(waiting),
     notes,
   };
 }

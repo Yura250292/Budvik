@@ -388,6 +388,17 @@ export default function PlanTab({ day }: { day: string }) {
             </Card>
           )}
 
+          {plan.internal.length > 0 && (
+            <Card padded={false}>
+              <CardHeader title={`Свої, не розвозка — ${plan.internal.length}`} />
+              <div className="px-4 pb-4 text-sm text-g600">
+                Склад, співробітники й торгові — у 1С їхні документи виглядають як звичайні реалізації,
+                тому кажемо про них окремо, а не ховаємо:{" "}
+                {plan.internal.map((x) => `${x.name} (${x.number})`).join(", ")}
+              </div>
+            </Card>
+          )}
+
           {plan.notes.map((n, i) => (
             <div key={i} className="text-sm text-g600">
               {n}
@@ -451,6 +462,7 @@ function RouteColumn({
           {route.stops.length} точ. · {formatPrice(total)} ·{" "}
           {route.distanceKm === null ? "— км" : `${Math.round(route.distanceKm)} км`}
           {route.durationMin !== null && ` · ${Math.round(route.durationMin)} хв`}
+          {route.normalKm !== null && ` · звично ${Math.round(route.normalKm)} км`}
         </span>
       </div>
       <div className="px-3 py-2 text-xs text-g600">

@@ -46,6 +46,9 @@ export default function ProcurementPage() {
   const [expensiveMin, setExpensiveMin] = useState(5);
   const [cheapMin, setCheapMin] = useState(10);
   const [includeDead, setIncludeDead] = useState(false);
+  // Типово увімкнено — рішення власника. Вимикач потрібен, щоб можна
+  // було побачити ті самі числа, що й учора, коли щось виглядає дивно.
+  const [season, setSeason] = useState(true);
   const [days, setDays] = useState(DEFAULT_VELOCITY_DAYS);
   const [minSeverity, setMinSeverity] = useState(2); // показувати все, що < 3
   const [showSettings, setShowSettings] = useState(false);
@@ -60,7 +63,8 @@ export default function ProcurementPage() {
   const query =
     `/api/admin/procurement?expensivePrice=${expensivePrice}&expensiveMin=${expensiveMin}` +
     `&cheapMin=${cheapMin}&days=${days}${brandId ? `&brandId=${brandId}` : ""}` +
-    `${includeDead ? "&includeDead=1" : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`;
+    `${includeDead ? "&includeDead=1" : ""}${season ? "" : "&season=0"}` +
+    `${search ? `&search=${encodeURIComponent(search)}` : ""}`;
 
   const { data, error, isLoading } = useSWR<{ report: LowStockReport }>(query, fetcher, { keepPreviousData: true });
   const report = data?.report;
@@ -258,8 +262,16 @@ export default function ProcurementPage() {
               <input type="checkbox" checked={includeDead} onChange={(e) => setIncludeDead(e.target.checked)} />
               Показати позиції без продажів (мертві)
             </label>
+            <label className="flex h-10 items-center gap-2 text-sm">
+              <input type="checkbox" checked={season} onChange={(e) => setSeason(e.target.checked)} />
+              Враховувати сезон
+            </label>
             <p className="w-full text-xs text-g400">
               Норми діють лише для позицій без історії продажів. Там, де продажі є, дефіцит рахується за обігом.
+            </p>
+            <p className="w-full text-xs text-g400">
+              Сезон виправляє вікно продажів: перед зимою вікно накриває літо, і зимовий товар виглядає як
+              такий, що не продається. Поки історії за повні роки немає, поправка не змінює жодного числа.
             </p>
           </div>
         )}
@@ -338,6 +350,44 @@ export default function ProcurementPage() {
             + Додати все видиме в заявку ({allVisible.filter((i) => i.severity < 3).length})
           </button>
         </div>
+      )}
+
+      {/*
+        «Готуватися до сезону» — окремий список, а не зміна кольорів.
+
+        Це рівно ті позиції, яких на цій сторінці сьогодні не видно
+        взагалі: формально все гаразд (сірий рівень 3), бо за останні
+        місяці продажів не було. Генератор улітку саме такий — і зникає
+        він якраз тоді, коли його треба замовляти.
+      */}
+      {report && report.seasonWatch.length > 0 && (
+        <Card>
+          <div className="flex items-baseline justify-between gap-2 border-b border-g100 px-4 py-3">
+            <h2 className="font-bold">🌡 Готуватися до сезону</h2>
+            <span className="text-sm text-g400">позицій: {report.seasonWatch.length}</span>
+          </div>
+          <p className="px-4 pt-3 text-xs text-g400">
+            За останні {report.velocityDays} днів ці позиції майже не продавались, тому у списку вище їх немає.
+            Але торік і позаторік у наступні місяці їх брали — а на складі порожньо.
+          </p>
+          <div className="flex flex-col gap-1 p-4">
+            {report.seasonWatch.map((i) => (
+              <div key={i.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-g50 py-1.5 text-sm last:border-0">
+                <span className="font-medium text-bk">{i.name}</span>
+                <span className="text-xs text-g400">{i.sku}</span>
+                <span className="ml-auto text-xs text-g500">залишок {i.stock}</span>
+                <span className="text-xs font-semibold text-amber-700">×{i.seasonFactor}</span>
+                <span className="text-xs text-g400">сезон {i.seasonFrom}</span>
+                <button
+                  onClick={() => setCart((prev) => ({ ...prev, [i.id]: prev[i.id] ?? i.suggested }))}
+                  className="text-xs font-semibold text-blue-700 hover:underline"
+                >
+                  + {i.suggested} в заявку
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {visibleSections.map((section) => (

@@ -47,6 +47,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { kyivTsSql } from "@/lib/date/kyiv";
 import { HISTORY_SINCE_DAY } from "@/lib/analytics/since";
+import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 
 /**
  * Власний фільтр джерела замість спільного SOURCE_FILTER — і це виправлення
@@ -712,4 +713,38 @@ export async function risingGroups(input: {
     .sort((a, b) => b.factor - a.factor);
 
   return out.slice(0, input.limit ?? 5);
+}
+
+/**
+ * Мітка останнього перерахунку — київський місяць, YYYY-MM.
+ *
+ * Той самий патерн, що й у ранкового зведення: перезапуск воркера посеред
+ * місяця не запустить перерахунок удруге.
+ */
+const RECOMPUTE_KEY = "season:recomputed";
+
+/**
+ * Перерахувати, якщо пора.
+ *
+ * Раз на місяць, і цього досить: форма року міняється лише тоді, коли
+ * закривається черговий повний рік. Щодня перебудовувати профіль на
+ * сотнях тисяч рядків — це витрата без жодної нової інформації.
+ *
+ * Є ще два моменти, коли перерахунок ПОТРІБЕН, і обидва ручні:
+ * після бекфілу історії та після прогону класифікатора каталогу —
+ * `typeKey` рахується з назв товарів, тож нове правило класифікації
+ * мовчки переписує всю історію групування.
+ */
+export async function recomputeIfDue(force = false): Promise<{ ran: boolean; written: number; note: string }> {
+  const month = new Date().toISOString().slice(0, 7);
+  if (!force && (await getSyncState(RECOMPUTE_KEY)) === month) {
+    return { ran: false, written: 0, note: "цього місяця вже рахували" };
+  }
+
+  const res = await recomputeProfiles();
+  // Мітку ставимо навіть тоді, коли рахувати не було на чому: інакше
+  // воркер ганяв би повне сканування продажів щочверть години, поки
+  // бекфіл не пройде.
+  await setSyncState(RECOMPUTE_KEY, month);
+  return { ran: true, written: res.written, note: res.years.length ? `роки ${res.years.join(", ")}` : res.note };
 }

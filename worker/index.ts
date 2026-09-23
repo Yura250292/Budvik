@@ -39,8 +39,10 @@ import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { runNightlyMarketWork, runWeeklyProposals } from "@/lib/pricing/agent/run";
 import { processMeetings } from "@/lib/meetings/process";
 import { deliverTaskNotifications } from "@/lib/tasks/notify";
+import { syncCalendars } from "@/lib/calendar/sync";
 import { isOutreachTableMissing, settleOutreachOutcomes } from "@/lib/outreach/settle";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
+import { recomputeIfDue } from "../src/lib/analytics/seasonality";
 import { kyivDate, kyivHour } from "@/lib/date/kyiv";
 import { SYNC_STATE_KEYS } from "@/lib/sync-ingest/types";
 
@@ -437,6 +439,27 @@ async function pushDigest(): Promise<void> {
 const digestTimer = setInterval(() => void pushDigest(), SILENCE_CHECK_INTERVAL_MS);
 
 /**
+ * Перерахунок сезонних профілів — раз на місяць.
+ *
+ * Форма року міняється лише тоді, коли закривається черговий повний рік,
+ * тож частіше не потрібно. Логіка «чи пора» — усередині recomputeIfDue,
+ * тут лише розклад і журнал, як у зведення.
+ *
+ * Перерахунок важкий (повне сканування продажів за два роки), але саме
+ * тому він і живе у воркері, а не на Vercel: там межа 60 секунд.
+ */
+async function pushSeason(): Promise<void> {
+  try {
+    const res = await recomputeIfDue();
+    if (res.ran) console.log(`worker: сезонні профілі перераховано — ${res.written} рядків (${res.note})`);
+  } catch (e) {
+    console.error("worker: перерахунок сезонних профілів упав", e);
+  }
+}
+
+const seasonTimer = setInterval(() => void pushSeason(), SILENCE_CHECK_INTERVAL_MS);
+
+/**
  * Шоста перевірка — нагадування, які торговий поставив собі сам.
  *
  * Чверть години — це і крок перевірки, і найгірша похибка: нагадування на
@@ -624,6 +647,38 @@ async function tickOutreach(): Promise<void> {
 
 const outreachTimer = setInterval(() => void tickOutreach(), SILENCE_CHECK_INTERVAL_MS);
 
+// ========== Календар Google ==========
+
+/**
+ * Звірення календарів персоналу (src/lib/calendar/sync.ts): що на сайті —
+ * те й у Google. Прохід дивиться на результат, а не слухає зміни, бо задачі
+ * й маршрути пишуться з десятків місць, і забутий виклик дав би тихий
+ * розсинхрон.
+ *
+ * Дві хвилини: між «керівник підтвердив задачу» і подією в телефоні це
+ * непомітно, а коштує тік один запит до Postgres — виклики до Google
+ * робляться лише тоді, коли зміст справді змінився.
+ *
+ * Конектор без CALENDAR_TOKEN_KEY мовчить: сам syncCalendars напише один
+ * рядок на запуск процесу й нічого не робитиме.
+ */
+const CALENDAR_INTERVAL_MS = 2 * 60_000;
+let calendarBusy = false;
+
+async function tickCalendar(): Promise<void> {
+  if (calendarBusy) return;
+  calendarBusy = true;
+  try {
+    for (const line of await syncCalendars()) console.log(`календар: ${line}`);
+  } catch (e) {
+    console.error("календар:", e);
+  } finally {
+    calendarBusy = false;
+  }
+}
+
+const calendarTimer = setInterval(() => void tickCalendar(), CALENDAR_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -641,12 +696,14 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(standingsTimer);
     clearInterval(updateNudgeTimer);
     clearInterval(digestTimer);
+    clearInterval(seasonTimer);
     clearInterval(remindersTimer);
     clearInterval(repFeedTimer);
     clearInterval(pruneTimer);
     clearInterval(marketTimer);
     clearInterval(meetingsTimer);
     clearInterval(outreachTimer);
+    clearInterval(calendarTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

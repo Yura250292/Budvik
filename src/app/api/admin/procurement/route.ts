@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
     includeDead: searchParams.get("includeDead") === "1",
     search: searchParams.get("search") ?? undefined,
     velocityDays: parseVelocityDays(searchParams.get("days")),
+    // Типово сезон увімкнений; вимикається явним season=0. Поки профілів
+    // немає, увімкнений він нічого не змінює — усі індекси дорівнюють 1.
+    season: searchParams.get("season") !== "0",
   });
   if (!report) return NextResponse.json({ error: "Бренд не знайдено" }, { status: 404 });
   return NextResponse.json({ report });

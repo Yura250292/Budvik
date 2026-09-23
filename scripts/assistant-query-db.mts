@@ -13,6 +13,7 @@
  * розмір JSON для моделі.
  */
 
+import { PrismaClient } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { queryDbTool } from "../src/lib/assistant/tools/query";
 import {
@@ -412,6 +413,24 @@ await check("9. еталонні запити < 2 с (провал > 5 с)", asy
     times.push(`${label} ${r.ms}мс/${r.rows.length}р`);
   }
   return times.join("; ");
+});
+
+/* ── 10. Свій клієнт бази (читальна роль MCP) ─────────────────────────── */
+
+await check("10. opts.db: запит іде саме через переданий клієнт", async () => {
+  const same = ok(await runReadOnlyQuery("SELECT COUNT(*) AS n FROM staff", { db: prisma }), "db: prisma");
+  const dflt = ok(await runReadOnlyQuery("SELECT COUNT(*) AS n FROM staff"), "без db");
+  assert(same.rows[0].n === dflt.rows[0].n, `db: prisma дав ${same.rows[0].n}, без db — ${dflt.rows[0].n}`);
+  // Клієнт на порт, де нікого немає: якщо opts.db проігноровано, запит
+  // мовчки пройде через спільний prisma — і перевірка це побачить.
+  const dead = new PrismaClient({ datasources: { db: { url: "postgresql://nobody@127.0.0.1:1/none" } } });
+  try {
+    const r = await runReadOnlyQuery("SELECT COUNT(*) AS n FROM staff", { db: dead, timeoutMs: 2000 });
+    assert(!r.ok, "запит через мертвий клієнт пройшов — opts.db проігноровано");
+    return `мертвий клієнт → ${r.error.slice(0, 60)}`;
+  } finally {
+    await dead.$disconnect();
+  }
 });
 
 /* ── Довідка: як виглядає зібраний запит ──────────────────────────────── */

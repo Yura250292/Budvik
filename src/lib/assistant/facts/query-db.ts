@@ -27,7 +27,7 @@
  * виправляє запит і повторює, замість того щоб користувач бачив 500-ту.
  */
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import limiter from "@/lib/assistant/concurrency";
 import { humanText } from "@/lib/assistant/format";
@@ -229,16 +229,24 @@ const runLimited = limiter(2);
 /**
  * Єдине місце, де цей модуль торкається Prisma.
  *
+ * `db` — чий пул: за замовчуванням спільний `prisma` сайту, а MCP-сервер
+ * передає клієнт окремої читальної ролі Postgres (там база сама не дасть
+ * ні писати, ні читати секрети — четвертий шар поверх трьох описаних угорі).
+ *
  * READ ONLY — перша команда транзакції (інакше Postgres її відхилить);
  * statement_timeout — щоб декартів добуток моделі не жив довше за хід;
  * lock_timeout — щоб читання не висіло за міграцією. Таймаут
  * інтерактивної транзакції з запасом над statement_timeout: помилку має
  * віддати база (57014, її вміємо пояснити), а не Prisma (P2028).
  */
-export function runInReadOnlyTx<T = Record<string, unknown>>(text: string, timeoutMs: number): Promise<T[]> {
+export function runInReadOnlyTx<T = Record<string, unknown>>(
+  text: string,
+  timeoutMs: number,
+  db: PrismaClient = prisma
+): Promise<T[]> {
   const ms = Math.max(500, Math.round(timeoutMs));
   return runLimited(() =>
-    prisma.$transaction(
+    db.$transaction(
       async (tx) => {
         await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
         await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${ms}`);
@@ -347,7 +355,7 @@ export function describeDbError(e: unknown): DbError {
 
 /* ── Разом ─────────────────────────────────────────────────────────────── */
 
-export type QueryOptions = { timeoutMs?: number; maxRows?: number };
+export type QueryOptions = { timeoutMs?: number; maxRows?: number; db?: PrismaClient };
 
 export type QueryResult =
   | { ok: true; rows: Record<string, unknown>[]; truncated: boolean; ms: number; views: string[] }
@@ -364,7 +372,7 @@ export async function runReadOnlyQuery(raw: string, opts: QueryOptions = {}): Pr
 
   const text = buildQuery(check.sql, check.views, maxRows);
   try {
-    const rows = await runInReadOnlyTx<Record<string, unknown>>(text, timeoutMs);
+    const rows = await runInReadOnlyTx<Record<string, unknown>>(text, timeoutMs, opts.db);
     const truncated = rows.length > maxRows;
     return {
       ok: true,

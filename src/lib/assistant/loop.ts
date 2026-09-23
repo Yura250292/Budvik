@@ -126,6 +126,8 @@ export type RunTurnInput = {
   keys: ModelKeys;
   /** Вибір керівника з перемикача; для решти видів ігнорується. */
   modelChoice?: LlmFlavor | null;
+  /** Питання голосом у режимі розмови: відповідь починається рядком «🔊 …» для озвучення. */
+  voice?: boolean;
   signal?: AbortSignal;
   emit: (event: TurnEvent) => void;
 };
@@ -253,6 +255,7 @@ export async function runTurn(input: RunTurnInput) {
     kind: input.ctx.kind,
     clientHint: input.clientHint,
     codeMiss: direct?.miss ?? null,
+    voice: input.voice ?? false,
   });
 
   // Історія вже містить щойно збережене питання — беремо її як є, а

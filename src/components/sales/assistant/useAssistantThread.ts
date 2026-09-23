@@ -101,7 +101,13 @@ export function useAssistantThread(threadId: string | null) {
   const send = useCallback(
     async (
       text: string,
-      opts: { repId?: string | null; counterpartyId?: string | null; model?: ModelChoice | null } = {}
+      opts: {
+        repId?: string | null;
+        counterpartyId?: string | null;
+        model?: ModelChoice | null;
+        /** Питання голосом у режимі розмови — відповідь почнеться рядком для озвучення. */
+        voice?: boolean;
+      } = {}
     ) => {
       const trimmed = text.trim();
       if (!trimmed || stream) return;
@@ -156,6 +162,7 @@ export function useAssistantThread(threadId: string | null) {
             ...(opts.counterpartyId ? { counterpartyId: opts.counterpartyId } : {}),
             ...(opts.model ? { model: opts.model } : {}),
             ...(here ? { here } : {}),
+            ...(opts.voice ? { voice: true } : {}),
           }),
           signal: controller.signal,
         });

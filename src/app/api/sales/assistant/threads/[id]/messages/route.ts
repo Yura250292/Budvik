@@ -60,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
   }
 
-  let body: { text?: unknown; counterpartyId?: unknown; model?: unknown; here?: unknown };
+  let body: { text?: unknown; counterpartyId?: unknown; model?: unknown; here?: unknown; voice?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -152,6 +152,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         isFirstMessage: existing === 0,
         keys,
         modelChoice,
+        voice: body.voice === true,
         signal: req.signal,
         emit: send,
       })

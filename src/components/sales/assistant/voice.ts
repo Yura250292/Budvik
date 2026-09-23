@@ -114,6 +114,97 @@ export function stopSpeaking(): void {
   if (speechOutputSupported()) window.speechSynthesis.cancel();
 }
 
+/**
+ * Сказати готовий текст і дізнатися, коли договорив.
+ *
+ * Режиму розмови треба знати момент кінця: мікрофон відкривається знову
+ * лише ПІСЛЯ мовлення, інакше він почує самого помічника й прийме його
+ * слова за нове питання. Chrome іноді не присилає onend (довга черга,
+ * вкладка у фоні) — тоді спрацьовує запас за довжиною тексту.
+ */
+export function speakText(text: string, onEnd?: () => void): void {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    onEnd?.();
+  };
+  if (!speechOutputSupported() || !text.trim()) {
+    finish();
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = LANG;
+  utterance.rate = 1.05;
+  const voice = window.speechSynthesis.getVoices().find((v) => v.lang?.startsWith("uk"));
+  if (voice) utterance.voice = voice;
+  utterance.onend = finish;
+  utterance.onerror = finish;
+  setTimeout(finish, Math.min(60_000, text.length * 110 + 4_000));
+  window.speechSynthesis.speak(utterance);
+}
+
+/** Перші речення абзацу — вголос більше двох уже не слухають. */
+function firstSentences(text: string, count: number): string {
+  return text
+    .split(/(?<=[.!?])\s+(?=[А-ЯІЇЄҐA-Z0-9«])/u)
+    .slice(0, count)
+    .join(" ");
+}
+
+/**
+ * Що сказати вголос про відповідь — коротко, без таблиць.
+ *
+ * Рішення власника 23.09.2026: «формує таблицю, але не озвучує її, лише
+ * каже, що це за таблиця». Порядок джерел:
+ *   1. рядок «🔊 …» — його модель пише саме для голосу (voice у запиті);
+ *   2. уточнення — питання й варіанти, бо відповідати на них теж голосом;
+ *   3. заголовок + висновок або дві перші плитки + «деталі на екрані» —
+ *      так звучать кодові відповіді, які моделі не бачать.
+ */
+export function spokenSummary(markdown: string): string {
+  const say = markdown.match(/^\s*🔊\s*(.+)$/mu)?.[1];
+  if (say) return plainSpeech(say).slice(0, 400);
+
+  const title = markdown.match(/^##\s+(.+)$/m)?.[1] ?? "";
+
+  if (/^##\s*🙋/mu.test(markdown)) {
+    const question = markdown
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#") && !l.startsWith(">") && !l.startsWith("_"));
+    const options = markdown.match(/^>\s*💬\s*(.+)$/mu)?.[1]?.split("·").map((o) => o.trim()) ?? [];
+    return plainSpeech(
+      [question ?? title, options.length ? `Варіанти: ${options.join(", ")}` : ""].filter(Boolean).join("\n")
+    ).slice(0, 400);
+  }
+
+  const conclusion = markdown.match(/^###[^\n]*Висновок[^\n]*\n+([\s\S]*?)(?:\n#{2,3}\s|\n```|$)/mu)?.[1];
+  let body = conclusion ? firstSentences(conclusion.replace(/\s+/g, " ").trim(), 2) : "";
+
+  if (!body) {
+    const kpi = markdown.match(/```budvik-kpi\s*\n([\s\S]*?)```/)?.[1];
+    try {
+      const items = kpi ? (JSON.parse(kpi) as { items?: Array<{ label: string; value: string }> }).items : null;
+      if (items?.length) body = items.slice(0, 2).map((i) => `${i.label} — ${i.value}`).join("; ");
+    } catch {
+      // зіпсований блок — лишаємо без плиток
+    }
+  }
+  if (!body) {
+    const paragraph = markdown
+      .replace(/```[\s\S]*?```/g, "")
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l && !/^(#|\||>|-|\*|_|\d+\.)/.test(l));
+    body = paragraph ? firstSentences(paragraph, 2) : "";
+  }
+
+  const visual = /^\|/m.test(markdown) || /```budvik-(chart|tree|file)/.test(markdown);
+  return plainSpeech([title, body, visual ? "Деталі на екрані." : ""].filter(Boolean).join("\n")).slice(0, 400);
+}
+
 export function plainSpeech(markdown: string): string {
   const lines = markdown.replace(/```[\s\S]*?```/g, "").split("\n");
   const out: string[] = [];
@@ -150,6 +241,8 @@ export function plainSpeech(markdown: string): string {
     .replace(/\s*%/g, " відсотків")
     .replace(/\s*·\s*/g, ", ")
     .replace(/\.{2,}/g, ".")
+    // «рахувати?.» — рядки склеюються крапкою, і вона липне до свого знаку.
+    .replace(/([?!:;,])\./g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim()
     .slice(0, 1200);

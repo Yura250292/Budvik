@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { History, SquarePen, X } from "lucide-react";
+import { Headphones, History, SquarePen, X } from "lucide-react";
 import useSWR from "swr";
 import { SalesHeader } from "@/components/sales/SalesHeader";
 import { TAB_BAR_SPACE } from "@/components/cabinet/TabBar";
@@ -24,6 +24,8 @@ import { useAssistantThread } from "./useAssistantThread";
 import { Composer, ErrorRow, MessageBubble, QuickPrompts, ThinkingRow } from "./parts";
 import AssistantMarkdown from "./AssistantMarkdown";
 import ThreadsSheet from "./ThreadsSheet";
+import ConversationBar from "./ConversationBar";
+import { useConversation } from "./useConversation";
 import ShareToChatSheet from "@/components/chat/ShareToChatSheet";
 import { deleteThread as deleteThreadApi, type ModelChoice, type ThreadSummary } from "./api";
 import { ADMIN_PROMPTS, CLIENT_PROMPTS, COPY, DRIVER_PROMPTS, QUICK_PROMPTS, WAREHOUSE_PROMPTS } from "./copy";
@@ -196,19 +198,42 @@ export default function AssistantScreen({
   }, [messages, stream]);
 
   const submit = useCallback(
-    (text: string) => {
+    (text: string, extra: { voice?: boolean } = {}) => {
       if (!text.trim()) return;
       clearError();
-      setDraft("");
-      try {
-        localStorage.removeItem(draftKey(threadId));
-      } catch {
-        // не критично
+      // Голосом питання йде повз поле: чернетку, яку людина друкувала, не чіпаємо.
+      if (!extra.voice) {
+        setDraft("");
+        try {
+          localStorage.removeItem(draftKey(threadId));
+        } catch {
+          // не критично
+        }
       }
-      void send(text, { repId, counterpartyId: clientId, model: embedded ? modelChoice : null });
+      void send(text, { repId, counterpartyId: clientId, model: embedded ? modelChoice : null, voice: extra.voice });
     },
     [send, repId, clientId, threadId, clearError, embedded, modelChoice]
   );
+
+  /**
+   * Режим розмови — поки лише в кабінеті керівника (браузер на ноутбуці).
+   *
+   * У робочій збірці мікрофон потребує нового APK із дозволом RECORD_AUDIO,
+   * тож торговим і водіям кнопку відкриємо разом із ним.
+   */
+  const lastAnswer = useMemo(() => {
+    const last = [...messages].reverse().find((m) => m.role === "ASSISTANT" && !m.pending && !m.failed);
+    return last ? { id: last.id, content: last.content } : null;
+  }, [messages]);
+  const toolLabel = stream?.tools.at(-1)?.label ?? null;
+  const conversation = useConversation({
+    ask: (text) => submit(text, { voice: true }),
+    busy: Boolean(stream),
+    lastAnswer,
+    failure: error,
+    toolLabel,
+  });
+  const talking = conversation.state !== "off";
 
   const prompts = useMemo(
     () =>
@@ -259,6 +284,20 @@ export default function AssistantScreen({
 
   const toolbarButtons = (
     <>
+      {embedded && conversation.supported && (
+        <button
+          type="button"
+          aria-label={talking ? "Завершити розмову" : "Розмова голосом"}
+          aria-pressed={talking}
+          onClick={() => (talking ? conversation.end() : void conversation.start())}
+          className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold ${
+            talking ? "bg-bk text-white" : "border border-cab-line text-cab-t2"
+          }`}
+        >
+          <Headphones size={15} />
+          Розмова
+        </button>
+      )}
       <button
         type="button"
         aria-label={COPY.historyAria}
@@ -419,6 +458,14 @@ export default function AssistantScreen({
       {/* Поле вводу тримається тієї самої колонки, що й стрічка: на ноутбуці
           розтягнуте на всю ширину, воно висить окремо від розмови. */}
       <div className={`mx-auto w-full ${column}`}>
+        <ConversationBar
+          state={conversation.state}
+          heard={conversation.heard}
+          error={conversation.error}
+          toolLabel={toolLabel}
+          onInterrupt={conversation.interrupt}
+          onEnd={conversation.end}
+        />
         <Composer
           value={draft}
           onChange={setDraft}

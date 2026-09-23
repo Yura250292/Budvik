@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -25,6 +26,7 @@ type ProspectUpdate = {
   assignedRepId?: string | null;
   counterpartyId?: string | null;
   status?: (typeof STATUSES)[number];
+  details?: Prisma.InputJsonValue;
 };
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -61,6 +63,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     data.lat = lat;
     data.lng = lng;
+    // Імпортована точка, яку пересунула людина, більше не «приблизно».
+    const cur = await prisma.prospectClient.findUnique({ where: { id }, select: { details: true } });
+    if (cur?.details && typeof cur.details === "object") {
+      data.details = {
+        ...(cur.details as Record<string, unknown>),
+        precision: "MANUAL",
+        geoById: session.user.id,
+        geoAt: new Date().toISOString(),
+      } as Prisma.InputJsonValue;
+    }
   }
 
   if (body.status !== undefined) {
@@ -72,8 +84,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (body.counterpartyId !== undefined) {
     data.counterpartyId = body.counterpartyId || null;
-    // Прив'язали контрагента — точку розпрацьовано, хай там що прислали.
-    if (body.counterpartyId) data.status = "CONVERTED";
+    // Прив'язка ще не «розпрацьовано»: ромб зникає лише з першим замовленням
+    // від торгового (lib/prospects/converted.ts), тож статус — «в роботі».
+    if (body.counterpartyId) data.status = "IN_PROGRESS";
   }
 
   if (Object.keys(data).length === 0) {

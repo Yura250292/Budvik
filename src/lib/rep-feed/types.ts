@@ -17,6 +17,9 @@
 
 export const REP_FEED_PREFIX = "REP_";
 
+/** Стрічку в адмінці відкрили — сайдбар гасить цифру біля пункту меню. */
+export const ADMIN_FEED_SEEN_EVENT = "budvik:admin-feed-seen";
+
 export const REP_FEED_TYPES = {
   /** Клієнт заплатив у касу (ПКО з 1С, рознесене на торгового). */
   PAYMENT: "REP_PAYMENT",
@@ -86,6 +89,12 @@ export type FeedEvent = {
    * втрачають сенс у заголовку «3 події у клієнтів».
    */
   standalone?: boolean;
+  /**
+   * Лише для подій про накладну: чи торговий сам «Ответственный» документа
+   * в 1С (пробивав його). `false` — клієнт його, а документ виписав інший;
+   * тоді пуш лише з увімкненим «чужі накладні» (prefs.ts, wantsPush).
+   */
+  own?: boolean;
 };
 
 /**

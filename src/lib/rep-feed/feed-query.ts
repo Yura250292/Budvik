@@ -81,3 +81,18 @@ export async function feedPage(opts: {
     nextCursor: found.length > FEED_PAGE && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
   };
 }
+
+/**
+ * Цифра біля «Стрічки подій» в меню адмінки: скільки подій з'явилось після
+ * того, як керівник востаннє відкривав стрічку, і скільки їх за сьогодні.
+ * Хто ще не відкривав жодного разу — нове рахується від початку дня.
+ */
+export async function feedCounts(seenAt: Date | null, dayStart: Date): Promise<{ unseen: number; today: number }> {
+  const [today, unseen] = await Promise.all([
+    prisma.notification.count({ where: { type: { startsWith: REP_FEED_PREFIX }, createdAt: { gte: dayStart } } }),
+    prisma.notification.count({
+      where: { type: { startsWith: REP_FEED_PREFIX }, createdAt: { gt: seenAt ?? dayStart } },
+    }),
+  ]);
+  return { unseen, today };
+}

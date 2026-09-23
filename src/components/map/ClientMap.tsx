@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE, PROSPECT_IMPORT } from "@/lib/analytics/colors";
-import { importedInfoHtml, importedPin, type ProspectDetails } from "./prospect-pin";
+import { importedInfoHtml, importedPin, syncProspectZoom, type ProspectDetails } from "./prospect-pin";
 import type { OverviewRoute } from "./RoutesOverviewMap";
 import { FRAMED_MAP_OPTIONS, closeWheelGateOn, useWheelGate } from "./MapFrame";
 
@@ -259,6 +259,10 @@ export default function ClientMap({
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(mapRef.current);
+
+      const created = mapRef.current;
+      created.on("zoomend", () => syncProspectZoom(created));
+      syncProspectZoom(created);
 
       rendererRef.current = L.canvas({ padding: 0.3 });
       layersRef.current = L.layerGroup().addTo(mapRef.current);

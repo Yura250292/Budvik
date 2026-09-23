@@ -16,7 +16,7 @@ import type { PushCategory } from "@/lib/rep-feed/prefs";
  * «зберегти», у полі забувають, і налаштування не діє.
  */
 
-type Prefs = { mutedTypes: string[]; categories: PushCategory[] };
+type Prefs = { mutedTypes: string[]; othersDocs: boolean; categories: PushCategory[] };
 
 export function PushPrefsCard() {
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -30,17 +30,17 @@ export function PushPrefsCard() {
       .catch(() => setError("Не вдалося прочитати налаштування"));
   }, []);
 
-  const save = async (mutedTypes: string[]) => {
+  const save = async (patch: { mutedTypes?: string[]; othersDocs?: boolean }) => {
     if (!prefs || busy) return;
     const before = prefs;
-    setPrefs({ ...prefs, mutedTypes });
+    setPrefs({ ...prefs, ...patch });
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/sales/push-prefs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mutedTypes }),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) throw new Error(String(res.status));
       setPrefs(await res.json());
@@ -57,7 +57,7 @@ export function PushPrefsCard() {
     const muted = new Set(prefs.mutedTypes);
     if (muted.has(type)) muted.delete(type);
     else muted.add(type);
-    void save([...muted]);
+    void save({ mutedTypes: [...muted] });
   };
 
   if (!prefs) return null;
@@ -68,8 +68,9 @@ export function PushPrefsCard() {
     <Card className="flex flex-col gap-3">
       <CardTitle big>Сповіщення вдень</CardTitle>
       <Note>
-        Оплати, накладні й підказки приходять пушем у робочі години і лише про ваших клієнтів.
-        Вимкнене тут лишається в стрічці «Сьогодні» на головній, лише без сповіщення.
+        Оплати, накладні й підказки приходять пушем у робочі години і лише про ваших клієнтів. Про
+        накладну — лише коли її пробивали ви. Вимкнене тут лишається в стрічці на головній, лише без
+        сповіщення.
       </Note>
       {/* Загальний вимикач — щоб не гасити сім перемикачів по одному. */}
       <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-cab-line bg-cab-bg px-3 py-2.5">
@@ -80,7 +81,7 @@ export function PushPrefsCard() {
           aria-checked={anyOn}
           checked={anyOn}
           disabled={busy}
-          onChange={() => void save(anyOn ? prefs.categories.map((c) => c.type) : [])}
+          onChange={() => void save({ mutedTypes: anyOn ? prefs.categories.map((c) => c.type) : [] })}
           className="h-6 w-6 shrink-0 accent-[#FFD600]"
         />
       </label>
@@ -108,6 +109,25 @@ export function PushPrefsCard() {
           );
         })}
       </ul>
+      {/* Окремо від категорій: це не «що», а «чиє». Накладні клієнта, які
+          виписав офіс чи колега, типово йдуть лише в стрічку. */}
+      <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-cab-line bg-cab-bg px-3 py-2.5">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-bk">Накладні, які пробивав не я</span>
+          <span className="block text-xs text-cab-t2">
+            проведено, зібрано, маршрут, доставка й повернення по ваших клієнтах, виписані офісом чи колегою
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-checked={prefs.othersDocs}
+          checked={prefs.othersDocs}
+          disabled={busy}
+          onChange={() => void save({ othersDocs: !prefs.othersDocs })}
+          className="h-6 w-6 shrink-0 accent-[#FFD600]"
+        />
+      </label>
       {error && <Note tone="bad">{error}</Note>}
     </Card>
   );

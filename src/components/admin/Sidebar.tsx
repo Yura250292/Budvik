@@ -5,6 +5,51 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AdminIcon } from "./icons";
 import { NAV_GROUPS, TOP_ITEMS, type AdminRole, type NavItem } from "@/lib/admin-nav";
+import { ADMIN_FEED_SEEN_EVENT } from "@/lib/rep-feed/types";
+
+const FEED_HREF = "/admin/feed";
+/** Як дзвіночок: події не гарячі, а вкладок адмінки може бути багато. */
+const FEED_POLL_MS = 60_000;
+
+type Badge = { count: number; hot: boolean };
+
+/**
+ * Цифра біля «Стрічки подій». Є непереглянуті — їхня кількість, підсвічена
+ * жовтим; усе переглянуто — скільки подій за сьогодні, приглушено.
+ * Відкриття стрічки (ADMIN_FEED_SEEN_EVENT) гасить підсвітку одразу, не
+ * чекаючи наступного опитування.
+ */
+function useFeedBadge(enabled: boolean): Badge | null {
+  const [counts, setCounts] = useState<{ unseen: number; today: number } | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/admin/feed/counts");
+        if (!res.ok) return;
+        const data = (await res.json()) as { unseen: number; today: number };
+        if (alive) setCounts(data);
+      } catch {
+        // мовчки: цифра в меню не варта помилки на екрані
+      }
+    };
+    const onSeen = () => setCounts((c) => (c ? { ...c, unseen: 0 } : c));
+    void load();
+    const t = setInterval(load, FEED_POLL_MS);
+    window.addEventListener(ADMIN_FEED_SEEN_EVENT, onSeen);
+    return () => {
+      alive = false;
+      clearInterval(t);
+      window.removeEventListener(ADMIN_FEED_SEEN_EVENT, onSeen);
+    };
+  }, [enabled]);
+
+  if (!counts) return null;
+  if (counts.unseen > 0) return { count: counts.unseen, hot: true };
+  return counts.today > 0 ? { count: counts.today, hot: false } : null;
+}
 
 const COLLAPSED_GROUPS_KEY = "budvik:admin:sidebar:collapsed-groups:v1";
 
@@ -28,12 +73,15 @@ function NavLink({
   active,
   railCollapsed,
   onNavigate,
+  badge,
 }: {
   item: NavItem;
   active: boolean;
   railCollapsed: boolean;
   onNavigate?: () => void;
+  badge?: Badge | null;
 }) {
+  const label = badge ? (badge.count > 99 ? "99+" : String(badge.count)) : null;
   return (
     <Link
       href={item.href}
@@ -45,10 +93,23 @@ function NavLink({
       }`}
     >
       {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-primary" aria-hidden="true" />}
-      <span className="flex-shrink-0 [&>svg]:w-[18px] [&>svg]:h-[18px]">
+      <span className="relative flex-shrink-0 [&>svg]:w-[18px] [&>svg]:h-[18px]">
         <AdminIcon name={item.iconKey} />
+        {railCollapsed && badge?.hot && (
+          <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+        )}
       </span>
-      {!railCollapsed && <span className="truncate">{item.title}</span>}
+      {!railCollapsed && <span className="min-w-0 flex-1 truncate">{item.title}</span>}
+      {!railCollapsed && label && (
+        <span
+          className={`ml-auto flex-shrink-0 rounded-full px-1.5 py-px text-[11px] font-semibold tabular-nums ${
+            badge?.hot ? "bg-primary text-bk" : "text-white/40"
+          }`}
+          aria-label={badge?.hot ? `Нових подій: ${badge.count}` : `Подій за сьогодні: ${badge?.count}`}
+        >
+          {label}
+        </span>
+      )}
     </Link>
   );
 }
@@ -95,6 +156,7 @@ export default function SidebarNav({
   };
 
   const topItems = TOP_ITEMS.filter((i) => i.roles.includes(role));
+  const feedBadge = useFeedBadge(topItems.some((i) => i.href === FEED_HREF));
   const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(role)) })).filter(
     (g) => g.items.length > 0
   );
@@ -112,6 +174,7 @@ export default function SidebarNav({
           active={item.href === activeHref}
           railCollapsed={railCollapsed}
           onNavigate={onNavigate}
+          badge={item.href === FEED_HREF ? feedBadge : null}
         />
       ))}
 

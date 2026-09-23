@@ -55,7 +55,8 @@ import {
   inPushHours,
   MAX_EVENTS_PER_TICK,
 } from "./format";
-import { isPushMuted, parsePushPrefs, type PushPrefs } from "./prefs";
+import { isPushMuted, parsePushPrefs, wantsPush, type PushPrefs } from "./prefs";
+import { pushAdmins } from "./admin-push";
 import type { FeedEvent } from "./types";
 import { collectVisitCards } from "./visit-card";
 
@@ -222,12 +223,18 @@ export async function notifyRepFeed(
     const user = users.get(repId);
     const name = user?.name ?? null;
 
-    // Вимкнене в профілі — у стрічку так, у пуш ні.
+    // Вимкнене в профілі — у стрічку так, у пуш ні. Так само накладні
+    // клієнта, які пробивав не він: типово лише рядок (prefs.ts, wantsPush).
     const muted = items.filter((i) => isPushMuted(user?.prefs, i.event.type));
-    const live = items.filter((i) => !isPushMuted(user?.prefs, i.event.type));
+    const others = items.filter((i) => !isPushMuted(user?.prefs, i.event.type) && !wantsPush(user?.prefs, i.event));
+    const live = items.filter((i) => wantsPush(user?.prefs, i.event));
     if (muted.length > 0) {
       const g = groupPush(muted.map((i) => i.event));
       pushes.push({ repId, name, ...g, events: muted.length, sent: false, why: "вимкнено в профілі" });
+    }
+    if (others.length > 0) {
+      const g = groupPush(others.map((i) => i.event));
+      pushes.push({ repId, name, ...g, events: others.length, sent: false, why: "накладну пробивав не він — лише в стрічку" });
     }
     if (live.length === 0) continue;
 
@@ -288,6 +295,13 @@ export async function notifyRepFeed(
       pushedToday++;
       pushes.push({ ...base, sent: true, why: "надіслано" });
     }
+  }
+
+  // Керівники — окремо: у них свій вибір категорій і своя стеля.
+  try {
+    pushes.push(...(await pushAdmins(fresh.map((i) => i.event), { now, dry, brake, quiet })));
+  } catch (e) {
+    console.error("[rep-feed] пуші керівникам впали:", e);
   }
 
   if (brake) {

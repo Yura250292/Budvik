@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CLIENT_STATE, PROSPECT_IMPORT } from "@/lib/analytics/colors";
-import { importedInfoHtml, importedPin, type ProspectDetails } from "./prospect-pin";
+import { importedInfoHtml, importedPin, syncProspectZoom, type ProspectDetails } from "./prospect-pin";
 import { clampToUkraine } from "@/components/map/MapFrame";
 import { planCore } from "@/lib/maps/plan-core";
 import { clusterPins } from "@/lib/maps/pin-clusters";
@@ -22,7 +22,10 @@ import { clusterPins } from "@/lib/maps/pin-clusters";
 export type SalesMapAction =
   | { kind: "orderCard"; id: string }
   | { kind: "comments"; id: string }
-  | { kind: "pin"; id: string };
+  | { kind: "pin"; id: string }
+  /** Точка для розпрацювання: уточнити місце або прив'язати до клієнта 1С. */
+  | { kind: "pinProspect"; id: string }
+  | { kind: "linkProspect"; id: string };
 
 /** Точка для розпрацювання: ще не клієнт, у 1С її немає. */
 export type SalesProspectPoint = {
@@ -36,6 +39,9 @@ export type SalesProspectPoint = {
   /** null — поставлена керівником на карті; інакше імпорт списку. */
   source: string | null;
   details: ProspectDetails | null;
+  /** Прив'язаний контрагент 1С: є, але замовлення від торгового ще немає. */
+  counterpartyId?: string | null;
+  counterparty?: { name: string } | null;
 };
 
 /**
@@ -54,9 +60,17 @@ function prospectPopupHtml(p: SalesProspectPoint): string {
     ${p.address ? `<div style="color:#6B7280;font-size:12px;margin-top:3px">${escapeHtml(p.address)}</div>` : ""}
     ${imported ? importedInfoHtml(p.details ?? {}) : ""}
     ${p.notes ? `<div style="color:#4B5563;font-size:12px;margin-top:3px">${escapeHtml(p.notes)}</div>` : ""}
+    ${
+      p.counterparty
+        ? `<div style="color:#059669;font-size:12px;margin-top:4px">Прив'язано: ${escapeHtml(p.counterparty.name)}.
+           Стане кружком після першого замовлення.</div>`
+        : ""
+    }
     <a href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}" target="_blank" rel="noreferrer"
        style="display:block;margin-top:8px;padding:9px;text-align:center;background:#0A0A0A;color:#fff;
        border-radius:8px;text-decoration:none;font-weight:600;font-size:13px">Прокласти дорогу</a>
+    ${popupButton("linkProspect", p.id, p.counterparty ? "Змінити прив'язку" : "Вже клієнт — прив'язати до 1С", false)}
+    ${popupButton("pinProspect", p.id, "Уточнити точку", false)}
   </div>`;
 }
 
@@ -510,7 +524,9 @@ export default function SalesClientsMap({
       // з накладених номерів, поки не перемкне лист.
       `#z${zoom}` +
       "#" +
-      prospects.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join("|"),
+      prospects
+        .map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}:${p.details?.precision ?? ""}:${p.counterpartyId ?? ""}`)
+        .join("|"),
     [clients, prospects, route, plan, zoom]
   );
 
@@ -526,7 +542,11 @@ export default function SalesClientsMap({
       clampToUkraine(mapRef.current);
 
       // Масштаб змінився — номери могли злипнутися або розійтися.
-      mapRef.current.on("zoomend", () => setZoom(mapRef.current?.getZoom() ?? null));
+      mapRef.current.on("zoomend", () => {
+        setZoom(mapRef.current?.getZoom() ?? null);
+        if (mapRef.current) syncProspectZoom(mapRef.current);
+      });
+      syncProspectZoom(mapRef.current);
       setZoom(mapRef.current.getZoom());
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -630,7 +650,7 @@ export default function SalesClientsMap({
         // Імпортовані — пульсуючі ромби; поставлені керівником вручну —
         // фіолетові квадрати, як на його карті.
         icon: p.source
-          ? importedPin(p.id, p.details?.precision === "CITY", 20) // під палець
+          ? importedPin(p.id, p.details?.precision === "CITY", 11, 26) // малий ромб, зона під палець
           : L.divIcon({
               className: "",
               iconSize: [18, 18],

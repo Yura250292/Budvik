@@ -122,7 +122,7 @@ export const buildRouteTool: ToolDef = {
   label: "Будую маршрут",
   kinds: ["ADMIN"],
   description:
-    "Два режими. mode=\"stops\" (за замовчуванням): порядок обʼїзду за названими точками — клієнти з бази, адреси текстом, слово «склад»; повертає порядок, кілометри й хвилини від OSRM і посилання Google Maps. mode=\"day_plan\": СКЛАДАЄ МАРШРУТИ ВОДІЯМ НА ДЕНЬ — сам бере непривезені реалізації, ділить їх між водіями за історією доставок, шикує порядок і каже, що відкласти. Викликай day_plan на «склади маршрути на завтра», «розкинь доставку по водіях», «кому що везти завтра»; stops — на «як обʼїхати …», «маршрут по Стрию: …».",
+    "Два режими. mode=\"stops\" (за замовчуванням): порядок обʼїзду за названими точками — клієнти з бази, адреси текстом, слово «склад»; повертає порядок, кілометри й хвилини від OSRM і посилання Google Maps. mode=\"day_plan\": СКЛАДАЄ МАРШРУТИ ВОДІЯМ НА ДЕНЬ — сам бере непривезені реалізації, ділить їх між водіями за історією доставок, шикує порядок, рахує гроші кожного рейсу (вал, пальне за нормою машини з дорогою назад, оплата водію, скільки лишається фірмі), дає посилання Google Maps і каже, що відкласти. Викликай day_plan на «склади маршрути на завтра», «розкинь доставку по водіях», «кому що везти завтра», «чи окупиться рейс»; stops — на «як обʼїхати …», «маршрут по Стрию: …».",
   parameters: {
     type: "object",
     properties: {
@@ -191,17 +191,49 @@ export const buildRouteTool: ToolDef = {
       const plan = await buildDayPlan({ date, driverIds });
       if ("error" in plan) return { помилка: plan.error };
 
+      const money = plan.routes.map((r) => r.economics);
+      const sumOf = (pick: (e: (typeof money)[number]) => number | null) =>
+        money.some((e) => pick(e) === null) ? null : money.reduce((s, e) => s + (pick(e) ?? 0), 0);
+
       return {
         дата: plan.date,
         маршрути: plan.routes.map((r) => ({
           водій: r.driverName,
           точок: r.stops.length,
           сума: Math.round(r.stops.reduce((s, x) => s + x.amount, 0)),
-          км: r.distanceKm === null ? null : Math.round(r.distanceKm),
+          км_до_останньої_точки: r.distanceKm === null ? null : Math.round(r.distanceKm),
+          км_за_день_з_дорогою_назад: r.roundTripKm === null ? null : Math.round(r.roundTripKm),
+          звично_км_за_день: r.normalKm === null ? null : Math.round(r.normalKm),
           хвилин: r.durationMin === null ? null : Math.round(r.durationMin),
+          гроші_рейсу: {
+            вал: r.economics.margin,
+            вал_частково_оцінено: r.economics.marginEstimated || undefined,
+            собівартість_відома_відсотків: Math.floor(r.economics.costedShare * 100),
+            пальне: r.economics.fuel,
+            норма_пального: r.fuel.own
+              ? `${r.fuel.consumption} на 100 км × ${r.fuel.pricePerUnit} ₴ (машина водія) +${r.fuel.bufferPercent ?? 0}%`
+              : `${r.fuel.consumption} л/100 км × ${r.fuel.pricePerUnit} ₴ (типове авто, машину водія не заведено) +${r.fuel.bufferPercent ?? 0}%`,
+            водію: r.economics.driverPay,
+            точок_вигрузки_місто: r.economics.cityPoints,
+            точок_вигрузки_область: r.economics.oblastPoints,
+            лишається_фірмі: r.economics.result,
+          },
           підстава: r.reason,
           порядок: r.stops.map((s) => ({ n: s.sequence, назва: s.name, адреса: s.address, сума: Math.round(s.amount) })),
+          // Навігація від складу по точках у порядку плану. Google вміщує ~10
+          // точок на посилання, тому довгий маршрут іде кількома частинами.
+          посилання_google: googleMapsLinksFromHere(
+            r.stops.map((s) => ({ lat: s.lat, lng: s.lng })),
+            plan.depot ? { lat: plan.depot.lat, lng: plan.depot.lng } : null
+          ).map((l) => ({ url: l.url, точок: l.points })),
         })),
+        разом: {
+          сума: Math.round(plan.routes.reduce((s, r) => s + r.stops.reduce((a, x) => a + x.amount, 0), 0)),
+          вал: sumOf((e) => e.margin),
+          пальне: sumOf((e) => e.fuel),
+          водіям: sumOf((e) => e.driverPay),
+          лишається_фірмі: sumOf((e) => e.result),
+        },
         відкладені: plan.deferred.map((d) => ({
           причина: d.reason,
           зазвичай_їде: d.suggestWeekday === null ? null : WEEKDAY_ACCUSATIVE[d.suggestWeekday],
@@ -217,6 +249,7 @@ export const buildRouteTool: ToolDef = {
         примітка: [
           ...dayNotes,
           ...plan.notes,
+          "Гроші рейсу: вал накладних (сума мінус собівартість) − пальне на повний день з дорогою назад − оплата водію за формулою зарплати = лишається фірмі. Відкладені точки в ці числа не входять. Waze багатоточкових маршрутів за посиланням не приймає — для навігації по точках давай посилання Google.",
           "План поки нікуди не записаний. Щоб створити чернетки маршрутів, людина відкриває посилання й тисне «Створити маршрути».",
         ].join(" "),
       };

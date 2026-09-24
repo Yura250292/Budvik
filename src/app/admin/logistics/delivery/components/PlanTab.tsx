@@ -144,6 +144,8 @@ export default function PlanTab({ day }: { day: string }) {
           stops: r.stops.filter((s) => s.salesDocumentId !== salesDocumentId),
           distanceKm: null,
           durationMin: null,
+          returnKm: null,
+          roundTripKm: null,
           fuelCost: null,
           geometry: null,
         };
@@ -158,6 +160,8 @@ export default function PlanTab({ day }: { day: string }) {
                 stops: [...r.stops, { ...moved!, sequence: r.stops.length + 1 }],
                 distanceKm: null,
                 durationMin: null,
+                returnKm: null,
+                roundTripKm: null,
                 fuelCost: null,
                 geometry: null,
               }
@@ -469,6 +473,7 @@ function RouteColumn({
         {route.reason}
         {route.orderFromDistance && " · порядок за відстанню: OSRM не відповів"}
       </div>
+      <RouteMoney route={route} />
       {route.stops.length === 0 ? (
         <div className="px-3 py-4 text-center text-xs text-g500">точок немає</div>
       ) : (
@@ -557,5 +562,35 @@ function RouteColumn({
         перетягніть точку сюди
       </div>
     </Card>
+  );
+}
+
+/**
+ * Гроші рейсу одним рядком: день машини з дорогою назад, пальне за нормою
+ * водія, його оплата за формулою зарплати, вал і що лишається фірмі.
+ *
+ * Після перенесення точки кілометри скинуті (roundTripKm = null) — тоді й
+ * гроші не показуємо: старі числа описували б інший склад маршруту.
+ */
+function RouteMoney({ route }: { route: PlanRouteOut }) {
+  const e = route.economics;
+  if (route.roundTripKm === null || !e) return null;
+  return (
+    <div className="border-t border-g200 px-3 py-2 text-xs text-g600">
+      День машини {Math.round(route.roundTripKm)} км
+      {route.returnKm !== null && ` (з них назад ${Math.round(route.returnKm)})`}
+      {e.fuel !== null && ` · пальне ${formatPrice(e.fuel)}${route.fuel.own ? "" : " (типове авто)"}`}
+      {e.driverPay !== null && ` · водію ${formatPrice(e.driverPay)}`}
+      {e.margin !== null && ` · вал ${e.marginEstimated ? "≈" : ""}${formatPrice(e.margin)}`}
+      {e.result !== null && (
+        <>
+          {" · "}
+          <strong className={e.result < 0 ? "text-red-700" : "text-green-700"}>
+            {e.result < 0 ? "збиток " : "лишається "}
+            {formatPrice(Math.abs(e.result))}
+          </strong>
+        </>
+      )}
+    </div>
   );
 }

@@ -19,12 +19,21 @@ import { defaultDepot } from "@/lib/routes/depot";
 import { planCandidates, type PlanCandidate } from "@/lib/routes/plan-candidates";
 import { deliveryHabits, DEFAULT_MAX_STOPS } from "@/lib/routes/delivery-habits";
 import { planDay, DEFAULT_PLAN_OPTIONS, type PlanPoint, type PlanDriver, type PlanRoute } from "@/lib/routes/plan-day";
-import { optimizeRoute, type FuelParams, type OptimizeStop } from "@/lib/routes/optimize";
+import { fuelCostFor, optimizeRoute, type FuelParams, type OptimizeStop } from "@/lib/routes/optimize";
+import { getRoute } from "@/lib/geo/osrm";
+import {
+  loadDocMargins,
+  loadZoneOverrides,
+  planFuelByDriver,
+  readPayrollRates,
+  routeEconomics,
+  type RouteEconomics,
+} from "@/lib/routes/route-economics";
 import { scoreClient } from "@/lib/routes/priority";
 import { agingByCounterparty } from "@/lib/analytics/money-facts";
 import { colorForRep } from "@/lib/routes/colors";
 
-/** Типове авто розвозки — те саме, що в optimize-day. */
+/** Типове авто розвозки — те саме, що в optimize-day. Для водія без SalesVehicle. */
 const DEFAULT_FUEL: FuelParams = { consumption: 12, pricePerUnit: 56, bufferPercent: 10 };
 
 /** Кого вважаємо «сьогоднішніми» водіями, якщо менеджер не назвав склад. */
@@ -48,9 +57,23 @@ export type PlanRouteOut = {
   driverName: string;
   color: string;
   stops: PlanStopOut[];
+  /** Від складу до останньої точки — саме це йде в маршрут при «Створити» */
   distanceKm: number | null;
   durationMin: number | null;
+  /**
+   * Дорога з останньої точки назад на склад. Окремо, бо distanceKm уже
+   * живе в маршруті й зарплаті як «плановий пробіг», а для грошей рейсу
+   * порожній пробіг назад так само палить пальне.
+   */
+  returnKm: number | null;
+  /** distanceKm + returnKm — повний день машини */
+  roundTripKm: number | null;
+  /** Пальне на повний день за нормою машини водія, ₴ */
   fuelCost: number | null;
+  /** Норма, за якою пораховано пальне: машина водія або типове авто */
+  fuel: FuelParams & { own: boolean };
+  /** Гроші рейсу: вал, пальне, водій, результат */
+  economics: RouteEconomics;
   geometry: GeoJSON.LineString | null;
   reason: string;
   /** Порядок дала пряма, а не дорога: OSRM не відповів */
@@ -307,6 +330,18 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
     );
   }
 
+  // Факти для грошей рейсу — одним заходом на весь план, а не на кожен маршрут.
+  const planDocIds = planRoutes.flatMap((r) => r.points.map((p) => p.id));
+  const [fuelByDriver, margins, zones, rates] = await Promise.all([
+    planFuelByDriver(
+      planRoutes.map((r) => r.driverId),
+      DEFAULT_FUEL
+    ),
+    loadDocMargins(planDocIds),
+    loadZoneOverrides(planRoutes.flatMap((r) => r.points.map((p) => p.counterpartyId))),
+    readPayrollRates(),
+  ]);
+
   const routes: PlanRouteOut[] = [];
   for (const r of planRoutes) {
     const driver = driverRows.find((d) => d.id === r.driverId);
@@ -317,17 +352,17 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
     let order = r.points.map((p) => p.id);
     let distanceKm: number | null = null;
     let durationMin: number | null = null;
-    let fuelCost: number | null = null;
     let geometry: GeoJSON.LineString | null = null;
     let orderFromDistance = false;
 
+    const fuel = fuelByDriver.get(r.driverId) ?? DEFAULT_FUEL;
+
     try {
-      const optimized = await optimizeRoute([depot.lng, depot.lat], stops, DEFAULT_FUEL);
+      const optimized = await optimizeRoute([depot.lng, depot.lat], stops, fuel);
       const variant = optimized.balanced ?? optimized.cheapest;
       order = variant.order;
       distanceKm = variant.distanceKm;
       durationMin = variant.durationMin;
-      fuelCost = variant.fuelCost;
       geometry = variant.geometry;
     } catch {
       // OSRM мовчить — порядок лишаємо як дало ядро і кажемо про це вголос.
@@ -341,6 +376,41 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       .filter((p): p is PlanPoint => Boolean(p))
       .map((p, i) => toStopOut(p, i + 1));
 
+    // Дорога назад на склад: OSRM Trip тут відкритий (roundtrip=false), тож
+    // без цього рукава «99 км» маршруту були шляхом до останньої точки, а
+    // день машини — ~155. Не вдалося — кілометрів дня не знаємо й не вигадуємо.
+    let returnKm: number | null = null;
+    const last = stopsOut[stopsOut.length - 1];
+    if (distanceKm !== null && last) {
+      try {
+        const back = await getRoute([
+          [last.lng, last.lat],
+          [depot.lng, depot.lat],
+        ]);
+        returnKm = back.totalDistanceKm;
+      } catch {
+        notes.push(`Маршрут ${driver.name}: дорогу назад на склад OSRM не порахував — пального й грошей рейсу немає`);
+      }
+    }
+    const roundTripKm = distanceKm !== null && returnKm !== null ? distanceKm + returnKm : null;
+    const fuelCost = roundTripKm === null ? null : fuelCostFor(roundTripKm, fuel);
+
+    const economics = routeEconomics({
+      km: roundTripKm,
+      stops: stopsOut.map((s) => ({
+        salesDocumentId: s.salesDocumentId,
+        counterpartyId: s.counterpartyId,
+        address: s.address,
+        lat: s.lat,
+        lng: s.lng,
+        amount: s.amount,
+        zoneOverride: zones.get(s.counterpartyId) ?? null,
+      })),
+      margins,
+      fuel,
+      rates,
+    });
+
     const selfPickup = stopsOut.filter((s) => s.neverDelivered).length;
     if (selfPickup > 0) {
       notes.push(`${driver.name}: ${selfPickup} точ. — клієнти, яких у листах ще не було, перевірте, чи не самовивіз`);
@@ -348,9 +418,12 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
 
     const normalKm = habits.capacity.get(r.driverId)?.medianKm ?? null;
     const p80Km = habits.capacity.get(r.driverId)?.p80Km ?? null;
-    if (distanceKm !== null && p80Km !== null && distanceKm > p80Km) {
+    // Норма водія — з листів 1С, де пробіг повний, тож і порівнюємо повний
+    // день, а не шлях до останньої точки (з ним попередження мовчало, коли мало спрацювати).
+    const dayKm = roundTripKm ?? distanceKm;
+    if (dayKm !== null && p80Km !== null && dayKm > p80Km) {
       notes.push(
-        `${driver.name}: ${Math.round(distanceKm)} км — більше за звичні ${Math.round(p80Km)} км його дня; перевірте, чи влізе`
+        `${driver.name}: ${Math.round(dayKm)} км за день — більше за звичні ${Math.round(p80Km)} км його дня; перевірте, чи влізе`
       );
     }
 
@@ -361,7 +434,11 @@ export async function buildDayPlan(input: BuildDayPlanInput): Promise<PlanDayRes
       stops: stopsOut,
       distanceKm,
       durationMin,
+      returnKm,
+      roundTripKm,
       fuelCost,
+      fuel: { ...fuel, own: fuel !== DEFAULT_FUEL },
+      economics,
       geometry,
       reason: r.reason,
       orderFromDistance,

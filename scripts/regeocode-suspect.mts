@@ -105,6 +105,21 @@ async function plan() {
   const steps: Step[] = argv.includes("--resume") && existsSync(progressFile)
     ? (JSON.parse(readFileSync(progressFile, "utf8")) as Step[])
     : [];
+  // --redo-unanchored: перерахувати адреси без рамки області чи без явного
+  // «м./с.» — 24.09.2026 саме для них cleanAddress дописував «Львівську
+  // область», і доставку з Ахтирки ставило в Белз. Решта результатів чинна.
+  if (argv.includes("--redo-unanchored")) {
+    const prefixed = /(?:^|[,(\s])(?:м|с|смт|село|місто)\.{0,2}\s*[А-ЯІЇЄҐ]/u;
+    const keep = steps.filter((s) => {
+      const a = s.address ?? "";
+      // А також ті, кого зачепили правки правил того ж дня: Миколаїв і
+      // Івано-Франкове на Львівщині, ринки без слова «ринок».
+      const touched = /миколаїв|николаев|івано-франк|ивано-франк|торпедо|шувар|ряд|будка|павільйон|контейнер/iu.test(a);
+      return !a.trim() || (!!searchBoxFor(a) && prefixed.test(a) && !touched);
+    });
+    console.log(`перераховую ${steps.length - keep.length} без рамки чи без явного пункту`);
+    steps.splice(0, steps.length, ...keep);
+  }
   const done = new Set(steps.map((s) => s.id));
   if (done.size) console.log(`продовжую: уже перевірено ${done.size}`);
   const t0 = Date.now();

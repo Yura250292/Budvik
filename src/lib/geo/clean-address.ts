@@ -23,20 +23,29 @@ export function settlementOf(address: string): string | null {
   const raw = address.replace(/\s*-\s*(?=[А-ЯІЇЄҐ])/gu, "-");
   const places = [
     ...raw.matchAll(
-      /(?:^|[,(\s])(?:м|с|смт|село|місто)\.{0,2}\s*([А-ЯІЇЄҐ][А-ЯІЇЄҐа-яіїєґ'`’\-]{2,}(?:\s+[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,})?)/gu
+      /(?:^|[,(\s])(?:м|с|смт|с-ще|село|місто|селище)\.{0,2}\s*([А-ЯІЇЄҐ][А-ЯІЇЄҐа-яіїєґ'`’\-]{2,}(?:\s+[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,})?)/gu
     ),
   ];
   const city = places.at(-1)?.[1];
   if (city) return withApostrophe(city);
 
-  // Без префікса: «Золочів, вул.Бродівська 19», «Дубляни». Перша частина до
-  // коми, якщо це одне-два слова з великої літери без цифр і не вулиця.
-  const first = raw.split(",")[0]?.trim() ?? "";
-  if (
-    /^[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,}(\s+[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,})?$/u.test(first) &&
-    !/^(вул|пров|просп|пл|бульв)/iu.test(first)
-  ) {
-    return withApostrophe(first);
+  // Без префікса: «Золочів, вул.Бродівська 19», «НОВА ПОШТА №1, Ахтирка, вул…»,
+  // «Rozetka.Надвірна,вул…». Перша частина, яка після зняття службового
+  // (пошта, №, дужки) — одне-два слова з великої літери без цифр і не вулиця.
+  const parts = raw.replace(/(rozetka|розетка)\s*\./giu, "$1,").split(/[,;]/);
+  for (const part of parts) {
+    const t = part
+      .replace(/\([^)]*\)/g, " ")
+      .replace(/(нова\s*пошта|meest\s*пошта|meest|rozetka|розетка|укрпошта|самовивіз|поштомат|відділення|пункт\s+приймання\s*-?\s*видачі|нп)/giu, " ")
+      .replace(/№\s*\d+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      /^[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,}(\s+[А-ЯІЇЄҐ][а-яіїєґ'`’\-]{2,})?$/u.test(t) &&
+      !/^(вул|пров|просп|пл|бульв|площ|шосе)/iu.test(t)
+    ) {
+      return withApostrophe(t);
+    }
   }
   return null;
 }
@@ -54,10 +63,19 @@ export function withApostrophe(name: string): string {
 }
 
 /**
- * Вулиця з будинком + населений пункт + область — те, що геокодер здатен
- * знайти. null, якщо вулиці з номером у рядку немає.
+ * Вулиця з будинком + населений пункт (+ область для львівських адрес) — те,
+ * що геокодер здатен знайти. null, якщо вулиці з номером у рядку немає.
+ *
+ * `lviv` — дописувати «Львівська область». Лише для адрес, які й так про
+ * Львівщину: 24.09.2026 без цієї умови «НОВА ПОШТА №1, Ахтирка, вул. Шевченка 3»
+ * ставала вул. Шевченка в Белзі, а «Чернігів, просп. Миру 49» — у Сокалі.
+ * `requireSettlement` — без населеного пункту не віддавати нічого: вулиця
+ * Шевченка з номером є в кожному місті, і пошук лише за нею — лотерея.
  */
-export function cleanAddress(raw: string): string | null {
+export function cleanAddress(
+  raw: string,
+  opts: { lviv: boolean; requireSettlement?: boolean } = { lviv: true }
+): string | null {
   const street = raw.match(
     /(вул|вулиц\w*|просп\w*|проспект|пл|площ\w*|пров|провул\w*|бульв\w*|шосе|наб\w*)[.\s]*([А-ЯІЇЄҐа-яіїєґ'.\-\s]{3,32}?)[,\s]+(?:буд\.?\s*)?(\d+[а-яА-Яa-zA-Z]?)/u
   );
@@ -83,7 +101,9 @@ export function cleanAddress(raw: string): string | null {
             ? "бульвар"
             : kind;
 
-  return [`${kindWord} ${cleanName}, ${house}`, settlementOf(raw), HOME_REGION, "Україна"]
+  const settlement = settlementOf(raw);
+  if (opts.requireSettlement && !settlement) return null;
+  return [`${kindWord} ${cleanName}, ${house}`, settlement, opts.lviv ? HOME_REGION : null, "Україна"]
     .filter(Boolean)
     .join(", ");
 }

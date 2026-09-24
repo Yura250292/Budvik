@@ -191,7 +191,9 @@ export function pinVerdict(i: {
   const tol = TOLERANCE[i.found.precision];
   const human = i.pinSource === "MANUAL";
 
-  if (km <= tol.ok) return { code: "OK", km, text: "точка збігається з адресою" };
+  // ok = 0 для вулиці й міста: навіть збіг до метра (точка CITY стоїть у тому
+  // самому вузлі OSM) нічого не каже про будинок.
+  if (tol.ok > 0 && km <= tol.ok) return { code: "OK", km, text: "точка збігається з адресою" };
   if (km <= tol.near) {
     if (i.found.precision === "CITY") {
       return { code: "CITY_ONLY", km, text: "адреса знаходиться лише до населеного пункту, точка в ньому — точніше скаже тільки людина на місці" };

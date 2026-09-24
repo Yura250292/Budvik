@@ -15,7 +15,7 @@
  * стеля PIN_CHECK_MAX за виклик.
  */
 
-import { runReadOnlyQuery } from "@/lib/assistant/facts/query-db";
+import { buildQuery, runInReadOnlyTx } from "@/lib/assistant/facts/query-db";
 import { pinVerdict, type PinVerdictCode } from "@/lib/assistant/facts/client-geo";
 import { inLvivOblast } from "@/lib/geo/lviv-oblast";
 import { lookupAddress, reverseGeocode, type AddressPrecision } from "@/lib/geo/nominatim";
@@ -44,19 +44,34 @@ export type ClientGeoRow = {
 
 const ID_RE = /^[a-z0-9]{10,40}$/i;
 
-/** Точки клієнтів з виду client_geo — тим самим SQL, що бачить query_db. */
+/**
+ * Точки клієнтів з виду client_geo — тим самим SQL, що бачить query_db, але
+ * без його форматування рядків для моделі: там адреса обрізається до 160
+ * символів, а в Nominatim вона має піти цілою.
+ */
 export async function clientGeoRows(ids: string[]): Promise<Map<string, ClientGeoRow>> {
   const safe = [...new Set(ids.filter((id) => ID_RE.test(id)))];
   if (safe.length === 0) return new Map();
-  const res = await runReadOnlyQuery(
-    `SELECT client_id, name, address, lat, lng, pin_source, pinned_by, pinned_day, accuracy_m, region,
+  const sql = `SELECT client_id, name, address, lat, lng, pin_source, pinned_by, pinned_day, accuracy_m, region,
             shipping_only, np_branch, heap, suspect, suspect_reason, map_url
-     FROM client_geo WHERE client_id IN (${safe.map((id) => `'${id}'`).join(", ")}) LIMIT ${safe.length}`,
-    { maxRows: safe.length, timeoutMs: 15_000 }
+     FROM client_geo WHERE client_id IN (${safe.map((id) => `'${id}'`).join(", ")})`;
+  const rows = await runInReadOnlyTx<Omit<ClientGeoRow, "pinned_day"> & { pinned_day: Date | string | null }>(
+    buildQuery(sql, ["client_geo"], safe.length),
+    15_000
   );
-  if (!res.ok) throw new Error(`client_geo: ${res.error}`);
-  const rows = res.rows as unknown as ClientGeoRow[];
-  return new Map(rows.map((r) => [r.client_id, { ...r, lat: num(r.lat), lng: num(r.lng) }]));
+  return new Map(
+    rows.map((r) => [
+      r.client_id,
+      {
+        ...r,
+        lat: num(r.lat),
+        lng: num(r.lng),
+        heap: num(r.heap),
+        accuracy_m: num(r.accuracy_m),
+        pinned_day: r.pinned_day instanceof Date ? r.pinned_day.toISOString().slice(0, 10) : r.pinned_day,
+      },
+    ])
+  );
 }
 
 function num(v: unknown): number | null {

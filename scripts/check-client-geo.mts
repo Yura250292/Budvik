@@ -129,6 +129,16 @@ const near = (p: { lat: number; lng: number }, dLatKm: number) => ({ lat: p.lat 
   check("точка за 40 км від міста з адреси — пересунути", v.code === "MOVE", v);
 }
 {
+  // Точка CITY стоїть у тому самому вузлі OSM, що й знахідка «лише місто»:
+  // збіг нуль метрів нічого не каже про будинок — «правильною» її не назвеш.
+  const v = pinVerdict({ hasAddress: true, pinSource: "CITY", pin: TORPEDO, found: { ...TORPEDO, precision: "CITY" } });
+  check("лише місто, збіг до метра — не «правильна», а «лише населений пункт»", v.code === "CITY_ONLY", v);
+}
+{
+  const v = pinVerdict({ hasAddress: true, pinSource: "GEOCODED", pin: TORPEDO, found: { ...TORPEDO, precision: "STREET" } });
+  check("лише вулиця, збіг до метра — «поруч», будинок не перевірено", v.code === "NEAR", v);
+}
+{
   const v = pinVerdict({ hasAddress: true, pinSource: "GEOCODED", pin: TORPEDO, found: null });
   check("адресу не знайдено — перевірити нема з чим", v.code === "NOT_FOUND", v);
 }
@@ -178,6 +188,23 @@ if (process.argv.includes("--db")) {
       torpedo.ok && torpedo.rows.length > 0 && torpedo.rows.every((r) => r.pin_source === "MANUAL" || (r.suspect === true && /Льв/.test(String(r.suspect_reason)))),
       torpedo.ok ? torpedo.rows.slice(0, 3) : torpedo.error
     );
+
+    const precise = await runReadOnlyQuery("SELECT lat, lng, x_km FROM client_geo WHERE lat IS NOT NULL LIMIT 20");
+    const decimals = (v: unknown) => (String(v).split(".")[1] ?? "").length;
+    check(
+      "query_db віддає координати без округлення до сотих (0,01° ≈ 1 км)",
+      precise.ok && precise.rows.some((r) => decimals(r.lat) > 3 && decimals(r.lng) > 3),
+      precise.ok ? precise.rows.slice(0, 3) : precise.error
+    );
+
+    const { clientGeoRows } = await import("../src/lib/assistant/facts/pin-check");
+    const longest = await prisma.$queryRawUnsafe<Array<{ id: string; lat: number; addr: string }>>(
+      `SELECT id, "deliveryLat" AS lat, COALESCE(NULLIF(btrim("deliveryAddress"), ''), btrim(address)) AS addr FROM "Counterparty"
+       WHERE "deliveryLat" IS NOT NULL ORDER BY length(COALESCE(NULLIF(btrim("deliveryAddress"), ''), btrim(address))) DESC NULLS LAST LIMIT 1`
+    );
+    const g = (await clientGeoRows([longest[0].id])).get(longest[0].id);
+    check("перевірка точки бере координату без округлення", g?.lat === longest[0].lat, [g?.lat, longest[0].lat]);
+    check("перевірка точки бере адресу цілою (не обрізаною до 160)", g?.address === longest[0].addr, [g?.address?.length, longest[0].addr.length]);
 
     const manual = await runReadOnlyQuery("SELECT COUNT(*) AS n FROM client_geo WHERE pin_source = 'MANUAL' AND suspect LIMIT 1");
     check("точки, поставлені людьми, не бувають «підозрілими»", manual.ok && Number(manual.rows[0]?.n) === 0, manual.ok ? manual.rows : manual.error);

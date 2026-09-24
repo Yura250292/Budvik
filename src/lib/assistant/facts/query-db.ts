@@ -296,9 +296,17 @@ export function plainValue(v: unknown): unknown {
   }
 }
 
+/**
+ * Координати — без округлення до сотих: 0,01° — це кілометр, і точка клієнта
+ * «переїжджала» на сусідній квартал (24.09.2026, перевірка точок і «хто поруч»).
+ */
+const COORD_KEY = /^(lat|lng|lon)$|_(lat|lng|lon)$/i;
+
 function plainRow(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) out[k] = plainValue(v);
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = COORD_KEY.test(k) && typeof v === "number" && Number.isFinite(v) ? v : plainValue(v);
+  }
   return out;
 }
 

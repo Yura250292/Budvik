@@ -3,7 +3,7 @@
  * SDK говорить із createMcpServer через InMemoryTransport.
  *
  * Що доводимо:
- * - назовні рівно ті 19 інструментів, що в списку, усі з readOnlyHint, і
+ * - назовні рівно ті 20 інструментів, що в списку, усі з readOnlyHint, і
  *   жодного пишучого (remind_me) чи файлового (export_file);
  * - посилання на екрани сайту у відповідях зведень — повні адреси: у claude.ai
  *   чи ChatGPT шлях «/admin/…» нікуди не веде;
@@ -22,6 +22,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { prisma } from "../src/lib/prisma";
 import { createMcpServer } from "../src/lib/mcp/server";
 import { SUMMARY_TOOLS, absolutizeLinks } from "../src/lib/mcp/tools";
+import { VIEWS } from "../src/lib/assistant/facts/query-views";
 
 const fails: string[] = [];
 function check(name: string, ok: boolean, got: unknown) {
@@ -58,8 +59,9 @@ try {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   const expected = ["describe_data", "query_db", ...SUMMARY_TOOLS].sort();
-  check("рівно 19 інструментів", tools.length === 19, tools.length);
+  check("рівно 20 інструментів", tools.length === 20, tools.length);
   check("маршрути доставки є", names.includes("build_route"), names.includes("build_route"));
+  check("наради є", names.includes("meetings"), names.includes("meetings"));
   check("саме ті, що в списку", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
   check("усі readOnlyHint", tools.every((t) => t.annotations?.readOnlyHint === true), tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name).join(",") || "усі");
   check("жодного пишучого чи файлового", !names.some((n) => ["remind_me", "export_file", "my_reminders"].includes(n)), "немає");
@@ -73,7 +75,10 @@ try {
   const d = await call("describe_data");
   check("describe_data без аргументів — не помилка", !d.isError, text(d).slice(0, 80));
   const dj = JSON.parse(text(d));
-  check("29 видів", dj.представлення?.length === 29, dj.представлення?.length);
+  check(`усі ${VIEWS.length} видів`, dj.представлення?.length === VIEWS.length, dj.представлення?.length);
+  const viewNames = (dj.представлення ?? []).map((v: { назва: string }) => v.назва);
+  const mustHave = ["meetings", "staff_tasks", "staff_messages", "product_prices", "market_prices", "price_proposals", "price_changes", "price_policies", "supplier_prices", "prospects", "season_profile", "site_daily"];
+  check("нові види: наради, ціни, ринок, постачальники, база «Львів», сезон, сайт", mustHave.every((n) => viewNames.includes(n)), mustHave.filter((n) => !viewNames.includes(n)).join(",") || "усі");
   check("правила на місці", Array.isArray(dj.правила) && dj.правила.length > 0, dj.правила?.length);
   const dd = JSON.parse(text(await call("describe_data", { views: ["documents"] })));
   check("колонки documents", (dd.представлення?.[0]?.колонки?.length ?? 0) > 5, dd.представлення?.[0]?.колонки?.length);
@@ -103,6 +108,8 @@ try {
   check("неправильний аргумент → isError, а не виняток", badArgs.isError === true, text(badArgs));
   const trips = await call("shifts_report", { mode: "days", days: 7 });
   check("поїздки по днях відповідають", !trips.isError && "по_днях" in JSON.parse(text(trips)), text(trips).slice(0, 100));
+  const mt = await call("meetings", { mode: "tasks" });
+  check("наради: задачі відповідають", !mt.isError && "по_людях" in JSON.parse(text(mt)), text(mt).slice(0, 100));
   const plan = await call("build_route", { mode: "day_plan" });
   check("план доставки викликається без винятку", !plan.isError, text(plan).slice(0, 100));
 

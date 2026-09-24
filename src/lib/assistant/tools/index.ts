@@ -8,7 +8,8 @@
  *
  * Стеля: тринадцять для торгового, двадцять для керівника (з 16.09.2026
  * керівник бачить 23 — export_file додано свідомо: файл інакше не зробити,
- * а режимом чужого інструмента він не є). Кожен інструмент
+ * а режимом чужого інструмента він не є; з 24.09.2026 — 24: meetings, бо
+ * наради й задачі команді не є режимом жодного звіту про продажі чи склад). Кожен інструмент
  * коштує ~120 токенів у КОЖНОМУ запиті ходу; півсотні інструментів з'їли б
  * контекст ще до першого факту, а модель почала б обирати навмання. Далі
  * рости лише режимами (mode) усередині наявних схем — так уже живуть
@@ -47,6 +48,7 @@ import {
   teamOverviewTool,
   teamReceivablesTool,
 } from "@/lib/assistant/tools/admin";
+import { meetingsTool } from "@/lib/assistant/tools/meetings";
 import { moneyFlowsTool, salesAnalysisTool, siteReportTool } from "@/lib/assistant/tools/admin-money";
 import { staffProfileTool } from "@/lib/assistant/tools/staff";
 import { documentsTool } from "@/lib/assistant/tools/documents";
@@ -71,6 +73,7 @@ export const TOOLS: ToolDef[] = [
   documentsTool,
   shiftsReportTool,
   driversReportTool,
+  meetingsTool,
   /*
    * Складські — одразу після денних і перед клієнтськими: у складовщика це
    * і є «де я і що зі мною», тобто перше, чого модель має шукати.

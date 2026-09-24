@@ -2,7 +2,7 @@
  * Інструменти, які MCP-конектор віддає claude.ai і ChatGPT.
  *
  * Три види:
- * 1. describe_data — які є дані (29 видів) і правила SQL над ними;
+ * 1. describe_data — які є дані (усі види query_db) і правила SQL над ними;
  * 2. query_db — читальний SELECT над цими видами, через окрему читальну
  *    роль Postgres і до 500 рядків (для графіків треба денні ряди за рік);
  * 3. готові зведення помічника керівника — ті самі ToolDef, що в кабінеті,
@@ -15,6 +15,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { TOOL_BY_NAME } from "@/lib/assistant/tools";
 import { describeViews } from "@/lib/assistant/tools/query";
+import { VIEWS } from "@/lib/assistant/facts/query-views";
 import { ToolArgError } from "@/lib/assistant/validate";
 import type { ToolContext, ToolDef } from "@/lib/assistant/types";
 import { runReadOnlyQuery } from "@/lib/assistant/facts/query-db";
@@ -46,6 +47,8 @@ export const SUMMARY_TOOLS = [
   // Нічого не пише: план доставки й порядок об'їзду лише рахуються, чернетки
   // маршрутів створює людина кнопкою на сайті (посилання у відповіді).
   "build_route",
+  // Наради й задачі команді — щоб модель у Claude/ChatGPT була в курсі подій.
+  "meetings",
 ] as const;
 
 const QUERY_MAX_ROWS = 500;
@@ -81,7 +84,7 @@ const describeData: McpTool = {
     name: "describe_data",
     title: "Опис даних Budvik",
     description:
-      "Які дані є для query_db: без аргументів — список 29 представлень (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, водії, склад, інтернет-замовлення…) і правила SQL; з views — колонки й приклади запитів для названих. Виклич перед першим query_db у розмові.",
+      `Які дані є для query_db: без аргументів — список ${VIEWS.length} представлень (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, водії, інтернет-замовлення, ціни 1С/сайту/ринку, пропозиції агента цін, ціни постачальників, наради й задачі, потенційні клієнти, сезонність, сайт по днях…) і правила SQL; з views — колонки й приклади запитів для названих. Виклич перед першим query_db у розмові.`,
     inputSchema: {
       type: "object",
       properties: {

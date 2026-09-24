@@ -224,3 +224,28 @@ npx tsx scripts/check-route-economics.mts                  # гроші рейс
 npx tsx scripts/check-rep-trips.mts                        # розбір дня, без бази
 npx tsx --env-file=.env scripts/check-rep-trips.mts db     # + звірка з shifts_report і revenueByRep
 ```
+
+## Наради й повне читання даних
+
+**`meetings`** (`src/lib/assistant/tools/meetings.ts`) — щоб помічник і конектор
+були в курсі подій: `mode=list` — останні наради з рішеннями й станом задач, з `q` —
+пошук слова в назві, підсумку й транскрипті з уривком; `mode=meeting` — одна
+нарада (теми з пунктами, рішення, ризики, відкриті питання, клієнти, задачі з
+виконавцями); `mode=tasks` — задачі по людях, прострочене, що чекає підтвердження.
+Теми, ризики й клієнтів воркер пише з 22.09.2026, а в типі `MeetingStructured`
+гілки main їх ще немає — інструмент читає їх із сирого JSON. Це 24-й інструмент
+керівника: свідомо, як export_file — наради не є режимом жодного звіту.
+
+**Види `query_db`** покривають усі заповнені бізнес-таблиці, крім службових
+(токени, кеші, журнали, трек поточково). З 24.09.2026 додано: `meetings`,
+`staff_tasks`, `staff_messages`, `product_prices`, `market_prices`,
+`price_proposals`, `price_changes`, `price_policies`, `supplier_prices`,
+`prospects`, `season_profile`, `site_daily`. Порожні на проді таблиці (розсилки
+ClientOutreach, мотивація, заявки в офіс, акції) видів не мають — додати, коли
+з'являться дані. Нова таблиця, яку читає вид, потребує перезапуску
+`scripts/mcp/readonly-role.sql` на проді (див. mcp-connector.md).
+
+```bash
+npx tsx --env-file=.env scripts/check-assistant-meetings.mts   # лише локальна база: створює й прибирає
+npx tsx --env-file=.env scripts/assistant-query-db.mts         # усі види: SELECT * і колонки за описом
+```

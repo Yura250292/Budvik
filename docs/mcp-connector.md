@@ -34,13 +34,13 @@ ChatGPT — Python).
 
 ## Що бачить модель
 
-19 інструментів, усі лише на читання (`readOnlyHint`, ChatGPT не питає підтвердження):
+20 інструментів, усі лише на читання (`readOnlyHint`, ChatGPT не питає підтвердження):
 
 | Інструмент | Що дає |
 | --- | --- |
-| `describe_data` | 29 представлень бази (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, інтернет-замовлення…) і правила SQL |
+| `describe_data` | 41 представлення бази (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, інтернет-замовлення, ціни 1С/сайту/ринку, пропозиції агента цін, ціни постачальників, наради, задачі, чат персоналу, потенційні клієнти, сезонність, сайт по днях…) і правила SQL |
 | `query_db` | довільний `SELECT` над цими представленнями, до 500 рядків; відповідь — `columns` + `rows` масивами |
-| 17 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search`, `build_route` (план доставки на день з грошима рейсу й посиланнями Google Maps — нічого не пише) |
+| 18 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search`, `build_route` (план доставки на день з грошима рейсу й посиланнями Google Maps — нічого не пише), `meetings` (наради: рішення, теми, ризики, задачі команді, пошук у транскриптах) |
 
 Зведення — явним списком у `src/lib/mcp/tools.ts`, а не «все, що бачить
 керівник»: новий пишучий інструмент помічника назовні сам не потрапить.
@@ -124,7 +124,7 @@ Anthropic і OpenAI саме такі. І не у воркері: деплой �
 | --- | --- |
 | `npm run check:mcp` | OAuth (атаки: чужий редирект, повтори, понижена роль), інструменти через MCP-клієнт, підключення в профілі. Лише локальна база |
 | `scripts/check-mcp-http.mts <адреса>` | повний танець як у claude.ai: 401 → метадані → реєстрація → вхід → токени → MCP → оновлення |
-| `scripts/check-mcp-readonly.mts` | роль `budvik_mcp_ro`: 29 видів читаються, секрети й запис — 42501 |
+| `scripts/check-mcp-readonly.mts` | роль `budvik_mcp_ro`: усі види читаються, секрети й запис — 42501 |
 
 ## Граблі, на які вже наступили
 

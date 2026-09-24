@@ -7,9 +7,13 @@
  * «власник» виводимо тут — з назви статті й групи. Рішення, прийняте руками
  * в адмінці, захищає `CostItem.manualAt`: класифікатор таку статтю не чіпає.
  *
- * Торгового шукаємо за словом назви («Паливо Кулик», група «Джумага»), і
- * лише коли слово вказує рівно на одну людину: «Премія Дмитро» при двох
- * Дмитрах не належить нікому — краще «компанія», ніж чужа витрата в людини.
+ * Торгового шукаємо тим самим правилом, що й обмін для накладних
+ * (apply-documents.ts): людина — та, чиї ВСІ слова імені на сайті є в групі
+ * чи назві статті 1С, і лише коли така одна. Група «Кулик Дмитро» — Кулик,
+ * хоча «Дмитро» є й у Передрія. Для статті без групи («Паливо Кулик») —
+ * запасне правило: слово, яке з торгових має лише одна людина. «Премія
+ * Дмитро» при двох Дмитрах не належить нікому — краще «фірма», ніж чужа
+ * витрата в людини.
  *
  * `\b` у регулярних виразах JS кирилицю не бачить, тому короткі слова
  * («зп», «дп», «сто», «газ») перевіряємо як окремі слова, а решту — входженням.
@@ -31,6 +35,9 @@ export type CostKind =
   | "COMMS"
   | "BANK"
   | "INVENTORY"
+  | "HOUSEHOLD"
+  | "DELIVERY"
+  | "STAFF"
   | "OTHER";
 
 export type CostScope = "COMPANY" | "OFFICE" | "WAREHOUSE" | "LOGISTICS" | "SALES" | "STORE" | "REP";
@@ -51,6 +58,9 @@ export const COST_KIND_LABELS: Record<CostKind, string> = {
   COMMS: "звʼязок",
   BANK: "банк",
   INVENTORY: "недостачі й надлишки",
+  HOUSEHOLD: "господарські потреби",
+  DELIVERY: "транспорт і доставка",
+  STAFF: "персонал (крім зарплати)",
   OTHER: "інше",
 };
 
@@ -87,12 +97,22 @@ const KIND_RULES: Rule[] = [
   { kind: "TAX", words: ["єсв", "есв", "пдв", "пдфо", "ндфл"], parts: ["податк", "військов"] },
   { kind: "SECURITY", parts: ["охорон"] },
   { kind: "ACCOUNTING", parts: ["бухгалт", "медок", "m.e.doc"] },
-  { kind: "UTILITIES", words: ["газ", "вода", "світло"], parts: ["комунал", "електроенерг", "опаленн"] },
-  { kind: "ADS", words: ["смм", "smm"], parts: ["реклам", "банер", "вивіск", "маркетинг"] },
+  { kind: "UTILITIES", words: ["газ", "вода", "світло"], parts: ["комунал", "електроенерг", "електропостач", "опаленн", "утримання об"] },
+  // Банк раніше за рекламу: «Затрати на прийом платежів з ПРОМ» — комісія, а не Prom.
+  { kind: "BANK", parts: ["банк", "комісі", "еквайр", "платеж"] },
+  { kind: "ADS", words: ["смм", "smm", "пром", "prom"], parts: ["реклам", "банер", "вивіск", "маркетинг"] },
   { kind: "REPAIR", words: ["сто", "то", "шини"], parts: ["ремонт", "запчаст", "шиномонт", "обслуговуван"] },
+  { kind: "HOUSEHOLD", words: ["чай", "кава"], parts: ["прибиран", "господарськ", "побутов", "канцтовар", "інвентар"] },
+  { kind: "DELIVERY", parts: ["доставк", "пошт", "транспортн", "перевезен"] },
+  { kind: "STAFF", parts: ["співробітник", "персонал", "навчанн"] },
   { kind: "COMMS", parts: ["зв'яз", "звяз", "телефон", "інтернет", "мобільн"] },
-  { kind: "BANK", parts: ["банк", "комісі", "еквайр"] },
 ];
+
+function kindOf(text: string): CostKind | null {
+  const lower = text.toLowerCase().replace(/[’ʼ`]/g, "'");
+  const ws = new Set(words(text));
+  return KIND_RULES.find((r) => r.words?.some((w) => ws.has(w)) || r.parts?.some((p) => lower.includes(p)))?.kind ?? null;
+}
 
 export type CostItemClass = { kind: CostKind; scope: CostScope; repId: string | null; storeName: string | null };
 
@@ -103,14 +123,14 @@ export function classifyCostItem(
 ): CostItemClass {
   const text = `${groupName ?? ""} ${name}`;
   const lower = text.toLowerCase().replace(/[’ʼ`]/g, "'");
-  const ws = new Set(words(text));
 
-  const rule = KIND_RULES.find((r) => r.words?.some((w) => ws.has(w)) || r.parts?.some((p) => lower.includes(p)));
-  const kind: CostKind = rule?.kind ?? "OTHER";
+  // Вид — спершу з назви статті, і лише коли вона мовчить — з групи: у групі
+  // «Інтернет/Пром» лежать і Нова Пошта, і зв'язок, і канцтовари, і слово
+  // «пром» у групі робило б їх усіх рекламою.
+  const kind: CostKind = kindOf(name) ?? (groupName ? kindOf(groupName) : null) ?? "OTHER";
 
-  // Торговий: слово назви чи групи збігається зі словом його імені рівно в одного.
-  const matched = reps.filter((r) => words(r.name).some((w) => w.length >= 3 && ws.has(w)));
-  if (matched.length === 1) return { kind, scope: "REP", repId: matched[0].id, storeName: null };
+  const repId = matchRep(groupName, name, reps);
+  if (repId) return { kind, scope: "REP", repId, storeName: null };
 
   if (/dnipro|кувалд|магазин/i.test(text)) {
     return { kind, scope: "STORE", repId: null, storeName: (groupName ?? name).trim() };
@@ -125,4 +145,37 @@ export function classifyCostItem(
           ? "SALES"
           : "COMPANY";
   return { kind, scope, repId: null, storeName: null };
+}
+
+/**
+ * Торговий статті. Спершу правило накладних: усі слова імені людини на сайті
+ * є в групі (а тоді в назві) статті, і така людина одна. Далі запасне: слово
+ * з імені, яке серед торгових має лише одна людина («кулик»), — щоб «Паливо
+ * Кулик» без групи теж знайшов Кулика, а спільне «дмитро» нікого не ловило.
+ */
+function matchRep(groupName: string | null, name: string, reps: { id: string; name: string }[]): string | null {
+  const people = reps.map((r) => ({ id: r.id, words: new Set(words(r.name).filter((w) => w.length >= 3)) })).filter((p) => p.words.size > 0);
+
+  for (const text of [groupName, name]) {
+    if (!text) continue;
+    const ws = new Set(words(text));
+    const all = people.filter((p) => [...p.words].every((w) => ws.has(w)));
+    if (all.length === 1) return all[0].id;
+    if (all.length > 1) return null;
+  }
+
+  const owners = new Map<string, Set<string>>();
+  for (const p of people) for (const w of p.words) owners.set(w, (owners.get(w) ?? new Set()).add(p.id));
+  const ws = new Set(words(`${groupName ?? ""} ${name}`));
+  const hits = new Set<string>();
+  for (const w of ws) {
+    const o = owners.get(w);
+    if (o && o.size === 1) hits.add([...o][0]);
+  }
+  if (hits.size !== 1) return null;
+  const id = [...hits][0];
+  // Слово з імені ІНШОЇ людини поруч — інша людина з тим самим прізвищем:
+  // «Калашник Дмитро» в 1С — не Калашник Дарья на сайті, хоч прізвище одне.
+  const conflict = [...ws].some((w) => owners.has(w) && !owners.get(w)!.has(id));
+  return conflict ? null : id;
 }

@@ -12,6 +12,13 @@
  * УТ; банківські комісії й податки ТОВ живуть в окремій базі Buhgalteria, до
  * якої доступу ще немає (docs/1c-accounting-plan.md).
  *
+ * І головне застереження (перший прогін 24.09.2026): роздрібної виручки
+ * магазинів DNIPRO-M і КУВАЛДА в УТ немає — роздрібних чеків 0, магазинам
+ * іде лише опт накладними (0,56 млн за 8 місяців), — а їхні оренда, світло
+ * й прибирання у витратах є. Тому результат без витрат магазинів
+ * (`resultExStores`) — це чесний результат оптового бізнесу, а загальний
+ * змішує опт із витратами магазинів без їхньої виручки.
+ *
  * Нічого не пише.
  */
 
@@ -44,6 +51,10 @@ export type Pnl = {
     resultPct: number | null;
     /** Витрати місяців, де собівартості немає зовсім, — у результат не входять. */
     expensesWithoutMargin: number;
+    /** Витрати магазинів (scope STORE) у місяцях із валом. */
+    storeExpenses: number;
+    /** Результат без витрат магазинів: їхньої роздрібної виручки в УТ немає. */
+    resultExStores: number | null;
     costedShare: number;
   };
   byKind: { kind: string; amount: number }[];
@@ -91,6 +102,10 @@ export function buildPnl(sales: SalesMonth[], expenses: ExpenseRow[]): Pnl {
   const margin = rows.every((r) => r.margin === null) ? null : rows.reduce((a, r) => a + (r.margin ?? 0), 0);
   const expTotal = rows.reduce((a, r) => a + r.expenses, 0);
   const withMargin = rows.filter((r) => r.margin !== null);
+  const marginMonths = new Set(withMargin.map((r) => r.month));
+  const storeExpenses = round(
+    expenses.filter((e) => e.scope === "STORE" && marginMonths.has(e.month)).reduce((a, e) => a + e.amount, 0)
+  );
   const result = margin === null || !hasExpenses ? null : withMargin.reduce((a, r) => a + (r.margin ?? 0) - r.expenses, 0);
   const resultRevenue = withMargin.reduce((a, r) => a + r.revenue, 0);
   const costedRevenue = sales.reduce((a, s) => a + s.costedRevenue, 0);
@@ -104,6 +119,8 @@ export function buildPnl(sales: SalesMonth[], expenses: ExpenseRow[]): Pnl {
       result,
       resultPct: result === null || resultRevenue <= 0 ? null : Math.round((result / resultRevenue) * 1000) / 10,
       expensesWithoutMargin: rows.filter((r) => r.margin === null).reduce((a, r) => a + r.expenses, 0),
+      storeExpenses,
+      resultExStores: result === null ? null : result + storeExpenses,
       costedShare: revenue > 0 ? Math.round((costedRevenue / revenue) * 1000) / 1000 : 0,
     },
     byKind: sortDesc([...sumBy(expenses, (e) => e.kind)].map(([kind, amount]) => ({ kind, amount: round(amount) }))),

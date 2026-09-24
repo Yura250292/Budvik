@@ -52,6 +52,10 @@ check("є витрати", p.hasExpenses === true, p.hasExpenses);
   check("рентабельність — від виручки тих самих місяців", july.total.resultPct === 2.3, july.total.resultPct);
 }
 
+// Роздрібної виручки магазинів у 1С УТ немає, а їхні витрати є — результат
+// без витрат магазинів показуємо окремо. У серпні магазин — 30 000 оренди.
+check("результат без витрат магазинів", p.total.resultExStores === 35_000 + 30_000 && p.total.storeExpenses === 30_000, [p.total.resultExStores, p.total.storeExpenses]);
+
 const empty = buildPnl(sales, []);
 check("без витрат — прямо про це", empty.hasExpenses === false && empty.total.result === null, empty.total);
 

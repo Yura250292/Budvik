@@ -17,6 +17,7 @@ import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 import { StaffBuildCard } from "@/components/app-install/StaffBuildCard";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, CardTitle, Note, Page, Tile, TileRow } from "@/components/cabinet/ui";
+import { CalendarCard } from "@/components/cabinet/CalendarCard";
 
 type ShiftResponse = {
   shift: { openedAt: string; openAddress: string | null } | null;
@@ -100,6 +101,7 @@ export default function WarehouseProfilePage() {
         </button>
 
         <Note>{user?.email ? `Ви увійшли як ${user.email}.` : ""}</Note>
+        <CalendarCard />
       </Page>
     </>
   );

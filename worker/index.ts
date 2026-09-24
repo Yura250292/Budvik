@@ -39,6 +39,7 @@ import { pruneSyncJournals } from "@/lib/sync-ingest/retention";
 import { runNightlyMarketWork, runWeeklyProposals } from "@/lib/pricing/agent/run";
 import { processMeetings } from "@/lib/meetings/process";
 import { deliverTaskNotifications } from "@/lib/tasks/notify";
+import { syncCalendars } from "@/lib/calendar/sync";
 import { isOutreachTableMissing, settleOutreachOutcomes } from "@/lib/outreach/settle";
 import { sendDailyDigest } from "../src/lib/assistant/digest";
 import { recomputeIfDue } from "../src/lib/analytics/seasonality";
@@ -646,6 +647,38 @@ async function tickOutreach(): Promise<void> {
 
 const outreachTimer = setInterval(() => void tickOutreach(), SILENCE_CHECK_INTERVAL_MS);
 
+// ========== Календар Google ==========
+
+/**
+ * Звірення календарів персоналу (src/lib/calendar/sync.ts): що на сайті —
+ * те й у Google. Прохід дивиться на результат, а не слухає зміни, бо задачі
+ * й маршрути пишуться з десятків місць, і забутий виклик дав би тихий
+ * розсинхрон.
+ *
+ * Дві хвилини: між «керівник підтвердив задачу» і подією в телефоні це
+ * непомітно, а коштує тік один запит до Postgres — виклики до Google
+ * робляться лише тоді, коли зміст справді змінився.
+ *
+ * Конектор без CALENDAR_TOKEN_KEY мовчить: сам syncCalendars напише один
+ * рядок на запуск процесу й нічого не робитиме.
+ */
+const CALENDAR_INTERVAL_MS = 2 * 60_000;
+let calendarBusy = false;
+
+async function tickCalendar(): Promise<void> {
+  if (calendarBusy) return;
+  calendarBusy = true;
+  try {
+    for (const line of await syncCalendars()) console.log(`календар: ${line}`);
+  } catch (e) {
+    console.error("календар:", e);
+  } finally {
+    calendarBusy = false;
+  }
+}
+
+const calendarTimer = setInterval(() => void tickCalendar(), CALENDAR_INTERVAL_MS);
+
 // ========== Старт і зупинка ==========
 
 server.listen(PORT, () => {
@@ -670,6 +703,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     clearInterval(marketTimer);
     clearInterval(meetingsTimer);
     clearInterval(outreachTimer);
+    clearInterval(calendarTimer);
     server.close(() => {
       void prisma.$disconnect().finally(() => process.exit(0));
     });

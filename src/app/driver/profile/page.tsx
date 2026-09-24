@@ -19,6 +19,7 @@ import { useProfile } from "@/lib/useProfile";
 import { useAppUpdate, useIsNativeApp } from "@/lib/useIsNativeApp";
 import { CabinetHeader } from "@/components/cabinet/Header";
 import { Body, Button, Card, CardTitle, Note, Page } from "@/components/cabinet/ui";
+import { CalendarCard } from "@/components/cabinet/CalendarCard";
 
 type PayrollRow = {
   driverId: string;
@@ -181,6 +182,7 @@ export default function DriverProfilePage() {
           {user?.email ? `Ви увійшли як ${user.email}. ` : ""}У застосунку вихід зупиняє трек і
           стирає токен пристрою — інакше маршрут писався б під чужим акаунтом.
         </Note>
+        <CalendarCard />
       </Page>
     </>
   );

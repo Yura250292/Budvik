@@ -33,10 +33,10 @@ export type Period = { from: string; to: string };
 /**
  * Найраніша дата, за яку аналітика має дані.
  *
- * Реалізації з 1С бекфілились із січня 2026, а повернення — із 2023-го, тож
+ * Реалізації з 1С бекфілились із січня 2024, а повернення — із 2023-го, тож
  * раніші місяці складаються з самих мінусів. Сервер усе одно підтягує початок
  * періоду (parsePeriod), але без цієї межі календар пропонував би обрати
- * 2024 рік і мовчки повертав би січень 2026 — вибір, який нікуди не веде.
+ * 2023 рік і мовчки повертав би січень 2024 — вибір, який нікуди не веде.
  *
  * Значення береться з lib/analytics/since.ts, а не дублюється: той модуль
  * без жодного імпорту (ні Prisma, ні next/*), тож клієнтському компоненту
@@ -65,6 +65,17 @@ export const PRESETS: Array<{ key: string; label: string; make: () => Period }> 
   },
   { key: "quarter", label: "90 днів", make: () => ({ from: clampDay(shiftDay(kyivToday(), -89)), to: kyivToday() }) },
   { key: "year", label: "Рік", make: () => ({ from: clampDay(shiftDay(kyivToday(), -364)), to: kyivToday() }) },
+  {
+    // Повний минулий календарний рік — щоб «як було торік» був одним тапом,
+    // а не набиранням двох дат.
+    key: "lastyear",
+    label: "Минулий рік",
+    make: () => {
+      const y = Number(kyivToday().slice(0, 4)) - 1;
+      return { from: clampDay(`${y}-01-01`), to: `${y}-12-31` };
+    },
+  },
+  { key: "all", label: "Уся історія", make: () => ({ from: ANALYTICS_SINCE_DAY, to: kyivToday() }) },
 ];
 
 export function PeriodPicker({

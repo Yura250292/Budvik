@@ -18,7 +18,7 @@
 import { Prisma } from "@prisma/client";
 import { agingByCounterparty } from "./money-facts";
 import { prisma } from "@/lib/prisma";
-import { NOT_INTERNAL, NOT_INTERNAL_DOC, SOURCE_FILTER } from "@/lib/analytics/facts";
+import { ANALYTICS_SINCE, NOT_INTERNAL, NOT_INTERNAL_DOC, SOURCE_FILTER } from "@/lib/analytics/facts";
 import type { Period } from "@/lib/analytics/period";
 import { kyivDaySql } from "@/lib/date/kyiv";
 
@@ -48,6 +48,20 @@ export const SLIPPING_FACTOR = 1.5;
  * вище) і не тривожний ні для кого.
  */
 export const MIN_SLIPPING_DAYS = 7;
+
+/**
+ * З якого моменту «перший документ» справді означає «новий клієнт».
+ *
+ * Історія реалізацій починається з ANALYTICS_SINCE. Клієнт, чий перший
+ * документ у базі лежить у перші місяці цієї історії, міг купувати й
+ * роками раніше — просто тих років у базі немає. На періоді «уся історія»
+ * без цієї межі всі 2 111 клієнтів виходили «новими» (заміряно 24.09.2026).
+ *
+ * Дев'яносто днів — той самий горизонт, після якого клієнт вважається
+ * втраченим: старий клієнт, що купує бодай раз на квартал, за цей час
+ * встигає проявитись у перших місяцях історії.
+ */
+const NEW_KNOWN_FROM = ANALYTICS_SINCE.getTime() + 90 * 86_400_000;
 
 /**
  * Мінімум документів, щоб вважати клієнта втраченим.
@@ -232,7 +246,8 @@ export function classifyClient(row: ClientRhythmRow, period: Period): ClientStat
   // Новий — перший документ потрапив у вікно періоду. Перевіряється
   // першим: клієнт, який щойно з'явився, за визначенням ще не може бути
   // «сплячим», навіть якщо взяв один раз на початку періоду.
-  if (row.firstDocAt.getTime() >= period.from.getTime()) return "NEW";
+  const first = row.firstDocAt.getTime();
+  if (first >= period.from.getTime() && first >= NEW_KNOWN_FROM) return "NEW";
 
   if (daysSinceLast >= LOST_DAYS && row.historyDocs >= MIN_DOCS_FOR_LOST) return "LOST";
   if (daysSinceLast >= DORMANT_DAYS) return "DORMANT";

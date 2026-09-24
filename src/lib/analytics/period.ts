@@ -51,7 +51,7 @@ export function parsePeriod(params: URLSearchParams, defaultDays = 30): Period {
     toDay = toParam;
     if (fromDay > toDay) [fromDay, toDay] = [toDay, fromDay];
   } else {
-    const days = Math.min(365, Math.max(1, parseInt(params.get("days") ?? String(defaultDays), 10) || defaultDays));
+    const days = Math.min(1100, Math.max(1, parseInt(params.get("days") ?? String(defaultDays), 10) || defaultDays));
     toDay = today;
     fromDay = shiftDay(today, -(days - 1));
   }

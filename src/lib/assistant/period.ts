@@ -150,7 +150,9 @@ export function periodFromArgs(today: string, args: Record<string, unknown>) {
 
   const rawDays = typeof args.days === "number" ? args.days : Number(args.days);
   if (Number.isFinite(rawDays) && rawDays >= 1) {
-    return periodOf(today, { kind: "days", days: Math.min(365, Math.round(rawDays)) });
+    // Стеля ~3 роки: з 2024 у базі повна історія, і «за два роки» не має
+    // мовчки ставати одним. Раніше межі все одно підтягне clamp.
+    return periodOf(today, { kind: "days", days: Math.min(1100, Math.round(rawDays)) });
   }
 
   return periodOf(today, { kind: "month", offset: 0 });

@@ -559,7 +559,7 @@ export function ClientMapTab({ period }: { period: Period }) {
       <Card>
         <CardHeader
           title="Карта клієнтів"
-          hint={`Колір — як часто клієнт бере. Рахується за документами (візитів у даних немає), історія з січня 2026. На карті ${data.coverage.mapped} з ${data.coverage.classified} клієнтів.`}
+          hint={`Колір — як часто клієнт бере. Рахується за документами (візитів у даних немає), історія з січня 2024. На карті ${data.coverage.mapped} з ${data.coverage.classified} клієнтів.`}
         />
 
         {/* Пошук клієнта: підказки з тих самих даних, що вже в пам'яті */}

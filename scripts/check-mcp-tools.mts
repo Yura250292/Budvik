@@ -77,7 +77,7 @@ try {
   const dj = JSON.parse(text(d));
   check(`усі ${VIEWS.length} видів`, dj.представлення?.length === VIEWS.length, dj.представлення?.length);
   const viewNames = (dj.представлення ?? []).map((v: { назва: string }) => v.назва);
-  const mustHave = ["meetings", "staff_tasks", "staff_messages", "product_prices", "market_prices", "price_proposals", "price_changes", "price_policies", "supplier_prices", "prospects", "season_profile", "site_daily"];
+  const mustHave = ["expenses", "meetings", "staff_tasks", "staff_messages", "product_prices", "market_prices", "price_proposals", "price_changes", "price_policies", "supplier_prices", "prospects", "season_profile", "site_daily"];
   check("нові види: наради, ціни, ринок, постачальники, база «Львів», сезон, сайт", mustHave.every((n) => viewNames.includes(n)), mustHave.filter((n) => !viewNames.includes(n)).join(",") || "усі");
   check("правила на місці", Array.isArray(dj.правила) && dj.правила.length > 0, dj.правила?.length);
   const dd = JSON.parse(text(await call("describe_data", { views: ["documents"] })));

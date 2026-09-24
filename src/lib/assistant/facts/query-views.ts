@@ -1426,6 +1426,37 @@ export const VIEWS: View[] = [
              sd."ordersPlaced" AS orders_placed, sd."phoneClicks" AS phone_clicks
       FROM "SiteDailyStat" sd`,
   },
+  {
+    name: "expenses",
+    purpose: "витрати фірми з 1С (регістр Затраты): стаття, вид, чия витрата, документ, сума — для прибутків і збитків",
+    columns: [
+      col("day", D, "дата документа"),
+      col("month", T, "місяць YYYY-MM"),
+      col("item", T, "стаття витрат 1С"),
+      col("item_group", T, "група статті в 1С"),
+      col("kind", T, "вид: SALARY, FUEL, RENT, TAX, UTILITIES, ADS, CLIENT_BONUS, GPS, DEPRECIATION, REPAIR, SECURITY, ACCOUNTING, COMMS, BANK, INVENTORY, OTHER"),
+      col("scope", T, "чия: COMPANY, OFFICE, WAREHOUSE, LOGISTICS, SALES, STORE, REP"),
+      col("rep", T, "торговий, якщо стаття його"),
+      col("store", T, "магазин, якщо стаття магазину"),
+      col("doc_type", T, "OTHER_COST — прочі затрати, ADVANCE_REPORT — авансовий звіт (зарплата, підзвіт)"),
+      col("person", T, "фізособа авансового звіту"),
+      col("department", T, "підрозділ 1С"),
+      col("comment", T, "коментар документа"),
+      col("amount", N, "сума, грн"),
+    ],
+    sql: `
+      SELECT ${KYIV_DAY('e."docDate"')} AS day, to_char(${kyivTsSql('e."docDate"')}, 'YYYY-MM') AS month,
+             ci.name AS item, ci."groupName" AS item_group, ci.kind, ci.scope,
+             u.name AS rep, ci."storeName" AS store, e."docType" AS doc_type,
+             e."personName" AS person, e.department, e.comment, e.amount
+      FROM "ExpenseEntry" e
+      JOIN "CostItem" ci ON ci.id = e."costItemId"
+      LEFT JOIN "User" u ON u.id = ci."repId"`,
+    examples: [
+      "SELECT month, kind, SUM(amount) AS amount FROM expenses WHERE day >= '2026-01-01' GROUP BY month, kind ORDER BY month, amount DESC LIMIT 200",
+      "SELECT rep, SUM(amount) AS amount FROM expenses WHERE scope = 'REP' AND day >= '2026-09-01' GROUP BY rep ORDER BY amount DESC LIMIT 20",
+    ],
+  },
 ];
 
 export const VIEW_BY_NAME = new Map(VIEWS.map((v) => [v.name, v]));

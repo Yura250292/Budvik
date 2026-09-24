@@ -24,6 +24,9 @@ import { buildCohortReport } from "@/lib/analytics/cohorts";
 import { siteTrafficFacts } from "@/lib/webstats/traffic";
 import { siteOrdersTool } from "@/lib/assistant/tools/admin";
 import { brandGapsReport, prospectsReport } from "@/lib/assistant/tools/growth-modes";
+import { loadPnl } from "@/lib/finance/pnl";
+import { COST_KIND_LABELS, COST_SCOPE_LABELS, type CostKind, type CostScope } from "@/lib/finance/cost-items";
+import { listStaff } from "@/lib/assistant/facts/staff";
 
 const PERIOD_PARAMS = {
   days: { type: "integer", description: "Скільки останніх днів. Без цього й без дат — календарний місяць із 1 числа." },
@@ -38,21 +41,23 @@ export const moneyFlowsTool: ToolDef = {
   label: "Дивлюся гроші фірми",
   kinds: ["ADMIN"],
   description:
-    "Гроші фірми за період. mode=flows: скільки відвантажили, скільки повернули, скільки зібрали грішми, скільки завезли товару, розрив між відвантаженим і зібраним, помісячна динаміка, аванси покупців. mode=purchases: закупівлі — скільки документів і на яку суму, по яких постачальниках, останні надходження. Викликай на «рух коштів», «скільки завезли», «аванси», «закупівлі», «постачальники», «чи більше збираємо ніж відвантажуємо».",
+    "Гроші фірми за період. mode=flows: скільки відвантажили, скільки повернули, скільки зібрали грішми, скільки завезли товару, розрив між відвантаженим і зібраним, помісячна динаміка, аванси покупців. mode=purchases: закупівлі — скільки документів і на яку суму, по яких постачальниках, останні надходження. mode=pnl: ПРИБУТКИ І ЗБИТКИ — виручка, вал, витрати з 1С по видах (зарплата, пальне, оренда, податки…) і власниках (офіс, склад, логістика, торговий відділ, магазини, торгові поіменно), результат і рентабельність по місяцях. Викликай на «рух коштів», «скільки завезли», «аванси», «закупівлі», «постачальники», «чи більше збираємо ніж відвантажуємо»; pnl — на «чи ми в плюсі», «прибуток», «витрати», «на що йдуть гроші», «рентабельність фірми», «скільки коштує торговий».",
   parameters: {
     type: "object",
     properties: {
       mode: {
         type: "string",
-        enum: ["flows", "purchases"],
-        description: "flows — рух коштів (за замовчуванням), purchases — закупівлі й постачальники.",
+        enum: ["flows", "purchases", "pnl"],
+        description: "flows — рух коштів (за замовчуванням), purchases — закупівлі й постачальники, pnl — прибутки й збитки з витратами.",
       },
       ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
     const period = periodFromArgs(ctx.today, args);
-    const mode = args.mode == null ? "flows" : enumOf(args.mode, "mode", ["flows", "purchases"] as const);
+    const mode = args.mode == null ? "flows" : enumOf(args.mode, "mode", ["flows", "purchases", "pnl"] as const);
+
+    if (mode === "pnl") return pnlReport(period);
 
     if (mode === "purchases") {
       const list = await listPurchaseOrders({
@@ -327,3 +332,43 @@ export const siteReportTool: ToolDef = {
 };
 
 /* Реєстрація — у tools/index.ts: порядок там і є порядком у схемі для моделі. */
+
+/**
+ * money_flows mode=pnl — прибутки і збитки за період по місяцях.
+ *
+ * Поки канал витрат з 1С не приїхав (hasExpenses = false), результату немає
+ * взагалі — «прибуток» без витрат був би просто валом під чужою назвою.
+ */
+async function pnlReport(period: ReturnType<typeof periodFromArgs>) {
+  const [p, staff] = await Promise.all([loadPnl(period.from, period.to), listStaff(["SALES", "DRIVER"])]);
+  const nameOf = new Map(staff.map((s) => [s.id, s.name]));
+  const kind = (k: string) => COST_KIND_LABELS[k as CostKind] ?? k;
+  const scope = (s: string) => COST_SCOPE_LABELS[s as CostScope] ?? s;
+  return {
+    період: periodFacts(period),
+    разом: {
+      виручка: uah(p.total.revenue),
+      вал: p.total.margin === null ? null : uah(p.total.margin),
+      собівартість_відома_відсотків: Math.floor(p.total.costedShare * 100),
+      витрати: uah(p.total.expenses),
+      результат: p.total.result === null ? null : uah(p.total.result),
+      рентабельність_від_виручки_відсотків: p.total.resultPct,
+    },
+    по_місяцях: p.months.map((m) => ({
+      місяць: m.month,
+      виручка: uah(m.revenue),
+      вал: m.margin === null ? null : uah(m.margin),
+      вал_частково_оцінено: m.marginEstimated || undefined,
+      витрати: uah(m.expenses),
+      результат: m.result === null ? null : uah(m.result),
+    })),
+    витрати_по_видах: p.byKind.map((k) => ({ вид: kind(k.kind), сума: uah(k.amount) })),
+    витрати_по_власниках: p.byScope.map((s) => ({ чиї: scope(s.scope), сума: uah(s.amount) })),
+    витрати_торгових_поіменно: p.byRep.map((r) => ({ хто: nameOf.get(r.repId) ?? "—", сума: uah(r.amount) })),
+    витрати_магазинів: p.byStore.map((s) => ({ магазин: s.storeName, сума: uah(s.amount) })),
+    не_розкладено: uah(p.unclassified),
+    примітка: p.hasExpenses
+      ? "Виручка — реалізації мінус повернення без своїх контрагентів; вал — сума мінус собівартість (частину без неї оцінено за відсотком відомої). Витрати — регістр 1С «Затраты» (прочі затрати й авансові звіти: зарплата, пальне, оренда, податки ФОП…), розкладені по видах і власниках на сайті. Банківські комісії й податки ТОВ ведуться в окремій бухгалтерській базі, до якої доступу немає, — їх тут немає. «Не розкладено» — статті, які треба віднести руками."
+      : "Витрат з 1С ще немає: канал «витрати» приходить лише нічним повним обміном після оновлення агента на сервері 1С. Поки видно лише виручку й вал — результату без витрат не рахуємо.",
+  };
+}

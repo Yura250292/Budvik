@@ -4797,3 +4797,57 @@ model CalendarEventLink {
   @@index([state, nextAttemptAt])
   @@index([userId, entity])
 }
+
+// ─── Витрати з 1С (регістр Затраты) ────────────────────────────────────────
+//
+// Канал `expense` (docs/1c-accounting-plan.md, етап 2): нічний знімок регістру
+// накопичення Затраты — його пишуть ПрочиеЗатраты і АвансовыйОтчет. У 1С
+// нічого не змінюється: розкладка статей по видах і власниках живе тут.
+
+/// Стаття витрат 1С і її розкладка на сайті (src/lib/finance/cost-items.ts).
+model CostItem {
+  id         String  @id @default(cuid())
+  externalId String  @unique
+  name       String
+  /// Група статті в 1С (Родитель): «Офіс», «Логістика», «DNIPRO M Щирецька»…
+  groupName  String?
+  /// Вид: SALARY | FUEL | RENT | TAX | UTILITIES | ADS | CLIENT_BONUS | GPS |
+  /// DEPRECIATION | REPAIR | SECURITY | ACCOUNTING | COMMS | BANK | OTHER
+  kind       String
+  /// Чия: COMPANY | OFFICE | WAREHOUSE | LOGISTICS | SALES | STORE | REP
+  scope      String
+  /// Торговий статті («Паливо Кулик») — без FK: зіставлення за прізвищем, може не знайтися.
+  repId      String?
+  /// Магазин («DNIPRO M Щирецька», «КУВАЛДА») для scope = STORE.
+  storeName  String?
+  /// Розкладено руками — класифікатор цю статтю більше не чіпає.
+  manualAt   DateTime?
+  syncedAt   DateTime @default(now())
+
+  entries ExpenseEntry[]
+
+  @@index([scope, kind])
+}
+
+/// Рядок витрат: один документ 1С × одна стаття.
+model ExpenseEntry {
+  id            String   @id @default(cuid())
+  /// `<документ>:<стаття>`
+  externalId    String   @unique
+  docExternalId String
+  /// OTHER_COST (ПрочиеЗатраты) | ADVANCE_REPORT (АвансовыйОтчет) | OTHER
+  docType       String
+  /// Дата документа — стінний київський час 1С, як SalesDocument.createdAt.
+  docDate       DateTime
+  costItemId    String
+  costItem      CostItem @relation(fields: [costItemId], references: [id], onDelete: Cascade)
+  amount        Float
+  department    String?
+  personName    String?
+  comment       String?
+  /// Коли рядок востаннє підтвердив знімок 1С — на ньому тримається звірка.
+  syncedAt      DateTime @default(now())
+
+  @@index([docDate])
+  @@index([costItemId, docDate])
+}

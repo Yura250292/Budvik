@@ -27,7 +27,8 @@ export type SyncEntityType =
   | "route_sheet"
   | "route_sheet_stop"
   | "debt"
-  | "payment";
+  | "payment"
+  | "expense";
 
 /**
  * Режим прогону.
@@ -322,6 +323,33 @@ export interface RouteSheetRecord {
  * Без розбивки видно тільки загальну дебіторку — протерміновану з одного
  * числа не вивести, бо в ньому немає дат.
  */
+/**
+ * Витрата з регістру 1С `Затраты`: один документ × одна стаття.
+ *
+ * Приходить лише в повному нічному прогоні, знімком вікна від
+ * `counts.expensesFrom`; рядки вікна, яких у знімку вже немає (документ
+ * розпровели), сервер видаляє на закритті прогону (reconcile-expenses.ts).
+ * Статтю агент несе всередині запису — окремого каналу довідника немає.
+ */
+export interface ExpenseRecord {
+  /** `<документ>:<стаття>` — ключ рядка. */
+  externalId: string;
+  docExternalId: string;
+  /** OTHER_COST — ПрочиеЗатраты, ADVANCE_REPORT — АвансовыйОтчет, OTHER — інше. */
+  docType: "OTHER_COST" | "ADVANCE_REPORT" | "OTHER";
+  /** Дата документа, як і в документах продажу: стінний київський час 1С. */
+  date: string;
+  costItemExternalId: string;
+  costItemName: string;
+  /** Група статті (Родитель): «Офіс», «Логістика», «DNIPRO M Щирецька»… */
+  costGroupName?: string;
+  department?: string;
+  /** Фізособа авансового звіту. */
+  personName?: string;
+  comment?: string;
+  amount: number;
+}
+
 export interface DebtRecord {
   /** externalId контрагента. */
   externalId: string;
@@ -396,7 +424,8 @@ export type SyncRecord =
   | DocumentRecord
   | RouteSheetRecord
   | DebtRecord
-  | PaymentRecord;
+  | PaymentRecord
+  | ExpenseRecord;
 
 /** Відповідність entityType → тип запису, для типобезпеки на боці агента. */
 export interface SyncRecordMap {
@@ -415,6 +444,7 @@ export interface SyncRecordMap {
   route_sheet_stop: RouteSheetStopArrival;
   debt: DebtRecord;
   payment: PaymentRecord;
+  expense: ExpenseRecord;
 }
 
 // ========== Запити й відповіді ==========
@@ -496,6 +526,10 @@ export interface CompleteRunRequest {
      * тижнями непомітно.
      */
     contactsFailed?: string;
+    /** Запит витрат упав (лише нічний прогін) — звірки витрат цього разу немає. */
+    expensesFailed?: string;
+    /** Початок вікна знімка витрат, YYYY-MM-DD: звіряється лише це вікно. */
+    expensesFrom?: string;
   };
 }
 

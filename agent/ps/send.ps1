@@ -160,6 +160,9 @@ $plan = @(
     @{ file = "purchase_doc.ndjson"; entity = "purchase_doc" },
     @{ file = "debt.ndjson";         entity = "debt"         },
     @{ file = "payment.ndjson";      entity = "payment"      },
+    # Expenses need nothing from the rest -- cost items travel inside each
+    # record -- and exist only in the nightly full run.
+    @{ file = "expense.ndjson";      entity = "expense"      },
     @{ file = "route_sheet.ndjson";  entity = "route_sheet"  },
     # Stops after their sheets, for the same reason counterparties precede
     # documents: a stop whose sheet is not there yet has nothing to attach to.

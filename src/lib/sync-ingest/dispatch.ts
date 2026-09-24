@@ -10,6 +10,7 @@ import type {
   CounterpartyContactsRecord,
   CounterpartyRecord,
   DebtRecord,
+  ExpenseRecord,
   PaymentRecord,
   DocumentRecord,
   PriceRecord,
@@ -30,6 +31,7 @@ import { applyCounterparties, applyDebts } from "./apply-counterparties";
 import { applyCounterpartyContacts } from "./apply-contacts";
 import { applySalesDocuments, applyPurchaseDocuments } from "./apply-documents";
 import { applyPayments } from "./apply-payments";
+import { applyExpenses } from "./apply-expenses";
 import { applyRouteSheets } from "./apply-route-sheets";
 import { applyRouteSheetStops } from "./apply-route-sheet-stops";
 import { unresolvedRefs, zeroStock } from "./stale";
@@ -158,6 +160,9 @@ export async function dispatchBatch(
       break;
     case "payment":
       await applyPayments(batch.records as PaymentRecord[], ctx);
+      break;
+    case "expense":
+      await applyExpenses(batch.records as ExpenseRecord[], ctx);
       break;
     default: {
       // Вичерпність switch перевіряється компілятором.

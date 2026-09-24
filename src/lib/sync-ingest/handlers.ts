@@ -24,6 +24,7 @@ import {
 import { dispatchBatch, detectMissing } from "./dispatch";
 import { agentHealth } from "./health-facts";
 import { reconcileDebts } from "./reconcile-debts";
+import { reconcileExpenses } from "./reconcile-expenses";
 import { reconcilePrices } from "./reconcile-prices";
 import { reconcilePayments } from "./reconcile-payments";
 import { reconcileStock } from "./reconcile-stock";
@@ -345,6 +346,17 @@ export async function handleCompleteRun(
     }
   }
 
+  // Витрати звіряються окремо від боргів: у них свій знімок (лише нічний)
+  // і своя ознака збою — впалий запит боргу не має блокувати звірку витрат.
+  if (status !== "failed" && job.type === "agent-full") {
+    try {
+      const removed = await reconcileExpenses(new ApplyContext(job.id, runId, "full"), body.counts);
+      if (removed > 0) console.log(`sync-ingest: звірка витрат — прибрано ${removed} рядків розпроведених документів`);
+    } catch (e) {
+      console.error("sync-ingest: звірка витрат не вдалася", e);
+    }
+  }
+
   // --- Сповіщення ---
   // Пропущені best-effort запити перевіряємо незалежно від статусу: прогін,
   // у якому впав лише запит боргу чи оплат, вважається успішним, і саме тому
@@ -357,6 +369,10 @@ export async function handleCompleteRun(
   }
   if (body.counts?.receiptsFailed) {
     await alertQueryFailed(runId, "надходження товару", String(body.counts.receiptsFailed));
+  }
+  if (body.counts?.expensesFailed) {
+    // Лише нічний знімок: наступна ніч перечитає все вікно.
+    await alertSnapshotQueryFailed(runId, "expenses", "витрати за статтями", String(body.counts.expensesFailed));
   }
   if (body.counts?.contactsFailed) {
     // Повний зріз: наступний прогін перечитає все, тож інший текст і пауза між нагадуваннями.

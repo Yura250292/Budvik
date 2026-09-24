@@ -263,6 +263,12 @@ if ($config.scope.documents) {
                          "return_doc.ndjson", "purchase_doc.ndjson", "debt.ndjson", "payment.ndjson",
                          "route_sheet.ndjson", "route_sheet_stop.ndjson")
 
+    # Expenses are WRITTEN only by the nightly full run, but removed on every
+    # documents run -- same as contacts below. The sender ships whatever is on
+    # disk, so a file left over from last night would be sent again every five
+    # minutes.
+    $filesThisScope += @("expense.ndjson")
+
     # Contacts are REWRITTEN only on hourly/full runs, yet removed on every
     # documents run -- deliberately unlike the catalog files above. Nothing
     # reads this file between cycles (send.ps1 ships it in the same cycle that
@@ -1586,6 +1592,98 @@ try {
             }
             $stats.paymentsFailed = $_.Exception.Message
             Log ("payments: SKIPPED -- " + $_.Exception.Message)
+        }
+
+        # --- expenses by cost item (accumulation register Zatraty) ---
+        #
+        # 8.06M UAH a year across 335 cost items, written by ProchieZatraty and
+        # by advance reports (salaries and petty cash) -- probe-costs.ps1,
+        # 05.09.2026. The register, not the documents: both documents write
+        # into it, and it is the one stable shape.
+        #
+        # FULL RUN ONLY, as one snapshot of the whole window (expenses.from,
+        # default 2024-01-01; earlier years are half-empty in this base). About
+        # 13k rows -- nothing for the night, pointless every five minutes. The
+        # server deletes rows of this window that the snapshot no longer has,
+        # which is how an un-posted document disappears from the site.
+        #
+        # Best-effort like debt and payments. The person and comment columns
+        # reach through the composite Registrator and were never probed, so a
+        # failure of the full query retries once without them.
+        if ($Scope -eq "full") {
+            Log "reading expenses..."
+            try {
+                $bf = "2024-01-01"
+                if ($config.expenses -and $config.expenses.from) { $bf = [string]$config.expenses.from }
+                $expensesFrom = ParseDay $bf
+                Log ("reading expenses since {0:yyyy-MM-dd}..." -f $expensesFrom)
+
+                $rich = $true
+                $rs = $null
+                try {
+                    $q = $ib.NewObject("Query")
+                    $q.Text = [string]$queries.expensesSince
+                    $q.SetParameter([string]$queries.paramFrom, $expensesFrom)
+                    $rs = $q.Execute()
+                    if ($null -eq $rs) { throw "Execute() returned null on expenses query" }
+                }
+                catch {
+                    if (IsConnectionLost $_) { throw }
+                    Log ("expenses: full query failed (" + $_.Exception.Message + "), retrying without person/comment")
+                    $rich = $false
+                    $q = $ib.NewObject("Query")
+                    $q.Text = [string]$queries.expensesSinceMinimal
+                    $q.SetParameter([string]$queries.paramFrom, $expensesFrom)
+                    $rs = $q.Execute()
+                    if ($null -eq $rs) { throw "Execute() returned null on minimal expenses query" }
+                }
+
+                $w = NewWriter (Join-Path $OutDir "expense.ndjson")
+                $n = 0
+                $r = $rs.Choose()
+                while ($r.Next()) {
+                    $doc  = RefId $ib $r.Get(0)
+                    $item = RefId $ib $r.Get(1)
+                    if (-not $doc -or -not $item) { continue }
+                    $tp = [int](Num $r.Get(7))
+                    $rec = [ordered]@{
+                        externalId         = ($doc + ":" + $item)
+                        docExternalId      = $doc
+                        docType            = $(if ($tp -eq 1) { "OTHER_COST" } elseif ($tp -eq 2) { "ADVANCE_REPORT" } else { "OTHER" })
+                        date               = IsoDate $r.Get(2)
+                        costItemExternalId = $item
+                        costItemName       = Str $r.Get(3)
+                        amount             = Num $r.Get(6)
+                    }
+                    $grp = Str $r.Get(4)
+                    if ($grp) { $rec.costGroupName = $grp }
+                    $dep = Str $r.Get(5)
+                    if ($dep) { $rec.department = $dep }
+                    if ($rich) {
+                        try { $fl = Str $r.Get(8); if ($fl) { $rec.personName = $fl } } catch { }
+                        try { $km = Str $r.Get(9); if ($km) { $rec.comment = $km } } catch { }
+                    }
+                    WriteRecord $w $rec
+                    $n++
+                }
+                $w.Close()
+                $stats.expenses = $n
+                # The server reconciles only this window: a document dated
+                # before it is not "gone", it was simply not asked for.
+                $stats.expensesFrom = $expensesFrom.ToString("yyyy-MM-dd")
+                if (-not $rich) { $stats.expensesMinimal = $true }
+                Log "expenses: $n"
+            }
+            catch {
+                if ($w) { try { $w.Close() } catch { } }
+                Remove-Item (Join-Path $OutDir "expense.ndjson") -Force -EA 0
+                if (IsConnectionLost $_) {
+                    Log ("expenses: connection lost -- aborting attempt")
+                    throw
+                }
+                $stats.expensesFailed = $_.Exception.Message
+                Log ("expenses: SKIPPED -- " + $_.Exception.Message)
+            }
         }
 
         # --- route sheets: headers only, for payroll cross-checks ---

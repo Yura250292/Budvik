@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, EmptyState } from "@/components/ui/Card";
 import { ErrorBox } from "@/components/ui/ErrorBox";
-import { FeedRow, groupByDay, useFeedPages, type FeedRowData } from "@/components/feed/FeedList";
-import { ADMIN_FEED_SEEN_EVENT, FEED_FILTERS, REP_FEED_TYPES } from "@/lib/rep-feed/types";
+import { FeedRow, groupByDay, useFeedPages } from "@/components/feed/FeedList";
+import { ADMIN_FEED_SEEN_EVENT, FEED_FILTERS } from "@/lib/rep-feed/types";
 import AdminFeedPushPrefs from "./AdminFeedPushPrefs";
+import { adminNotificationHref } from "@/lib/notifications/href";
 
 /**
  * Стрічка подій усієї команди — те саме, що торгові бачать у себе, але
@@ -24,29 +25,6 @@ import AdminFeedPushPrefs from "./AdminFeedPushPrefs";
  */
 
 type Rep = { id: string; name: string };
-
-function adminHref(row: FeedRowData, isAdmin: boolean): string | null {
-  if (!row.relatedId) return null;
-  if (row.type === REP_FEED_TYPES.REQUEST_DONE) return "/admin/requests";
-  if (row.type === REP_FEED_TYPES.TASK || row.type === REP_FEED_TYPES.TASK_DONE) return "/admin/tasks";
-  // Наради бачить лише ADMIN (MEETING_ROLES).
-  if (row.type === REP_FEED_TYPES.MEETING) return isAdmin ? `/admin/meetings/${row.relatedId}` : null;
-  if (row.type === REP_FEED_TYPES.PAYMENT || row.type === REP_FEED_TYPES.VISIT) {
-    return isAdmin ? `/sales/clients/${row.relatedId}` : null;
-  }
-  // Список дзвінків і сторінка приходу рахуються для конкретного торгового —
-  // керівник відкрив би їх для себе й побачив порожнечу.
-  if (
-    row.type === REP_FEED_TYPES.CALL_LIST ||
-    row.type === REP_FEED_TYPES.ARRIVAL ||
-    row.type === REP_FEED_TYPES.WATCH ||
-    row.type === REP_FEED_TYPES.PRICE_UP ||
-    row.type === REP_FEED_TYPES.WEEK
-  ) {
-    return null;
-  }
-  return `/admin/erp/sales/${row.relatedId}`;
-}
 
 const CHIP = (active: boolean) =>
   `cursor-pointer whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
@@ -132,7 +110,7 @@ export default function AdminFeedScreen() {
               <li key={row.id}>
                 <FeedRow
                   row={{ ...row, isRead: !isNew(row.createdAt) }}
-                  href={adminHref(row, isAdmin)}
+                  href={adminNotificationHref(row, isAdmin)}
                   rep={row.rep?.name ?? null}
                 />
               </li>

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { adminNotificationHref } from "@/lib/notifications/href";
 
 type Notification = {
   id: string;
@@ -17,18 +19,14 @@ type Notification = {
 /** Опитуємо сервер раз на хвилину: сповіщення не гарячі, а вкладок адмінки може бути багато. */
 const POLL_MS = 60_000;
 
-function hrefFor(n: Notification) {
-  // Переданий маршрут веде водія одразу в карту дня, а не в документ:
-  // relatedId тут — id маршруту, і в /admin/erp/sales його нема чого шукати.
-  if (n.type === "ROUTE_ASSIGNED") return "/driver/tablet";
-  if (!n.relatedId) return "/admin";
-  // Замовлення з сайту — це Order, а не SalesDocument. Без цієї гілки
-  // сповіщення відкривало ERP-картку продажу, яка про роздріб не знає нічого:
-  // порожній покупець і «Немає товарів».
-  if (n.type === "NEW_ORDER" || n.type === "ORDER_STATUS") return `/admin/orders/${n.relatedId}`;
-  // Решта типів (WHOLESALE_ORDER_REQUEST, SALES_DOC_CONFIRMED) кладуть у
-  // relatedId id документа продажу.
-  return `/admin/erp/sales/${n.relatedId}`;
+/**
+ * Куди веде рядок. Розводка спільна зі стрічкою /admin/feed
+ * (src/lib/notifications/href.ts): раніше тут була своя, і задача чи оплата
+ * відкривали порожню картку продажу. Переходу немає — рядки стрічки ведуть у
+ * саму стрічку, решта на головну адмінки, як і було.
+ */
+function hrefFor(n: Notification, isAdmin: boolean): string {
+  return adminNotificationHref(n, isAdmin) ?? (n.type.startsWith("REP_") ? "/admin/feed" : "/admin");
 }
 
 /**
@@ -38,6 +36,8 @@ function hrefFor(n: Notification) {
  */
 export default function NotificationsBell() {
   const pathname = usePathname() ?? "/admin";
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "ADMIN";
   const [items, setItems] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -151,7 +151,7 @@ export default function NotificationsBell() {
               items.map((n) => (
                 <Link
                   key={n.id}
-                  href={hrefFor(n)}
+                  href={hrefFor(n, isAdmin)}
                   role="menuitem"
                   onClick={() => {
                     setOpen(false);

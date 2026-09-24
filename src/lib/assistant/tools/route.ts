@@ -25,11 +25,25 @@
  * не id) і перекладаємо відповідь людською мовою. Інструмент нічого не
  * пише: чернетки маршрутів створює людина натиском на екрані, а тут —
  * лише план і посилання туди.
+ *
+ * mode="pins" — перевірка точок клієнтів на карті через інтернет
+ * (facts/pin-check.ts): чи стоїть точка там, куди веде адреса, що насправді
+ * лежить у місці точки, і чи клієнт узагалі на Львівщині, а не «лише
+ * доставка». Режимом тут, а не окремим інструментом, з тієї ж причини
+ * стелі; і за змістом це перевірка перед маршрутом. Теж нічого не пише —
+ * пересуває точку людина на екрані уточнення.
+ *
+ * І в stops кожна точка-клієнт тепер несе, наскільки їй вірити (вид
+ * client_geo): 24.09.2026 з'ясувалось, що третина точок Львівщини —
+ * купки, куди геокодер злив різні адреси, а клієнти «Торпедо» стояли під
+ * Запоріжжям. Маршрут через таку точку виглядає правдоподібно й веде не туди.
  */
 
-import type { ToolDef } from "@/lib/assistant/types";
+import type { ToolContext, ToolDef } from "@/lib/assistant/types";
 import { day as validDay, enumOf, str, ToolArgError } from "@/lib/assistant/validate";
 import { resolveRouteStops, type RouteStop } from "@/lib/assistant/facts/route-build";
+import { findClients, pickOneClient } from "@/lib/assistant/facts/client-search";
+import { checkClientPin, clientGeoRows, mapUrl, PIN_CHECK_MAX, type ClientGeoRow } from "@/lib/assistant/facts/pin-check";
 import { accuracyLabel, HERE_MAX_ACCURACY_M } from "@/lib/assistant/here";
 import { orderStops, type RouteLeg } from "@/lib/assistant/facts/day-plan";
 import { WEEKDAY_ACCUSATIVE } from "@/lib/assistant/facts/route-habits";
@@ -117,19 +131,133 @@ async function singleLeg(
   }
 }
 
+/** Звідки точка — людською мовою. */
+const PIN_SOURCE_LABEL: Record<string, string> = {
+  MANUAL: "поставила людина на місці",
+  GEOCODED: "геокодер за адресою",
+  CITY: "лише населений пункт",
+  FAILED: "адресу не розпізнано",
+  NONE: "точки немає",
+  UNKNOWN: "невідомо звідки",
+};
+
+/** Що сказати про точку клієнта в маршруті: звідки вона і чи їй вірити. */
+function pinNote(g: ClientGeoRow | undefined): { точка: string; увага?: string } | null {
+  if (!g) return null;
+  const warn = [
+    g.suspect_reason ? `точка підозріла: ${g.suspect_reason}` : null,
+    g.shipping_only ? "клієнт поза Львівщиною — туди лише доставка, торговий не їде" : null,
+  ].filter(Boolean);
+  return { точка: PIN_SOURCE_LABEL[g.pin_source] ?? g.pin_source, ...(warn.length ? { увага: warn.join("; ") } : {}) };
+}
+
+/** Клієнти для перевірки точок: ідентифікатор як є, назва — через пошук. */
+async function clientIdsForPins(raw: unknown, repId: string) {
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[;\n]/) : null;
+  if (!list) throw new ToolArgError("Для mode=pins поле «clients» має бути списком клієнтів (назви або ідентифікатори)");
+  const names = list
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean)
+    .map((v, i) => str(v, `clients[${i + 1}]`, { min: NAME_MIN, max: NAME_MAX }));
+  if (names.length === 0) throw new ToolArgError("Назвіть хоча б одного клієнта для перевірки точки");
+  if (names.length > PIN_CHECK_MAX) {
+    throw new ToolArgError(`За раз перевіряю не більше ${PIN_CHECK_MAX} точок (кожна — запити в інтернет), а прийшло ${names.length}`);
+  }
+  const ids: string[] = [];
+  const unclear: Array<{ ви_назвали: string; варіанти?: string[] }> = [];
+  for (const name of names) {
+    if (/^c[a-z0-9]{20,30}$/i.test(name)) {
+      ids.push(name);
+      continue;
+    }
+    const hits = await findClients(name, repId, { limit: 4 });
+    const hit = pickOneClient(hits);
+    if (hit) ids.push(hit.id);
+    else unclear.push({ ви_назвали: name, ...(hits.length ? { варіанти: hits.map((h) => h.name) } : {}) });
+  }
+  return { ids, unclear };
+}
+
+const VERDICT_LABEL: Record<string, string> = {
+  OK: "✅ точка правильна",
+  NEAR: "🟡 поруч з адресою",
+  MOVE: "🔴 стоїть не там",
+  HUMAN_DIFFERS: "🟡 ставила людина, адреса каже інше",
+  CITY_ONLY: "🟡 адреса лише до населеного пункту",
+  NOT_FOUND: "⚪ адресу в інтернеті не знайдено",
+  NO_PIN: "⚪ точки немає",
+  NO_ADDRESS: "⚪ адреси немає",
+};
+
+async function pinsMode(ctx: ToolContext, args: Record<string, unknown>) {
+  const { ids, unclear } = await clientIdsForPins(args.clients, ctx.scope.repId);
+  const geo = await clientGeoRows(ids);
+  const checks = [];
+  for (const id of ids) {
+    const row = geo.get(id);
+    if (!row) continue;
+    // Послідовно, не Promise.all: Nominatim пускає запит раз на ~1,1 с.
+    checks.push(await checkClientPin(row));
+  }
+  return {
+    перевірено: checks.map(({ row, atPin, found, verdict }) => ({
+      клієнт: row.name,
+      клієнт_id: row.client_id,
+      адреса: row.address,
+      висновок: VERDICT_LABEL[verdict.code] ?? verdict.code,
+      пояснення: verdict.text,
+      відстань_точка_адреса_км: verdict.km,
+      точка:
+        row.lat !== null && row.lng !== null
+          ? {
+              звідки: PIN_SOURCE_LABEL[row.pin_source] ?? row.pin_source,
+              хто_ставив: row.pinned_by ?? undefined,
+              коли: row.pinned_day ?? undefined,
+              що_там_за_картою: atPin ?? "OpenStreetMap нічого не назвав",
+              регіон: row.region === "LVIV" ? "Львівщина" : "поза Львівщиною",
+              підозра: row.suspect_reason ?? undefined,
+              google: mapUrl(row.lat, row.lng),
+            }
+          : null,
+      адреса_за_картою: found
+        ? {
+            знайдено: found.displayName,
+            точність: found.precision === "ADDRESS" ? "будинок / обʼєкт" : found.precision === "STREET" ? "лише вулиця" : "лише населений пункт",
+            регіон: found.region === "LVIV" ? "Львівщина" : "поза Львівщиною",
+            google: mapUrl(found.lat, found.lng),
+          }
+        : null,
+      лише_доставка: row.shipping_only ?? undefined,
+      відділення_перевізника: row.np_branch || undefined,
+      уточнити_точку: `/sales/clients/${row.client_id}/pin`,
+    })),
+    не_впізнав: unclear.length ? unclear : undefined,
+    примітка:
+      "Перевірка — через OpenStreetMap (Nominatim): він знає не кожен магазин і ринковий ряд, тому «адресу не знайдено» не означає, що адреса хибна. " +
+      "Точку сам інструмент не рухає — пересуває людина за посиланням «уточнити_точку» (краще на місці, кнопкою «Я зараз тут»).",
+  };
+}
+
 export const buildRouteTool: ToolDef = {
   name: "build_route",
   label: "Будую маршрут",
   kinds: ["ADMIN"],
   description:
-    "Два режими. mode=\"stops\" (за замовчуванням): порядок обʼїзду за названими точками — клієнти з бази, адреси текстом, слово «склад»; повертає порядок, кілометри й хвилини від OSRM і посилання Google Maps. mode=\"day_plan\": СКЛАДАЄ МАРШРУТИ ВОДІЯМ НА ДЕНЬ — сам бере непривезені реалізації, ділить їх між водіями за історією доставок, шикує порядок, рахує гроші кожного рейсу (вал, пальне за нормою машини з дорогою назад, оплата водію, скільки лишається фірмі), дає посилання Google Maps і каже, що відкласти. Викликай day_plan на «склади маршрути на завтра», «розкинь доставку по водіях», «кому що везти завтра», «чи окупиться рейс»; stops — на «як обʼїхати …», «маршрут по Стрию: …».",
+    "Два режими. mode=\"stops\" (за замовчуванням): порядок обʼїзду за названими точками — клієнти з бази, адреси текстом, слово «склад»; повертає порядок, кілометри й хвилини від OSRM і посилання Google Maps. mode=\"day_plan\": СКЛАДАЄ МАРШРУТИ ВОДІЯМ НА ДЕНЬ — сам бере непривезені реалізації, ділить їх між водіями за історією доставок, шикує порядок, рахує гроші кожного рейсу (вал, пальне за нормою машини з дорогою назад, оплата водію, скільки лишається фірмі), дає посилання Google Maps і каже, що відкласти. Викликай day_plan на «склади маршрути на завтра», «розкинь доставку по водіях», «кому що везти завтра», «чи окупиться рейс»; stops — на «як обʼїхати …», «маршрут по Стрию: …». mode=\"pins\": ПЕРЕВІРИТИ ТОЧКУ КЛІЄНТА на карті через інтернет (OpenStreetMap) — чи стоїть вона там, куди веде адреса, що насправді в місці точки, Львівщина чи лише доставка; до 3 клієнтів за раз; на «чи правильна точка», «перевір адресу», «чому маршрут веде не туди». Масово (усі підозрілі точки торгового) — спершу query_db по виду client_geo.",
   parameters: {
     type: "object",
     properties: {
       mode: {
         type: "string",
-        enum: ["stops", "day_plan"],
-        description: "stops — порядок за названими точками; day_plan — план доставки на день. Без поля — stops.",
+        enum: ["stops", "day_plan", "pins"],
+        description: "stops — порядок за названими точками; day_plan — план доставки на день; pins — перевірка точок клієнтів. Без поля — stops.",
+      },
+      clients: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        maxItems: PIN_CHECK_MAX,
+        description: "Тільки для mode=pins. Клієнти, чиї точки перевірити: назви або клієнт_id. До 3.",
       },
       stops: {
         type: "array",
@@ -155,7 +283,9 @@ export const buildRouteTool: ToolDef = {
     required: [],
   },
   async run(ctx, args) {
-    const mode = enumOf(args.mode, "mode", ["stops", "day_plan"] as const, "stops");
+    const mode = enumOf(args.mode, "mode", ["stops", "day_plan", "pins"] as const, "stops");
+
+    if (mode === "pins") return pinsMode(ctx, args);
 
     if (mode === "day_plan") {
       const date = validDay(args.date, "date", kyivDate(new Date(Date.now() + 86_400_000)));
@@ -404,6 +534,14 @@ export const buildRouteTool: ToolDef = {
       { lat: start.lat, lng: start.lng }
     );
 
+    const geo = await clientGeoRows(order.flatMap((s) => (s.id ? [s.id] : []))).catch(() => new Map<string, ClientGeoRow>());
+    const risky = order.filter((s) => s.id && (geo.get(s.id)?.suspect || geo.get(s.id)?.shipping_only));
+    if (risky.length) {
+      notes.push(
+        `Точкам ${risky.map((s) => `«${s.name}»`).join(", ")} вірити не можна або туди лише доставка (поле «увага») — скажи про це людині; перевірити точку — build_route mode=pins.`
+      );
+    }
+
     notes.push(
       source === "osrm"
         ? `Порядок і кілометри — OSRM, від «${start.name}».`
@@ -419,6 +557,7 @@ export const buildRouteTool: ToolDef = {
         клієнт_id: s.id,
         km_від_попередньої: legs?.[i]?.km ?? null,
         хв_від_попередньої: legs?.[i]?.min ?? null,
+        ...(s.id ? pinNote(geo.get(s.id)) : null),
       })),
       км: km,
       хвилин: minutes,

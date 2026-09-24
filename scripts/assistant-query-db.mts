@@ -135,7 +135,9 @@ await check("1. describe [] → список, правила, приклади",
   assert(Array.isArray(res["правила"]) && (res["правила"] as unknown[]).length === 5, "правил має бути 5");
   assert(Array.isArray(res["приклади"]) && (res["приклади"] as unknown[]).length === 3, "прикладів має бути 3");
   const size = compact(res).length;
-  assert(size < 6000, `describe [] завеликий: ${size}`);
+  // 6000 → 6200 24.09.2026: 43 види (+ точки клієнтів client_geo). Список
+  // іде в кожен describe [], тож межа лишається — росте лише свідомо.
+  assert(size < 6200, `describe [] завеликий: ${size}`);
   return `${list.length} видів, ${size} символів`;
 });
 

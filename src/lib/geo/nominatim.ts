@@ -519,3 +519,96 @@ export async function geocodeAddresses(
   }
   return results;
 }
+
+/**
+ * Наскільки точно Nominatim знайшов адресу — за його `addresstype`.
+ *
+ * ADDRESS — будинок чи об'єкт (магазин, ринок, заклад); STREET — лише
+ * вулиця, будинок не впізнано; CITY — лише населений пункт чи ширше.
+ * Невідомий тип вважаємо вулицею: ні «точно», ні «лише місто» про нього
+ * чесно не скажеш.
+ */
+export type AddressPrecision = "ADDRESS" | "STREET" | "CITY";
+
+const CITY_TYPES = new Set([
+  "city", "town", "village", "hamlet", "isolated_dwelling", "suburb", "quarter", "neighbourhood",
+  "municipality", "borough", "city_district", "district", "county", "state", "region", "country", "locality",
+]);
+const STREET_TYPES = new Set(["road", "street", "square", "postcode"]);
+
+export function precisionOf(addresstype: string | null | undefined): AddressPrecision {
+  const t = (addresstype ?? "").toLowerCase();
+  if (CITY_TYPES.has(t)) return "CITY";
+  if (STREET_TYPES.has(t) || !t) return "STREET";
+  if (/^(house|building|shop|amenity|office|craft|tourism|leisure|man_made|industrial|commercial|retail|place|highway|railway|landuse|historic)$/.test(t)) {
+    return "ADDRESS";
+  }
+  return "STREET";
+}
+
+/**
+ * Запити для ПЕРЕВІРКИ адреси: від повної до самого населеного пункту.
+ *
+ * Навмисно без хвоста стратегій geocodeAddress — там є пошук без країни і
+ * підстановка «Вінниця/Київ/Хмельницький» до коротких адрес, і саме так
+ * клієнти ринку «Торпедо» у Львові опинилися під Запоріжжям. Перевірка має
+ * або знайти адресу в Україні, або чесно сказати «не знайшов».
+ *
+ * Префікс Нової пошти («НОВА ПОШТА №15,», «Пункт приймання-видачі»,
+ * «Поштомат 5212») прибираємо: Nominatim шукає вулицю, а не відділення.
+ */
+export function addressLookupQueries(address: string): string[] {
+  const cleaned = address
+    .replace(/¶/g, " ")
+    .replace(/(нова\s*пошта|nova\s*poshta)\s*(№\s*\d+)?/giu, " ")
+    .replace(/пункт\s+приймання\s*-?\s*видач[іи]/giu, " ")
+    .replace(/(поштомат|відділення)\s*№?\s*\d*/giu, " ")
+    .replace(/\(до\s+\d+\s*кг[^)]*\)/giu, " ")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/(,\s*)+/g, ", ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,.;:]+|[\s,.;:]+$/g, "")
+    .trim();
+  if (!cleaned) return [];
+
+  const out: string[] = [];
+  for (const q of [cleaned, dropHouseNumber(cleaned), settlementOnly(cleaned)]) {
+    const t = q.trim();
+    if (t.length >= 3 && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Одна знахідка на адресу з позначкою точності — для перевірки точки клієнта.
+ *
+ * Лише Україна, з перевагою Львівщини (viewbox без bounded: область лише
+ * підказка, клієнт у Тернополі теж знайдеться). Перший запит, що дав
+ * результат, і є відповідь: «вулицю знайшли, будинок ні» — теж знання.
+ */
+export async function lookupAddress(
+  address: string
+): Promise<{ lat: number; lng: number; displayName: string; precision: AddressPrecision; query: string } | null> {
+  for (const query of addressLookupQueries(address)) {
+    await waitForRateLimit();
+    const params = new URLSearchParams({
+      q: query,
+      format: "jsonv2",
+      limit: "1",
+      "accept-language": "uk",
+      countrycodes: "ua",
+      viewbox: "22.6,50.7,25.5,48.7",
+      bounded: "0",
+    });
+    const res = await fetch(`${NOMINATIM_URL}/search?${params}`, { headers: { "User-Agent": USER_AGENT } });
+    if (!res.ok) continue;
+    const data = await res.json();
+    const hit = Array.isArray(data) ? data[0] : null;
+    if (!hit) continue;
+    const lat = parseFloat(hit.lat);
+    const lng = parseFloat(hit.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    return { lat, lng, displayName: String(hit.display_name ?? ""), precision: precisionOf(hit.addresstype), query };
+  }
+  return null;
+}

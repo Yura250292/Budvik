@@ -38,9 +38,9 @@ ChatGPT — Python).
 
 | Інструмент | Що дає |
 | --- | --- |
-| `describe_data` | 41 представлення бази (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, інтернет-замовлення, ціни 1С/сайту/ринку, пропозиції агента цін, ціни постачальників, наради, задачі, чат персоналу, потенційні клієнти, сезонність, сайт по днях…) і правила SQL |
+| `describe_data` | 43 представлення бази (точки клієнтів з надійністю й «лише доставка», продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, інтернет-замовлення, ціни 1С/сайту/ринку, пропозиції агента цін, ціни постачальників, наради, задачі, чат персоналу, потенційні клієнти, сезонність, сайт по днях…) і правила SQL |
 | `query_db` | довільний `SELECT` над цими представленнями, до 500 рядків; відповідь — `columns` + `rows` масивами |
-| 18 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search`, `build_route` (план доставки на день з грошима рейсу й посиланнями Google Maps — нічого не пише), `meetings` (наради: рішення, теми, ризики, задачі команді, пошук у транскриптах) |
+| 18 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search`, `build_route` (план доставки на день з грошима рейсу й посиланнями Google Maps; `mode=pins` — перевірка точки клієнта через OpenStreetMap; нічого не пише), `meetings` (наради: рішення, теми, ризики, задачі команді, пошук у транскриптах) |
 
 Зведення — явним списком у `src/lib/mcp/tools.ts`, а не «все, що бачить
 керівник»: новий пишучий інструмент помічника назовні сам не потрапить.
@@ -48,7 +48,8 @@ ChatGPT — Python).
 робить повними (`absolutizeLinks`): у claude.ai чи ChatGPT шлях нікуди не веде.
 
 Логістика: «склади маршрути на завтра» — `build_route mode=day_plan`, поїздки
-торгових — `shifts_report` (`mode=days` — по днях). Подробиці —
+торгових — `shifts_report` (`mode=days` — по днях), точки клієнтів — вид
+`client_geo` і `build_route mode=pins`. Подробиці —
 [assistant.md](assistant.md#логістика-гроші-рейсу-й-поїздки-торгових). Сервісу
 потрібна змінна `OSRM_URL` (та сама, що на Vercel): без неї маршрути рахує
 публічний демо-OSRM, який лімітує й падає.

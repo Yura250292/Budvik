@@ -225,6 +225,44 @@ npx tsx scripts/check-rep-trips.mts                        # розбір дня
 npx tsx --env-file=.env scripts/check-rep-trips.mts db     # + звірка з shifts_report і revenueByRep
 ```
 
+## Точки клієнтів: чи вірити, Львівщина чи доставка
+
+24.09.2026 з'ясувалось, що помічник бачив лише широту й довготу клієнта, і для
+нього всі 3 089 точок були однаково точними. Насправді: 849 клієнтів злиплися
+купками (3+ різні адреси на одній точці — геокодер поставив у центр міста або
+навмання), клієнти ринку «Торпедо» у Львові стояли під Запоріжжям, Нова пошта
+Білої Церкви — у Львові; 1 561 точка поза Львівщиною — здебільшого відділення
+перевізника.
+
+- **Вид `client_geo`** (`src/lib/assistant/facts/client-geo.ts`): `pin_source`
+  (MANUAL — людина на місці / GEOCODED / CITY — лише населений пункт / FAILED /
+  NONE), хто й коли поставив, `region` LVIV/OUTSIDE — за справжнім кордоном
+  області (`src/lib/geo/lviv-oblast.ts`, OSM 72380, вбудований `polygon @> point`
+  Postgres без PostGIS; прямокутник не годиться — у нього потрапляють Калуш і
+  Воловець), `shipping_only`, `np_branch`, `heap`, `suspect` + `suspect_reason`,
+  `km_from_depot`, `x_km`/`y_km` (відстань між клієнтами простою формулою,
+  ±3 %), `map_url`. Людські точки (MANUAL) підозрілими не бувають.
+- **«Лише доставка»** вирішує текст адреси, коли точка йому суперечить: хибна
+  точка трапляється частіше за хибну адресу. Регулярки міст і областей — одні
+  для Postgres і JS; Миколаєва в списку «інших міст» немає — він є і на
+  Львівщині (Стрийський район).
+- **`build_route mode=pins`** (`facts/pin-check.ts`) — перевірка точки через
+  OpenStreetMap: що лежить у місці точки (reverse) і де адреса з картки
+  (`lookupAddress`: лише Україна, без глобального пошуку й підстановки чужих міст
+  з `geocodeAddress`, через які «Торпедо» і злетів під Запоріжжя). Висновок
+  `pinVerdict`: правильна / поруч / не там / ставила людина (їй вірити) / лише
+  до населеного пункту / не знайдено. До 3 клієнтів за виклик (Nominatim ~1 запит
+  на секунду, ≈5 с на клієнта). Точку не рухає — посилання на
+  `/sales/clients/{id}/pin`.
+- **`build_route` stops** — у кожної точки-клієнта `точка` (звідки) і `увага`
+  (підозріла або лише доставка), плюс примітка перевірити.
+
+```bash
+npx tsx scripts/check-client-geo.mts            # кордон, регулярки, висновок — без бази
+npx tsx scripts/check-client-geo.mts --db       # + вид на базі, збіг Postgres і JS (лише SELECT)
+npx tsx scripts/check-client-geo.mts --net      # + живий mode=pins і stops (база + OpenStreetMap)
+```
+
 ## Наради й повне читання даних
 
 **`meetings`** (`src/lib/assistant/tools/meetings.ts`) — щоб помічник і конектор
@@ -240,7 +278,7 @@ npx tsx --env-file=.env scripts/check-rep-trips.mts db     # + звірка з s
 (токени, кеші, журнали, трек поточково). З 24.09.2026 додано: `meetings`,
 `staff_tasks`, `staff_messages`, `product_prices`, `market_prices`,
 `price_proposals`, `price_changes`, `price_policies`, `supplier_prices`,
-`prospects`, `season_profile`, `site_daily`. Порожні на проді таблиці (розсилки
+`prospects`, `season_profile`, `site_daily`, `expenses`, `client_geo`. Порожні на проді таблиці (розсилки
 ClientOutreach, мотивація, заявки в офіс, акції) видів не мають — додати, коли
 з'являться дані. Нова таблиця, яку читає вид, потребує перезапуску
 `scripts/mcp/readonly-role.sql` на проді (див. mcp-connector.md).

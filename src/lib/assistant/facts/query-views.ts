@@ -40,6 +40,7 @@ import { SOURCE_FILTER, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE } from "@/lib/assistant/facts/sql";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { kyivDayStart, kyivDaySql, kyivTsSql } from "@/lib/date/kyiv";
+import { clientGeoViewSql } from "@/lib/assistant/facts/client-geo";
 
 export type ViewColumn = { name: string; type: string; description: string };
 
@@ -236,6 +237,42 @@ export const VIEWS: View[] = [
       "SELECT name, debt, rep, last_sale_day FROM clients WHERE debt > 0 ORDER BY debt DESC LIMIT 20",
       "SELECT rep, COUNT(*) AS clients, SUM(debt) AS debt FROM clients WHERE debt > 0 GROUP BY rep ORDER BY debt DESC LIMIT 20",
       "SELECT name, rep, last_sale_day, mobile FROM clients WHERE NOT internal AND last_sale_day < CURRENT_DATE - 90 AND consent = 'GRANTED' AND NOT opted_out ORDER BY last_sale_day DESC LIMIT 30",
+    ],
+  },
+  {
+    name: "client_geo",
+    purpose: "точки клієнтів: чи вірити точці, Львівщина чи лише доставка, відстані між клієнтами",
+    deps: ["client_facts"],
+    columns: [
+      col("client_id", ID, "клієнт"),
+      col("name", T, "назва"),
+      col("address", T, "адреса доставки, інакше юридична"),
+      col("lat", N, "широта точки; NULL — точки немає"),
+      col("lng", N, "довгота"),
+      col("pin_source", T, "MANUAL — поставила людина на місці (найнадійніша) / GEOCODED — геокодер за адресою / CITY — знайдено лише населений пункт / FAILED — адресу не розпізнано / NONE — не пробували / UNKNOWN"),
+      col("pinned_by", T, "хто поставив точку рукою"),
+      col("pinned_day", D, "коли поставив"),
+      col("accuracy_m", I, "похибка GPS, коли ставили «я зараз тут», м"),
+      col("region", T, "LVIV — точка у Львівській області / OUTSIDE — поза нею / NULL — точки немає"),
+      col("shipping_only", B, "клієнт поза Львівщиною — туди лише доставка (Нова пошта тощо), торговий не їде; вирішує текст адреси, коли точка йому суперечить"),
+      col("np_branch", B, "адреса — відділення чи поштомат перевізника: точка показує відділення, а не магазин"),
+      col("heap", I, "скільки різних адрес стоїть на цій самій точці (3+ — геокодер поставив навмання)"),
+      col("suspect", B, "точці не варто вірити (див. suspect_reason); людські точки (MANUAL) не бувають підозрілими"),
+      col("suspect_reason", T, "чому підозріла"),
+      col("km_from_depot", N, "від складу по прямій, км (дорогою більше — кілометри рейсу дає build_route)"),
+      col("x_km", N, "схід від центру Львова, км — для відстані між клієнтами"),
+      col("y_km", N, "північ від центру Львова, км; відстань між a і b по прямій = SQRT(POWER(a.x_km-b.x_km,2)+POWER(a.y_km-b.y_km,2)), похибка ±3 % у межах області"),
+      col("map_url", T, "точка в Google Maps — показати людині"),
+      col("rep", T, "торговий за драбиною"),
+      col("last_sale_day", D, "остання проведена реалізація"),
+      col("internal", B, "свій, а не клієнт — у списках клієнтів відсіюй"),
+      col("active", B, "активний у 1С"),
+    ],
+    sql: clientGeoViewSql(),
+    examples: [
+      "SELECT pin_source, region, COUNT(*) AS n, COUNT(*) FILTER (WHERE suspect) AS suspect FROM client_geo WHERE NOT internal AND last_sale_day >= '2025-09-01' GROUP BY pin_source, region ORDER BY n DESC LIMIT 20",
+      "SELECT name, address, suspect_reason, map_url FROM client_geo WHERE suspect AND NOT internal AND rep ILIKE '%Кулик%' ORDER BY last_sale_day DESC NULLS LAST LIMIT 30",
+      "SELECT b.name, b.address, ROUND(SQRT(POWER(a.x_km - b.x_km, 2) + POWER(a.y_km - b.y_km, 2))::numeric, 1) AS km FROM client_geo a JOIN client_geo b ON b.client_id <> a.client_id AND b.region = 'LVIV' AND NOT b.suspect AND NOT b.internal WHERE a.name ILIKE '%Скалоцьк%' ORDER BY km LIMIT 15",
     ],
   },
   {

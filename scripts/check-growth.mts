@@ -112,6 +112,15 @@ const pr = (id: string, lat: number, lng: number, precision: string, category = 
   check("приписана — без позначки", ok.unplaced === null, ok.unplaced);
 }
 {
+  // Пін, уточнений руками (MANUAL), — найточніший: у Львові його приписуємо,
+  // і радіус у нього «адресний», а не «міський».
+  const [lviv] = assignProspects([pr("man", 49.262, 23.853, "MANUAL", "A", true)], clients);
+  check("ручний пін в обласному центрі — приписуємо", lviv.repId === "kulyk" && lviv.unplaced === null, lviv);
+  const c = [{ ...clients[0], lat: 49.296, lng: 23.853 }]; // ~3,8 км
+  const [far] = assignProspects([pr("man2", 49.262, 23.853, "MANUAL")], c);
+  check("ручний пін — радіус адреси (3,8 км уже не поруч)", far.repId === null && far.unplaced === "far", far);
+}
+{
   // У базі категорії то латиницею, то кирилицею («B» і «В»).
   check("кирилична В → латинська B", normalizeCategory("В") === "B" && normalizeCategory(" а ") === "A" && normalizeCategory("С") === "C", [normalizeCategory("В"), normalizeCategory(" а "), normalizeCategory("С")]);
   check("порожня категорія — null", normalizeCategory("") === null && normalizeCategory(null) === null, normalizeCategory(""));

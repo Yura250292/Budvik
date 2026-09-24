@@ -34,7 +34,18 @@ export type PnlMonth = {
 
 export type Pnl = {
   months: PnlMonth[];
-  total: { revenue: number; margin: number | null; expenses: number; result: number | null; resultPct: number | null; costedShare: number };
+  total: {
+    revenue: number;
+    margin: number | null;
+    expenses: number;
+    /** Результат лише по місяцях, де вал відомий — інакше витрати без валу тягнули б підсумок униз. */
+    result: number | null;
+    /** Від виручки тих самих місяців, що й результат. */
+    resultPct: number | null;
+    /** Витрати місяців, де собівартості немає зовсім, — у результат не входять. */
+    expensesWithoutMargin: number;
+    costedShare: number;
+  };
   byKind: { kind: string; amount: number }[];
   byScope: { scope: string; amount: number }[];
   byRep: { repId: string; amount: number }[];
@@ -79,7 +90,9 @@ export function buildPnl(sales: SalesMonth[], expenses: ExpenseRow[]): Pnl {
   const revenue = rows.reduce((a, r) => a + r.revenue, 0);
   const margin = rows.every((r) => r.margin === null) ? null : rows.reduce((a, r) => a + (r.margin ?? 0), 0);
   const expTotal = rows.reduce((a, r) => a + r.expenses, 0);
-  const result = margin === null || !hasExpenses ? null : margin - expTotal;
+  const withMargin = rows.filter((r) => r.margin !== null);
+  const result = margin === null || !hasExpenses ? null : withMargin.reduce((a, r) => a + (r.margin ?? 0) - r.expenses, 0);
+  const resultRevenue = withMargin.reduce((a, r) => a + r.revenue, 0);
   const costedRevenue = sales.reduce((a, s) => a + s.costedRevenue, 0);
 
   return {
@@ -89,7 +102,8 @@ export function buildPnl(sales: SalesMonth[], expenses: ExpenseRow[]): Pnl {
       margin,
       expenses: expTotal,
       result,
-      resultPct: result === null || revenue <= 0 ? null : Math.round((result / revenue) * 1000) / 10,
+      resultPct: result === null || resultRevenue <= 0 ? null : Math.round((result / resultRevenue) * 1000) / 10,
+      expensesWithoutMargin: rows.filter((r) => r.margin === null).reduce((a, r) => a + r.expenses, 0),
       costedShare: revenue > 0 ? Math.round((costedRevenue / revenue) * 1000) / 1000 : 0,
     },
     byKind: sortDesc([...sumBy(expenses, (e) => e.kind)].map(([kind, amount]) => ({ kind, amount: round(amount) }))),

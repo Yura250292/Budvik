@@ -42,6 +42,16 @@ check("магазини поіменно", p.byStore[0]?.storeName === "DNIPRO M
 check("нерозкладене «інше»", p.unclassified === 5_000, p.unclassified);
 check("є витрати", p.hasExpenses === true, p.hasExpenses);
 
+{
+  // Липень: витрати є, а собівартості немає зовсім — валу нема з чим порівняти.
+  // Такий місяць не має тягнути підсумок униз: результат — лише по місяцях із валом.
+  const july = buildPnl([{ month: "2026-07", revenue: 300_000, costedRevenue: 0, costedMargin: 0 }, ...sales], [{ month: "2026-07", kind: "SALARY", scope: "OFFICE", amount: 50_000 }, ...expenses]);
+  check("місяць без валу — без результату", july.months[0].result === null, july.months[0]);
+  check("підсумок — лише по місяцях із валом", july.total.result === 35_000, july.total);
+  check("витрати місяців без валу — окремо", july.total.expensesWithoutMargin === 50_000, july.total.expensesWithoutMargin);
+  check("рентабельність — від виручки тих самих місяців", july.total.resultPct === 2.3, july.total.resultPct);
+}
+
 const empty = buildPnl(sales, []);
 check("без витрат — прямо про це", empty.hasExpenses === false && empty.total.result === null, empty.total);
 

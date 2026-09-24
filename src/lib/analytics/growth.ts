@@ -152,7 +152,7 @@ export type ProspectPoint = {
   name: string;
   lat: number;
   lng: number;
-  /** ADDRESS | CITY — з details бази */
+  /** ADDRESS | CITY — з details бази; MANUAL — пін уточнили руками на карті */
   precision: string | null;
   city: string | null;
   /** Категорія точки A–D з бази */
@@ -201,11 +201,17 @@ export type ProspectOnRoute = ProspectPoint & {
   unplaced: "far" | "no_address" | null;
 };
 
+/**
+ * Точний пін: адреса з бази або уточнений руками (MANUAL ставлять роути
+ * уточнення точки). Лише «місто» — пін у центрі населеного пункту.
+ */
+export const isExactPin = (precision: string | null) => precision === "ADDRESS" || precision === "MANUAL";
+
 export function assignProspects(prospects: ProspectPoint[], clients: RepClientPoint[]): ProspectOnRoute[] {
   const none = { repId: null, weekday: null, nearbyClients: 0, nearestClient: null, nearestKm: null };
   return prospects.map((p) => {
-    if (p.precision !== "ADDRESS" && p.bigCity) return { ...p, ...none, unplaced: "no_address" as const };
-    const radius = p.precision === "ADDRESS" ? PROSPECT_RADIUS_ADDRESS_KM : PROSPECT_RADIUS_CITY_KM;
+    if (!isExactPin(p.precision) && p.bigCity) return { ...p, ...none, unplaced: "no_address" as const };
+    const radius = isExactPin(p.precision) ? PROSPECT_RADIUS_ADDRESS_KM : PROSPECT_RADIUS_CITY_KM;
     const near = clients
       .map((c) => ({ c, km: haversineM(p.lat, p.lng, c.lat, c.lng) / 1000 }))
       .filter((x) => x.km <= radius);
@@ -243,7 +249,7 @@ export async function loadClientBrandMatrix(months = 12): Promise<ClientBrandRow
     { clientId: string; clientName: string; repId: string | null; brandName: string; amount: number; lastAt: Date }[]
   >`
     WITH lines AS (
-      SELECT s."counterpartyId" AS cid, p."brandId", s."salesRepId", s."createdAt",
+      SELECT s.id AS doc_id, s."counterpartyId" AS cid, p."brandId", s."salesRepId", s."createdAt",
              i.quantity * i."sellingPrice" AS amount
       FROM "SalesDocumentItem" i
       JOIN "SalesDocument" s ON s.id = i."salesDocumentId"
@@ -258,7 +264,9 @@ export async function loadClientBrandMatrix(months = 12): Promise<ClientBrandRow
     rep AS (
       -- Торговий клієнта — той, хто оформив йому найбільше документів у вікні.
       SELECT DISTINCT ON (cid) cid, "salesRepId"
-      FROM (SELECT cid, "salesRepId", COUNT(*) AS n FROM lines WHERE "salesRepId" IS NOT NULL GROUP BY 1, 2) x
+      -- Саме документів, а не рядків: одна накладна офісу на 80 позицій не має
+      -- переважити десять візитів польового торгового по три позиції.
+      FROM (SELECT cid, "salesRepId", COUNT(DISTINCT doc_id) AS n FROM lines WHERE "salesRepId" IS NOT NULL GROUP BY 1, 2) x
       ORDER BY cid, n DESC
     )
     SELECT l.cid AS "clientId", c.name AS "clientName", r."salesRepId" AS "repId",

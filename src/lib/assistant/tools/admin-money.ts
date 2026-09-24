@@ -353,6 +353,7 @@ async function pnlReport(period: ReturnType<typeof periodFromArgs>) {
       витрати: uah(p.total.expenses),
       результат: p.total.result === null ? null : uah(p.total.result),
       рентабельність_від_виручки_відсотків: p.total.resultPct,
+      витрати_місяців_без_валу: p.total.expensesWithoutMargin ? uah(p.total.expensesWithoutMargin) : undefined,
     },
     по_місяцях: p.months.map((m) => ({
       місяць: m.month,

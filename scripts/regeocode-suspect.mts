@@ -18,9 +18,12 @@
  * пін), теж пропускаємо — UPDATE звіряє старі значення.
  *
  * `--active` — лише клієнти з документами за 180 днів (їм будують маршрути).
+ * `--resume` — продовжити перерваний прогін: прогрес пишеться кожні 10
+ * клієнтів у output/regeocode-suspect-progress-*.json (уся база — години, і
+ * один обрив мережі не має губити зроблене).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { locateClient } from "../src/lib/geo/locate-client";
 import { inBox, LVIV_OBLAST_BOX, searchBoxFor } from "../src/lib/geo/region";
@@ -96,9 +99,17 @@ async function plan() {
   const todo = suspects.slice(0, limit);
   console.log(`${active ? "активні за 180 днів" : "уся база"}: підозрілих ${suspects.length}, беремо ${todo.length}`);
 
-  const steps: Step[] = [];
+  mkdirSync("output", { recursive: true });
+  const suffix = `${today}${active ? "-active" : ""}`;
+  const progressFile = `output/regeocode-suspect-progress-${suffix}.json`;
+  const steps: Step[] = argv.includes("--resume") && existsSync(progressFile)
+    ? (JSON.parse(readFileSync(progressFile, "utf8")) as Step[])
+    : [];
+  const done = new Set(steps.map((s) => s.id));
+  if (done.size) console.log(`продовжую: уже перевірено ${done.size}`);
   const t0 = Date.now();
   for (const [i, r] of todo.entries()) {
+    if (done.has(r.id)) continue;
     const old: Old = { lat: r.lat, lng: r.lng, geoSource: r.geoSource };
     const loc = await locateClient(r.address, r.name);
     let next: Old;
@@ -124,14 +135,14 @@ async function plan() {
       label: loc?.label ?? null,
     });
     if ((i + 1) % 10 === 0 || i + 1 === todo.length) {
+      writeFileSync(progressFile, JSON.stringify(steps));
       const min = ((Date.now() - t0) / 60000).toFixed(1);
       console.log(`[${i + 1}/${todo.length}] ${min} хв`);
     }
   }
 
   const changed = steps.filter((s) => moved(s) || s.old.geoSource !== s.next.geoSource);
-  mkdirSync("output", { recursive: true });
-  const file = `output/regeocode-suspect-plan-${today}${active ? "-active" : ""}.json`;
+  const file = `output/regeocode-suspect-plan-${suffix}.json`;
   writeFileSync(file, JSON.stringify(changed, null, 2));
 
   report(steps);

@@ -25,6 +25,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { repPlaces, type RepPlace } from "@/lib/track/rep-places";
 import { findStops, type TrackStop } from "@/lib/track/stops";
 
 /** Скільки днів назад дивимось. */
@@ -37,6 +38,8 @@ const CLUSTER_M = 70;
 const MAX_CANDIDATES = 4;
 /** Трек, у якому менше точок, — уривок, а не робочий день. */
 const MIN_DAY_POINTS = 40;
+/** Стоянка ближче за це до дому чи складу торгового не голосує. */
+const HOME_M = 300;
 
 /** Зсув «замовлення − початок стоянки», хв: пік і ширина (виміряно). */
 const LAG_PEAK = 36;
@@ -100,6 +103,14 @@ function lagWeight(lagMin: number): number {
 
 /** Стоянки торгового за день — спільний кеш на один виклик (і на пакет у скрипті). */
 export type StopsCache = Map<string, TrackStop[]>;
+/** Дім і склад кожного торгового — теж спільний кеш на пакет. */
+export type PlacesCache = Map<string, RepPlace[]>;
+
+async function placesFor(reps: string[], cache: PlacesCache): Promise<PlacesCache> {
+  const missing = reps.filter((r) => !cache.has(r));
+  if (missing.length) for (const [k, v] of await repPlaces(missing)) cache.set(k, v);
+  return cache;
+}
 
 async function dayStops(rep: string, day: string, cache: StopsCache): Promise<TrackStop[]> {
   const key = `${rep}|${day}`;
@@ -122,9 +133,10 @@ async function dayStops(rep: string, day: string, cache: StopsCache): Promise<Tr
  */
 export async function pinCandidates(
   counterpartyId: string,
-  opts: { around?: Pt; cache?: StopsCache } = {}
+  opts: { around?: Pt; cache?: StopsCache; places?: PlacesCache } = {}
 ): Promise<PinCandidatesResult | null> {
   const cache = opts.cache ?? new Map();
+  const placesCache = opts.places ?? new Map();
   const client = await prisma.counterparty.findUnique({
     where: { id: counterpartyId },
     select: { name: true, deliveryLat: true, deliveryLng: true },
@@ -148,11 +160,50 @@ export async function pinCandidates(
       select: { salesRepId: true, createdAt: true },
     });
   }
-  if (docs.length === 0) return empty(`За ${PERIOD_DAYS} днів у клієнта немає документів торгового — нема з чим звіряти трек.`);
+
+  /*
+   * Відкриття картки клієнта в застосунку (подія `human` вебаналітики, з
+   * 16.09.2026) — теж свідок: торговий дивився клієнта, стоячи десь. Час тут
+   * справжній UTC, а не київський-як-UTC з 1С, тож голосує стоянка, яка
+   * накриває сам момент, без дзвона затримки.
+   */
+  const opens = await prisma.siteEvent.findMany({
+    where: {
+      type: "human",
+      userId: { not: null },
+      createdAt: { gte: since },
+      path: { in: [`/sales/clients/${counterpartyId}`, `/sales/clients/${counterpartyId}/pin`] },
+    },
+    select: { userId: true, createdAt: true },
+  });
+  if (docs.length === 0 && opens.length === 0) {
+    return empty(`За ${PERIOD_DAYS} днів у клієнта немає документів торгового — нема з чим звіряти трек.`);
+  }
+
+  const places = await placesFor(
+    [...new Set([...docs.map((d) => d.salesRepId!), ...opens.map((o) => o.userId!)])],
+    placesCache
+  );
+  /** Лише стоянки в цьому місті і не вдома / не на складі. */
+  const usable = async (rep: string, day: string) =>
+    (await dayStops(rep, day, cache)).filter(
+      (s) =>
+        meters(s, center) <= TOWN_RADIUS_KM * 1000 &&
+        !(places.get(rep) ?? []).some((p) => meters(p, s) <= HOME_M)
+    );
 
   type Vote = Pt & { v: number; day: string; minutes: number; rep: string };
   const votes: Vote[] = [];
   let voted = 0;
+  const cast = (rep: string, day: string, stops: TrackStop[], w: number[]) => {
+    const sum = w.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return;
+    voted++;
+    stops.forEach((s, i) => {
+      if (w[i] > 0) votes.push({ lat: s.lat, lng: s.lng, v: w[i] / sum, day, minutes: s.minutes, rep });
+    });
+  };
+
   for (const d of docs) {
     const t = kyivMoment(d.createdAt);
     const day = kyivDay(t);
@@ -163,15 +214,17 @@ export async function pinCandidates(
      * які торговий добиває в дорозі чи ввечері, розмивали частку правильного
      * місця. Що клієнт у цьому місті — ми й так знаємо з адреси.
      */
-    const stops = (await dayStops(d.salesRepId!, day, cache)).filter((s) => meters(s, center) <= TOWN_RADIUS_KM * 1000);
-    const w = stops.map((s) => lagWeight((t.getTime() - s.from.getTime()) / 60_000));
-    const sum = w.reduce((a, b) => a + b, 0);
-    if (sum <= 0) continue;
-    voted++;
-    stops.forEach((s, i) => {
-      if (w[i] > 0) votes.push({ lat: s.lat, lng: s.lng, v: w[i] / sum, day, minutes: s.minutes, rep: d.salesRepId! });
-    });
+    const stops = await usable(d.salesRepId!, day);
+    cast(d.salesRepId!, day, stops, stops.map((s) => lagWeight((t.getTime() - s.from.getTime()) / 60_000)));
   }
+
+  for (const o of opens) {
+    const t = o.createdAt.getTime();
+    const day = kyivDay(o.createdAt);
+    const stops = await usable(o.userId!, day);
+    cast(o.userId!, day, stops, stops.map((s) => (t >= s.from.getTime() - 300_000 && t <= s.to.getTime() + 300_000 ? 1 : 0)));
+  }
+
   if (voted === 0) return empty("У дні замовлень трек торгового не показує стоянок поблизу часу замовлення — або трек тоді ще не писався.");
   if (votes.length === 0) return empty("Замовлення цього клієнта набивали, коли торговий стояв деінде поза цим містом.");
 

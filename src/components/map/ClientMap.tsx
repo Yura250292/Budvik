@@ -21,6 +21,7 @@ import { CLIENT_STATE, PROSPECT_IMPORT } from "@/lib/analytics/colors";
 import { importedInfoHtml, importedPin, syncProspectZoom, type ProspectDetails } from "./prospect-pin";
 import type { OverviewRoute } from "./RoutesOverviewMap";
 import { FRAMED_MAP_OPTIONS, closeWheelGateOn, useWheelGate } from "./MapFrame";
+import { candidatePin } from "./candidate-pin";
 
 export type ClientPoint = {
   counterpartyId: string;
@@ -177,22 +178,6 @@ function clientPopup(c: ClientPoint & { spread?: boolean }): string {
         : ""
     }
   </div>`;
-}
-
-/** Мітка кандидата: фіолетове коло з літерою — не плутається ні з клієнтом, ні з ромбом бази. */
-function candidatePin(label: string): L.DivIcon {
-  return L.divIcon({
-    className: "",
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    html: `<div style="
-      width:26px;height:26px;border-radius:50%;
-      background:#7C3AED;color:#fff;border:2px solid #fff;
-      box-shadow:0 1px 6px rgba(0,0,0,0.4);
-      display:flex;align-items:center;justify-content:center;
-      font:700 13px system-ui;
-    ">${label}</div>`,
-  });
 }
 
 function prospectPopup(p: ProspectPoint): string {

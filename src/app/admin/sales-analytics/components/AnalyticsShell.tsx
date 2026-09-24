@@ -30,6 +30,7 @@ import { ProfitTab } from "./ProfitTab";
 import { BenchmarkTab } from "./BenchmarkTab";
 import { PlansTab } from "./PlansTab";
 import { ClientMapTab } from "./ClientMapTab";
+import { PinQueueTab } from "./PinQueueTab";
 import { MotivationTab } from "./MotivationTab";
 import { PayrollTab } from "./PayrollTab";
 import { PayersTab } from "./PayersTab";
@@ -88,6 +89,9 @@ const SUBTABS = {
     // машина їхала. Старий ключ ?view=clients у логістиці лишився в
     // LEGACY_VIEWS нижче.
     { key: "map", label: "Карта" },
+    // Черга точок, які можна поставити за треком торгового, — див.
+    // lib/routes/pin-queue.ts. Лише керівнику: там чужі стоянки.
+    { key: "pins", label: "Точки з треку" },
   ],
   reps: [
     { key: "list", label: "Показники" },
@@ -178,7 +182,7 @@ const MANAGER_ONLY: TabKey[] = ["money", "clients", "kpi"];
  * торговому й так не віддасть (403), але показувати вкладку, яка завжди
  * помиляється, гірше, ніж не показувати зовсім.
  */
-const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark", "field"];
+const MANAGER_ONLY_VIEWS: ViewKey[] = ["benchmark", "field", "pins"];
 
 function subtabsOf(tab: TabKey): ReadonlyArray<{ key: ViewKey; label: string }> | null {
   return tab in SUBTABS ? SUBTABS[tab as keyof typeof SUBTABS] : null;
@@ -412,7 +416,7 @@ export function AnalyticsShell() {
             «Платники» і «Утримання» теж без нього: борг і стан клієнта — це
             залишок «на зараз», а не потік за період. Показувати там вибір
             періоду означало б обіцяти фільтр, який ні на що не впливає. */}
-        {tab !== "kpi" && !(tab === "clients" && (view === "payers" || view === "cohorts")) && (
+        {tab !== "kpi" && !(tab === "clients" && (view === "payers" || view === "cohorts" || view === "pins")) && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <PeriodPicker value={period} onChange={onPeriodChange} />
           </div>
@@ -434,6 +438,7 @@ export function AnalyticsShell() {
         {tab === "clients" && view === "basket" && <BasketTab period={period} />}
         {tab === "clients" && view === "geo" && <GeoTab period={period} />}
         {tab === "clients" && view === "map" && <ClientMapTab period={period} />}
+        {tab === "clients" && view === "pins" && <PinQueueTab />}
         {tab === "kpi" && view === "plans" && <PlansTab />}
         {tab === "kpi" && view === "motivation" && <MotivationTab />}
         {tab === "kpi" && view === "payroll" && <PayrollTab />}

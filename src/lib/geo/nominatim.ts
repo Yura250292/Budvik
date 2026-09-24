@@ -1,8 +1,52 @@
+import { inBox, type GeoBox } from "./region";
+
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org";
 const USER_AGENT = "Budvik-ERP/1.0 (delivery route planner)";
 
+/**
+ * Що саме знайшов геокодер.
+ *
+ * HOUSE — будинок або заклад (магазин, пошта, склад). STREET — лише вулиця
+ * чи ринок. SETTLEMENT — лише населений пункт: точка в центрі міста чи села.
+ *
+ * Доти геокодер цього не казав, і центр Львова записувався як «точна адреса»:
+ * на 24.09.2026 у двох точках центру сиділо 105 клієнтів із GEOCODED.
+ */
+export type GeoPrecision = "HOUSE" | "STREET" | "SETTLEMENT";
+
+export type GeocodeHit = {
+  lat: number;
+  lng: number;
+  displayName: string;
+  precision: GeoPrecision;
+};
+
+export type GeocodeOptions = {
+  /** Шукати лише в цій рамці (див. searchBoxFor у ./region). */
+  box?: GeoBox;
+  /**
+   * Населений пункт з адреси: знахідка мусить бути в ньому. Без цього
+   * «Бібрка, Крушельницької 3» ставала на Крушельницьку у Львові, а
+   * «Кам'янка-Бузька, Незалежності 79» — на майдан у Тернополі.
+   */
+  settlement?: string | null;
+  /**
+   * Не спинятися на центрі міста: шукати далі, поки якась стратегія не дасть
+   * вулицю чи будинок. Для точок клієнтів (locateClient). Живий пошук і
+   * маршрути беруть першу знахідку, як і раніше, — там важить швидкість.
+   */
+  preferPrecise?: boolean;
+};
+
+const RANK: Record<GeoPrecision, number> = { SETTLEMENT: 0, STREET: 1, HOUSE: 2 };
+
+/** Грубіша з двох точностей: стратегія без номера будинку не дає HOUSE. */
+function cap(p: GeoPrecision, max: GeoPrecision): GeoPrecision {
+  return RANK[p] <= RANK[max] ? p : max;
+}
+
 // In-memory cache to avoid duplicate lookups
-const cache = new Map<string, { lat: number; lng: number; displayName: string }>();
+const cache = new Map<string, GeocodeHit>();
 
 // Rate-limit: track last request time
 let lastRequestTime = 0;
@@ -157,22 +201,81 @@ function normalizeRussianCityNames(address: string): string {
   return normalized.join(", ");
 }
 
+type NominatimRow = {
+  lat: string;
+  lon: string;
+  display_name: string;
+  class?: string;
+  category?: string;
+  type?: string;
+  addresstype?: string;
+  address?: Record<string, string>;
+};
+
+/**
+ * Точність однієї знахідки Nominatim — для geocodeAddress/locateClient.
+ *
+ * Ринок — лише STREET: координати воріт не є адресою павільйону, і торговий
+ * мусить уточнити точку сам. (Схожий, але інший precisionOf нижче — для
+ * перевірки точки в помічнику: той дивиться лише на addresstype.)
+ */
+function hitPrecision(row: NominatimRow): GeoPrecision {
+  const cls = row.class ?? row.category ?? "";
+  const type = row.type ?? "";
+  if (cls === "amenity" && type === "marketplace") return "STREET";
+  if (row.address?.house_number) return "HOUSE";
+  if (cls === "place" && (type === "house" || type === "building")) return "HOUSE";
+  if (["shop", "craft", "office", "building", "amenity", "tourism", "man_made"].includes(cls)) {
+    return "HOUSE";
+  }
+  if (cls === "highway" || row.addresstype === "road") return "STREET";
+  return "SETTLEMENT";
+}
+
+function normPlace(s: string): string {
+  const lower = s.toLowerCase().trim();
+  return (CITY_NAME_MAP[lower]?.toLowerCase() ?? lower).replace(/['`’ʼ\-\s]/g, "");
+}
+
+/**
+ * Чи згадано в адресі-знахідці наш населений пункт. Порівнюємо початок назви:
+ * «Камянка-Бузька» з 1С і «Кам'янка-Бузька» з OSM — одне місто, як і
+ * «Львов» та «Львів».
+ */
+export function mentionsSettlement(label: string, settlement: string): boolean {
+  const want = normPlace(settlement).slice(0, 5);
+  if (want.length < 3) return true;
+  return label
+    .split(",")
+    // «Львівська область», «Золочівський район», «Бібрська громада» — не пункт:
+    // інакше для «м. Львів» підходило будь-яке село області (Нижній Турів
+    // під Самбором замість Нижнього Шувару).
+    .filter((part) => !/(област|район|громад|україна|ukraine)/iu.test(part))
+    .some((part) => normPlace(part).startsWith(want));
+}
+
 /** Try a single Nominatim search query */
 async function nominatimSearch(
   query: string,
-  options?: { structured?: boolean; country?: string }
-): Promise<{ lat: number; lng: number; displayName: string } | null> {
+  options?: { country?: string; box?: GeoBox; settlement?: string | null }
+): Promise<GeocodeHit | null> {
   await waitForRateLimit();
 
   const params = new URLSearchParams({
     q: query,
     format: "json",
     limit: "3",
+    addressdetails: "1",
     "accept-language": "uk",
   });
 
   if (options?.country) {
     params.set("countrycodes", options.country);
+  }
+  if (options?.box) {
+    const b = options.box;
+    params.set("viewbox", `${b.west},${b.north},${b.east},${b.south}`);
+    params.set("bounded", "1");
   }
 
   const res = await fetch(`${NOMINATIM_URL}/search?${params}`, {
@@ -181,14 +284,20 @@ async function nominatimSearch(
 
   if (!res.ok) return null;
 
-  const data = await res.json();
-  if (!data.length) return null;
+  const data = (await res.json()) as NominatimRow[];
+  if (!Array.isArray(data)) return null;
 
-  return {
-    lat: parseFloat(data[0].lat),
-    lng: parseFloat(data[0].lon),
-    displayName: data[0].display_name as string,
-  };
+  for (const row of data) {
+    const lat = parseFloat(row.lat);
+    const lng = parseFloat(row.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    // bounded=1 уже тримає рамку, але перевіряємо ще раз: вона — головна
+    // гарантія, що Жовква знову не опиниться в Криму.
+    if (options?.box && !inBox(options.box, lat, lng)) continue;
+    if (options?.settlement && !mentionsSettlement(row.display_name, options.settlement)) continue;
+    return { lat, lng, displayName: row.display_name, precision: hitPrecision(row) };
+  }
+  return null;
 }
 
 /** Extract possible city/region from address for context */
@@ -200,7 +309,7 @@ function extractCity(address: string): string | null {
 }
 
 /** Generate search variants by reordering parts */
-function generateVariants(address: string): string[] {
+function generateVariants(address: string, opts: { guessCities: boolean }): string[] {
   const variants: string[] = [];
   const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
 
@@ -212,7 +321,7 @@ function generateVariants(address: string): string[] {
   }
 
   // If it looks like "Street, Number" (short), try with common cities
-  if (parts.length <= 2 && address.length < 30) {
+  if (opts.guessCities && parts.length <= 2 && address.length < 30) {
     const commonCities = ["Вінниця", "Київ", "Хмельницький"];
     const stripped = stripAbbreviations(address);
     for (const city of commonCities) {
@@ -227,23 +336,51 @@ function generateVariants(address: string): string[] {
 
 /**
  * Geocode an address using multiple fallback strategies:
+ * 0. Nova Poshta address normalized to «city, street, number»
  * 1. Original text with Ukraine filter
  * 2. Expanded abbreviations with Ukraine filter
  * 3. Stripped abbreviations with Ukraine filter
  * 4. Add "Україна" suffix for context
  * 5. Reordered parts / city appended
  * 6. Without country filter (global search)
+ * 7. City + street without the house number
+ * 8. The settlement name alone
+ *
+ * З `preferPrecise` стратегії йдуть, доки не знайдеться будинок або вулиця:
+ * центр міста з ранньої стратегії — лише запасний варіант, пізніша може дати
+ * вулицю. Без нього — перша знахідка, як і раніше.
+ *
+ * `box` обмежує пошук рамкою (Львівщина для наших клієнтів). Без неї
+ * запасні стратегії знаходили однойменну вулицю в іншій області.
  */
 export async function geocodeAddress(
-  address: string
-): Promise<{ lat: number; lng: number; displayName: string } | null> {
+  address: string,
+  options: GeocodeOptions = {}
+): Promise<GeocodeHit | null> {
   const trimmed = address.trim();
   if (!trimmed) return null;
 
-  const cacheKey = trimmed.toLowerCase();
+  const { box, settlement, preferPrecise = false } = options;
+  const cacheKey = `${box ? "box:" : ""}${settlement ? `in:${settlement}:` : ""}${preferPrecise ? "p:" : ""}${trimmed.toLowerCase()}`;
   if (cache.has(cacheKey)) {
     return cache.get(cacheKey)!;
   }
+
+  const search = (q: string, country?: string) => nominatimSearch(q, { country, box, settlement });
+
+  let best: GeocodeHit | null = null;
+  /** true — кращого не треба, далі не шукаємо. */
+  const offer = (hit: GeocodeHit | null, max: GeoPrecision = "HOUSE"): boolean => {
+    if (hit) {
+      const capped = { ...hit, precision: cap(hit.precision, max) };
+      if (!best || RANK[capped.precision] > RANK[best.precision]) best = capped;
+    }
+    return !!best && (!preferPrecise || RANK[best.precision] >= RANK.STREET);
+  };
+  const done = () => {
+    if (best) cache.set(cacheKey, best);
+    return best;
+  };
 
   // Strategy 0: if it looks like a Nova Poshta address, normalize it first
   const npNormalized = normalizeNovaPoshtaAddress(trimmed);
@@ -252,68 +389,49 @@ export async function geocodeAddress(
     const npStripped = stripAbbreviations(npNormalized);
 
     // Try normalized NP address with expanded abbreviations
-    let result = await nominatimSearch(npExpanded, { country: "ua" });
-    if (!result) {
-      result = await nominatimSearch(npStripped, { country: "ua" });
-    }
+    if (offer(await search(npExpanded, "ua"))) return done();
+    if (offer(await search(npStripped, "ua"))) return done();
     // Try just "City, Street" without house number (NP branch may not match exact number)
-    if (!result) {
-      const npParts = npStripped.split(",").map((p) => p.trim()).filter(Boolean);
-      if (npParts.length >= 2) {
-        // Try city + street (without house number)
-        const cityStreet = npParts.slice(0, 2).join(", ");
-        result = await nominatimSearch(cityStreet, { country: "ua" });
-      }
+    const npParts = npStripped.split(",").map((p) => p.trim()).filter(Boolean);
+    if (npParts.length >= 2) {
+      const cityStreet = npParts.slice(0, 2).join(", ");
+      if (offer(await search(cityStreet, "ua"), "STREET")) return done();
     }
-    if (result) {
-      cache.set(cacheKey, result);
-      return result;
-    }
+    if (best) return done();
   }
 
   const expanded = expandAbbreviations(trimmed);
   const stripped = stripAbbreviations(trimmed);
 
   // Strategy 1: original text, Ukraine
-  let result = await nominatimSearch(trimmed, { country: "ua" });
+  if (offer(await search(trimmed, "ua"))) return done();
 
   // Strategy 2: expanded abbreviations, Ukraine
-  if (!result && expanded !== trimmed) {
-    result = await nominatimSearch(expanded, { country: "ua" });
-  }
+  if (expanded !== trimmed && offer(await search(expanded, "ua"))) return done();
 
   // Strategy 3: stripped abbreviations, Ukraine
-  if (!result && stripped !== trimmed && stripped !== expanded) {
-    result = await nominatimSearch(stripped, { country: "ua" });
+  if (stripped !== trimmed && stripped !== expanded && offer(await search(stripped, "ua"))) {
+    return done();
   }
 
   // Strategy 3.5: normalize Russian city names to Ukrainian
-  if (!result) {
-    const withUkrCities = normalizeRussianCityNames(expanded);
-    if (withUkrCities !== expanded) {
-      result = await nominatimSearch(withUkrCities, { country: "ua" });
-    }
-  }
+  const withUkrCities = normalizeRussianCityNames(expanded);
+  if (withUkrCities !== expanded && offer(await search(withUkrCities, "ua"))) return done();
 
   // Strategy 4: append "Україна" for better context
-  if (!result) {
-    const withCountry = `${stripped}, Україна`;
-    result = await nominatimSearch(withCountry);
-  }
+  if (!best && offer(await search(`${stripped}, Україна`))) return done();
 
-  // Strategy 5: reordered variants and city-appended searches
-  if (!result) {
-    const variants = generateVariants(trimmed);
-    for (const variant of variants) {
-      result = await nominatimSearch(variant, { country: "ua" });
-      if (result) break;
+  // Strategy 5: reordered variants and city-appended searches.
+  // Здогадки з чужими містами (Вінниця, Київ…) у рамці Львівщини марні.
+  if (!best) {
+    for (const variant of generateVariants(trimmed, { guessCities: !box })) {
+      if (offer(await search(variant, "ua"))) return done();
+      if (best) break;
     }
   }
 
   // Strategy 6: global search as last resort
-  if (!result) {
-    result = await nominatimSearch(trimmed);
-  }
+  if (!best && offer(await search(trimmed))) return done();
 
   // Strategy 7: drop the house number and any human landmarks.
   //
@@ -325,11 +443,9 @@ export async function geocodeAddress(
   //
   // The street is enough for a delivery route: the driver needs the block, not
   // the doorstep, and the exact pin gets corrected on site anyway.
-  if (!result) {
-    const cityStreet = dropHouseNumber(stripped);
-    if (cityStreet && cityStreet !== stripped) {
-      result = await nominatimSearch(cityStreet, { country: "ua" });
-    }
+  const cityStreet = dropHouseNumber(stripped);
+  if (cityStreet && cityStreet !== stripped) {
+    if (offer(await search(cityStreet, "ua"), "STREET")) return done();
   }
 
   // Strategy 8: сам населений пункт, без району і вулиці.
@@ -339,20 +455,14 @@ export async function geocodeAddress(
   // мовчить, хоч село в OSM є. Прізвищеподібний прикметник району теж збиває
   // пошук, тож на останньому кроці кидаємо все, крім назви пункту.
   //
-  // Точність — до села. Для бази торгового це прийнятно: подача рахується
-  // десятками кілометрів, і хата в межах села їх не змінює.
-  if (!result) {
+  // Точність — до села, і так і позначається (SETTLEMENT): торговий бачить,
+  // куди їхати, а карта не видає це за адресу.
+  if (!best) {
     const settlement = settlementOnly(stripped);
-    if (settlement) {
-      result = await nominatimSearch(settlement, { country: "ua" });
-    }
+    if (settlement) offer(await search(settlement, "ua"), "SETTLEMENT");
   }
 
-  if (result) {
-    cache.set(cacheKey, result);
-  }
-
-  return result;
+  return done();
 }
 
 /**
@@ -511,8 +621,8 @@ export async function reverseGeocode(
 
 export async function geocodeAddresses(
   addresses: string[]
-): Promise<Array<{ address: string; lat: number; lng: number; displayName: string } | null>> {
-  const results: Array<{ address: string; lat: number; lng: number; displayName: string } | null> = [];
+): Promise<Array<({ address: string } & GeocodeHit) | null>> {
+  const results: Array<({ address: string } & GeocodeHit) | null> = [];
   for (const address of addresses) {
     const geo = await geocodeAddress(address);
     results.push(geo ? { address, ...geo } : null);

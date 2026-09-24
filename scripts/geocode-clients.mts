@@ -6,20 +6,9 @@
  * Ендпоінт лишається для довантаження нових клієнтів з інтерфейсу.
  */
 import { PrismaClient } from "@prisma/client";
-import { geocodeAddress } from "../src/lib/geo/nominatim";
+import { locateClient } from "../src/lib/geo/locate-client";
 
 const prisma = new PrismaClient();
-const HOME_REGION = "Львівська область";
-
-function settlementFromName(name: string): string | null {
-  const inside = name.match(/\(([^)]*)\)/)?.[1]?.trim();
-  if (!inside) return null;
-  const prefixed = inside.match(/(?:^|\s)(?:м|с|смт)\.?\s*([А-ЯЇІЄҐA-Z][^,;]*)/iu)?.[1]?.trim();
-  const candidate =
-    prefixed ?? (!/\d/.test(inside) && !inside.includes(",") && inside.split(/\s+/).length === 1 ? inside : null);
-  if (!candidate || candidate.length < 3) return null;
-  return `${candidate}, ${HOME_REGION}, Україна`;
-}
 
 /**
  * За замовчуванням беремо лише клієнтів, які комусь належать або щось
@@ -51,22 +40,19 @@ let ok = 0, viaCity = 0, miss = 0, i = 0;
 
 for (const row of rows) {
   i++;
-  let hit = await geocodeAddress(row.address);
-  let how = "адреса";
-  if (!hit) {
-    const fallback = settlementFromName(row.name);
-    if (fallback) { hit = await geocodeAddress(fallback); how = "місто"; }
-  }
+  // Той самий ланцюг, що в кнопці адмінки: будинок → GEOCODED, вулиця чи
+  // центр пункту (зокрема з назви клієнта) → CITY.
+  const hit = await locateClient(row.address, row.name);
   // Пишемо сирим SQL, а не через ORM: клієнт Prisma згенерований зі схеми,
   // де вже є колонки сусідньої, ще не застосованої міграції, тож
   // counterparty.update() падає на неіснуючому стовпці. Нас цікавлять лише
   // чотири власні поля — їх і оновлюємо.
   if (hit) {
-    how === "адреса" ? ok++ : viaCity++;
+    hit.geoSource === "GEOCODED" ? ok++ : viaCity++;
     await prisma.$executeRaw`
       UPDATE "Counterparty"
       SET "deliveryLat" = ${hit.lat}, "deliveryLng" = ${hit.lng},
-          "geoSource" = 'GEOCODED', "geoAttemptedAt" = NOW()
+          "geoSource" = ${hit.geoSource}::"GeoSource", "geoAttemptedAt" = NOW()
       WHERE id = ${row.id}`;
   } else {
     miss++;
@@ -76,8 +62,8 @@ for (const row of rows) {
       WHERE id = ${row.id}`;
   }
   if (i % 25 === 0 || i === rows.length) {
-    console.log(`[${i}/${rows.length}] адресою ${ok} · містом ${viaCity} · не знайдено ${miss}`);
+    console.log(`[${i}/${rows.length}] будинком ${ok} · приблизно ${viaCity} · не знайдено ${miss}`);
   }
 }
-console.log(`ГОТОВО: адресою ${ok}, містом ${viaCity}, не знайдено ${miss}`);
+console.log(`ГОТОВО: будинком ${ok}, приблизно (CITY) ${viaCity}, не знайдено ${miss}`);
 await prisma.$disconnect();

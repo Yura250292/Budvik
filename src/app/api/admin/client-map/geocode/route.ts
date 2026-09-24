@@ -17,16 +17,19 @@ import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { geocodeAddress } from "@/lib/geo/nominatim";
+import { locateClient } from "@/lib/geo/locate-client";
 
 export const dynamic = "force-dynamic";
-/** Nominatim повільний; за 60 с встигаємо ~40 адрес, далі новий запит. */
+/** Nominatim повільний; за 60 с встигаємо кілька десятків адрес, далі новий запит. */
 export const maxDuration = 60;
 
 const FULL_ACCESS_ROLES = ["ADMIN", "MANAGER"];
 
-/** Лишаємо запас до ліміту Vercel, щоб встигнути записати результат. */
-const DEADLINE_MS = 45_000;
+/**
+ * Лишаємо запас до ліміту Vercel, щоб встигнути записати результат. Запас
+ * великий: безнадійна адреса перебирає всі стратегії й займає до ~30 с.
+ */
+const DEADLINE_MS = 25_000;
 const HARD_CAP = 40;
 
 /**
@@ -49,31 +52,6 @@ const CANDIDATE_SCOPE = Prisma.sql`
     )
   )
 `;
-
-/**
- * Населений пункт із назви клієнта: «Мартинець Уляна (м.Мостиська)».
- *
- * У дужках буває й вулиця — «DNIPRO-M ЛЬВІВ (Джорджа Вашингтона, 1)», —
- * тому беремо лише те, що позначене як населений пункт (м./с./смт) або
- * складається з одного слова без цифр. Інакше геокодер шукав би вулицю
- * без міста й ставив пін у випадковій області: рівно так маршрут колись
- * вийшов 837 км замість 150.
- *
- * Область додається завжди: однойменних сіл в Україні десятки.
- */
-const HOME_REGION = "Львівська область";
-
-function settlementFromName(name: string): string | null {
-  const inside = name.match(/\(([^)]*)\)/)?.[1]?.trim();
-  if (!inside) return null;
-
-  const prefixed = inside.match(/(?:^|\s)(?:м|с|смт)\.?\s*([А-ЯЇІЄҐA-Z][^,;]*)/iu)?.[1]?.trim();
-  const candidate =
-    prefixed ?? (!/\d/.test(inside) && !inside.includes(",") && inside.split(/\s+/).length === 1 ? inside : null);
-
-  if (!candidate || candidate.length < 3) return null;
-  return `${candidate}, ${HOME_REGION}, Україна`;
-}
 
 type Progress = {
   candidates: number;
@@ -142,15 +120,18 @@ export async function POST(req: NextRequest) {
   for (const row of rows) {
     if (Date.now() - startedAt > DEADLINE_MS) break;
 
-    let hit = await geocodeAddress(row.address);
-
-    // Запасний варіант: у назві клієнта майже завжди є населений пункт —
-    // «Мартинець Уляна (м.Мостиська)». Точка в правильному місті корисніша
-    // за відсутність точки: торговий бачить, куди їхати, а пін потім можна
-    // поправити рукою.
-    if (!hit) {
-      const fallback = settlementFromName(row.name);
-      if (fallback) hit = await geocodeAddress(fallback);
+    // Точність — у geoSource: будинок → GEOCODED, вулиця чи центр пункту →
+    // CITY (див. locateClient). Населений пункт із назви клієнта теж там.
+    let hit;
+    try {
+      hit = await locateClient(row.address, row.name);
+    } catch (e) {
+      // Google відмовив (вимкнений API, ліміт) — зупиняємось, а не пишемо
+      // сотні «центрів міста» там, де він знайшов би будинок.
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : String(e), processed, ok, failed },
+        { status: 502 }
+      );
     }
 
     processed += 1;
@@ -159,7 +140,7 @@ export async function POST(req: NextRequest) {
       await prisma.$executeRaw`
         UPDATE "Counterparty"
         SET "deliveryLat" = ${hit.lat}, "deliveryLng" = ${hit.lng},
-            "geoSource" = 'GEOCODED', "geoAttemptedAt" = NOW()
+            "geoSource" = ${hit.geoSource}::"GeoSource", "geoAttemptedAt" = NOW()
         WHERE id = ${row.id}`;
     } else {
       failed += 1;

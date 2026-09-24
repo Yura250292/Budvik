@@ -357,9 +357,6 @@ model User {
   staffTasksCreated  StaffTask[] @relation("staffTaskCreator")
   staffTasksAssigned StaffTask[] @relation("staffTaskAssignee")
 
-  // Календар Google (src/lib/calendar)
-  calendarConnection CalendarConnection? @relation("calendarConnectionUser")
-  calendarEventLinks CalendarEventLink[] @relation("calendarEventLinkUser")
 
   trackEvents TrackEvent[]
 
@@ -4612,90 +4609,3 @@ model StaffTask {
   @@index([createdById, status, createdAt(sort: Desc)])
 }
 
-// ========== Календар Google (src/lib/calendar) ==========
-// Конектор навмисно знімний: у бізнес-моделях немає жодної його колонки, а
-// вимкнути його цілком можна, прибравши CALENDAR_TOKEN_KEY зі змінних.
-
-/// Підключення Google-акаунту людини до календаря «Budvik».
-///
-/// Окремо від next-auth: GoogleProvider у src/lib/auth.ts — це вхід покупця
-/// на вітрину, і додавати туди календарний дозвіл означало б питати згоду на
-/// календар у кожного роздрібного клієнта. Плюс сесія там jwt, а PrismaAdapter
-/// з таблицею Account потягнув би за собою всі 172 файли з getServerSession.
-model CalendarConnection {
-  id     String @id @default(cuid())
-  /// Одна людина — один календар. Двох акаунтів Google нікому не треба, а
-  /// унікальність робить апсерт підключення тривіальним.
-  userId String @unique
-
-  /// Який саме акаунт підключено — людина мусить бачити, бо їх у неї кілька.
-  googleEmail String
-
-  /// refresh_token, зашифрований AES-256-GCM (src/lib/calendar/crypto.ts).
-  /// Перший секрет у проєкті, який зберігається з можливістю розшифрувати:
-  /// решта (паролі, токени пристроїв) лягає однобічним хешем.
-  refreshTokenEnc String
-  /// Версія ключа шифрування — щоб ротація не вимагала простою.
-  keyVersion      Int    @default(1)
-  /// Дозвіл, який Google реально видав. Звузили набір — треба перепідключити.
-  scope           String
-
-  /// Календар «Budvik», створений застосунком. NULL — ще не створено.
-  calendarId String?
-
-  /// ACTIVE | NEEDS_RECONNECT | DISABLED.
-  /// NEEDS_RECONNECT — не аварія: людина змінила пароль або відкликала доступ.
-  status String @default("ACTIVE")
-
-  lastError      String?
-  lastErrorAt    DateTime?
-  lastSyncAt     DateTime?
-  connectedAt    DateTime  @default(now())
-  disconnectedAt DateTime?
-  updatedAt      DateTime  @updatedAt
-
-  user User @relation("calendarConnectionUser", fields: [userId], references: [id], onDelete: Cascade)
-}
-
-/// Мапінг «запис на сайті ↔ подія в календарі».
-///
-/// Окрема таблиця, а не колонка googleEventId у кожній моделі: розклад
-/// напрямків торгового не має одного запису на одну подію — правило «щосереди
-/// Радехів» це N подій на вікні, і ключ там складений («<assignmentId>:2026-09-24»).
-/// Плюс воркеру потрібен один дешевий запит «що не доїхало» замість сканів по
-/// великих таблицях ERP. Зв'язку по FK тут свідомо немає (як у Notification.relatedId):
-/// осиротілі рядки прибирає саме звірення — подія, якої немає в бажаному стані,
-/// зникає і з Google, і звідси.
-model CalendarEventLink {
-  id     String @id @default(cuid())
-  userId String
-
-  /// STAFF_TASK | DELIVERY_ROUTE | ASSISTANT_REMINDER | REP_ROUTE_DAY.
-  entity   String
-  /// Ідентифікатор запису на сайті; для розкладу — «<assignmentId>:<день>».
-  entityId String
-
-  /// Ідентифікатор події в Google. Задаємо самі (src/lib/calendar/render.ts):
-  /// сталий id перетворює повторну вставку на 409 «вже є» замість дубля.
-  googleEventId String
-  calendarId    String
-  /// Відбиток змісту: збігся — жодного виклику API на цьому тіку.
-  contentHash   String
-
-  /// PENDING | SYNCED | FAILED.
-  state         String    @default("PENDING")
-  attempts      Int       @default(0)
-  /// Замок від другої копії воркера (під час railway up їх дві). Протухає за 10 хв.
-  lockedAt      DateTime?
-  nextAttemptAt DateTime?
-  lastError     String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation("calendarEventLinkUser", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, entity, entityId])
-  @@index([state, nextAttemptAt])
-  @@index([userId, entity])
-}

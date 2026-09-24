@@ -120,6 +120,15 @@ async function plan() {
     console.log(`перераховую ${steps.length - keep.length} без рамки чи без явного пункту`);
     steps.splice(0, steps.length, ...keep);
   }
+  // --redo-match <regex>: перерахувати лише записи, чия адреса підходить під
+  // вираз, — коли правка правил зачепила кількох клієнтів, а не сотні.
+  const redoIdx = argv.indexOf("--redo-match");
+  if (redoIdx >= 0) {
+    const re = new RegExp(argv[redoIdx + 1], "iu");
+    const keep = steps.filter((s) => !re.test(s.address ?? ""));
+    console.log(`перераховую ${steps.length - keep.length} за виразом ${re}`);
+    steps.splice(0, steps.length, ...keep);
+  }
   const done = new Set(steps.map((s) => s.id));
   if (done.size) console.log(`продовжую: уже перевірено ${done.size}`);
   const t0 = Date.now();
@@ -130,11 +139,10 @@ async function plan() {
     let next: Old;
     if (loc) {
       next = { lat: loc.lat, lng: loc.lng, geoSource: loc.geoSource };
-    } else if (r.reason === "поза областю") {
-      // Точка в чужій області гірша за відсутню: водій поїде в Крим.
-      next = { lat: null, lng: null, geoSource: "FAILED" };
     } else if (r.geoSource === "GEOCODED") {
-      // Нічого кращого, але й «точно» це не є.
+      // Нічого не знайшлося — стару точку НЕ видаляємо, лише знімаємо «точно».
+      // 24.09.2026 правило «поза областю → стерти» стерло б точки клієнтів
+      // доставки в Боярці й Печенігах, яких просто не розпізнало як доставку.
       next = { ...old, geoSource: "CITY" };
     } else {
       next = old;

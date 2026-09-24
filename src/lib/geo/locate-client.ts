@@ -17,7 +17,7 @@ import { cleanAddress, settlementFromName, settlementOf, shopNameOf } from "./cl
 import { googleGeocode, googlePlace } from "./google";
 import { geocodeAddress, type GeoPrecision } from "./nominatim";
 import { lvivMarketOf } from "./markets";
-import { searchBoxFor } from "./region";
+import { otherOblastOf, searchBoxFor } from "./region";
 
 export type ClientLocation = {
   lat: number;
@@ -86,9 +86,11 @@ async function locate(address: string | null, name: string): Promise<ClientLocat
   // всій Україні за «вул. Шевченка, 3» ставив Ахтирку в Одеську область.
   if (raw && !box) {
     if (!settlement) return null;
+    const oblast = otherOblastOf(raw);
+    const inOblast = (loc: ClientLocation | null) =>
+      loc && (!oblast || loc.label.toLowerCase().includes(oblast)) ? loc : null;
     const hit = await geocodeAddress(raw, { settlement, preferPrecise: true });
-    if (hit) return fromOsm(hit);
-    return settlementCenter(settlement, undefined);
+    return inOblast(hit ? fromOsm(hit) : null) ?? inOblast(await settlementCenter(settlement, undefined, oblast));
   }
 
   const noStreetCap: GeoPrecision = /вул|просп|пл\.|площ|пров|бульв|шосе|ринок|базар|ряд/iu.test(raw)
@@ -141,7 +143,12 @@ async function locate(address: string | null, name: string): Promise<ClientLocat
   return null;
 }
 
-async function settlementCenter(settlement: string, box: ReturnType<typeof searchBoxFor>): Promise<ClientLocation | null> {
-  const hit = await geocodeAddress(`${settlement}${box ? ", Львівська область" : ""}, Україна`, { box, settlement });
+async function settlementCenter(
+  settlement: string,
+  box: ReturnType<typeof searchBoxFor>,
+  oblast?: string | null
+): Promise<ClientLocation | null> {
+  const region = box ? ", Львівська область" : oblast ? `, ${oblast}а область` : "";
+  const hit = await geocodeAddress(`${settlement}${region}, Україна`, { box, settlement });
   return hit ? { ...fromOsm(hit), precision: "SETTLEMENT", geoSource: "CITY" } : null;
 }

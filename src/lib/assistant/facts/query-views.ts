@@ -1072,6 +1072,360 @@ export const VIEWS: View[] = [
       JOIN "Counterparty" c ON c.id = cm."counterpartyId"
       JOIN "User" u ON u.id = cm."authorId"`,
   },
+  /*
+   * ── Наради, задачі, чат персоналу ────────────────────────────────────
+   *
+   * Щоб помічник і конектор були «в курсі подій»: що вирішили на нарадах,
+   * кому що доручили і що з цим сталося. Сам підсумок наради структурований
+   * (Meeting.structured) — тут він розгорнутий у текстові колонки, бо модель
+   * читає рядки, а не jsonb. Повний транскрипт сюди не йде: він на десятки
+   * тисяч символів, а шукати по ньому — інструмент meetings (q=…).
+   */
+  {
+    name: "meetings",
+    purpose: "наради: дата, назва, підсумок, рішення, теми, ризики, відкриті питання, згадані клієнти, скільки задач",
+    columns: [
+      col("meeting_id", ID, "ідентифікатор"),
+      col("day", D, "дата наради"),
+      col("title", T, "назва"),
+      col("status", T, "READY — підсумок готовий; DRAFT/UPLOADED/TRANSCRIBING/SUMMARIZING — ще обробляється; FAILED"),
+      col("duration_min", I, "тривалість запису, хв"),
+      col("summary", T, "підсумок (до 3000 символів)"),
+      col("decisions", T, "що вирішили, пункти через « • »"),
+      col("topics", T, "теми розбору, через « • »"),
+      col("risks", T, "ризики, через « • »"),
+      col("open_questions", T, "відкриті питання, через « • »"),
+      col("clients_mentioned", T, "згадані клієнти й фірми, через « • »"),
+      col("tasks", I, "скільки задач створено з наради"),
+    ],
+    sql: `
+      SELECT m.id AS meeting_id, ${KYIV_DAY('m."recordedAt"')} AS day, m.title, m.status,
+             ROUND(m."audioDurationMs" / 60000.0)::int AS duration_min,
+             LEFT(COALESCE(m.structured::jsonb->>'summary', m.summary), 3000) AS summary,
+             (SELECT string_agg(x, ' • ') FROM jsonb_array_elements_text(COALESCE(m.structured::jsonb->'decisions', '[]')) x) AS decisions,
+             (SELECT string_agg(t->>'title', ' • ') FROM jsonb_array_elements(COALESCE(m.structured::jsonb->'topics', '[]')) t) AS topics,
+             (SELECT string_agg(x, ' • ') FROM jsonb_array_elements_text(COALESCE(m.structured::jsonb->'risks', '[]')) x) AS risks,
+             (SELECT string_agg(x, ' • ') FROM jsonb_array_elements_text(COALESCE(m.structured::jsonb->'openQuestions', '[]')) x) AS open_questions,
+             (SELECT string_agg(c->>'name', ' • ') FROM jsonb_array_elements(COALESCE(m.structured::jsonb->'clients', '[]')) c) AS clients_mentioned,
+             (SELECT COUNT(*)::int FROM "StaffTask" st WHERE st."meetingId" = m.id) AS tasks
+      FROM "Meeting" m`,
+    examples: [
+      "SELECT day, title, decisions FROM meetings WHERE status = 'READY' ORDER BY day DESC LIMIT 5",
+      "SELECT day, title, risks FROM meetings WHERE risks ILIKE '%борг%' ORDER BY day DESC LIMIT 10",
+    ],
+  },
+  {
+    name: "staff_tasks",
+    purpose: "задачі команді (з нарад і ручні): кому, що, строк, статус, виконання",
+    columns: [
+      col("task_id", ID, "ідентифікатор"),
+      col("meeting_id", ID, "нарада, з якої задача; NULL — ручна"),
+      col("meeting", T, "назва наради"),
+      col("created_day", D, "коли створено"),
+      col("title", T, "що зробити"),
+      col("details", T, "подробиці (до 500 символів)"),
+      col("assignee_id", ID, "виконавець"),
+      col("assignee", T, "імʼя виконавця"),
+      col("assignee_heard", T, "як виконавця назвали на нараді (коли не впізнано)"),
+      col("client_id", ID, "клієнт задачі"),
+      col("client", T, "назва клієнта"),
+      col("due_day", D, "строк"),
+      col("priority", T, "LOW / NORMAL / HIGH"),
+      col("status", T, "PROPOSED — чекає підтвердження, людям не пішла; ASSIGNED — надіслано; DONE; CANCELLED"),
+      col("overdue", B, "надіслана, строк минув, не виконана"),
+      col("sent_day", D, "коли надіслано людині"),
+      col("done_day", D, "коли виконано"),
+      col("done_note", T, "що написав виконавець"),
+      col("progress_note", T, "хід справи з наступної наради"),
+    ],
+    sql: `
+      SELECT st.id AS task_id, st."meetingId" AS meeting_id, m.title AS meeting,
+             ${KYIV_DAY('st."createdAt"')} AS created_day, st.title, LEFT(st.details, 500) AS details,
+             st."assigneeId" AS assignee_id, u.name AS assignee, st."assigneeNameHeard" AS assignee_heard,
+             st."counterpartyId" AS client_id, c.name AS client,
+             ${KYIV_DAY('st."dueAt"')} AS due_day, st.priority, st.status,
+             (st.status = 'ASSIGNED' AND st."dueAt" < now()) AS overdue,
+             ${KYIV_DAY('st."sentAt"')} AS sent_day, ${KYIV_DAY('st."doneAt"')} AS done_day,
+             LEFT(st."doneNote", 300) AS done_note, LEFT(st."progressNote", 300) AS progress_note
+      FROM "StaffTask" st
+      LEFT JOIN "Meeting" m ON m.id = st."meetingId"
+      LEFT JOIN "User" u ON u.id = st."assigneeId"
+      LEFT JOIN "Counterparty" c ON c.id = st."counterpartyId"`,
+    examples: [
+      "SELECT assignee, COUNT(*) FILTER (WHERE status = 'ASSIGNED') AS open, COUNT(*) FILTER (WHERE overdue) AS overdue FROM staff_tasks GROUP BY assignee ORDER BY overdue DESC LIMIT 20",
+    ],
+  },
+  {
+    name: "staff_messages",
+    purpose: "чат персоналу: хто, кому, що написав",
+    columns: [
+      col("message_id", ID, "ідентифікатор"),
+      col("day", D, "день"),
+      col("clock", CLK, "час"),
+      col("author", T, "автор"),
+      col("text", T, "текст (до 500 символів)"),
+      col("to_all", B, "усім"),
+      col("to_roles", T, "ролям, через кому"),
+      col("to_user", T, "особисто кому"),
+    ],
+    sql: `
+      SELECT sm.id AS message_id, ${KYIV_DAY('sm."createdAt"')} AS day, ${CLOCK('sm."createdAt"')} AS clock,
+             a.name AS author, LEFT(sm.text, 500) AS text, sm."toAll" AS to_all,
+             array_to_string(sm."toRoles"::text[], ',') AS to_roles, t.name AS to_user
+      FROM "StaffMessage" sm
+      JOIN "User" a ON a.id = sm."authorId"
+      LEFT JOIN "User" t ON t.id = sm."toUserId"`,
+  },
+
+  /*
+   * ── Ціни ─────────────────────────────────────────────────────────────
+   *
+   * Ціновий шар (docs/pricing.md): 1С дає опт і роздріб у Price1C, сайти
+   * виробників і магазини — MarketPrice, правила — PricePolicy, рушій
+   * рахує SitePrice і копіює в товар. Агент раз на тиждень пропонує
+   * конкурентну ціну (PriceProposal), ставить її лише адмін.
+   */
+  {
+    name: "product_prices",
+    purpose: "ціни товару поруч: опт і роздріб 1С, ціна сайту і звідки вона, ринок (мінімум по джерелах), собівартість",
+    deps: ["last_cost"],
+    columns: [
+      col("product_id", ID, "товар"),
+      col("sku", T, "артикул"),
+      col("name", T, "назва"),
+      col("brand", T, "бренд"),
+      col("wholesale_1c", N, "оптова ціна 1С"),
+      col("retail_1c", N, "роздрібна ціна 1С; NULL — у 1С немає"),
+      col("site_price", N, "ціна на вітрині"),
+      col("site_basis", T, "звідки ціна сайту: MARKUP — опт×націнка, APPROVED — затвердив адмін, MARKET — від ринку, FLOOR — підлога"),
+      col("site_markup", N, "націнка над оптом, частка (0.3 = 30 %)"),
+      col("market_min", N, "найдешевша ціна на ринку серед джерел"),
+      col("market_sources", I, "у скількох джерелах знайдено"),
+      col("last_cost", N, "остання собівартість за одиницю; NULL — невідома"),
+      col("site_price_day", D, "коли ціна сайту востаннє змінилася"),
+      col("flags", T, "позначки рушія цін, через кому"),
+    ],
+    sql: `
+      SELECT p.id AS product_id, p.sku, p.name, b.name AS brand,
+             pw.price AS wholesale_1c, pr.price AS retail_1c,
+             sp.price AS site_price, sp.basis::text AS site_basis, sp.markup AS site_markup,
+             mk.market_min, COALESCE(mk.sources, 0)::int AS market_sources,
+             lc.cost AS last_cost, ${KYIV_DAY('sp."changedAt"')} AS site_price_day,
+             array_to_string(sp.flags, ',') AS flags
+      FROM "Product" p
+      LEFT JOIN "Brand" b ON b.id = p."brandId"
+      LEFT JOIN "Price1C" pw ON pw."productId" = p.id AND pw.kind = 'WHOLESALE'
+      LEFT JOIN "Price1C" pr ON pr."productId" = p.id AND pr.kind = 'RETAIL'
+      LEFT JOIN "SitePrice" sp ON sp."productId" = p.id
+      LEFT JOIN (
+        SELECT "productId", MIN(price) AS market_min, COUNT(*) AS sources
+        FROM "MarketPrice" WHERE "failCount" = 0
+        GROUP BY "productId"
+      ) mk ON mk."productId" = p.id
+      LEFT JOIN last_cost lc ON lc."productId" = p.id`,
+    examples: [
+      "SELECT brand, COUNT(*) AS items, ROUND(AVG((site_price - market_min) / market_min * 100)::numeric, 1) AS above_market_pct FROM product_prices WHERE market_min > 0 AND site_price > 0 GROUP BY brand ORDER BY items DESC LIMIT 15",
+    ],
+  },
+  {
+    name: "market_prices",
+    purpose: "ціни конкурентів і сайтів виробників по кожному джерелу проти нашої ціни",
+    columns: [
+      col("product_id", ID, "товар"),
+      col("sku", T, "артикул"),
+      col("product", T, "назва"),
+      col("brand", T, "бренд"),
+      col("source", T, "джерело (домен)"),
+      col("market_price", N, "ціна в джерелі"),
+      col("in_stock", B, "є в наявності в джерелі; NULL — невідомо"),
+      col("our_price", N, "наша ціна на вітрині"),
+      col("our_wholesale", N, "наш опт"),
+      col("diff_pct", N, "наша ціна дорожча за джерело на стільки відсотків (від'ємне — дешевша)"),
+      col("checked_day", D, "коли перевіряли"),
+      col("changed_day", D, "коли ціна в джерелі змінилася"),
+      col("ok", B, "остання перевірка вдала"),
+      col("url", T, "сторінка товару в джерелі"),
+    ],
+    sql: `
+      SELECT mp."productId" AS product_id, p.sku, p.name AS product, b.name AS brand, mp.source,
+             mp.price AS market_price, mp."inStock" AS in_stock, p.price AS our_price,
+             p."wholesalePrice" AS our_wholesale,
+             CASE WHEN mp.price > 0 THEN ROUND(((p.price - mp.price) / mp.price * 100)::numeric, 1) END AS diff_pct,
+             ${KYIV_DAY('mp."checkedAt"')} AS checked_day, ${KYIV_DAY('mp."changedAt"')} AS changed_day,
+             (mp."failCount" = 0) AS ok, mp.url
+      FROM "MarketPrice" mp
+      JOIN "Product" p ON p.id = mp."productId"
+      LEFT JOIN "Brand" b ON b.id = p."brandId"`,
+    examples: [
+      "SELECT source, COUNT(*) AS items, ROUND(AVG(diff_pct), 1) AS avg_diff_pct FROM market_prices WHERE ok GROUP BY source ORDER BY items DESC LIMIT 15",
+    ],
+  },
+  {
+    name: "price_proposals",
+    purpose: "пропозиції агента цін: яку ціну пропонує, від якого ринку, чи затвердив адмін",
+    columns: [
+      col("proposal_id", ID, "ідентифікатор"),
+      col("product_id", ID, "товар"),
+      col("sku", T, "артикул"),
+      col("product", T, "назва"),
+      col("brand", T, "бренд"),
+      col("status", T, "PENDING — чекає рішення; APPROVED; REJECTED; SUPERSEDED — застаріла, є новіша"),
+      col("week", T, "тиждень пропозиції"),
+      col("current_price", N, "ціна на момент пропозиції"),
+      col("proposed_price", N, "запропонована ціна"),
+      col("change_pct", N, "зміна, %"),
+      col("wholesale", N, "опт на момент пропозиції"),
+      col("market", N, "ринкова ціна, від якої рахували"),
+      col("market_source", T, "джерело ринку"),
+      col("flags", T, "позначки агента, через кому"),
+      col("created_day", D, "коли запропоновано"),
+      col("decided_day", D, "коли вирішено"),
+    ],
+    sql: `
+      SELECT pp.id AS proposal_id, pp."productId" AS product_id, p.sku, p.name AS product, b.name AS brand,
+             pp.status::text AS status, pp.week, pp."currentPrice" AS current_price,
+             pp."proposedPrice" AS proposed_price,
+             CASE WHEN pp."currentPrice" > 0 THEN ROUND(((pp."proposedPrice" - pp."currentPrice") / pp."currentPrice" * 100)::numeric, 1) END AS change_pct,
+             pp.wholesale, pp.market, pp."marketSource" AS market_source, array_to_string(pp.flags, ',') AS flags,
+             ${KYIV_DAY('pp."createdAt"')} AS created_day, ${KYIV_DAY('pp."decidedAt"')} AS decided_day
+      FROM "PriceProposal" pp
+      JOIN "Product" p ON p.id = pp."productId"
+      LEFT JOIN "Brand" b ON b.id = p."brandId"`,
+  },
+  {
+    name: "price_changes",
+    purpose: "історія змін ціни й опту товару на сайті",
+    columns: [
+      col("product_id", ID, "товар"),
+      col("sku", T, "артикул"),
+      col("product", T, "назва"),
+      col("brand", T, "бренд"),
+      col("day", D, "коли змінилася"),
+      col("old_price", N, "було"),
+      col("new_price", N, "стало"),
+      col("change_pct", N, "зміна, %"),
+      col("old_wholesale", N, "опт був"),
+      col("new_wholesale", N, "опт став"),
+    ],
+    sql: `
+      SELECT pc."productId" AS product_id, p.sku, p.name AS product, b.name AS brand,
+             ${KYIV_DAY('pc."changedAt"')} AS day, pc."oldPrice" AS old_price, pc."newPrice" AS new_price,
+             CASE WHEN pc."oldPrice" > 0 THEN ROUND(((pc."newPrice" - pc."oldPrice") / pc."oldPrice" * 100)::numeric, 1) END AS change_pct,
+             pc."oldWholesale" AS old_wholesale, pc."newWholesale" AS new_wholesale
+      FROM "ProductPriceChange" pc
+      JOIN "Product" p ON p.id = pc."productId"
+      LEFT JOIN "Brand" b ON b.id = p."brandId"`,
+  },
+  {
+    name: "price_policies",
+    purpose: "правила цін по брендах: націнка, мінімальна націнка, чи йти за ринком",
+    columns: [
+      col("brand", T, "бренд; NULL — правило за замовчуванням для всіх інших"),
+      col("markup", N, "націнка над оптом, частка (0.3 = 30 %)"),
+      col("min_markup", N, "нижче цієї націнки ціна не опуститься, частка"),
+      col("undercut", N, "на скільки дешевше за ринок ставити, частка"),
+      col("follow_market", B, "чи рухатися за ринком"),
+      col("updated_day", D, "коли змінено"),
+    ],
+    sql: `
+      SELECT b.name AS brand, pp.markup, pp."minMarkup" AS min_markup, pp.undercut,
+             pp."followMarket" AS follow_market, ${KYIV_DAY('pp."updatedAt"')} AS updated_day
+      FROM "PricePolicy" pp
+      LEFT JOIN "Brand" b ON b.id = pp."brandId"`,
+  },
+  {
+    name: "supplier_prices",
+    purpose: "закупівельні ціни постачальників по товарах проти нашого опту й роздробу",
+    columns: [
+      col("supplier_id", ID, "постачальник (контрагент)"),
+      col("supplier", T, "назва постачальника"),
+      col("product_id", ID, "товар"),
+      col("sku", T, "артикул"),
+      col("product", T, "назва"),
+      col("brand", T, "бренд"),
+      col("purchase_price", N, "ціна закупівлі"),
+      col("our_wholesale", N, "наш опт"),
+      col("our_price", N, "наша роздрібна ціна"),
+      col("updated_day", D, "коли оновлено"),
+    ],
+    sql: `
+      SELECT spp."supplierId" AS supplier_id, c.name AS supplier, spp."productId" AS product_id,
+             p.sku, p.name AS product, b.name AS brand, spp."purchasePrice" AS purchase_price,
+             p."wholesalePrice" AS our_wholesale, p.price AS our_price,
+             ${KYIV_DAY('spp."lastUpdated"')} AS updated_day
+      FROM "SupplierProduct" spp
+      JOIN "Counterparty" c ON c.id = spp."supplierId"
+      JOIN "Product" p ON p.id = spp."productId"
+      LEFT JOIN "Brand" b ON b.id = p."brandId"`,
+  },
+
+  /* ── Ринок, сезон, сайт ─────────────────────────────────────────────── */
+  {
+    name: "prospects",
+    purpose: "потенційні клієнти («База Львів» та інші): хто, де, статус розпрацювання, за ким закріплено",
+    columns: [
+      col("prospect_id", ID, "ідентифікатор"),
+      col("name", T, "назва"),
+      col("address", T, "адреса"),
+      col("lat", N, "широта"),
+      col("lng", N, "довгота"),
+      col("status", T, "NEW / IN_PROGRESS / CONVERTED — став клієнтом / REJECTED"),
+      col("rep", T, "закріплений торговий"),
+      col("source", T, "звідки база"),
+      col("client_id", ID, "клієнт 1С, коли вже став клієнтом"),
+      col("notes", T, "нотатки (до 300 символів)"),
+      col("created_day", D, "коли додано"),
+    ],
+    sql: `
+      SELECT pc.id AS prospect_id, pc.name, pc.address, pc.lat, pc.lng, pc.status::text AS status,
+             u.name AS rep, pc.source, pc."counterpartyId" AS client_id, LEFT(pc.notes, 300) AS notes,
+             ${KYIV_DAY('pc."createdAt"')} AS created_day
+      FROM "ProspectClient" pc
+      LEFT JOIN "User" u ON u.id = pc."assignedRepId"`,
+  },
+  {
+    name: "season_profile",
+    purpose: "сезонність: як рік розподіляється помісячно по товару, виду, розділу, бренду чи фірмі",
+    columns: [
+      col("level", T, "SKU / TYPE / SECTION / BRAND / COMPANY"),
+      col("key", T, "ключ: артикул, вид, розділ, бренд"),
+      col("label", T, "людська назва"),
+      col("confidence", T, "HIGH / MEDIUM / LOW — наскільки роки згодні між собою"),
+      col("peak_month", I, "місяць піку продажів (1–12)"),
+      col("amount_index", T, "індекс суми по місяцях січень…грудень, 1.0 — середній місяць"),
+      col("amplitude", N, "розмах сезону: пік / середнє"),
+      col("lumpy", B, "продажі поштучні й рвані — індекс ненадійний"),
+      col("years", T, "за які роки пораховано"),
+      col("amount", N, "сума продажів у розрахунку"),
+      col("computed_day", D, "коли перераховано"),
+    ],
+    sql: `
+      SELECT sp.level::text AS level, sp.key, sp.label, sp.confidence::text AS confidence,
+             (SELECT i::int FROM unnest(sp."amountIndex") WITH ORDINALITY u(v, i) ORDER BY v DESC LIMIT 1) AS peak_month,
+             array_to_string(sp."amountIndex", ' ') AS amount_index, sp.amplitude, sp.lumpy,
+             array_to_string(sp.years, ',') AS years, sp.amount, ${KYIV_DAY('sp."computedAt"')} AS computed_day
+      FROM "SeasonProfile" sp`,
+  },
+  {
+    name: "site_daily",
+    purpose: "інтернет-магазин по днях: відвідувачі, перегляди товарів, пошуки, кошики, замовлення, кліки на телефон",
+    columns: [
+      col("day", D, "день"),
+      col("visitors", I, "унікальні відвідувачі"),
+      col("sessions", I, "сесії"),
+      col("page_views", I, "перегляди сторінок"),
+      col("product_views", I, "перегляди товарів"),
+      col("searches", I, "пошуки"),
+      col("add_to_carts", I, "додавання в кошик"),
+      col("orders_placed", I, "оформлені замовлення"),
+      col("phone_clicks", I, "кліки на телефон"),
+    ],
+    sql: `
+      SELECT sd.date AS day, sd.visitors, sd.sessions, sd."pageViews" AS page_views,
+             sd."productViews" AS product_views, sd.searches, sd."addToCarts" AS add_to_carts,
+             sd."ordersPlaced" AS orders_placed, sd."phoneClicks" AS phone_clicks
+      FROM "SiteDailyStat" sd`,
+  },
 ];
 
 export const VIEW_BY_NAME = new Map(VIEWS.map((v) => [v.name, v]));

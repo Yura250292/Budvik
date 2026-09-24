@@ -211,3 +211,57 @@ export function pinVerdict(i: {
   }
   return { code: "MOVE", km, text: `точка за ${km} км від адреси — стоїть не там, пересунути` };
 }
+
+/* ── Потенційні клієнти (ромби на карті) ──────────────────────────────── */
+
+/**
+ * Тіло виду prospects: ромби «База Львів» та інші точки для розпрацювання.
+ *
+ * `open` — те саме правило, що ховає ромб на карті (prospects/converted.ts,
+ * OPEN_PROSPECT): статус NEW/IN_PROGRESS і прив'язаний контрагент ще не має
+ * замовлення від торгового. Статус CONVERTED ніхто не пише — без `open`
+ * модель рахувала б розпрацьованих як відкритих.
+ *
+ * Поля бази-джерела (категорія, спеціалізація, тип точки) — з `details` як
+ * є; категорію зведено до латинських A–D (у бланку трапляється кирилична
+ * «В»). Кордон області й плоскі км — ті самі, що в client_geo, тож
+ * «ромби біля клієнта» рахуються однією формулою.
+ */
+export function prospectsViewSql(): string {
+  return `
+      SELECT pc.id AS prospect_id, pc.name, pc.address, pc.lat, pc.lng, pc.status::text AS status,
+             u.name AS rep, pc.source, pc."counterpartyId" AS client_id, LEFT(pc.notes, 300) AS notes,
+             ${kyivDaySql('pc."createdAt"')} AS created_day,
+             (pc.status::text IN ('NEW', 'IN_PROGRESS') AND NOT EXISTS (
+               SELECT 1 FROM "SalesDocument" d
+               WHERE pc."counterpartyId" IS NOT NULL AND d."counterpartyId" = pc."counterpartyId"
+                 AND d."salesRepId" IS NOT NULL AND d."docType" IN ('ORDER', 'REALIZATION') AND d.status <> 'CANCELLED'
+             )) AS open,
+             NULLIF(translate(upper(btrim(pc.details->>'category')), 'АВСД', 'ABCD'), '') AS category,
+             pc.details->>'specialization' AS specialization,
+             pc.details->>'outletType' AS outlet_type,
+             pc.details->>'pricePositioning' AS price_segment,
+             pc.details->>'city' AS city,
+             pc.details->>'settlementType' AS settlement_type,
+             pc.details->>'precision' AS pin_precision,
+             pc.details->'similarClient'->>'name' AS similar_client,
+             pc.details->'similarClient'->>'id' AS similar_client_id,
+             lc.name AS linked_client,
+             CASE WHEN ${LVIV_OBLAST_SQL} @> point(pc.lng, pc.lat) THEN 'LVIV' ELSE 'OUTSIDE' END AS region,
+             ROUND((2 * 6371 * asin(sqrt(
+               power(sin(radians(pc.lat - dp.lat) / 2), 2)
+               + cos(radians(dp.lat)) * cos(radians(pc.lat)) * power(sin(radians(pc.lng - dp.lng) / 2), 2)
+             )))::numeric, 1) AS km_from_depot,
+             ROUND(((pc.lng - ${CENTER.lng}) * ${X_KM_PER_DEG})::numeric, 2) AS x_km,
+             ROUND(((pc.lat - ${CENTER.lat}) * ${Y_KM_PER_DEG})::numeric, 2) AS y_km,
+             'https://www.google.com/maps/search/?api=1&query=' || ROUND(pc.lat::numeric, 6) || ',' || ROUND(pc.lng::numeric, 6) AS map_url
+      FROM "ProspectClient" pc
+      LEFT JOIN "User" u ON u.id = pc."assignedRepId"
+      LEFT JOIN "Counterparty" lc ON lc.id = pc."counterpartyId"
+      LEFT JOIN (
+        SELECT sl.lat, sl.lng FROM "StockLocation" sl
+        WHERE sl."isActive" AND NOT sl."isService" AND sl.lat IS NOT NULL AND sl.lng IS NOT NULL
+        ORDER BY sl."isDefault" DESC, sl.name
+        LIMIT 1
+      ) dp ON TRUE`;
+}

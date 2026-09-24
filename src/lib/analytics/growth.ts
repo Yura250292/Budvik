@@ -29,6 +29,7 @@ import { prisma } from "@/lib/prisma";
 import { SOURCE_FILTER, NOT_INTERNAL_DOC } from "@/lib/analytics/facts";
 import { FREE_STOCK_ALL } from "@/lib/assistant/facts/sql";
 import { haversineM } from "@/lib/track/geo";
+import { OPEN_PROSPECT } from "@/lib/prospects/converted";
 
 /* ── 1. Хто недокуповує ─────────────────────────────────────────────── */
 
@@ -310,7 +311,9 @@ export async function loadStockBrands(): Promise<Map<string, number>> {
 /** Потенційні клієнти з полями з details бази. */
 export async function loadProspects(): Promise<ProspectPoint[]> {
   const rows = await prisma.prospectClient.findMany({
-    where: { status: { in: ["NEW", "IN_PROGRESS"] } },
+    // Те саме правило, що ховає ромб на карті: прив'язаний контрагент із
+    // замовленням від торгового вже клієнт, радити його «по дорозі» пізно.
+    where: OPEN_PROSPECT,
     select: { id: true, name: true, lat: true, lng: true, status: true, details: true },
   });
   return rows.map((r) => {

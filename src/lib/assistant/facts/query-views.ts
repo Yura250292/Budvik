@@ -40,7 +40,7 @@ import { SOURCE_FILTER, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE } from "@/lib/assistant/facts/sql";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { kyivDayStart, kyivDaySql, kyivTsSql } from "@/lib/date/kyiv";
-import { clientGeoViewSql } from "@/lib/assistant/facts/client-geo";
+import { clientGeoViewSql, prospectsViewSql } from "@/lib/assistant/facts/client-geo";
 
 export type ViewColumn = { name: string; type: string; description: string };
 
@@ -1399,26 +1399,41 @@ export const VIEWS: View[] = [
   /* ── Ринок, сезон, сайт ─────────────────────────────────────────────── */
   {
     name: "prospects",
-    purpose: "потенційні клієнти («База Львів» та інші): хто, де, статус розпрацювання, за ким закріплено",
+    purpose: "потенційні клієнти — ромби на карті («База Львів»): кого розпрацювати (open), категорія, спеціалізація, де, відстані",
     columns: [
       col("prospect_id", ID, "ідентифікатор"),
       col("name", T, "назва"),
       col("address", T, "адреса"),
       col("lat", N, "широта"),
       col("lng", N, "довгота"),
-      col("status", T, "NEW / IN_PROGRESS / CONVERTED — став клієнтом / REJECTED"),
-      col("rep", T, "закріплений торговий"),
-      col("source", T, "звідки база"),
-      col("client_id", ID, "клієнт 1С, коли вже став клієнтом"),
+      col("status", T, "NEW / IN_PROGRESS / REJECTED; CONVERTED не пишеться — чи став клієнтом, каже open"),
+      col("rep", T, "закріплений торговий (NULL — ще нікому не доручено)"),
+      col("source", T, "звідки база: baza-lviv-2026-09 — бланк «База Львів»; NULL — поставлено на карті людиною"),
+      col("client_id", ID, "прив'язаний контрагент 1С"),
       col("notes", T, "нотатки (до 300 символів)"),
       col("created_day", D, "коли додано"),
+      col("open", B, "ще треба розпрацювати — ромб на карті; false — уже є замовлення від торгового (став клієнтом) або відмова"),
+      col("category", T, "категорія точки з бази-джерела A / B / C / D (A — найвища)"),
+      col("specialization", T, "спеціалізація: Строительные материалы, Хозяйственные товары, Электрика, Люстры…"),
+      col("outlet_type", T, "тип точки: Магазин, Павильон, Лоток, Прямой клиент…"),
+      col("price_segment", T, "цінове позиціювання: Low cost / Middle / High"),
+      col("city", T, "населений пункт"),
+      col("settlement_type", T, "тип пункту: обласний центр, місто, село"),
+      col("pin_precision", T, "ADDRESS — точка за адресою / CITY — лише населений пункт (точну ставить торговий на місці) / MANUAL — людина"),
+      col("similar_client", T, "схожий контрагент 1С — лише підказка, що це може бути вже наш клієнт"),
+      col("similar_client_id", ID, "його client_id"),
+      col("linked_client", T, "назва прив'язаного контрагента 1С"),
+      col("region", T, "LVIV / OUTSIDE — за кордоном Львівської області"),
+      col("km_from_depot", N, "від складу по прямій, км"),
+      col("x_km", N, "схід від центру Львова, км — та сама система, що в client_geo"),
+      col("y_km", N, "північ від центру Львова, км; до клієнта = SQRT(POWER(p.x_km-c.x_km,2)+POWER(p.y_km-c.y_km,2))"),
+      col("map_url", T, "точка в Google Maps"),
     ],
-    sql: `
-      SELECT pc.id AS prospect_id, pc.name, pc.address, pc.lat, pc.lng, pc.status::text AS status,
-             u.name AS rep, pc.source, pc."counterpartyId" AS client_id, LEFT(pc.notes, 300) AS notes,
-             ${KYIV_DAY('pc."createdAt"')} AS created_day
-      FROM "ProspectClient" pc
-      LEFT JOIN "User" u ON u.id = pc."assignedRepId"`,
+    sql: prospectsViewSql(),
+    examples: [
+      "SELECT city, category, COUNT(*) AS n FROM prospects WHERE open GROUP BY city, category ORDER BY n DESC LIMIT 30",
+      "SELECT p.name, p.category, p.specialization, ROUND(SQRT(POWER(p.x_km - c.x_km, 2) + POWER(p.y_km - c.y_km, 2))::numeric, 1) AS km FROM prospects p JOIN client_geo c ON c.name ILIKE '%Скалоцьк%' WHERE p.open ORDER BY km LIMIT 10",
+    ],
   },
   {
     name: "season_profile",

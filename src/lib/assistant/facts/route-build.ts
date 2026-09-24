@@ -12,6 +12,11 @@
  * правила впізнавання одні, різниться лише те, чи дозволено геокодувати
  * незнайомі адреси (для торгового — ні, бо він називає лише клієнтів).
  *
+ * Потенційні клієнти (ромби на карті) — третє джерело після клієнтів і
+ * перед адресами: ім'я, якого немає серед контрагентів, шукаємо серед
+ * відкритих ромбів (prospects/find.ts). Точка тоді несе примітку: хто це, яка
+ * категорія і чи стоїть пін лише в центрі населеного пункту.
+ *
  * Геокодування — Nominatim, ~1,1 с на запит, а невдала адреса перебирає до
  * восьми варіантів написання. Тому адрес за один виклик береться не більше
  * `maxGeocode`; решта повертається у `noPin`, і викликач має про це сказати.
@@ -23,6 +28,7 @@ import { clientQuery, findClients, pickOneClient } from "@/lib/assistant/facts/c
 import { queryWords } from "@/lib/assistant/facts/search-words";
 import { geocodeAddress } from "@/lib/geo/nominatim";
 import { humanText } from "@/lib/assistant/format";
+import { findOpenProspects, prospectNote } from "@/lib/prospects/find";
 
 export type RouteStop = {
   /** Ідентифікатор контрагента; для адреси й складу — null. */
@@ -31,7 +37,11 @@ export type RouteStop = {
   address: string | null;
   lat: number;
   lng: number;
-  source: "клієнт" | "адреса" | "склад";
+  source: "клієнт" | "адреса" | "склад" | "потенційний";
+  /** Для ромба: хто це (категорія, спеціалізація) і чи точна точка. */
+  note?: string;
+  /** Точка приблизна — стоїть у центрі населеного пункту. */
+  approximate?: boolean;
 };
 
 export type RouteStopsResult = {
@@ -123,6 +133,7 @@ export async function resolveRouteStops(
   const noPin: string[] = [];
   const geocodeSkipped: string[] = [];
   const seenIds = new Set<string>();
+  const prospectOptions: Array<{ asked: string; options: string[] }> = [];
   let depotTaken = false;
   let geocoded = 0;
 
@@ -160,6 +171,29 @@ export async function resolveRouteStops(
       continue;
     }
 
+    const prospects = await findOpenProspects(name, 3);
+    if (prospects.length === 1) {
+      const p = prospects[0];
+      if (seenIds.has(p.id)) continue;
+      seenIds.add(p.id);
+      picked.push({
+        id: null,
+        name: p.name,
+        address: p.address ? humanText(p.address, 120) : null,
+        lat: p.lat,
+        lng: p.lng,
+        source: "потенційний",
+        note: prospectNote(p),
+        approximate: p.approximate,
+      });
+      continue;
+    }
+    if (prospects.length > 1 && !looksLikeAddress(name)) {
+      unclear.push(name);
+      prospectOptions.push({ asked: name, options: prospects.map((p) => p.name) });
+      continue;
+    }
+
     if (!opts.geocode || !looksLikeAddress(name)) {
       unclear.push(name);
       continue;
@@ -193,6 +227,11 @@ export async function resolveRouteStops(
   }
 
   const suggestions = await suggestFor(unclear, repId);
+  for (const po of prospectOptions) {
+    const same = suggestions.find((x) => x.asked === po.asked);
+    if (same) same.options = [...same.options, ...po.options];
+    else suggestions.push(po);
+  }
 
   return { picked, unclear, noPin, geocodeSkipped, suggestions };
 }

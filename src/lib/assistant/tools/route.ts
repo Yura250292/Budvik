@@ -541,6 +541,16 @@ export const buildRouteTool: ToolDef = {
         `Точкам ${risky.map((s) => `«${s.name}»`).join(", ")} вірити не можна або туди лише доставка (поле «увага») — скажи про це людині; перевірити точку — build_route mode=pins.`
       );
     }
+    const prospects = order.filter((s) => s.source === "потенційний");
+    if (prospects.length) {
+      const vague = prospects.filter((s) => s.approximate);
+      notes.push(
+        `${prospects.map((s) => `«${s.name}»`).join(", ")} — потенційні клієнти з бази для розпрацювання (ромби на карті), ще не клієнти 1С.` +
+          (vague.length
+            ? ` Точки ${vague.map((s) => `«${s.name}»`).join(", ")} лише до населеного пункту: кілометри приблизні, магазин шукати на місці.`
+            : "")
+      );
+    }
 
     notes.push(
       source === "osrm"
@@ -557,7 +567,7 @@ export const buildRouteTool: ToolDef = {
         клієнт_id: s.id,
         km_від_попередньої: legs?.[i]?.km ?? null,
         хв_від_попередньої: legs?.[i]?.min ?? null,
-        ...(s.id ? pinNote(geo.get(s.id)) : null),
+        ...(s.note ? { точка: s.note } : s.id ? pinNote(geo.get(s.id)) : null),
       })),
       км: km,
       хвилин: minutes,

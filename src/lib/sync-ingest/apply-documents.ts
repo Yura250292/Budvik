@@ -17,6 +17,7 @@
  * та створити нові, ніж намагатися їх зіставити.
  */
 
+import { matchRepByName } from "./rep-names";
 import { Prisma, type SalesDocType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { documentUnchanged } from "@/lib/sync-ingest/document-unchanged";
@@ -413,37 +414,12 @@ export async function applySalesDocuments(
         })
       : [];
 
-  /** Слова імені, нормалізовані; порядок і зайві пробіли не мають значення. */
-  const wordsOf = (name: string) =>
-    new Set(
-      name
-        .toLowerCase()
-        .split(/[\s.]+/)
-        .map((w) => w.trim())
-        .filter((w) => w.length >= 3)
-    );
-
-  const userWords = allUsers
-    .filter((u) => !!u.name?.trim())
-    .map((u) => ({ id: u.id, role: u.role, words: wordsOf(u.name!) }));
-
+  // Правило й нормалізація імен — rep-names.ts (усі слова імені на сайті є в
+  // імені з 1С, кандидат один; апострофи всіх видів однакові).
   const repIdByName = new Map<string, string>();
   for (const oneCName of repNames) {
-    const target = wordsOf(oneCName);
-    if (target.size === 0) continue;
-
-    // Кандидат — той, чиї слова ПОВНІСТЮ входять в ім'я з 1С. «Валентин»
-    // збігається з «Пац Валентин», але «Дмитро Ковальчук» з «Кулик Дмитро»
-    // не збіжиться, бо «ковальчук» відсутнє.
-    const candidates = userWords.filter(
-      (u) => u.words.size > 0 && [...u.words].every((w) => target.has(w))
-    );
-
-    // Неоднозначність — привід не вгадувати: на сайті двоє «Дмитро», і
-    // приписати чужі продажі гірше, ніж не приписати нікому.
-    if (candidates.length === 1) {
-      repIdByName.set(oneCName.toLowerCase(), candidates[0].id);
-    }
+    const id = matchRepByName(oneCName, allUsers);
+    if (id) repIdByName.set(oneCName.toLowerCase(), id);
   }
   const reportedMissingReps = new Set<string>();
 

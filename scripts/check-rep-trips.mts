@@ -7,9 +7,10 @@
  * рівно їхні підсумки, інакше помічник назве два різні пробіги за один місяць.
  *
  *   npx tsx scripts/check-rep-trips.mts                    # лише чиста частина
- *   npx tsx --env-file=.env scripts/check-rep-trips.mts db # + звірка з базою
+ *   npx tsx --env-file=.env scripts/check-rep-trips.mts local  # + кілька змін за день (ЛИШЕ локальна база: пише й прибирає)
+ *   npx tsx --env-file=.env scripts/check-rep-trips.mts db     # + звірка з базою (лише читає)
  *
- * У базу нічого не пише.
+ * Режим db у базу нічого не пише; local створює тимчасового торгового зі змінами й видаляє.
  */
 
 import { tripDay, type TripDayFacts } from "../src/lib/analytics/trip-facts";
@@ -26,6 +27,7 @@ const base: TripDayFacts = {
   shifts: 1,
   odometerKm: 200,
   gpsKm: 190,
+  gpsOnlyKm: 0,
   personalKm: 12,
   suspicious: 0,
   autoClosed: 0,
@@ -105,6 +107,39 @@ const golf = { fuelConsumption: 6, fuelPricePerL: 91 };
   const d = tripDay({ ...base, suspicious: 1, autoClosed: 1 }, golf);
   check("підозрілий одометр", d.flags.some((f) => f.includes("підозрілий")), d.flags);
   check("автозакриття", d.flags.some((f) => f.includes("автоматично")), d.flags);
+}
+
+/* ── Частина 1б: кілька змін за день (лише локальна база, пише й прибирає) ── */
+
+if (process.argv[2] === "local") {
+  const { prisma } = await import("../src/lib/prisma");
+  const { repTripDays } = await import("../src/lib/analytics/trip-facts");
+  const { kyivDayStart, kyivDayEnd } = await import("../src/lib/date/kyiv");
+  const user = await prisma.user.create({
+    data: { email: `trip-check-${Date.now()}@local`, name: "Перевірка поїздок", role: "SALES", password: "x" },
+  });
+  try {
+    // Зміна A: одометр 80 км, трек 75. Зміна B того ж дня закрита без фото
+    // одометра, але трек 40 км є. Відношення мусить рахуватися по A (80/75),
+    // а не 80/115 — інакше день хибно отримує «трек довший за одометр».
+    await prisma.shift.createMany({
+      data: [
+        { userId: user.id, status: "CLOSED", startedAt: new Date("2026-09-10T06:00:00Z"), startOdometer: 1000, startOdometerSource: "MANUAL", distanceKm: 80, gpsDistanceKm: 75 },
+        { userId: user.id, status: "ABANDONED", startedAt: new Date("2026-09-10T12:00:00Z"), startOdometer: 1080, startOdometerSource: "MANUAL", gpsDistanceKm: 40 },
+      ],
+    });
+    const [d] = await repTripDays(kyivDayStart("2026-09-10"), kyivDayEnd("2026-09-10"), user.id);
+    check("одна доба — один рядок", d?.shifts === 2, d?.shifts);
+    check("трек у парі з одометром — лише зі змін з одометром", d?.gpsKm === 75, d?.gpsKm);
+    check("трек змін без одометра — окремо", d?.gpsOnlyKm === 40, d?.gpsOnlyKm);
+    const t = tripDay(d!, golf);
+    check("відношення по змінах з одометром", t.odometerToGps === 1.07, t.odometerToGps);
+    check("без хибного «трек довший»", !t.flags.some((f) => f.includes("довший")), t.flags);
+  } finally {
+    await prisma.shift.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+    await prisma.$disconnect();
+  }
 }
 
 /* ── Частина 2: звірка з базою ───────────────────────────────────────── */

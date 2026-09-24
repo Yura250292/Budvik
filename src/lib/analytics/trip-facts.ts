@@ -31,8 +31,17 @@ export type TripDayFacts = {
   shifts: number;
   /** Сума Shift.distanceKm; null — жодна зміна дня не має одометра */
   odometerKm: number | null;
-  /** Сума Shift.gpsDistanceKm (з 05.09.2026 — лише їзда); null — треку немає */
+  /**
+   * Трек (з 05.09.2026 — лише їзда) змін, що МАЮТЬ одометр: пара до
+   * odometerKm для відношення. null — треку в цих змінах немає.
+   */
   gpsKm: number | null;
+  /**
+   * Трек змін без одометра (закрили без фото). Окремо, як gpsOnlyKm у
+   * shiftFactsByUser: у парі з одометром він дав би «трек довший» на рівному
+   * місці, а мовчки зникнути теж не має — день за кермом не нуль.
+   */
+  gpsOnlyKm: number;
   personalKm: number;
   suspicious: number;
   autoClosed: number;
@@ -147,7 +156,8 @@ export async function repTripDays(from: Date, to: Date, userId?: string | null):
       SELECT s."userId", ${shiftDay} AS day,
         COUNT(*)::int                                          AS shifts,
         SUM(s."distanceKm")::float                             AS "odometerKm",
-        SUM(s."gpsDistanceKm")::float                          AS "gpsKm",
+        SUM(s."gpsDistanceKm") FILTER (WHERE s."distanceKm" IS NOT NULL)::float AS "gpsKm",
+        COALESCE(SUM(s."gpsDistanceKm") FILTER (WHERE s."distanceKm" IS NULL), 0)::float AS "gpsOnlyKm",
         COALESCE(SUM(s."personalKm"), 0)::float                AS "personalKm",
         COUNT(*) FILTER (WHERE s."odometerSuspicious")::int    AS suspicious,
         COUNT(*) FILTER (WHERE s."closedAutomatically")::int   AS "autoClosed"

@@ -34,16 +34,24 @@ ChatGPT — Python).
 
 ## Що бачить модель
 
-18 інструментів, усі лише на читання (`readOnlyHint`, ChatGPT не питає підтвердження):
+19 інструментів, усі лише на читання (`readOnlyHint`, ChatGPT не питає підтвердження):
 
 | Інструмент | Що дає |
 | --- | --- |
 | `describe_data` | 29 представлень бази (продажі, рядки накладних, клієнти й борги, товари, склад, оплати, зміни, трек, маршрути, інтернет-замовлення…) і правила SQL |
 | `query_db` | довільний `SELECT` над цими представленнями, до 500 рядків; відповідь — `columns` + `rows` масивами |
-| 16 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search` |
+| 17 готових зведень | ті самі, що в помічника керівника: `team_overview`, `team_receivables`, `documents`, `stock_health`, `sales_analysis`, `money_flows`, `shifts_report`, `drivers_report`, `staff_profile`, `staff_now`, `drivers_today`, `site_report`, `sync_health`, `search_clients`, `client_profile`, `product_search`, `build_route` (план доставки на день з грошима рейсу й посиланнями Google Maps — нічого не пише) |
 
 Зведення — явним списком у `src/lib/mcp/tools.ts`, а не «все, що бачить
 керівник»: новий пишучий інструмент помічника назовні сам не потрапить.
+Відносні посилання на екрани сайту («/admin/…») у відповідях зведень конектор
+робить повними (`absolutizeLinks`): у claude.ai чи ChatGPT шлях нікуди не веде.
+
+Логістика: «склади маршрути на завтра» — `build_route mode=day_plan`, поїздки
+торгових — `shifts_report` (`mode=days` — по днях). Подробиці —
+[assistant.md](assistant.md#логістика-гроші-рейсу-й-поїздки-торгових). Сервісу
+потрібна змінна `OSRM_URL` (та сама, що на Vercel): без неї маршрути рахує
+публічний демо-OSRM, який лімітує й падає.
 `remind_me` (пише) і `export_file` (файли віддаються з кукою сайту) не віддаємо.
 
 Інструкції сервера (`src/lib/mcp/instructions.ts`) коротко пояснюють моделі

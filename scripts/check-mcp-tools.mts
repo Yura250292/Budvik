@@ -3,8 +3,10 @@
  * SDK говорить із createMcpServer через InMemoryTransport.
  *
  * Що доводимо:
- * - назовні рівно ті 18 інструментів, що в списку, усі з readOnlyHint, і
+ * - назовні рівно ті 19 інструментів, що в списку, усі з readOnlyHint, і
  *   жодного пишучого (remind_me) чи файлового (export_file);
+ * - посилання на екрани сайту у відповідях зведень — повні адреси: у claude.ai
+ *   чи ChatGPT шлях «/admin/…» нікуди не веде;
  * - describe_data і query_db працюють, битий чи «пишучий» SQL повертає
  *   помилку з підказкою, а не валить сервер;
  * - готові зведення керівника відповідають, неправильні аргументи — isError;
@@ -19,7 +21,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { prisma } from "../src/lib/prisma";
 import { createMcpServer } from "../src/lib/mcp/server";
-import { SUMMARY_TOOLS } from "../src/lib/mcp/tools";
+import { SUMMARY_TOOLS, absolutizeLinks } from "../src/lib/mcp/tools";
 
 const fails: string[] = [];
 function check(name: string, ok: boolean, got: unknown) {
@@ -56,7 +58,8 @@ try {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   const expected = ["describe_data", "query_db", ...SUMMARY_TOOLS].sort();
-  check("рівно 18 інструментів", tools.length === 18, tools.length);
+  check("рівно 19 інструментів", tools.length === 19, tools.length);
+  check("маршрути доставки є", names.includes("build_route"), names.includes("build_route"));
   check("саме ті, що в списку", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
   check("усі readOnlyHint", tools.every((t) => t.annotations?.readOnlyHint === true), tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name).join(",") || "усі");
   check("жодного пишучого чи файлового", !names.some((n) => ["remind_me", "export_file", "my_reminders"].includes(n)), "немає");
@@ -98,6 +101,25 @@ try {
   check("sync_health відповідає", !sync.isError, text(sync).slice(0, 100));
   const badArgs = await call("documents", { doc_type: "НЕМАЄ_ТАКОГО" });
   check("неправильний аргумент → isError, а не виняток", badArgs.isError === true, text(badArgs));
+  const trips = await call("shifts_report", { mode: "days", days: 7 });
+  check("поїздки по днях відповідають", !trips.isError && "по_днях" in JSON.parse(text(trips)), text(trips).slice(0, 100));
+  const plan = await call("build_route", { mode: "day_plan" });
+  check("план доставки викликається без винятку", !plan.isError, text(plan).slice(0, 100));
+
+  /* ── Посилання на сайт ──────────────────────────────────────────── */
+  const linked = absolutizeLinks({
+    посилання: "/admin/logistics/delivery?tab=plan&day=2026-09-25",
+    список: [{ url: "/admin/sales-analytics" }],
+    google: "https://www.google.com/maps/dir/a/b",
+    текст: "дивись /admin/x у кабінеті",
+    число: 5,
+  });
+  check("шлях /admin/… → повна адреса", linked.посилання === "https://www.budvik27.com/admin/logistics/delivery?tab=plan&day=2026-09-25", linked.посилання);
+  check("вкладені посилання теж", linked.список[0].url === "https://www.budvik27.com/admin/sales-analytics", linked.список[0].url);
+  check("чужі адреси не чіпає", linked.google === "https://www.google.com/maps/dir/a/b", linked.google);
+  check("текст зі шляхом усередині не чіпає", linked.текст === "дивись /admin/x у кабінеті", linked.текст);
+  check("числа не чіпає", linked.число === 5, linked.число);
+
   const unknown = await call("remind_me", { text: "x" });
   check("remind_me назовні недоступний", unknown.isError === true, text(unknown));
 

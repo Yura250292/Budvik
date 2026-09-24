@@ -20,6 +20,7 @@ import type { ToolContext, ToolDef } from "@/lib/assistant/types";
 import { runReadOnlyQuery } from "@/lib/assistant/facts/query-db";
 import { kyivDate } from "@/lib/date/kyiv";
 import { readonlyDb } from "@/lib/mcp/readonly-db";
+import { absoluteUrl } from "@/lib/seo/site";
 import type { McpCtx } from "@/lib/mcp/audit";
 
 export type { McpCtx } from "@/lib/mcp/audit";
@@ -42,6 +43,9 @@ export const SUMMARY_TOOLS = [
   "search_clients",
   "client_profile",
   "product_search",
+  // Нічого не пише: план доставки й порядок об'їзду лише рахуються, чернетки
+  // маршрутів створює людина кнопкою на сайті (посилання у відповіді).
+  "build_route",
 ] as const;
 
 const QUERY_MAX_ROWS = 500;
@@ -141,6 +145,26 @@ const queryDb: McpTool = {
   },
 };
 
+/** Шлях до екрана сайту: саме значення, а не текст, де він десь усередині. */
+const SITE_PATH = /^\/(admin|sales|driver|warehouse)(\/|\?|$)/;
+
+/**
+ * Посилання на екрани сайту — повними адресами.
+ *
+ * Зведення помічника живуть у кабінеті й віддають відносні шляхи
+ * («/admin/logistics/delivery?tab=plan…»): там це клікабельно. У claude.ai чи
+ * ChatGPT такий шлях нікуди не веде — людина бачить посилання на план і не
+ * може його відкрити. Міняємо лише значення, що цілком є шляхом сайту.
+ */
+export function absolutizeLinks<T>(value: T): T {
+  if (typeof value === "string") return (SITE_PATH.test(value) ? absoluteUrl(value) : value) as T;
+  if (Array.isArray(value)) return value.map((v) => absolutizeLinks(v)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, absolutizeLinks(v)])) as T;
+  }
+  return value;
+}
+
 /** Готове зведення помічника → інструмент MCP. */
 function fromToolDef(def: ToolDef): McpTool {
   if (def.write) throw new Error(`MCP: ${def.name} пише в базу — назовні не віддаємо`);
@@ -156,7 +180,7 @@ function fromToolDef(def: ToolDef): McpTool {
     async run(ctx, args) {
       try {
         const out = await def.run(toolContext(ctx), args);
-        return { result: textResult(out ?? {}) };
+        return { result: textResult(absolutizeLinks(out ?? {})) };
       } catch (e) {
         if (e instanceof ToolArgError) return { result: textResult({ помилка: e.message }, true) };
         throw e;

@@ -28,6 +28,7 @@
 | `MCP_READONLY_DATABASE_URL` | та сама база, користувач `budvik_mcp_ro` (див. `scripts/mcp/readonly-role.sql`); **без неї в проді сервіс не стартує** |
 | `MCP_ISSUER_URL` | `https://mcp.budvik27.com` |
 | `MCP_STATE_SECRET` | випадковий рядок (підпис форми входу) |
+| `OSRM_URL` | той самий, що на Vercel — власний OSRM для `build_route`; без нього маршрути йдуть у публічний демо-OSRM, який лімітує й падає |
 | `PORT` | ставить Railway |
 
 Сервіс **відмовляється стартувати** (код 1, причина в лозі), якщо адреса

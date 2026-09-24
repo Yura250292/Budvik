@@ -23,6 +23,7 @@ import { buildGeoRevenueReport } from "@/lib/analytics/geo-revenue";
 import { buildCohortReport } from "@/lib/analytics/cohorts";
 import { siteTrafficFacts } from "@/lib/webstats/traffic";
 import { siteOrdersTool } from "@/lib/assistant/tools/admin";
+import { brandGapsReport, prospectsReport } from "@/lib/assistant/tools/growth-modes";
 
 const PERIOD_PARAMS = {
   days: { type: "integer", description: "Скільки останніх днів. Без цього й без дат — календарний місяць із 1 числа." },
@@ -152,21 +153,28 @@ export const salesAnalysisTool: ToolDef = {
   label: "Розбираю продажі глибше",
   kinds: ["ADMIN"],
   description:
-    "Три розрізи продажів, яких немає в team_overview. mode=discounts: скільки віддали знижками — явними й прихованими (продаж нижче медіанної ціни), по торгових, клієнтах і товарах. mode=geo: оборот по містах, скільки клієнтів у кожному й скільки з них купують. mode=cohorts: коли клієнти прийшли й скільки лишилось, хто відвалився та скільки обороту з ними пішло. Викликай на «знижки», «хто дає найбільше знижок», «де ми продаємо», «по містах», «хто відвалився», «утримання клієнтів».",
+    "Розрізи продажів і точки росту, яких немає в team_overview. mode=discounts: скільки віддали знижками — явними й прихованими (продаж нижче медіанної ціни), по торгових, клієнтах і товарах. mode=geo: оборот по містах, скільки клієнтів у кожному й скільки з них купують. mode=cohorts: коли клієнти прийшли й скільки лишилось, хто відвалився та скільки обороту з ними пішло. mode=gaps: ХТО НЕДОКУПОВУЄ — клієнти, що не беруть бренди, які беруть схожі на них клієнти, з оцінкою обороту на рік, по брендах і по торгових (rep, brand — фільтри). mode=prospects: потенційні клієнти («База Львів») по дорозі в польових торгових — у кого, в який день, найближчий клієнт, категорія A–D; і скільки точок поза маршрутами (rep, category — фільтри). Викликай на «знижки», «де ми продаємо», «по містах», «хто відвалився», «де взяти оборот», «кому що допродати», «хто недокуповує», «потенційні клієнти», «нові точки по дорозі», «стратегія росту».",
   parameters: {
     type: "object",
     properties: {
       mode: {
         type: "string",
-        enum: ["discounts", "geo", "cohorts"],
+        enum: ["discounts", "geo", "cohorts", "gaps", "prospects"],
         description: "Який саме розріз потрібен.",
       },
+      rep: { type: "string", description: "Тільки для gaps і prospects: прізвище торгового." },
+      brand: { type: "string", description: "Тільки для gaps: бренд." },
+      category: { type: "string", description: "Тільки для prospects: категорія точки A, B, C або D." },
       ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
-    const mode = enumOf(args.mode, "mode", ["discounts", "geo", "cohorts"] as const);
+    const mode = enumOf(args.mode, "mode", ["discounts", "geo", "cohorts", "gaps", "prospects"] as const);
     const period = periodFromArgs(ctx.today, args);
+
+    // Точки росту рахуються за рік і за поточною картою — період тут не звужує.
+    if (mode === "gaps") return brandGapsReport(args);
+    if (mode === "prospects") return prospectsReport(args);
 
     if (mode === "cohorts") {
       // Когорти рахуються за всю історію: період тут не звужує, а лише збиває з пантелику.

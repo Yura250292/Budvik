@@ -36,7 +36,7 @@
  * приведено до text, щоб ILIKE по них працював.
  */
 
-import { SOURCE_FILTER } from "@/lib/analytics/facts";
+import { SOURCE_FILTER, VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 import { FREE_STOCK_ALL, LAST_COST, LAST_SALE } from "@/lib/assistant/facts/sql";
 import { ANALYTICS_SINCE_DAY } from "@/lib/analytics/since";
 import { kyivDayStart, kyivDaySql, kyivTsSql } from "@/lib/date/kyiv";
@@ -491,7 +491,7 @@ export const VIEWS: View[] = [
   },
   {
     name: "shifts",
-    purpose: "зміни торгових: одометр, пробіг GPS проти одометра, тривалість, автозакриття",
+    purpose: "зміни торгових: одометр, пробіг GPS проти одометра, тривалість, автозакриття, пальне за нормою машини",
     columns: [
       col("shift_id", ID, "ідентифікатор"),
       col("user_id", ID, "торговий"),
@@ -516,6 +516,9 @@ export const VIEWS: View[] = [
       col("suspicious", B, "одометр підозрілий"),
       col("confirmed", B, "підтверджено офісом"),
       col("notes", T, "примітка"),
+      col("fuel_per_100km", N, `норма машини: л (або кВт·год) на 100 км; без заведеної машини — типові ${VEHICLE_DEFAULTS.fuelConsumption}`),
+      col("fuel_price", N, `ціна літра (кВт·год), грн; без заведеної машини — типові ${VEHICLE_DEFAULTS.fuelPricePerL}`),
+      col("fuel_uah", N, "пальне за зміну, грн = distance_km × норма / 100 × ціна; NULL — без одометра"),
     ],
     sql: `
       SELECT sh.id AS shift_id, sh."userId" AS user_id, u.name, sh.status::text AS status,
@@ -527,9 +530,16 @@ export const VIEWS: View[] = [
              sh."afterWorkKm" AS after_work_km, sh."durationMinutes" AS duration_min,
              sh."closedAutomatically" AS auto_closed, sh."closedLate" AS closed_late,
              sh."odometerSuspicious" AS suspicious, (sh."confirmedAt" IS NOT NULL) AS confirmed,
-             LEFT(sh.notes, 200) AS notes
+             LEFT(sh.notes, 200) AS notes,
+             -- Типові норма й ціна — VEHICLE_DEFAULTS, як у shifts_report: пальне
+             -- тут мусить сходитися з ним до гривні.
+             COALESCE(sv."fuelConsumption", ${VEHICLE_DEFAULTS.fuelConsumption}) AS fuel_per_100km,
+             COALESCE(sv."fuelPricePerL", ${VEHICLE_DEFAULTS.fuelPricePerL}) AS fuel_price,
+             ROUND((sh."distanceKm" * COALESCE(sv."fuelConsumption", ${VEHICLE_DEFAULTS.fuelConsumption}) / 100
+                    * COALESCE(sv."fuelPricePerL", ${VEHICLE_DEFAULTS.fuelPricePerL}))::numeric, 2) AS fuel_uah
       FROM "Shift" sh
-      JOIN "User" u ON u.id = sh."userId"`,
+      JOIN "User" u ON u.id = sh."userId"
+      LEFT JOIN "SalesVehicle" sv ON sv."repId" = sh."userId"`,
   },
   {
     name: "track_days",

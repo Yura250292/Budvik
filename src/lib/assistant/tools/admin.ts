@@ -36,6 +36,7 @@ import {
   type ReceivableRow,
 } from "@/lib/analytics/money-facts";
 import { revenueByRepBrand, shiftFactsByUser, fuelCost } from "@/lib/analytics/facts";
+import { repTripDays, tripDay, type TripDay, type TripDayFacts } from "@/lib/analytics/trip-facts";
 import { payerVerdicts, verdictLabel } from "@/lib/assistant/facts/discipline-cache";
 import { monthForecast } from "@/lib/assistant/facts/forecast";
 import { livePositions } from "@/lib/track/live-positions";
@@ -499,16 +500,22 @@ export const shiftsReportTool: ToolDef = {
   label: "Дивлюся зміни торгових",
   kinds: ["ADMIN"],
   description:
-    "Зміни за період: скільки змін і робочих днів, робочі кілометри з одометра, GPS-кілометри, особисті, пальне в літрах і гривнях, підозрілі одометри й відкриті зміни. Плюс список того, що варто подивитися, і що зробить автозакриття з відкритими зараз. Викликай на «зміни», «пробіг», «кілометраж», «пальне», «одометр», «хто не закрив зміну».",
+    "Зміни й поїздки торгових за період. mode=\"people\" (за замовчуванням): по людях — змін і днів, робочі км з одометра, GPS-км, особисті, пальне в літрах і гривнях, підозрілі одометри, відкриті зміни і віддача поїздок: продажі й вал у дні змін, скільки відсотків валу з'їло пальне, вал на кілометр, візити, км на візит. mode=\"days\": ПОЇЗДКИ ПО ДНЯХ — кожен день кожної людини: одометр проти треку планшета, візити й пропуски, зібрані гроші, продажі й вал того дня, пальне, вал на км і прапорці «подивись» (трек не писався, їздив без візитів чи продажів, пальне з'їло понад третину валу). Викликай на «зміни», «пробіг», «кілометраж», «пальне», «одометр», «хто не закрив зміну»; days — на «поїздки торгових», «проаналізуй поїздки», «хто їздить без толку», «одометр проти GPS по днях», «чи окупаються виїзди».",
   parameters: {
     type: "object",
     properties: {
+      mode: {
+        type: "string",
+        enum: ["people", "days"],
+        description: "people — підсумок по людях; days — розбір по днях. Без поля — people.",
+      },
       rep: { type: "string", description: "Прізвище людини. Без нього — усі, хто за кермом." },
       ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
     const period = checkedPeriod(ctx.today, args);
+    const mode = enumOf(args.mode, "mode", ["people", "days"] as const, "people");
 
     let onlyId: string | null = null;
     if (typeof args.rep === "string" && args.rep.trim()) {
@@ -517,7 +524,9 @@ export const shiftsReportTool: ToolDef = {
       onlyId = match.user.id;
     }
 
-    const [facts, vehicles, staff, watch] = await Promise.all([
+    if (mode === "days") return tripDaysReport(period, onlyId);
+
+    const [facts, vehicles, staff, watch, tripFacts] = await Promise.all([
       shiftFactsByUser(period.from, period.to, onlyId),
       prisma.salesVehicle.findMany({ select: { repId: true, fuelConsumption: true, fuelPricePerL: true } }),
       listStaff(["SALES", "DRIVER", "WAREHOUSE"]),
@@ -539,10 +548,18 @@ export const shiftsReportTool: ToolDef = {
           lateCloseSource: true,
         },
       }),
+      repTripDays(period.from, period.to, onlyId),
     ]);
 
     const nameOf = new Map(staff.map((s) => [s.id, s.name]));
     const vehicleOf = new Map(vehicles.map((v) => [v.repId, v]));
+    const marking = visitMarkers(tripFacts);
+    const tripsOf = new Map<string, TripDay[]>();
+    for (const f of tripFacts) {
+      const list = tripsOf.get(f.userId) ?? [];
+      list.push(tripDay(f, vehicleOf.get(f.userId) ?? null, { marksVisits: marking.has(f.userId) }));
+      tripsOf.set(f.userId, list);
+    }
 
     const rows = facts
       .map((f) => {
@@ -560,6 +577,7 @@ export const shiftsReportTool: ToolDef = {
           відкритих: f.openShifts,
           пальне_л: Math.round(fuel.liters),
           пальне_грн: uah(fuel.cost),
+          поїздки: tripsReturn(tripsOf.get(f.userId) ?? [], fuel.cost, f.workKm),
         };
       })
       .filter((r) => r.ім_я !== "—" || r.змін > 0)
@@ -598,10 +616,109 @@ export const shiftsReportTool: ToolDef = {
         чому: d.reason,
       })),
       примітка:
-        "Робочі кілометри — з одометра (фото зміни). GPS занижує: трек іде по прямій, тож він перевірка, а не база розрахунку.",
+        "Робочі кілометри — з одометра (фото зміни); GPS — перевірка, а не база розрахунку. «поїздки» — продажі й вал торгового в дні, коли була зміна (усі його документи тих днів, зокрема телефонні). Розбір по днях — mode=days.",
     };
   },
 };
+
+/** Хто за період узагалі ставив відмітки візитів — лише їм прапорець «без візитів». */
+function visitMarkers(facts: TripDayFacts[]): Set<string> {
+  return new Set(facts.filter((f) => f.visitsDone + f.visitsMissed > 0).map((f) => f.userId));
+}
+
+/**
+ * Віддача поїздок людини за період: що принесли дні зі зміною.
+ *
+ * Пальне тут те саме, що в рядку людини (одометр × норма машини), тож
+ * відсоток і «вал на км» сходяться з колонками поруч.
+ */
+function tripsReturn(days: TripDay[], fuelUah: number, workKm: number) {
+  if (days.length === 0) return null;
+  const sales = days.reduce((s, d) => s + d.salesAmount, 0);
+  const costed = days.filter((d) => d.marginEst !== null);
+  const margin = costed.length ? costed.reduce((s, d) => s + (d.marginEst ?? 0), 0) : null;
+  const visits = days.reduce((s, d) => s + d.visitsDone, 0);
+  return {
+    днів_зі_зміною: days.length,
+    днів_без_продажу: days.filter((d) => d.salesDocs === 0).length,
+    продажі_грн: uah(sales),
+    вал_грн: margin === null ? null : uah(margin),
+    пальне_відсотків_валу: margin !== null && margin > 0 ? Math.round((fuelUah / margin) * 1000) / 10 : null,
+    вал_на_км: margin !== null && workKm > 0 ? Math.round(margin / workKm) : null,
+    візитів: visits,
+    км_на_візит: visits > 0 ? Math.round((workKm / visits) * 10) / 10 : null,
+    днів_з_прапорцями: days.filter((d) => d.flags.length > 0).length,
+  };
+}
+
+/** Скільки днів віддаємо за раз: більше — вже не читається і дорого в токенах. */
+const TRIP_DAYS_LIMIT = 60;
+
+/** shifts_report mode=days: поїздки кожного дня кожної людини. */
+async function tripDaysReport(period: ReturnType<typeof checkedPeriod>, onlyId: string | null) {
+  const [facts, vehicles, staff] = await Promise.all([
+    repTripDays(period.from, period.to, onlyId),
+    prisma.salesVehicle.findMany({ select: { repId: true, label: true, fuelConsumption: true, fuelPricePerL: true } }),
+    listStaff(["SALES", "DRIVER", "WAREHOUSE"]),
+  ]);
+  const nameOf = new Map(staff.map((s) => [s.id, s.name]));
+  const vehicleOf = new Map(vehicles.map((v) => [v.repId, v]));
+  const marking = visitMarkers(facts);
+  const days = facts.map((f) => tripDay(f, vehicleOf.get(f.userId) ?? null, { marksVisits: marking.has(f.userId) }));
+
+  const shown = days.slice(0, TRIP_DAYS_LIMIT);
+  const people = [...new Set(days.map((d) => d.userId))];
+  const flagCount = new Map<string, number>();
+  for (const d of days) for (const f of d.flags) flagCount.set(f, (flagCount.get(f) ?? 0) + 1);
+
+  return {
+    період: periodFacts(period),
+    по_днях: shown.map((d) => ({
+      день: d.day,
+      ім_я: nameOf.get(d.userId) ?? "—",
+      км_одометр: d.odometerKm === null ? null : Math.round(d.odometerKm),
+      км_трек: d.gpsKm === null ? null : Math.round(d.gpsKm),
+      одометр_до_треку: d.odometerToGps,
+      пальне_грн: d.fuel === null ? null : uah(d.fuel),
+      візитів: d.visitsDone,
+      пропущено: d.visitsMissed,
+      зібрано_грн: uah(d.collected),
+      продажі_грн: uah(d.salesAmount),
+      документів: d.salesDocs,
+      клієнтів_купили: d.salesClients,
+      вал_грн: d.marginEst === null ? null : uah(d.marginEst),
+      пальне_відсотків_валу: d.fuelShareOfMarginPct,
+      вал_на_км: d.marginPerKm,
+      км_на_візит: d.kmPerVisit,
+      подивитись: d.flags.length ? d.flags : undefined,
+    })),
+    показано_днів: shown.length,
+    усього_днів: days.length,
+    що_найчастіше: [...flagCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([що, днів]) => ({ що, днів })),
+    норми_пального: people.map((id) => {
+      const v = vehicleOf.get(id);
+      return {
+        ім_я: nameOf.get(id) ?? "—",
+        норма: v
+          ? `${v.fuelConsumption} на 100 км × ${v.fuelPricePerL} ₴${v.label ? ` (${v.label})` : ""}`
+          : "машину не заведено — типові 10 л/100 км × 56 ₴",
+      };
+    }),
+    примітка: [
+      days.length > shown.length
+        ? `Показано ${shown.length} найсвіжіших днів з ${days.length} — для решти звузь період або назви людину.`
+        : "",
+      marking.size === 0
+        ? "Відміток візитів за період немає ні в кого — заїзди до клієнтів видно лише з треку на екрані зміни, тож мірило дня тут — «клієнтів_купили»."
+        : "",
+      "Км одометра — з фото зміни, км треку — лише їзда за GPS планшета; норма «одометр/трек» 0,8–1,3. Пальне — з одометра за нормою машини людини. Продажі й вал — усі документи торгового того дня (зокрема телефонні), вал — сума мінус собівартість. Дні без зміни сюди не входять.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
 
 /* ── Водії ────────────────────────────────────────────────────────────── */
 

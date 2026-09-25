@@ -129,6 +129,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/logistics/directions", title: "Напрямки торгових", desc: "Шаблони напрямків, розклад, зони", iconKey: "pin", roles: AM },
       { href: "/admin/logistics/shifts", title: "Зміни", desc: "Пробіг торгових за одометром і дні водіїв", iconKey: "clock", roles: AM },
       { href: "/admin/logistics/fuel", title: "Паливо", desc: "Авто, норми витрати, гроші на пальне", iconKey: "fuel", roles: AM },
+      { href: "/admin/logistics/fleet", title: "Автопарк", desc: "Машини, заміни масла й деталей, ТО, амортизація", iconKey: "wrench", roles: AM },
       { href: "/admin/logistics/drivers", title: "Водії: зарплата і каса", desc: "Зарплата за листами, інкасація, прив'язка до 1С", iconKey: "money", roles: AM },
       { href: "/admin/logistics/devices", title: "Стан планшетів", desc: "Чому не пишеться трек просто зараз", iconKey: "device", roles: AM },
       { href: "/admin/logistics/trips", title: "Архів поїздок", desc: "Поїздки Telegram-бота до 14.08.2026", iconKey: "archive", roles: AM },

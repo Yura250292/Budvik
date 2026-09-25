@@ -1509,6 +1509,119 @@ export const VIEWS: View[] = [
       "SELECT rep, SUM(amount) AS amount FROM expenses WHERE scope = 'REP' AND day >= '2026-09-01' GROUP BY rep ORDER BY amount DESC LIMIT 20",
     ],
   },
+  {
+    name: "vehicles",
+    purpose:
+      "автопарк: машини фірми — хто їздить, поточний пробіг, витрати на обслуговування, бухгалтерська амортизація й залишкова вартість (стан ТО — shifts_report mode=fleet)",
+    columns: [
+      col("vehicle_id", ID, "машина"),
+      col("plate", T, "держномер кирилицею без пробілів («ВС1234АК»)"),
+      col("make", T, "марка"),
+      col("model", T, "модель"),
+      col("year", I, "рік випуску"),
+      col("fuel_type", T, "пальне"),
+      col("active", B, "в обліку (false — продана чи списана)"),
+      col("holder", T, "хто їздить зараз (NULL — ні за ким)"),
+      col("holder_since", D, "з якого дня їздить"),
+      col("odometer_km", I, "поточний пробіг — найсвіжіше з ручного показання, журналу і змін того, хто їздить"),
+      col("odometer_day", D, "станом на"),
+      col("odometer_source", T, "manual / service / shift"),
+      col("service_cost_ytd", N, "обслуговування з 1 січня поточного року, грн"),
+      col("service_cost_total", N, "обслуговування за весь час, грн"),
+      col("purchase_price", N, "ціна купівлі, грн"),
+      col("purchase_day", D, "дата купівлі"),
+      col("useful_life_months", I, "строк служби, міс."),
+      col("residual_value", N, "ліквідаційна вартість, грн"),
+      col("depreciation_monthly", N, "амортизація на місяць, грн (NULL — немає ціни чи строку)"),
+      col("depreciation_accrued", N, "нараховано на сьогодні, грн"),
+      col("book_value", N, "залишкова вартість, грн"),
+    ],
+    sql: `
+      SELECT v.id AS vehicle_id, v.plate, v.make, v.model, v.year, v."fuelType" AS fuel_type, v.active,
+             h.name AS holder, ${KYIV_DAY("h.\"from\"")} AS holder_since,
+             o.km AS odometer_km, ${KYIV_DAY("o.at")} AS odometer_day, o.source AS odometer_source,
+             COALESCE(c.ytd, 0) AS service_cost_ytd, COALESCE(c.total, 0) AS service_cost_total,
+             v."purchasePrice" AS purchase_price, ${KYIV_DAY('v."purchaseDate"')} AS purchase_day,
+             v."usefulLifeMonths" AS useful_life_months, v."residualValue" AS residual_value,
+             dep.monthly AS depreciation_monthly, dep.monthly * dep.months AS depreciation_accrued,
+             v."purchasePrice" - dep.monthly * dep.months AS book_value
+      FROM "Vehicle" v
+      LEFT JOIN LATERAL (
+        SELECT u.name, a."from" FROM "VehicleAssignment" a JOIN "User" u ON u.id = a."userId"
+        WHERE a."vehicleId" = v.id AND a."to" IS NULL ORDER BY a."from" DESC LIMIT 1
+      ) h ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT km, at, source FROM (
+          SELECT v."odometerKm" AS km, v."odometerAt" AS at, 'manual' AS source
+          WHERE v."odometerKm" IS NOT NULL AND v."odometerAt" IS NOT NULL
+          UNION ALL
+          SELECT s."odometerKm", s.date, 'service' FROM "VehicleService" s
+          WHERE s."vehicleId" = v.id AND s."odometerKm" IS NOT NULL
+          UNION ALL
+          SELECT COALESCE(sh."endOdometer", sh."startOdometer"), COALESCE(sh."endedAt", sh."startedAt"), 'shift'
+          FROM "VehicleAssignment" a JOIN "Shift" sh ON sh."userId" = a."userId"
+          WHERE a."vehicleId" = v.id AND sh."odometerSuspicious" = false
+            AND COALESCE(sh."endedAt", sh."startedAt") >= a."from"
+            AND (a."to" IS NULL OR COALESCE(sh."endedAt", sh."startedAt") <= a."to")
+        ) x ORDER BY ${KYIV_DAY("at")} DESC, km DESC LIMIT 1
+      ) o ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT SUM(s."partsCost" + s."laborCost") AS total,
+               SUM(s."partsCost" + s."laborCost") FILTER (
+                 WHERE date_part('year', ${kyivTsSql("s.date")}) = date_part('year', ${kyivTsSql("now()")})
+               ) AS ytd
+        FROM "VehicleService" s WHERE s."vehicleId" = v.id
+      ) c ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT (v."purchasePrice" - LEAST(GREATEST(COALESCE(v."residualValue", 0), 0), v."purchasePrice")) / v."usefulLifeMonths" AS monthly,
+               LEAST(GREATEST(
+                 (date_part('year', ${kyivTsSql("now()")}) - date_part('year', ${kyivTsSql('v."purchaseDate"')})) * 12
+                 + date_part('month', ${kyivTsSql("now()")}) - date_part('month', ${kyivTsSql('v."purchaseDate"')}), 0),
+                 v."usefulLifeMonths") AS months
+        WHERE v."purchasePrice" > 0 AND v."purchaseDate" IS NOT NULL AND v."usefulLifeMonths" > 0
+      ) dep ON TRUE`,
+    examples: [
+      "SELECT plate, make, model, holder, odometer_km, service_cost_ytd, book_value FROM vehicles WHERE active ORDER BY plate LIMIT 50",
+      "SELECT SUM(depreciation_monthly) AS monthly FROM vehicles WHERE active AND depreciation_accrued < purchase_price - COALESCE(residual_value, 0)",
+    ],
+  },
+  {
+    name: "vehicle_services",
+    purpose:
+      "журнал обслуговування машин: заміни масла, фільтрів, гальм, шин, ГРМ, ремонти — дата, пробіг, запчастини, робота, СТО. Окремий облік: до витрат 1С (expenses) НЕ додавати",
+    columns: [
+      col("day", D, "дата робіт"),
+      col("month", T, "місяць YYYY-MM"),
+      col("vehicle_id", ID, "машина"),
+      col("plate", T, "держномер"),
+      col("vehicle", T, "марка й модель"),
+      col("kind", T, "OIL масло / FILTERS фільтри / BRAKES гальма / TIRES шини / TIMING ГРМ / BATTERY акумулятор / SUSPENSION ходова / REPAIR ремонт / INSPECTION техогляд / OTHER"),
+      col("title", T, "що зроблено"),
+      col("odometer_km", I, "пробіг на момент робіт"),
+      col("parts", N, "запчастини, грн"),
+      col("labor", N, "робота, грн"),
+      col("total", N, "разом, грн"),
+      col("vendor", T, "СТО чи магазин"),
+      col("notes", T, "нотатки"),
+      col("driver", T, "хто їздив на машині того дня"),
+    ],
+    sql: `
+      SELECT ${KYIV_DAY("s.date")} AS day, to_char(${kyivTsSql("s.date")}, 'YYYY-MM') AS month,
+             v.id AS vehicle_id, v.plate, v.make || ' ' || v.model AS vehicle, s.kind::text AS kind, s.title,
+             s."odometerKm" AS odometer_km, s."partsCost" AS parts, s."laborCost" AS labor,
+             s."partsCost" + s."laborCost" AS total, s.vendor, s.notes, d.name AS driver
+      FROM "VehicleService" s
+      JOIN "Vehicle" v ON v.id = s."vehicleId"
+      LEFT JOIN LATERAL (
+        SELECT u.name FROM "VehicleAssignment" a JOIN "User" u ON u.id = a."userId"
+        WHERE a."vehicleId" = s."vehicleId" AND a."from" <= s.date AND (a."to" IS NULL OR a."to" > s.date)
+        ORDER BY a."from" DESC LIMIT 1
+      ) d ON TRUE`,
+    examples: [
+      "SELECT plate, kind, SUM(total) AS total, COUNT(*) AS n FROM vehicle_services WHERE day >= '2026-01-01' GROUP BY plate, kind ORDER BY total DESC LIMIT 50",
+      "SELECT day, title, odometer_km, total, vendor FROM vehicle_services WHERE plate ILIKE '%1234%' AND kind = 'OIL' ORDER BY day DESC LIMIT 10",
+    ],
+  },
 ];
 
 export const VIEW_BY_NAME = new Map(VIEWS.map((v) => [v.name, v]));

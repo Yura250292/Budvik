@@ -49,6 +49,7 @@ import { listStaff } from "@/lib/assistant/facts/staff";
 import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 import { sendTelegramMessage } from "@/lib/telegram/notify";
 import { esc } from "@/lib/shift/telegram-report";
+import { fleetOverview } from "@/lib/fleet/overview";
 
 /** Ключ, що не дає надіслати зведення двічі за день. */
 const SENT_KEY = "assistant:digest:sentDay";
@@ -131,6 +132,12 @@ export type DigestFacts = {
   season: { label: string; factor: number; items: number; qty: number; cost: number } | null;
   sync: { alive: boolean; minutesAgo: number | null; stale: string[] };
   siteOrders: { pending: number; oldestHours: number };
+  /**
+   * ТО автопарку: прострочене і те, що скоро. Лист саме творить лише
+   * прострочене — «скоро» висить тижнями й щоденного листа не варте, тож
+   * воно лише дописується до листа, який і так іде.
+   */
+  fleet: Array<{ plate: string; what: string; overdue: boolean; text: string }>;
 };
 
 /**
@@ -337,7 +344,29 @@ export async function buildDigest(today: string = kyivDate(new Date())): Promise
       stale: sync.channels.filter((c) => c.stale).map((c) => c.entityType),
     },
     siteOrders: { pending: pending.length, oldestHours },
+    fleet: await fleetDueLines(today),
   };
+}
+
+/** Рядки ТО для зведення. Автопарк — не головне в листі: збій тут листа не валить. */
+async function fleetDueLines(today: string): Promise<DigestFacts["fleet"]> {
+  try {
+    const { vehicles } = await fleetOverview({ today });
+    return vehicles.flatMap((v) =>
+      v.due
+        .filter((d) => d.state === "overdue" || d.state === "soon")
+        .map((d) => {
+          const parts = [
+            d.kmLeft == null ? null : d.kmLeft > 0 ? `${num(d.kmLeft)} км` : `перебіг ${num(-d.kmLeft)} км`,
+            d.daysLeft == null ? null : d.daysLeft > 0 ? `${d.daysLeft} дн.` : `з ${d.dueDay}`,
+          ].filter(Boolean);
+          return { plate: v.plate, what: d.title, overdue: d.state === "overdue", text: parts.join(" / ") };
+        })
+    );
+  } catch (e) {
+    console.error("digest: автопарк не порахувався", e);
+    return [];
+  }
 }
 
 /**
@@ -356,7 +385,8 @@ export function digestHasNews(f: DigestFacts): boolean {
     f.season !== null ||
     !f.sync.alive ||
     f.sync.stale.length > 0 ||
-    f.siteOrders.pending > 0
+    f.siteOrders.pending > 0 ||
+    f.fleet.some((x) => x.overdue)
   );
 }
 
@@ -521,6 +551,9 @@ export function renderTelegram(f: DigestFacts): string {
   if (f.siteOrders.pending > 0) {
     tail.push(`🛒 Сайт: ${f.siteOrders.pending} замовл. чекають, найстаріше ${f.siteOrders.oldestHours} год`);
   }
+  for (const x of f.fleet) {
+    tail.push(`🔧 ${esc(x.plate)}: ${esc(x.what)} — ${x.overdue ? "прострочено" : "скоро"}${x.text ? `, ${esc(x.text)}` : ""}`);
+  }
   if (!f.sync.alive) {
     tail.push(
       `🔄 Обмін 1С мовчить${f.sync.minutesAgo == null ? "" : ` ${Math.round(f.sync.minutesAgo / 60)} год`} — ціни й залишки застигли`
@@ -620,6 +653,9 @@ export function renderMarkdown(f: DigestFacts): string {
     tail.push(
       `- 🛒 Замовлень із сайту чекають: ${f.siteOrders.pending}, найстаріше ${f.siteOrders.oldestHours} год`
     );
+  }
+  for (const x of f.fleet) {
+    tail.push(`- 🔧 **${x.plate}**: ${x.what} — ${x.overdue ? "прострочено" : "скоро"}${x.text ? `, ${x.text}` : ""}`);
   }
   tail.push(
     f.sync.alive

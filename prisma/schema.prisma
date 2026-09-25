@@ -306,9 +306,11 @@ model User {
   individualTermsEntries IndividualTermsEntry[]   @relation("individualTermsEntries")
 
   // Маршрути торгових і авто
-  routeTemplatesCreated RouteTemplate[]   @relation("routeTemplateAuthor")
-  routeAssignments      RouteAssignment[] @relation("routeAssignmentRep")
-  salesVehicle          SalesVehicle?     @relation("salesVehicle")
+  routeTemplatesCreated RouteTemplate[]     @relation("routeTemplateAuthor")
+  routeAssignments      RouteAssignment[]   @relation("routeAssignmentRep")
+  salesVehicle          SalesVehicle?       @relation("salesVehicle")
+  vehicleAssignments    VehicleAssignment[] @relation("vehicleAssignments")
+  vehicleServices       VehicleService[]    @relation("vehicleServicesCreated")
 
   // Точки для розпрацювання на карті клієнтів
   assignedProspects ProspectClient[] @relation("prospectAssignedRep")
@@ -360,7 +362,6 @@ model User {
   // Календар Google (src/lib/calendar)
   calendarConnection CalendarConnection? @relation("calendarConnectionUser")
   calendarEventLinks CalendarEventLink[] @relation("calendarEventLinkUser")
-
 
   // MCP-конектор для Claude/ChatGPT (src/lib/mcp)
   mcpAuthCodes McpAuthCode[]
@@ -2329,6 +2330,129 @@ model SalesVehicle {
   rep User @relation("salesVehicle", fields: [repId], references: [id], onDelete: Cascade)
 }
 
+/// Вид обслуговування авто. Від нього рахуються правила ТО: «масло кожні
+/// 10 000 км» шукає останній запис саме цього виду.
+enum VehicleServiceKind {
+  OIL // масло двигуна (з фільтром оливи)
+  FILTERS // повітряний, салонний, паливний
+  BRAKES // колодки, диски, рідина
+  TIRES // шини, сезонна переобувка
+  TIMING // ГРМ: ремінь, ролики, помпа
+  BATTERY // акумулятор
+  SUSPENSION // ходова
+  REPAIR // ремонт не за регламентом
+  INSPECTION // техогляд, діагностика
+  OTHER
+}
+
+/// Машина фірми — окремо від людини, що на ній їздить.
+///
+/// До 25.09.2026 «авто» було лише SalesVehicle: норма пального однієї людини,
+/// без номера й без історії. Пересадили торгового на іншу машину — і журнал
+/// замін масла пішов би за людиною, а не за залізом. Тому машина тут —
+/// сутність, а хто на ній їздив, пише VehicleAssignment.
+///
+/// Вносить лише офіс (адмінка). Витрати звідси НЕ входять у P&L: ремонт
+/// може вже сидіти у витратах 1С, і скласти їх означало б порахувати двічі.
+model Vehicle {
+  id       String  @id @default(cuid())
+  /// Держномер, як на табличці: «ВС1234АК». Унікальний — за ним машину
+  /// шукають і люди, і помічник.
+  plate    String  @unique
+  make     String // Renault
+  model    String // Kangoo
+  year     Int?
+  vin      String?
+  fuelType String? // дизель, бензин, газ/бензин
+  active   Boolean @default(true)
+  notes    String?
+
+  /// Останнє показання одометра, внесене руками. Поточний пробіг — це
+  /// найсвіжіше з цього, записів обслуговування і змін закріплених людей
+  /// (src/lib/fleet/odometer.ts).
+  odometerKm Int?
+  odometerAt DateTime?
+
+  /// Бухгалтерська амортизація, прямолінійна: (ціна − ліквідаційна) / строк.
+  /// Порожня ціна або строк — амортизація не рахується, а не дорівнює нулю.
+  purchasePrice      Float?
+  purchaseDate       DateTime?
+  purchaseOdometerKm Int?
+  usefulLifeMonths   Int?
+  residualValue      Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments VehicleAssignment[]
+  services    VehicleService[]
+  rules       VehicleServiceRule[]
+}
+
+/// Хто їздив на машині і коли. `to` порожнє — їздить досі.
+///
+/// Потрібно, щоб одометр зі змін торгового (Shift.endOdometer) ліг саме на
+/// ту машину, на якій він був того дня, а не на теперішню.
+model VehicleAssignment {
+  id        String    @id @default(cuid())
+  vehicleId String
+  userId    String
+  from      DateTime
+  to        DateTime?
+  createdAt DateTime  @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  user    User    @relation("vehicleAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, from])
+  @@index([userId, from])
+}
+
+/// Запис журналу: що міняли, на якому пробігу, скільки коштувало.
+model VehicleService {
+  id         String             @id @default(cuid())
+  vehicleId  String
+  date       DateTime
+  odometerKm Int?
+  kind       VehicleServiceKind
+  /// Що саме: «масло 5W-40 Shell, фільтр оливи»
+  title      String
+  partsCost  Float              @default(0)
+  laborCost  Float              @default(0)
+  /// СТО або магазин
+  vendor     String?
+  notes      String?
+  /// Фото чека в R2 (fleet/<vehicleId>/<id>.<ext>)
+  receiptKey String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("vehicleServicesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId, date])
+  @@index([vehicleId, kind, date])
+}
+
+/// Регламент ТО: «масло кожні 10 000 км або 12 місяців» — що настане раніше.
+/// Відлік від останнього VehicleService того самого виду.
+model VehicleServiceRule {
+  id          String             @id @default(cuid())
+  vehicleId   String
+  kind        VehicleServiceKind
+  title       String
+  everyKm     Int?
+  everyMonths Int?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, kind])
+}
+
 /// Знімок дебіторки клієнта на кінець дня.
 ///
 /// 1С віддає лише поточне сальдо, і без історії неможливо сказати, чи
@@ -3513,6 +3637,7 @@ model Shift {
 
   // --- Звірка наступного дня ---
   /**
+   * /**
    * /**
    * /**
    * /**
@@ -4806,8 +4931,8 @@ model CalendarEventLink {
 
 /// Стаття витрат 1С і її розкладка на сайті (src/lib/finance/cost-items.ts).
 model CostItem {
-  id         String  @id @default(cuid())
-  externalId String  @unique
+  id         String    @id @default(cuid())
+  externalId String    @unique
   name       String
   /// Група статті в 1С (Родитель): «Офіс», «Логістика», «DNIPRO M Щирецька»…
   groupName  String?
@@ -4822,7 +4947,7 @@ model CostItem {
   storeName  String?
   /// Розкладено руками — класифікатор цю статтю більше не чіпає.
   manualAt   DateTime?
-  syncedAt   DateTime @default(now())
+  syncedAt   DateTime  @default(now())
 
   entries ExpenseEntry[]
 

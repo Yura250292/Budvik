@@ -20,7 +20,8 @@ import { prisma } from "@/lib/prisma";
 import { bool, day as validDay, enumOf, int, str } from "@/lib/assistant/validate";
 import { uah, pct, ymd } from "@/lib/assistant/format";
 import { periodFacts, periodFromArgs } from "@/lib/assistant/period";
-import { kyivTime } from "@/lib/date/kyiv";
+import { kyivDayStart, kyivTime } from "@/lib/date/kyiv";
+import { fleetReportFacts } from "@/lib/assistant/facts/fleet";
 import { listStaff, repKinds, resolveStaff, staffProblem, type RepKind } from "@/lib/assistant/facts/staff";
 import { teamBenchmark } from "@/lib/analytics/benchmark";
 import { METRICS, type MetricKey } from "@/lib/analytics/benchmarkMetrics";
@@ -500,22 +501,34 @@ export const shiftsReportTool: ToolDef = {
   label: "Дивлюся зміни торгових",
   kinds: ["ADMIN"],
   description:
-    "Зміни й поїздки торгових за період. mode=\"people\" (за замовчуванням): по людях — змін і днів, робочі км з одометра, GPS-км, особисті, пальне в літрах і гривнях, підозрілі одометри, відкриті зміни і віддача поїздок: продажі й вал у дні змін, скільки відсотків валу з'їло пальне, вал на кілометр, візити, км на візит. mode=\"days\": ПОЇЗДКИ ПО ДНЯХ — кожен день кожної людини: одометр проти треку планшета, візити й пропуски, зібрані гроші, продажі й вал того дня, пальне, вал на км і прапорці «подивись» (трек не писався, їздив без візитів чи продажів, пальне з'їло понад третину валу). Викликай на «зміни», «пробіг», «кілометраж», «пальне», «одометр», «хто не закрив зміну»; days — на «поїздки торгових», «проаналізуй поїздки», «хто їздить без толку», «одометр проти GPS по днях», «чи окупаються виїзди».",
+    "Зміни й поїздки торгових за період. mode=\"people\" (за замовчуванням): по людях — змін і днів, робочі км з одометра, GPS-км, особисті, пальне в літрах і гривнях, підозрілі одометри, відкриті зміни і віддача поїздок: продажі й вал у дні змін, скільки відсотків валу з'їло пальне, вал на кілометр, візити, км на візит. mode=\"days\": ПОЇЗДКИ ПО ДНЯХ — кожен день кожної людини: одометр проти треку планшета, візити й пропуски, зібрані гроші, продажі й вал того дня, пальне, вал на км і прапорці «подивись» (трек не писався, їздив без візитів чи продажів, пальне з'їло понад третину валу). Викликай на «зміни», «пробіг», «кілометраж», «пальне», «одометр», «хто не закрив зміну»; days — на «поїздки торгових», «проаналізуй поїздки», «хто їздить без толку», «одометр проти GPS по днях», «чи окупаються виїзди». mode=\"fleet\": АВТОПАРК — машини фірми: хто на чому їздить, поточний пробіг, коли міняти масло й інше ТО (прострочено / скоро / скільки км і днів лишилось), журнал замін масла й деталей з сумами, витрати на обслуговування за період (без дат — з 1 січня), бухгалтерська амортизація й залишкова вартість; vehicle — номер, модель або прізвище того, хто їздить (тоді ще й журнал). Викликай fleet на «машини», «автопарк», «коли міняти масло», «ТО», «ремонт авто», «скільки пішло на машину», «амортизація».",
   parameters: {
     type: "object",
     properties: {
       mode: {
         type: "string",
-        enum: ["people", "days"],
-        description: "people — підсумок по людях; days — розбір по днях. Без поля — people.",
+        enum: ["people", "days", "fleet"],
+        description: "people — підсумок по людях; days — розбір по днях; fleet — автопарк: машини, ТО, обслуговування, амортизація. Без поля — people.",
       },
       rep: { type: "string", description: "Прізвище людини. Без нього — усі, хто за кермом." },
+      vehicle: { type: "string", description: "Лише для fleet: номер, модель або прізвище того, хто їздить." },
       ...PERIOD_PARAMS,
     },
   },
   async run(ctx, args) {
     const period = checkedPeriod(ctx.today, args);
-    const mode = enumOf(args.mode, "mode", ["people", "days"] as const, "people");
+    const mode = enumOf(args.mode, "mode", ["people", "days", "fleet"] as const, "people");
+
+    if (mode === "fleet") {
+      // Витрати на машини питають «за рік» частіше, ніж «за місяць».
+      const since = hasPeriodArgs(args) ? period.from : kyivDayStart(`${ctx.today.slice(0, 4)}-01-01`);
+      const vehicle = typeof args.vehicle === "string" && args.vehicle.trim()
+        ? str(args.vehicle, "vehicle", { min: 2, max: 60 })
+        : typeof args.rep === "string" && args.rep.trim()
+          ? str(args.rep, "rep", { min: 2, max: 60 })
+          : null;
+      return fleetReportFacts({ today: ctx.today, from: since, to: period.to, vehicle });
+    }
 
     let onlyId: string | null = null;
     if (typeof args.rep === "string" && args.rep.trim()) {

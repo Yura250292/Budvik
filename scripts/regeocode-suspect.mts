@@ -18,9 +18,12 @@
  * пін), теж пропускаємо — UPDATE звіряє старі значення.
  *
  * `--active` — лише клієнти з документами за 180 днів (їм будують маршрути).
+ * `--resume` — продовжити перерваний прогін: прогрес пишеться кожні 10
+ * клієнтів у output/regeocode-suspect-progress-*.json (уся база — години, і
+ * один обрив мережі не має губити зроблене).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { locateClient } from "../src/lib/geo/locate-client";
 import { inBox, LVIV_OBLAST_BOX, searchBoxFor } from "../src/lib/geo/region";
@@ -96,19 +99,50 @@ async function plan() {
   const todo = suspects.slice(0, limit);
   console.log(`${active ? "активні за 180 днів" : "уся база"}: підозрілих ${suspects.length}, беремо ${todo.length}`);
 
-  const steps: Step[] = [];
+  mkdirSync("output", { recursive: true });
+  const suffix = `${today}${active ? "-active" : ""}`;
+  const progressFile = `output/regeocode-suspect-progress-${suffix}.json`;
+  const steps: Step[] = argv.includes("--resume") && existsSync(progressFile)
+    ? (JSON.parse(readFileSync(progressFile, "utf8")) as Step[])
+    : [];
+  // --redo-unanchored: перерахувати адреси без рамки області чи без явного
+  // «м./с.» — 24.09.2026 саме для них cleanAddress дописував «Львівську
+  // область», і доставку з Ахтирки ставило в Белз. Решта результатів чинна.
+  if (argv.includes("--redo-unanchored")) {
+    const prefixed = /(?:^|[,(\s])(?:м|с|смт|село|місто)\.{0,2}\s*[А-ЯІЇЄҐ]/u;
+    const keep = steps.filter((s) => {
+      const a = s.address ?? "";
+      // А також ті, кого зачепили правки правил того ж дня: Миколаїв і
+      // Івано-Франкове на Львівщині, ринки без слова «ринок».
+      const touched = /миколаїв|николаев|івано-франк|ивано-франк|торпедо|шувар|ряд|будка|павільйон|контейнер/iu.test(a);
+      return !a.trim() || (!!searchBoxFor(a) && prefixed.test(a) && !touched);
+    });
+    console.log(`перераховую ${steps.length - keep.length} без рамки чи без явного пункту`);
+    steps.splice(0, steps.length, ...keep);
+  }
+  // --redo-match <regex>: перерахувати лише записи, чия адреса підходить під
+  // вираз, — коли правка правил зачепила кількох клієнтів, а не сотні.
+  const redoIdx = argv.indexOf("--redo-match");
+  if (redoIdx >= 0) {
+    const re = new RegExp(argv[redoIdx + 1], "iu");
+    const keep = steps.filter((s) => !re.test(s.address ?? ""));
+    console.log(`перераховую ${steps.length - keep.length} за виразом ${re}`);
+    steps.splice(0, steps.length, ...keep);
+  }
+  const done = new Set(steps.map((s) => s.id));
+  if (done.size) console.log(`продовжую: уже перевірено ${done.size}`);
   const t0 = Date.now();
   for (const [i, r] of todo.entries()) {
+    if (done.has(r.id)) continue;
     const old: Old = { lat: r.lat, lng: r.lng, geoSource: r.geoSource };
     const loc = await locateClient(r.address, r.name);
     let next: Old;
     if (loc) {
       next = { lat: loc.lat, lng: loc.lng, geoSource: loc.geoSource };
-    } else if (r.reason === "поза областю") {
-      // Точка в чужій області гірша за відсутню: водій поїде в Крим.
-      next = { lat: null, lng: null, geoSource: "FAILED" };
     } else if (r.geoSource === "GEOCODED") {
-      // Нічого кращого, але й «точно» це не є.
+      // Нічого не знайшлося — стару точку НЕ видаляємо, лише знімаємо «точно».
+      // 24.09.2026 правило «поза областю → стерти» стерло б точки клієнтів
+      // доставки в Боярці й Печенігах, яких просто не розпізнало як доставку.
       next = { ...old, geoSource: "CITY" };
     } else {
       next = old;
@@ -124,14 +158,14 @@ async function plan() {
       label: loc?.label ?? null,
     });
     if ((i + 1) % 10 === 0 || i + 1 === todo.length) {
+      writeFileSync(progressFile, JSON.stringify(steps));
       const min = ((Date.now() - t0) / 60000).toFixed(1);
       console.log(`[${i + 1}/${todo.length}] ${min} хв`);
     }
   }
 
   const changed = steps.filter((s) => moved(s) || s.old.geoSource !== s.next.geoSource);
-  mkdirSync("output", { recursive: true });
-  const file = `output/regeocode-suspect-plan-${today}${active ? "-active" : ""}.json`;
+  const file = `output/regeocode-suspect-plan-${suffix}.json`;
   writeFileSync(file, JSON.stringify(changed, null, 2));
 
   report(steps);

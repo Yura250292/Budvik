@@ -18,6 +18,8 @@
  * «Somafix» дає гірший результат, ніж явна вказівка.
  */
 
+import { playCloudSpeech, stopCloudSpeech } from "./tts-player";
+
 const LANG = "uk-UA";
 
 type RecognitionEvent = {
@@ -96,21 +98,11 @@ export const speechOutputSupported = (): boolean =>
  * пункти списків, тобто те, що людина й хотіла б почути.
  */
 export function speak(markdown: string): void {
-  if (!speechOutputSupported()) return;
-  window.speechSynthesis.cancel();
-
-  const text = plainSpeech(markdown);
-  if (!text) return;
-
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = LANG;
-  utterance.rate = 1.05;
-  const voice = window.speechSynthesis.getVoices().find((v) => v.lang?.startsWith("uk"));
-  if (voice) utterance.voice = voice;
-  window.speechSynthesis.speak(utterance);
+  speakText(plainSpeech(markdown));
 }
 
 export function stopSpeaking(): void {
+  stopCloudSpeech();
   if (speechOutputSupported()) window.speechSynthesis.cancel();
 }
 
@@ -129,7 +121,23 @@ export function speakText(text: string, onEnd?: () => void): void {
     done = true;
     onEnd?.();
   };
-  if (!speechOutputSupported() || !text.trim()) {
+  if (!text.trim()) {
+    finish();
+    return;
+  }
+  stopSpeaking();
+  /*
+   * Спершу живий голос (tts-player.ts), системний — лише запасний: коли
+   * синтез не налаштований, недоступний чи мережа впала до першого звуку.
+   */
+  void playCloudSpeech(text, finish).then((played) => {
+    if (!played) speakWithBrowser(text, finish);
+  });
+}
+
+/** Системний синтезатор браузера — механічний, але працює без мережі. */
+function speakWithBrowser(text: string, finish: () => void): void {
+  if (!speechOutputSupported()) {
     finish();
     return;
   }

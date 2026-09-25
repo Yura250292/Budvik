@@ -17,7 +17,7 @@ import { cleanAddress, settlementFromName, settlementOf, shopNameOf } from "./cl
 import { googleGeocode, googlePlace } from "./google";
 import { geocodeAddress, type GeoPrecision } from "./nominatim";
 import { lvivMarketOf } from "./markets";
-import { searchBoxFor } from "./region";
+import { otherOblastOf, searchBoxFor } from "./region";
 
 export type ClientLocation = {
   lat: number;
@@ -56,9 +56,10 @@ function fromOsm(hit: { lat: number; lng: number; displayName: string; precision
 /**
  * Ринок: ворота ринку — не адреса павільйону, тож точка завжди приблизна
  * (CITY), навіть коли геокодер знайшов «Кукурудзяна, 1» до будинку.
- * «Площа Ринок» — назва площі, не базар.
+ * «Площа Ринок» — назва площі, не базар. «Торпедо №227 (центральний ряд)»
+ * — теж ринок, хоч слова «ринок» у рядку й немає.
  */
-const MARKET = /ринок|ринку|р-н?ок|р-к|базар/iu;
+const MARKET = /ринок|ринку|р-н?ок|р-к|базар|торпедо|шувар|(?<![\p{L}])(ряд|будка|павільйон|контейнер)/iu;
 const isMarket = (address: string) => MARKET.test(address.replace(/пл(оща|\.)?\s*ринок/giu, " "));
 
 export async function locateClient(address: string | null, name: string): Promise<ClientLocation | null> {
@@ -72,12 +73,24 @@ export async function locateClient(address: string | null, name: string): Promis
 async function locate(address: string | null, name: string): Promise<ClientLocation | null> {
   const raw = (address ?? "").trim();
   const box = raw ? searchBoxFor(raw) : undefined;
-  const cleaned = raw ? cleanAddress(raw) : null;
+  const cleaned = raw ? cleanAddress(raw, { lviv: !!box, requireSettlement: true }) : null;
   const settlement = raw ? settlementOf(raw) : null;
   // Відомий львівський ринок — перевірені координати, а не геокодер.
   const market = raw && isMarket(raw) && (!settlement || /^льв/iu.test(settlement)) ? lvivMarketOf(raw) : null;
   if (market) {
     return { lat: market.lat, lng: market.lng, geoSource: "CITY", precision: "STREET", via: "market", label: market.label };
+  }
+
+  // Поза Львівщиною — клієнт доставки (Нова Пошта в Ахтирці, Rozetka в
+  // Надвірній): досить його міста. Без розпізнаного міста — нічого: пошук по
+  // всій Україні за «вул. Шевченка, 3» ставив Ахтирку в Одеську область.
+  if (raw && !box) {
+    if (!settlement) return null;
+    const oblast = otherOblastOf(raw);
+    const inOblast = (loc: ClientLocation | null) =>
+      loc && (!oblast || loc.label.toLowerCase().includes(oblast)) ? loc : null;
+    const hit = await geocodeAddress(raw, { settlement, preferPrecise: true });
+    return inOblast(hit ? fromOsm(hit) : null) ?? inOblast(await settlementCenter(settlement, undefined, oblast));
   }
 
   const noStreetCap: GeoPrecision = /вул|просп|пл\.|площ|пров|бульв|шосе|ринок|базар|ряд/iu.test(raw)
@@ -130,7 +143,12 @@ async function locate(address: string | null, name: string): Promise<ClientLocat
   return null;
 }
 
-async function settlementCenter(settlement: string, box: ReturnType<typeof searchBoxFor>): Promise<ClientLocation | null> {
-  const hit = await geocodeAddress(`${settlement}${box ? ", Львівська область" : ""}, Україна`, { box, settlement });
+async function settlementCenter(
+  settlement: string,
+  box: ReturnType<typeof searchBoxFor>,
+  oblast?: string | null
+): Promise<ClientLocation | null> {
+  const region = box ? ", Львівська область" : oblast ? `, ${oblast}а область` : "";
+  const hit = await geocodeAddress(`${settlement}${region}, Україна`, { box, settlement });
   return hit ? { ...fromOsm(hit), precision: "SETTLEMENT", geoSource: "CITY" } : null;
 }

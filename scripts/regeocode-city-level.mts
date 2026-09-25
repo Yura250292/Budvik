@@ -62,7 +62,7 @@ for (const r of rows) {
     continue;
   }
 
-  const cleaned = cleanAddress(raw);
+  const cleaned = cleanAddress(raw, { lviv: true });
   if (cleaned) {
     const found = await geocodeAddress(cleaned);
     // Приймаємо, лише якщо результат ВІДРІЗНЯЄТЬСЯ від нинішньої міської

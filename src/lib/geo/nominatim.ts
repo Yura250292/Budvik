@@ -254,6 +254,27 @@ export function mentionsSettlement(label: string, settlement: string): boolean {
     .some((part) => normPlace(part).startsWith(want));
 }
 
+/**
+ * Запит із терпінням до мережі: обрив з'єднання, 429 чи 5xx — ще дві спроби
+ * з паузою. 24.09.2026 прогін по 1321 клієнту впав на 120-му через миттєвий
+ * EADDRNOTAVAIL. Після третьої невдачі — кидаємо, а не «не знайдено»:
+ * інакше обрив мережі записувався б як FAILED.
+ */
+async function fetchPatiently(url: string): Promise<Response> {
+  const waits = [5_000, 20_000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (![429, 502, 503, 504].includes(res.status)) return res;
+      if (attempt >= waits.length) throw new Error(`Nominatim: HTTP ${res.status} після ${attempt + 1} спроб`);
+    } catch (e) {
+      if (attempt >= waits.length) throw e;
+    }
+    await new Promise((r) => setTimeout(r, waits[attempt]));
+    lastRequestTime = Date.now();
+  }
+}
+
 /** Try a single Nominatim search query */
 async function nominatimSearch(
   query: string,
@@ -278,10 +299,7 @@ async function nominatimSearch(
     params.set("bounded", "1");
   }
 
-  const res = await fetch(`${NOMINATIM_URL}/search?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
-  });
-
+  const res = await fetchPatiently(`${NOMINATIM_URL}/search?${params}`);
   if (!res.ok) return null;
 
   const data = (await res.json()) as NominatimRow[];

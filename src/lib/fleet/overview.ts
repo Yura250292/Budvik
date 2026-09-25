@@ -15,8 +15,9 @@
  * перекриває старе хибне.
  */
 
-import type { VehicleServiceKind } from "@prisma/client";
+import type { VehicleOwnership, VehicleServiceKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { VEHICLE_DEFAULTS } from "@/lib/analytics/facts";
 import { kyivDate, kyivDayStart } from "@/lib/date/kyiv";
 import { DUE_RANK, serviceDue, type Due } from "./due";
 import { depreciation, type Depreciation } from "./depreciation";
@@ -42,9 +43,28 @@ export type FleetRuleDue = Due & {
   lastOdometerKm: number | null;
 };
 
+/**
+ * Кілометраж машини за період — тими самими правилами, що «Паливо»:
+ * зміни, ВІДКРИТІ в періоді, тих, хто був закріплений за машиною того дня.
+ * Робочі — одометр усередині змін, особисті — між змінами (дорога додому).
+ * Пальне — робочі км × норма людини з «Палива» (як там же).
+ */
+export type PeriodKm = {
+  workKm: number;
+  personalKm: number;
+  totalKm: number;
+  shifts: number;
+  /** Зміни без одометра ще відкриті — їхні км дорахуються після закриття */
+  openShifts: number;
+  fuelLiters: number;
+  fuelCost: number;
+  drivers: string[];
+};
+
 export type FleetVehicle = {
   id: string;
-  plate: string;
+  plate: string | null;
+  ownership: VehicleOwnership;
   make: string;
   model: string;
   year: number | null;
@@ -59,6 +79,7 @@ export type FleetVehicle = {
   worstDue: FleetRuleDue | null;
   /** Витрати на обслуговування за період */
   periodCost: number;
+  periodKm: PeriodKm;
   periodServices: number;
   /** За весь час */
   totalCost: number;
@@ -78,7 +99,15 @@ export type FleetOverview = {
   today: string;
   period: { from: string; to: string } | null;
   vehicles: FleetVehicle[];
-  totals: { vehicles: number; overdue: number; soon: number; periodCost: number; monthlyDepreciation: number };
+  totals: {
+    vehicles: number;
+    overdue: number;
+    soon: number;
+    periodCost: number;
+    monthlyDepreciation: number;
+    periodKm: number;
+    fuelCost: number;
+  };
 };
 
 type Options = {
@@ -113,6 +142,47 @@ async function shiftOdometers(vehicleIds: string[]): Promise<Map<string, Odomete
     ORDER BY a."vehicleId", r.at DESC`;
   return new Map(
     rows.map((r) => [r.vehicleId, { km: Number(r.km), day: kyivDate(r.at), source: "shift", by: r.name }])
+  );
+}
+
+const NO_KM: PeriodKm = { workKm: 0, personalKm: 0, totalKm: 0, shifts: 0, openShifts: 0, fuelLiters: 0, fuelCost: 0, drivers: [] };
+
+async function periodKmByVehicle(vehicleIds: string[], from: Date, to: Date): Promise<Map<string, PeriodKm>> {
+  if (vehicleIds.length === 0) return new Map();
+  const rows = await prisma.$queryRaw<
+    Array<{ vehicleId: string; work: number; personal: number; shifts: number; open: number; liters: number; cost: number; drivers: string[] }>
+  >`
+    SELECT a."vehicleId",
+           COALESCE(SUM(s."distanceKm"), 0)::float AS work,
+           COALESCE(SUM(s."personalKm"), 0)::float AS personal,
+           COUNT(*) FILTER (WHERE s."distanceKm" IS NOT NULL)::int AS shifts,
+           COUNT(*) FILTER (WHERE s.status = 'OPEN')::int AS open,
+           COALESCE(SUM(s."distanceKm" / 100.0 * COALESCE(sv."fuelConsumption", ${VEHICLE_DEFAULTS.fuelConsumption})), 0)::float AS liters,
+           COALESCE(SUM(s."distanceKm" / 100.0 * COALESCE(sv."fuelConsumption", ${VEHICLE_DEFAULTS.fuelConsumption})
+                        * COALESCE(sv."fuelPricePerL", ${VEHICLE_DEFAULTS.fuelPricePerL})), 0)::float AS cost,
+           array_agg(DISTINCT u.name) AS drivers
+    FROM "VehicleAssignment" a
+    JOIN "Shift" s ON s."userId" = a."userId"
+      AND s."startedAt" >= a."from" AND (a."to" IS NULL OR s."startedAt" < a."to")
+    JOIN "User" u ON u.id = a."userId"
+    LEFT JOIN "SalesVehicle" sv ON sv."repId" = s."userId"
+    WHERE a."vehicleId" = ANY(${vehicleIds})
+      AND s."startedAt" >= ${from} AND s."startedAt" <= ${to}
+    GROUP BY a."vehicleId"`;
+  return new Map(
+    rows.map((r) => [
+      r.vehicleId,
+      {
+        workKm: Math.round(r.work),
+        personalKm: Math.round(r.personal),
+        totalKm: Math.round(r.work + r.personal),
+        shifts: r.shifts,
+        openShifts: r.open,
+        fuelLiters: Math.round(r.liters),
+        fuelCost: Math.round(r.cost),
+        drivers: r.drivers.filter(Boolean),
+      },
+    ])
   );
 }
 
@@ -152,7 +222,8 @@ export async function fleetOverview(opts: Options = {}): Promise<FleetOverview> 
     orderBy: [{ active: "desc" }, { plate: "asc" }],
   });
 
-  const fromShifts = await shiftOdometers(vehicles.map((v) => v.id));
+  const ids = vehicles.map((v) => v.id);
+  const [fromShifts, kmOf] = await Promise.all([shiftOdometers(ids), periodKmByVehicle(ids, from, to)]);
 
   const out: FleetVehicle[] = vehicles.map((v) => {
     const manual: Odometer | null =
@@ -198,6 +269,7 @@ export async function fleetOverview(opts: Options = {}): Promise<FleetOverview> 
     return {
       id: v.id,
       plate: v.plate,
+      ownership: v.ownership,
       make: v.make,
       model: v.model,
       year: v.year,
@@ -210,6 +282,7 @@ export async function fleetOverview(opts: Options = {}): Promise<FleetOverview> 
       due,
       worstDue: due.find((d) => d.state === "overdue" || d.state === "soon") ?? null,
       periodCost: inPeriod.reduce((sum, s) => sum + cost(s), 0),
+      periodKm: kmOf.get(v.id) ?? NO_KM,
       periodServices: inPeriod.length,
       totalCost: v.services.reduce((sum, s) => sum + cost(s), 0),
       lastService: v.services[0]
@@ -249,6 +322,8 @@ export async function fleetOverview(opts: Options = {}): Promise<FleetOverview> 
         (s, v) => s + (v.depreciation && !v.depreciation.fullyDepreciated ? v.depreciation.monthly : 0),
         0
       ),
+      periodKm: out.reduce((s, v) => s + v.periodKm.totalKm, 0),
+      fuelCost: out.reduce((s, v) => s + v.periodKm.fuelCost, 0),
     },
   };
 }

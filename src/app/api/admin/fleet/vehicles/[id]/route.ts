@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fleetOverview } from "@/lib/fleet/overview";
 import { KIND_LABEL } from "@/lib/fleet/kinds";
-import { kyivDate } from "@/lib/date/kyiv";
+import { kyivDate, kyivDayEnd, kyivDayStart } from "@/lib/date/kyiv";
 import { fleetUser, inputError } from "../../common";
 import { vehicleData } from "../vehicle-data";
 
@@ -18,13 +18,23 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: NextRequest, { params }: Ctx) {
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function GET(req: NextRequest, { params }: Ctx) {
   const user = await fleetUser();
   if (user instanceof NextResponse) return user;
   const { id } = await params;
+  const sp = new URL(req.url).searchParams;
+  const from = sp.get("from");
+  const to = sp.get("to");
 
   const [overview, services, assignments] = await Promise.all([
-    fleetOverview({ vehicleIds: [id], includeInactive: true }),
+    fleetOverview({
+      vehicleIds: [id],
+      includeInactive: true,
+      from: from && DAY_RE.test(from) ? kyivDayStart(from) : undefined,
+      to: to && DAY_RE.test(to) ? kyivDayEnd(to) : undefined,
+    }),
     prisma.vehicleService.findMany({
       where: { vehicleId: id },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],

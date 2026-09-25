@@ -50,6 +50,7 @@ import { getSyncState, setSyncState } from "@/lib/sync-ingest/context";
 import { sendTelegramMessage } from "@/lib/telegram/notify";
 import { esc } from "@/lib/shift/telegram-report";
 import { fleetOverview } from "@/lib/fleet/overview";
+import { vehicleTitle } from "@/lib/fleet/title";
 
 /** Ключ, що не дає надіслати зведення двічі за день. */
 const SENT_KEY = "assistant:digest:sentDay";
@@ -360,7 +361,7 @@ async function fleetDueLines(today: string): Promise<DigestFacts["fleet"]> {
             d.kmLeft == null ? null : d.kmLeft > 0 ? `${num(d.kmLeft)} км` : `перебіг ${num(-d.kmLeft)} км`,
             d.daysLeft == null ? null : d.daysLeft > 0 ? `${d.daysLeft} дн.` : `з ${d.dueDay}`,
           ].filter(Boolean);
-          return { plate: v.plate, what: d.title, overdue: d.state === "overdue", text: parts.join(" / ") };
+          return { plate: vehicleTitle(v), what: d.title, overdue: d.state === "overdue", text: parts.join(" / ") };
         })
     );
   } catch (e) {

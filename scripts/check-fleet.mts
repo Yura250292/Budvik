@@ -15,6 +15,7 @@ import { prisma } from "../src/lib/prisma";
 import { serviceDue, addMonths } from "../src/lib/fleet/due";
 import { depreciation } from "../src/lib/fleet/depreciation";
 import { normalizePlate } from "../src/lib/fleet/input";
+import { parseVehicleLabel } from "../src/lib/fleet/label";
 import { fleetOverview } from "../src/lib/fleet/overview";
 import { shiftsReportTool } from "../src/lib/assistant/tools/admin";
 import { runReadOnlyQuery } from "../src/lib/assistant/facts/query-db";
@@ -39,6 +40,11 @@ function check(name: string, ok: boolean, detail?: unknown) {
 
 const today = "2026-09-25";
 check("addMonths 31.01 + 1 = 28.02", addMonths("2026-01-31", 1) === "2026-02-28");
+const lbl = parseVehicleLabel("Renault Kangoo AC 1234 BC");
+check("підпис «Палива»: марка, модель, номер", lbl.make === "Renault" && lbl.model === "Kangoo" && lbl.plate === "АС1234ВС", lbl);
+const lbl2 = parseVehicleLabel("Шкода Фабія");
+check("підпис без номера", lbl2.make === "Шкода" && lbl2.model === "Фабія" && lbl2.plate === null, lbl2);
+check("підпис порожній", parseVehicleLabel(null).make === "");
 check("номер: латиниця → кирилиця", normalizePlate("bc 1234 ak") === "ВС1234АК", normalizePlate("bc 1234 ak"));
 
 check("ТО без запису — unknown", serviceDue({ everyKm: 10000, everyMonths: 12, last: null, odometerKm: 50000, today }).state === "unknown");
@@ -90,7 +96,7 @@ try {
 
   await prisma.vehicleAssignment.create({ data: { vehicleId: vehicle.id, userId: rep.id, from: kyivDayStart("2026-09-10") } });
   // Зміна до закріплення не має ставати пробігом машини; підозріла — теж.
-  const shift = (day: string, start: number, end: number, suspicious = false) =>
+  const shift = (day: string, start: number, end: number, suspicious = false, personal: number | null = null) =>
     prisma.shift.create({
       data: {
         userId: rep.id,
@@ -102,10 +108,12 @@ try {
         endOdometer: end,
         endOdometerSource: "MANUAL",
         odometerSuspicious: suspicious,
+        distanceKm: suspicious ? null : end - start,
+        personalKm: personal,
       },
     });
   await shift("2026-09-05", 90000, 90200);
-  await shift("2026-09-22", 49000, 49250);
+  await shift("2026-09-22", 49000, 49250, false, 30);
   await shift("2026-09-24", 49250, 149500, true);
 
   await prisma.vehicleService.createMany({
@@ -129,6 +137,15 @@ try {
   check("гальма без запису — немає відліку", v?.due.find((d) => d.kind === "BRAKES")?.state === "unknown");
   check("витрати з 1 січня — лише 2026 рік", v?.periodCost === 2900 && v.totalCost === 14900, { p: v?.periodCost, t: v?.totalCost });
   check("амортизація в зведенні", v?.depreciation?.bookValue === 408000, v?.depreciation);
+  const sep = await fleetOverview({ today, vehicleIds: [vehicle.id], from: kyivDayStart("2026-09-01"), to: kyivDayStart("2026-09-26") });
+  const km = sep.vehicles[0]?.periodKm;
+  check(
+    "кілометраж за вересень: лише зміни після закріплення, робочі + особисті",
+    km?.workKm === 250 && km.personalKm === 30 && km.totalKm === 280 && km.drivers[0] === "Пробний Торговий",
+    km
+  );
+  check("пальне за нормою за замовчуванням", km?.fuelLiters === 25, km);
+  check("авто фірми за замовчуванням", v?.ownership === "COMPANY");
 
   const ctx = { today, kind: "ADMIN" } as unknown as ToolContext;
   const report = (await shiftsReportTool.run(ctx, { mode: "fleet", vehicle: vehicle.plate })) as Record<string, unknown>;

@@ -1515,7 +1515,8 @@ export const VIEWS: View[] = [
       "автопарк: машини фірми — хто їздить, поточний пробіг, витрати на обслуговування, бухгалтерська амортизація й залишкова вартість (стан ТО — shifts_report mode=fleet)",
     columns: [
       col("vehicle_id", ID, "машина"),
-      col("plate", T, "держномер кирилицею без пробілів («ВС1234АК»)"),
+      col("plate", T, "держномер кирилицею без пробілів («ВС1234АК»); може бути NULL"),
+      col("ownership", T, "COMPANY — авто фірми, PERSONAL — власне авто торгового (амортизація рахується для обох)"),
       col("make", T, "марка"),
       col("model", T, "модель"),
       col("year", I, "рік випуску"),
@@ -1537,7 +1538,7 @@ export const VIEWS: View[] = [
       col("book_value", N, "залишкова вартість, грн"),
     ],
     sql: `
-      SELECT v.id AS vehicle_id, v.plate, v.make, v.model, v.year, v."fuelType" AS fuel_type, v.active,
+      SELECT v.id AS vehicle_id, v.plate, v.ownership::text AS ownership, v.make, v.model, v.year, v."fuelType" AS fuel_type, v.active,
              h.name AS holder, ${KYIV_DAY("h.\"from\"")} AS holder_since,
              o.km AS odometer_km, ${KYIV_DAY("o.at")} AS odometer_day, o.source AS odometer_source,
              COALESCE(c.ytd, 0) AS service_cost_ytd, COALESCE(c.total, 0) AS service_cost_total,

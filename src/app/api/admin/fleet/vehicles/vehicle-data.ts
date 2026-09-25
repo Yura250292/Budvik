@@ -12,9 +12,16 @@ export function vehicleData(body: Record<string, unknown>, today: string, partia
   const out: Record<string, unknown> = {};
 
   if (has("plate")) {
-    const plate = normalizePlate(reqText(body.plate, "Номер", 20));
-    if (plate.length < 4) throw new FleetInputError("Номер закороткий");
+    const raw = optText(body.plate, "Номер", 20);
+    const plate = raw ? normalizePlate(raw) : null;
+    if (plate && plate.length < 4) throw new FleetInputError("Номер закороткий");
     out.plate = plate;
+  }
+  if (has("ownership")) {
+    if (body.ownership !== "COMPANY" && body.ownership !== "PERSONAL") {
+      throw new FleetInputError("Вкажіть, чия машина: фірми чи торгового");
+    }
+    out.ownership = body.ownership;
   }
   if (has("make")) out.make = reqText(body.make, "Марка", 60);
   if (has("model")) out.model = reqText(body.model, "Модель", 60);

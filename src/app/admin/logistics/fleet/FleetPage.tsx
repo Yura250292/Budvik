@@ -1,15 +1,22 @@
 "use client";
 
 /**
- * «Автопарк»: машини фірми, заміни масла й деталей, ТО, амортизація.
+ * «Автопарк»: машини, кілометраж за період, заміни масла й деталей, ТО,
+ * амортизація.
  *
  * Машина — окрема сутність, а не налаштування людини (як SalesVehicle у
- * «Паливі»): пересадили торгового — журнал лишився з машиною. Вибрана
- * машина живе в ?v=, щоб посилання з помічника відкривало одразу її.
+ * «Паливі»): пересадили торгового — журнал лишився з машиною. Період (?from=
+ * &to=) спільний з рештою «Логістики», вибрана машина — у ?v=, щоб посилання
+ * з помічника відкривало одразу її.
+ *
+ * Відмітка «авто фірми / авто торгового» — лише облікова: амортизація й ТО
+ * рахуються однаково, бо власна машина торгового так само зношується на
+ * роботі фірми.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PeriodPicker, type Period } from "@/components/ui/PeriodPicker";
 import { Card, CardHeader, EmptyState } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -18,44 +25,64 @@ import { TableScroll } from "@/components/ui/TableScroll";
 import { StatCard, money, num } from "@/components/ui/Stat";
 import { useApi } from "@/components/ui/useApi";
 import { DUE_LABEL } from "@/lib/fleet/due";
+import { OWNERSHIP_LABEL } from "@/lib/fleet/title";
+import { periodFromParams, replaceQuery } from "../components/url-state";
+import { ImportFromFuel } from "./ImportFromFuel";
 import { VehicleDetail } from "./VehicleDetail";
 import { VehicleForm } from "./VehicleForm";
 import { BTN_GHOST, BTN_PRIMARY, DUE_STATUS, ddmmyyyy, dueText, type ListResponse } from "./ui";
 
+type OwnerFilter = "" | "COMPANY" | "PERSONAL";
+
 export function FleetPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const selected = params.get("v");
+  const [period, setPeriod] = useState<Period>(() => periodFromParams(params));
+  const [selected, setSelected] = useState<string | null>(() => params.get("v"));
+  const [owner, setOwner] = useState<OwnerFilter>(() => (params.get("own") as OwnerFilter) ?? "");
   const [showAll, setShowAll] = useState(false);
   const [adding, setAdding] = useState(false);
-  const { data, loading, error, reload } = useApi<ListResponse>(`/api/admin/fleet/vehicles${showAll ? "?all=1" : ""}`);
+  const { data, loading, error, reload } = useApi<ListResponse>(
+    `/api/admin/fleet/vehicles?from=${period.from}&to=${period.to}${showAll ? "&all=1" : ""}`
+  );
 
-  const select = (id: string | null) => {
-    const q = new URLSearchParams(params.toString());
-    if (id) q.set("v", id);
-    else q.delete("v");
-    router.replace(`/admin/logistics/fleet${q.size ? `?${q}` : ""}`, { scroll: false });
-  };
+  useEffect(() => {
+    replaceQuery(router, "/admin/logistics/fleet", { from: period.from, to: period.to, v: selected, own: owner || null });
+  }, [period, selected, owner, router]);
 
-  if (error) return <ErrorBox message={error} onRetry={reload} />;
-  if (loading && !data) return <TableSkeleton rows={4} cols={6} />;
+  const header = <PeriodPicker value={period} onChange={setPeriod} />;
+  if (error) return <div className="space-y-4">{header}<ErrorBox message={error} onRetry={reload} /></div>;
+  if (loading && !data) return <div className="space-y-4">{header}<TableSkeleton rows={4} cols={6} /></div>;
   if (!data) return null;
 
   const t = data.totals;
-  const year = data.today.slice(0, 4);
+  const list = owner ? data.vehicles.filter((v) => v.ownership === owner) : data.vehicles;
+  const company = data.vehicles.filter((v) => v.active && v.ownership === "COMPANY").length;
+  const personal = data.vehicles.filter((v) => v.active && v.ownership === "PERSONAL").length;
+  const listKm = list.reduce((s, v) => s + v.periodKm.totalKm, 0);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Машин в обліку" value={t.vehicles} />
+      {header}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard label="Машин в обліку" value={t.vehicles} hint={`фірми ${company} · торгових ${personal}`} />
+        <StatCard
+          label="Пробіг за період"
+          value={num(t.periodKm)}
+          unit="км"
+          hint={`пальне ≈ ${money(t.fuelCost)} ₴`}
+        />
         <StatCard
           label="ТО прострочено / скоро"
           value={`${t.overdue} / ${t.soon}`}
           tone={t.overdue ? "bad" : t.soon ? "warn" : "default"}
         />
-        <StatCard label={`Обслуговування за ${year}`} value={money(t.periodCost)} unit="₴" />
+        <StatCard label="Обслуговування за період" value={money(t.periodCost)} unit="₴" />
         <StatCard label="Амортизація на місяць" value={money(t.monthlyDepreciation)} unit="₴" hint="Лише машини з ціною й строком" />
       </div>
+
+      <ImportFromFuel onDone={reload} />
 
       {adding && (
         <Card>
@@ -65,7 +92,7 @@ export function FleetPage() {
             onSaved={(id) => {
               setAdding(false);
               reload();
-              select(id);
+              setSelected(id);
             }}
             onCancel={() => setAdding(false)}
           />
@@ -76,9 +103,9 @@ export function FleetPage() {
         <div className="p-4 sm:p-5">
           <CardHeader
             title="Машини"
-            hint="Пробіг — найсвіжіше з ручного показання, журналу й змін того, хто їздить"
+            hint="Пробіг за період — зміни тих, хто на машині їздив (робочі з одометра + особисті між змінами), як у «Паливі»"
             action={
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap justify-end gap-2">
                 <button type="button" className={BTN_GHOST} onClick={() => setShowAll((s) => !s)}>
                   {showAll ? "Лише в обліку" : "Показати зняті"}
                 </button>
@@ -90,42 +117,87 @@ export function FleetPage() {
               </div>
             }
           />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Чиї машини">
+            {(
+              [
+                ["", "Усі"],
+                ["COMPANY", "Авто фірми"],
+                ["PERSONAL", "Авто торгових"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={owner === key}
+                onClick={() => setOwner(key)}
+                className={`cursor-pointer rounded-[var(--radius-badge)] border px-2.5 py-1 text-xs transition-colors ${
+                  owner === key ? "border-bk bg-bk text-white" : "border-g200 text-g600 hover:border-g300 hover:text-bk"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        {data.vehicles.length === 0 ? (
+        {list.length === 0 ? (
           <EmptyState
-            title="Машин ще немає"
-            hint="Додайте машину, закріпіть за торговим чи водієм і внесіть останню заміну масла."
+            title={data.vehicles.length ? "За цим фільтром машин немає" : "Машин ще немає"}
+            hint={
+              data.vehicles.length
+                ? undefined
+                : "Перенесіть машини з «Палива» кнопкою вище або додайте вручну."
+            }
           />
         ) : (
-          <TableScroll minWidth={820}>
+          <TableScroll minWidth={920}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-y border-g200 bg-g50 text-left text-xs text-g500">
                   <th className="px-4 py-2 font-medium">Машина</th>
                   <th className="px-4 py-2 font-medium">Хто їздить</th>
-                  <th className="px-4 py-2 text-right font-medium">Пробіг</th>
+                  <th className="px-4 py-2 text-right font-medium">Пробіг за період</th>
+                  <th className="px-4 py-2 text-right font-medium">Одометр</th>
                   <th className="px-4 py-2 font-medium">Найближче ТО</th>
-                  <th className="px-4 py-2 text-right font-medium">Обслуговування {year}</th>
+                  <th className="px-4 py-2 text-right font-medium">Обслуговування</th>
                   <th className="px-4 py-2 text-right font-medium">Залишкова вартість</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-g100">
-                {data.vehicles.map((v) => {
+                {list.map((v) => {
                   const next = v.worstDue ?? v.due[0] ?? null;
+                  const km = v.periodKm;
                   return (
                     <tr
                       key={v.id}
-                      onClick={() => select(v.id === selected ? null : v.id)}
+                      onClick={() => setSelected(v.id === selected ? null : v.id)}
                       className={`cursor-pointer hover:bg-g50 ${v.id === selected ? "bg-g50" : ""} ${v.active ? "" : "opacity-60"}`}
                     >
                       <td className="px-4 py-3">
-                        <span className="font-medium text-bk">{v.plate}</span>
+                        <span className="font-medium text-bk">{v.plate ?? <span className="text-g400">без номера</span>}</span>
                         <span className="block text-xs text-g500">
                           {v.make} {v.model}
                           {v.year ? `, ${v.year}` : ""}
                         </span>
+                        <span className="mt-1 inline-block">
+                          <Badge status={v.ownership === "COMPANY" ? "info" : "neutral"}>{OWNERSHIP_LABEL[v.ownership]}</Badge>
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-g600">{v.holder?.name ?? <span className="text-g400">—</span>}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                        {km.totalKm > 0 || km.shifts > 0 ? (
+                          <>
+                            <span className="font-medium text-bk">{num(km.totalKm)} км</span>
+                            <span className="block text-[11px] text-g400">
+                              роб. {num(km.workKm)} · особ. {num(km.personalKm)} · {km.shifts} зм.
+                            </span>
+                            {km.openShifts > 0 && (
+                              <span className="block text-[11px] text-g400">{km.openShifts} зміна відкрита</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-g400">змін немає</span>
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {v.odometer ? (
                           <>
@@ -161,13 +233,35 @@ export function FleetPage() {
                   );
                 })}
               </tbody>
+              {list.length > 1 && (
+                <tfoot>
+                  <tr className="border-t border-g200 text-xs text-g600">
+                    <td className="px-4 py-2 font-medium" colSpan={2}>
+                      Разом {list.length} маш.
+                    </td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-bk">{num(listKm)} км</td>
+                    <td colSpan={2} />
+                    <td className="px-4 py-2 text-right tabular-nums text-bk">
+                      {money(list.reduce((s, v) => s + v.periodCost, 0))} ₴
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </TableScroll>
         )}
       </Card>
 
       {selected && (
-        <VehicleDetail key={selected} id={selected} people={data.people} onChanged={reload} onClose={() => select(null)} />
+        <VehicleDetail
+          key={selected}
+          id={selected}
+          period={period}
+          people={data.people}
+          onChanged={reload}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

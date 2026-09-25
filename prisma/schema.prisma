@@ -2345,6 +2345,13 @@ enum VehicleServiceKind {
   OTHER
 }
 
+/// Чия машина. Амортизація рахується для обох: торговий на власному авто
+/// так само зношує його на роботі фірми.
+enum VehicleOwnership {
+  COMPANY // авто фірми
+  PERSONAL // власне авто торгового
+}
+
 /// Машина фірми — окремо від людини, що на ній їздить.
 ///
 /// До 25.09.2026 «авто» було лише SalesVehicle: норма пального однієї людини,
@@ -2355,17 +2362,19 @@ enum VehicleServiceKind {
 /// Вносить лише офіс (адмінка). Витрати звідси НЕ входять у P&L: ремонт
 /// може вже сидіти у витратах 1С, і скласти їх означало б порахувати двічі.
 model Vehicle {
-  id       String  @id @default(cuid())
+  id        String           @id @default(cuid())
   /// Держномер, як на табличці: «ВС1234АК». Унікальний — за ним машину
-  /// шукають і люди, і помічник.
-  plate    String  @unique
-  make     String // Renault
-  model    String // Kangoo
-  year     Int?
-  vin      String?
-  fuelType String? // дизель, бензин, газ/бензин
-  active   Boolean @default(true)
-  notes    String?
+  /// шукають і люди, і помічник. Може бути порожнім: у «Паливі» номер
+  /// вписаний не в усіх, і перенесення звідти не має на цьому зупинятися.
+  plate     String?          @unique
+  ownership VehicleOwnership @default(COMPANY)
+  make      String // Renault
+  model     String // Kangoo
+  year      Int?
+  vin       String?
+  fuelType  String? // дизель, бензин, газ/бензин
+  active    Boolean          @default(true)
+  notes     String?
 
   /// Останнє показання одометра, внесене руками. Поточний пробіг — це
   /// найсвіжіше з цього, записів обслуговування і змін закріплених людей
@@ -3637,6 +3646,7 @@ model Shift {
 
   // --- Звірка наступного дня ---
   /**
+   * /**
    * /**
    * /**
    * /**

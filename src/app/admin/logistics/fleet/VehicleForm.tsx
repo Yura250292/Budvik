@@ -9,7 +9,7 @@ import { useState } from "react";
 import { BTN_GHOST, BTN_PRIMARY, Field, INPUT, send, todayKyiv, type FleetVehicle } from "./ui";
 
 type Form = Record<
-  | "plate" | "make" | "model" | "year" | "vin" | "fuelType" | "notes"
+  | "plate" | "ownership" | "make" | "model" | "year" | "vin" | "fuelType" | "notes"
   | "odometerKm" | "odometerDay"
   | "purchasePrice" | "purchaseDay" | "purchaseOdometerKm" | "usefulLifeMonths" | "residualValue",
   string
@@ -20,6 +20,7 @@ const s = (v: number | string | null | undefined) => (v == null ? "" : String(v)
 function initial(v: FleetVehicle | null): Form {
   return {
     plate: s(v?.plate),
+    ownership: v?.ownership ?? "COMPANY",
     make: s(v?.make),
     model: s(v?.model),
     year: s(v?.year),
@@ -78,8 +79,14 @@ export function VehicleForm({
       className="space-y-4"
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="Держномер *">
-          <input className={INPUT} value={form.plate} onChange={set("plate")} placeholder="ВС1234АК" required />
+        <Field label="Держномер">
+          <input className={INPUT} value={form.plate} onChange={set("plate")} placeholder="ВС1234АК" />
+        </Field>
+        <Field label="Чия машина *" hint="Амортизація рахується для обох">
+          <select className={INPUT} value={form.ownership} onChange={set("ownership")}>
+            <option value="COMPANY">авто фірми</option>
+            <option value="PERSONAL">авто торгового</option>
+          </select>
         </Field>
         <Field label="Марка *">
           <input className={INPUT} value={form.make} onChange={set("make")} placeholder="Renault" required />

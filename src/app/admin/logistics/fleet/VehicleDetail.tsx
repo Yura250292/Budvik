@@ -12,6 +12,8 @@ import { money, num } from "@/components/ui/Stat";
 import { useApi } from "@/components/ui/useApi";
 import { DUE_LABEL } from "@/lib/fleet/due";
 import { KIND_LABEL, KINDS } from "@/lib/fleet/kinds";
+import { OWNERSHIP_LABEL, vehicleTitle } from "@/lib/fleet/title";
+import type { Period } from "@/components/ui/PeriodPicker";
 import { VehicleForm } from "./VehicleForm";
 import {
   BTN_GHOST,
@@ -34,16 +36,20 @@ const SOURCE_LABEL = { manual: "внесено руками", service: "із ж�
 
 export function VehicleDetail({
   id,
+  period,
   people,
   onChanged,
   onClose,
 }: {
   id: string;
+  period: Period;
   people: Person[];
   onChanged: () => void;
   onClose: () => void;
 }) {
-  const { data, loading, error, reload } = useApi<DetailResponse>(`/api/admin/fleet/vehicles/${id}`);
+  const { data, loading, error, reload } = useApi<DetailResponse>(
+    `/api/admin/fleet/vehicles/${id}?from=${period.from}&to=${period.to}`
+  );
   const [editing, setEditing] = useState(false);
 
   const changed = () => {
@@ -60,7 +66,7 @@ export function VehicleDetail({
     <div className="space-y-4">
       <Card>
         <CardHeader
-          title={`${v.plate} · ${v.make} ${v.model}${v.year ? `, ${v.year}` : ""}`}
+          title={`${v.plate ?? "Без номера"} · ${v.make} ${v.model}${v.year ? `, ${v.year}` : ""} · ${OWNERSHIP_LABEL[v.ownership]}`}
           hint={[
             v.holder ? `Їздить ${v.holder.name} з ${ddmmyyyy(v.holder.since)}` : "Ні за ким не закріплена",
             v.odometer
@@ -93,9 +99,12 @@ export function VehicleDetail({
             onCancel={() => setEditing(false)}
           />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <DueBlock vehicle={v} onChanged={changed} />
-            <DepreciationBlock vehicle={v} />
+          <div className="space-y-5">
+            <KmBlock vehicle={v} period={period} />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <DueBlock vehicle={v} onChanged={changed} />
+              <DepreciationBlock vehicle={v} />
+            </div>
           </div>
         )}
       </Card>
@@ -110,7 +119,7 @@ export function VehicleDetail({
             type="button"
             className={BTN_GHOST}
             onClick={async () => {
-              if (v.active && !confirm(`Зняти ${v.plate} з обліку? Історія лишиться, машина зникне зі списку й нагадувань.`)) return;
+              if (v.active && !confirm(`Зняти ${vehicleTitle(v)} з обліку? Історія лишиться, машина зникне зі списку й нагадувань.`)) return;
               await send(`/api/admin/fleet/vehicles/${id}`, "PATCH", { active: !v.active });
               changed();
             }}
@@ -119,6 +128,44 @@ export function VehicleDetail({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Кілометраж за період ─────────────────────────────────────────────── */
+
+function KmBlock({ vehicle, period }: { vehicle: FleetVehicle; period: Period }) {
+  const km = vehicle.periodKm;
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-bk">
+        Пробіг за {ddmmyyyy(period.from)} — {ddmmyyyy(period.to)}
+      </h3>
+      {km.shifts === 0 && km.totalKm === 0 ? (
+        <p className="text-sm text-g500">
+          Змін із одометром за період немає{vehicle.holder ? "" : " — машина ні за ким не закріплена"}.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MiniStat label="Разом" value={`${num(km.totalKm)} км`} strong />
+          <MiniStat label="Робочі (одометр у змінах)" value={`${num(km.workKm)} км`} />
+          <MiniStat label="Особисті (між змінами)" value={`${num(km.personalKm)} км`} />
+          <MiniStat label={`Пальне за нормою, ${km.shifts} зм.`} value={`${num(km.fuelLiters)} л · ${money(km.fuelCost)} ₴`} />
+        </div>
+      )}
+      {km.drivers.length > 0 && <p className="mt-1.5 text-xs text-g500">Їздили: {km.drivers.join(", ")}</p>}
+      {km.openShifts > 0 && (
+        <p className="mt-1 text-xs text-g500">Відкритих змін: {km.openShifts} — їхні км дорахуються після закриття.</p>
+      )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="rounded-[var(--radius-badge)] border border-g200 px-3 py-2">
+      <p className="text-[11px] text-g500">{label}</p>
+      <p className={`tabular-nums ${strong ? "text-base font-semibold text-bk" : "text-sm text-bk"}`}>{value}</p>
     </div>
   );
 }

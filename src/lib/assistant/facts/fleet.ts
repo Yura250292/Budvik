@@ -16,6 +16,7 @@ import { DUE_LABEL } from "@/lib/fleet/due";
 import { KIND_LABEL } from "@/lib/fleet/kinds";
 import { normalizePlate } from "@/lib/fleet/input";
 import { fleetOverview, type FleetVehicle } from "@/lib/fleet/overview";
+import { OWNERSHIP_LABEL, vehicleTitle } from "@/lib/fleet/title";
 
 const SOURCE = { manual: "внесено руками", service: "журнал обслуговування", shift: "зміна в застосунку" } as const;
 
@@ -23,7 +24,7 @@ function matches(v: FleetVehicle, q: string): boolean {
   const plate = normalizePlate(q);
   const text = q.toLowerCase();
   return (
-    (plate.length >= 3 && v.plate.includes(plate)) ||
+    (plate.length >= 3 && (v.plate?.includes(plate) ?? false)) ||
     `${v.make} ${v.model}`.toLowerCase().includes(text) ||
     (v.holder?.name.toLowerCase().includes(text) ?? false)
   );
@@ -32,8 +33,9 @@ function matches(v: FleetVehicle, q: string): boolean {
 function vehicleFacts(v: FleetVehicle) {
   const d = v.depreciation;
   return {
-    номер: v.plate,
+    номер: v.plate ?? "не вказано",
     машина: `${v.make} ${v.model}${v.year ? `, ${v.year}` : ""}`,
+    чия: OWNERSHIP_LABEL[v.ownership],
     в_обліку: v.active,
     хто_їздить: v.holder ? `${v.holder.name} (з ${v.holder.since})` : null,
     пробіг_км: v.odometer?.km ?? null,
@@ -56,6 +58,16 @@ function vehicleFacts(v: FleetVehicle) {
     останнє_обслуговування: v.lastService
       ? `${v.lastService.day}: ${v.lastService.kindLabel} — ${v.lastService.title}`
       : null,
+    пробіг_за_період: {
+      км_разом: v.periodKm.totalKm,
+      робочі_км: v.periodKm.workKm,
+      особисті_км: v.periodKm.personalKm,
+      змін: v.periodKm.shifts,
+      відкритих_змін: v.periodKm.openShifts || undefined,
+      пальне_л: v.periodKm.fuelLiters,
+      пальне_грн: uah(v.periodKm.fuelCost),
+      хто_їздив: v.periodKm.drivers,
+    },
     обслуговування_за_період: uah(v.periodCost),
     записів_за_період: v.periodServices,
     обслуговування_за_весь_час: uah(v.totalCost),
@@ -88,7 +100,7 @@ export async function fleetReportFacts(input: {
     if (list.length === 0) {
       return {
         помилка: `Машину «${input.vehicle}» не знайдено`,
-        варіанти: overview.vehicles.map((v) => `${v.plate} — ${v.make} ${v.model}${v.holder ? `, ${v.holder.name}` : ""}`),
+        варіанти: overview.vehicles.map((v) => `${vehicleTitle(v)} — ${v.make} ${v.model}${v.holder ? `, ${v.holder.name}` : ""}`),
       };
     }
   }
@@ -125,6 +137,8 @@ export async function fleetReportFacts(input: {
           то_прострочено: overview.totals.overdue,
           то_скоро: overview.totals.soon,
           обслуговування_за_період: uah(overview.totals.periodCost),
+          пробіг_за_період_км: overview.totals.periodKm,
+          пальне_за_період_грн: uah(overview.totals.fuelCost),
           амортизація_на_місяць: uah(overview.totals.monthlyDepreciation),
         },
     увага:
